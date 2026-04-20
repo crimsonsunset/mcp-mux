@@ -77,6 +77,19 @@ impl SpaceRepository for MockSpaceRepository {
         *self.default_id.write().unwrap() = Some(*id);
         Ok(())
     }
+
+    async fn set_active_feature_set(
+        &self,
+        id: &Uuid,
+        feature_set_id: Option<&Uuid>,
+    ) -> RepoResult<()> {
+        let mut spaces = self.spaces.write().unwrap();
+        let space = spaces
+            .get_mut(id)
+            .ok_or_else(|| anyhow::anyhow!("Space not found: {}", id))?;
+        space.active_feature_set_id = feature_set_id.copied();
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -676,6 +689,21 @@ impl InboundMcpClientRepository for MockInboundMcpClientRepository {
             .get(&(*client_id, space_id.to_string()))
             .map(|v| !v.is_empty())
             .unwrap_or(false))
+    }
+
+    async fn set_pin(
+        &self,
+        client_id: &Uuid,
+        pinned_space_id: &Uuid,
+        pinned_feature_set_id: Option<&Uuid>,
+    ) -> RepoResult<()> {
+        let mut clients = self.clients.write().unwrap();
+        let client = clients
+            .get_mut(client_id)
+            .ok_or_else(|| anyhow::anyhow!("Client not found: {}", client_id))?;
+        client.pinned_space_id = Some(*pinned_space_id);
+        client.pinned_feature_set_id = pinned_feature_set_id.copied();
+        Ok(())
     }
 }
 

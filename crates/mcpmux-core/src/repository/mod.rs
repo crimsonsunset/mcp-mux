@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     Client, Credential, CredentialType, FeatureSet, FeatureSetMember, InstalledServer, MemberMode,
-    OutboundOAuthRegistration, ServerFeature, Space,
+    OutboundOAuthRegistration, ServerFeature, Space, WorkspaceBinding,
 };
 
 /// Result type for repository operations
@@ -37,6 +37,16 @@ pub trait SpaceRepository: Send + Sync {
 
     /// Set a space as default
     async fn set_default(&self, id: &Uuid) -> RepoResult<()>;
+
+    /// Set (or clear, with `None`) the active FeatureSet for a Space.
+    ///
+    /// The active FS is the fallback applied when a connected client has
+    /// no pinned FS and no matching workspace binding.
+    async fn set_active_feature_set(
+        &self,
+        id: &Uuid,
+        feature_set_id: Option<&Uuid>,
+    ) -> RepoResult<()>;
 }
 
 /// InstalledServer repository trait
@@ -266,6 +276,55 @@ pub trait InboundMcpClientRepository: Send + Sync {
 
     /// Check if client has any grants for a space
     async fn has_grants_for_space(&self, client_id: &Uuid, space_id: &str) -> RepoResult<bool>;
+
+    /// Set the pinned Space + optional pinned FeatureSet for a client.
+    ///
+    /// This is the new (FeatureSet Resolver V2) path: each client row is an
+    /// independent approval bound to one Space. `pinned_feature_set_id = None`
+    /// means the client follows workspace-binding / space-active FS.
+    async fn set_pin(
+        &self,
+        client_id: &Uuid,
+        pinned_space_id: &Uuid,
+        pinned_feature_set_id: Option<&Uuid>,
+    ) -> RepoResult<()>;
+}
+
+/// Workspace binding repository trait
+///
+/// Bindings map normalized filesystem paths to FeatureSets on a per-Space basis.
+/// Matching is longest-prefix-wins; callers are expected to pass
+/// already-normalized paths (see [`crate::domain::normalize_workspace_root`]).
+#[async_trait]
+pub trait WorkspaceBindingRepository: Send + Sync {
+    /// List every binding across all Spaces.
+    async fn list(&self) -> RepoResult<Vec<WorkspaceBinding>>;
+
+    /// List bindings for a specific Space.
+    async fn list_for_space(&self, space_id: &Uuid) -> RepoResult<Vec<WorkspaceBinding>>;
+
+    /// Fetch a binding by id.
+    async fn get(&self, id: &Uuid) -> RepoResult<Option<WorkspaceBinding>>;
+
+    /// Insert a new binding. Fails on `(space_id, workspace_root)` conflict.
+    async fn create(&self, binding: &WorkspaceBinding) -> RepoResult<()>;
+
+    /// Update an existing binding (e.g., point to a different FS).
+    async fn update(&self, binding: &WorkspaceBinding) -> RepoResult<()>;
+
+    /// Delete a binding by id.
+    async fn delete(&self, id: &Uuid) -> RepoResult<()>;
+
+    /// Resolve which FeatureSet applies for a set of candidate workspace roots.
+    ///
+    /// Every candidate MUST already be normalized. Returns the binding whose
+    /// `workspace_root` is the longest prefix of any candidate, or `None`
+    /// when no binding matches.
+    async fn find_longest_prefix_match(
+        &self,
+        space_id: &Uuid,
+        candidate_roots: &[String],
+    ) -> RepoResult<Option<WorkspaceBinding>>;
 }
 
 /// Credential repository trait (local-only, never synced)

@@ -50,8 +50,8 @@ impl SpaceRepository for SqliteSpaceRepository {
         tracing::debug!("[SpaceRepository::list] Querying spaces...");
 
         let mut stmt = conn.prepare(
-            "SELECT id, name, icon, description, is_default, sort_order, created_at, updated_at 
-             FROM spaces 
+            "SELECT id, name, icon, description, is_default, sort_order, created_at, updated_at, active_feature_set_id
+             FROM spaces
              ORDER BY sort_order ASC, name ASC",
         )?;
 
@@ -75,6 +75,9 @@ impl SpaceRepository for SqliteSpaceRepository {
                     description: row.get(3)?,
                     is_default: row.get::<_, i32>(4)? == 1,
                     sort_order: row.get(5)?,
+                    active_feature_set_id: row
+                        .get::<_, Option<String>>(8)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
                     created_at: Self::parse_datetime(&row.get::<_, String>(6)?),
                     updated_at: Self::parse_datetime(&row.get::<_, String>(7)?),
                 })
@@ -91,8 +94,8 @@ impl SpaceRepository for SqliteSpaceRepository {
         let conn = db.connection();
 
         let mut stmt = conn.prepare(
-            "SELECT id, name, icon, description, is_default, sort_order, created_at, updated_at 
-             FROM spaces 
+            "SELECT id, name, icon, description, is_default, sort_order, created_at, updated_at, active_feature_set_id
+             FROM spaces
              WHERE id = ?",
         )?;
 
@@ -108,6 +111,9 @@ impl SpaceRepository for SqliteSpaceRepository {
                     description: row.get(3)?,
                     is_default: row.get::<_, i32>(4)? == 1,
                     sort_order: row.get(5)?,
+                    active_feature_set_id: row
+                        .get::<_, Option<String>>(8)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
                     created_at: Self::parse_datetime(&row.get::<_, String>(6)?),
                     updated_at: Self::parse_datetime(&row.get::<_, String>(7)?),
                 })
@@ -169,8 +175,8 @@ impl SpaceRepository for SqliteSpaceRepository {
         let conn = db.connection();
 
         let rows_affected = conn.execute(
-            "UPDATE spaces 
-             SET name = ?2, icon = ?3, description = ?4, is_default = ?5, sort_order = ?6, updated_at = ?7
+            "UPDATE spaces
+             SET name = ?2, icon = ?3, description = ?4, is_default = ?5, sort_order = ?6, updated_at = ?7, active_feature_set_id = ?8
              WHERE id = ?1",
             params![
                 space.id.to_string(),
@@ -180,6 +186,7 @@ impl SpaceRepository for SqliteSpaceRepository {
                 if space.is_default { 1 } else { 0 },
                 space.sort_order,
                 space.updated_at.to_rfc3339(),
+                space.active_feature_set_id.map(|u| u.to_string()),
             ],
         )?;
 
@@ -204,7 +211,7 @@ impl SpaceRepository for SqliteSpaceRepository {
         let conn = db.connection();
 
         let mut stmt = conn.prepare(
-            "SELECT id, name, icon, description, is_default, sort_order, created_at, updated_at
+            "SELECT id, name, icon, description, is_default, sort_order, created_at, updated_at, active_feature_set_id
              FROM spaces
              WHERE is_default = 1
              LIMIT 1",
@@ -222,6 +229,9 @@ impl SpaceRepository for SqliteSpaceRepository {
                     description: row.get(3)?,
                     is_default: true,
                     sort_order: row.get(5)?,
+                    active_feature_set_id: row
+                        .get::<_, Option<String>>(8)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
                     created_at: Self::parse_datetime(&row.get::<_, String>(6)?),
                     updated_at: Self::parse_datetime(&row.get::<_, String>(7)?),
                 })
@@ -252,6 +262,25 @@ impl SpaceRepository for SqliteSpaceRepository {
         }
 
         tx.commit()?;
+
+        Ok(())
+    }
+
+    async fn set_active_feature_set(&self, id: &Uuid, feature_set_id: Option<&Uuid>) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        let fs_str = feature_set_id.map(|u| u.to_string());
+        let now = Utc::now().to_rfc3339();
+
+        let rows_affected = conn.execute(
+            "UPDATE spaces SET active_feature_set_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id.to_string(), fs_str, now],
+        )?;
+
+        if rows_affected == 0 {
+            anyhow::bail!("Space not found: {}", id);
+        }
 
         Ok(())
     }

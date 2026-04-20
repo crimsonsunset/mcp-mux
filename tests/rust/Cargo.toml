@@ -62,6 +62,9 @@ axum = "0.8"
 # Pipe creation for stderr capture tests
 os_pipe = { workspace = true }
 
+# Error types for mocks
+anyhow = "1"
+
 [lib]
 path = "src/lib.rs"
 

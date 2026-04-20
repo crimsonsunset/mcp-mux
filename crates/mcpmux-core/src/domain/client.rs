@@ -51,8 +51,27 @@ pub struct Client {
     pub connection_mode: ConnectionMode,
 
     /// FeatureSet grants per Space: space_id -> [feature_set_ids]
+    ///
+    /// Legacy field — superseded by `pinned_feature_set_id` + WorkspaceBinding.
+    /// Kept while the FeatureSetResolver runs in shadow mode.
     #[serde(default)]
     pub grants: HashMap<Uuid, Vec<Uuid>>,
+
+    /// Space this access key belongs to (chosen at approval time).
+    ///
+    /// Replaces the `Locked` variant of `ConnectionMode`. `None` means
+    /// "follow the active Space" for legacy clients that haven't been
+    /// migrated yet; new approvals always populate this.
+    #[serde(default)]
+    pub pinned_space_id: Option<Uuid>,
+
+    /// FeatureSet this access key is pinned to (chosen at approval time).
+    ///
+    /// When `Some`, the resolver uses this FS directly. When `None`, the
+    /// resolver falls through to workspace-root binding and then the
+    /// Space's active FS.
+    #[serde(default)]
+    pub pinned_feature_set_id: Option<Uuid>,
 
     /// Access key for authentication (local only, never synced)
     #[serde(skip)]
@@ -78,6 +97,8 @@ impl Client {
             client_type: client_type.into(),
             connection_mode: ConnectionMode::default(),
             grants: HashMap::new(),
+            pinned_space_id: None,
+            pinned_feature_set_id: None,
             access_key: None,
             created_at: now,
             updated_at: now,

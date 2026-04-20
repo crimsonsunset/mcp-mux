@@ -109,6 +109,7 @@ impl TestGateway {
             description: None,
             is_default: true,
             sort_order: 0,
+            active_feature_set_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };

@@ -102,8 +102,8 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
 
         let mut stmt = conn.prepare(
             "SELECT client_id, client_name, registration_type, logo_uri, connection_mode, locked_space_id,
-                    '{}', last_seen, created_at, updated_at
-             FROM inbound_clients 
+                    '{}', last_seen, created_at, updated_at, pinned_space_id, pinned_feature_set_id
+             FROM inbound_clients
              ORDER BY client_name ASC",
         )?;
 
@@ -122,6 +122,12 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
                         &row.get(5)?,
                     ),
                     grants: Self::parse_grants(&grants_json),
+                    pinned_space_id: row
+                        .get::<_, Option<String>>(10)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
+                    pinned_feature_set_id: row
+                        .get::<_, Option<String>>(11)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
                     access_key: None, // Never loaded from DB
                     last_seen: Self::parse_optional_datetime(&row.get(7)?),
                     created_at: Self::parse_datetime(&row.get::<_, String>(8)?),
@@ -139,8 +145,8 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
 
         let mut stmt = conn.prepare(
             "SELECT client_id, client_name, registration_type, logo_uri, connection_mode, locked_space_id,
-                    '{}', last_seen, created_at, updated_at
-             FROM inbound_clients 
+                    '{}', last_seen, created_at, updated_at, pinned_space_id, pinned_feature_set_id
+             FROM inbound_clients
              WHERE client_id = ?",
         )?;
 
@@ -159,6 +165,12 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
                         &row.get(5)?,
                     ),
                     grants: Self::parse_grants(&grants_json),
+                    pinned_space_id: row
+                        .get::<_, Option<String>>(10)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
+                    pinned_feature_set_id: row
+                        .get::<_, Option<String>>(11)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
                     access_key: None,
                     last_seen: Self::parse_optional_datetime(&row.get(7)?),
                     created_at: Self::parse_datetime(&row.get::<_, String>(8)?),
@@ -176,8 +188,8 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
 
         let mut stmt = conn.prepare(
             "SELECT id, name, client_type, logo_uri, connection_mode, locked_space_id,
-                    grants, last_seen, created_at, updated_at
-             FROM inbound_clients 
+                    grants, last_seen, created_at, updated_at, pinned_space_id, pinned_feature_set_id
+             FROM inbound_clients
              WHERE access_key_hash = ?",
         )?;
 
@@ -196,6 +208,12 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
                         &row.get(5)?,
                     ),
                     grants: Self::parse_grants(&grants_json),
+                    pinned_space_id: row
+                        .get::<_, Option<String>>(10)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
+                    pinned_feature_set_id: row
+                        .get::<_, Option<String>>(11)?
+                        .and_then(|s| Uuid::parse_str(&s).ok()),
                     access_key: None,
                     last_seen: Self::parse_optional_datetime(&row.get(7)?),
                     created_at: Self::parse_datetime(&row.get::<_, String>(8)?),
@@ -394,13 +412,44 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
         let conn = db.connection();
 
         let count: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM client_grants 
+            "SELECT COUNT(*) FROM client_grants
              WHERE client_id = ?1 AND space_id = ?2",
             params![client_id.to_string(), space_id],
             |row| row.get(0),
         )?;
 
         Ok(count > 0)
+    }
+
+    async fn set_pin(
+        &self,
+        client_id: &Uuid,
+        pinned_space_id: &Uuid,
+        pinned_feature_set_id: Option<&Uuid>,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        let now = Utc::now().to_rfc3339();
+        let fs_str = pinned_feature_set_id.map(|u| u.to_string());
+
+        let rows_affected = conn.execute(
+            "UPDATE inbound_clients
+             SET pinned_space_id = ?2, pinned_feature_set_id = ?3, updated_at = ?4
+             WHERE client_id = ?1",
+            params![
+                client_id.to_string(),
+                pinned_space_id.to_string(),
+                fs_str,
+                now
+            ],
+        )?;
+
+        if rows_affected == 0 {
+            anyhow::bail!("Client not found: {}", client_id);
+        }
+
+        Ok(())
     }
 }
 
