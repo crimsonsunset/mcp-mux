@@ -63,6 +63,12 @@ impl WorkspaceBinding {
 /// This is the single source of truth for path comparisons — always route
 /// through here before calling any repository method that takes `workspace_root`.
 pub fn normalize_workspace_root(input: &str) -> String {
+    // Empty in → empty out: callers filter on this to drop garbage roots
+    // without needing to know about "/" vs "\" filesystem conventions.
+    if input.is_empty() {
+        return String::new();
+    }
+
     // Strip file:// scheme if present; tolerate both "file:///abs/path" and
     // "file://host/abs/path" (we don't use host, it's always localhost).
     let without_scheme = if let Some(rest) = input.strip_prefix("file://") {

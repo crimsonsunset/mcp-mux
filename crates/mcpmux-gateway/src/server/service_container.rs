@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
-    AuthorizationService, ClientMetadataService, GrantService, PrefixCacheService,
-    SpaceResolverService,
+    AuthorizationService, ClientMetadataService, FeatureSetResolverService, GrantService,
+    PrefixCacheService, SessionRootsRegistry, SpaceResolverService,
 };
 use mcpmux_core::DomainEvent;
 
@@ -32,6 +32,15 @@ pub struct ServiceContainer {
 
     /// Authorization service for checking client permissions (SRP)
     pub authorization_service: Arc<AuthorizationService>,
+
+    /// FeatureSet resolver v2 (pin > workspace > space-active).
+    ///
+    /// Runs in shadow mode alongside `authorization_service` — its decision
+    /// is logged on every request but not yet enforced.
+    pub feature_set_resolver: Arc<FeatureSetResolverService>,
+
+    /// Registry of per-session workspace roots (populated from MCP `roots/list`).
+    pub session_roots: Arc<SessionRootsRegistry>,
 
     /// Space resolver for determining client's active space (SRP)
     pub space_resolver_service: Arc<SpaceResolverService>,
@@ -91,6 +100,15 @@ impl ServiceContainer {
             deps.feature_set_repo.clone(),
         ));
 
+        // Resolver v2 — runs in shadow mode alongside AuthorizationService.
+        let session_roots = SessionRootsRegistry::new();
+        let feature_set_resolver = Arc::new(FeatureSetResolverService::new(
+            deps.inbound_mcp_client_repo.clone(),
+            deps.space_repo.clone(),
+            deps.workspace_binding_repo.clone(),
+            session_roots.clone(),
+        ));
+
         // Create space resolver service (DIP: inject repository dependencies)
         let space_resolver_service = Arc::new(SpaceResolverService::new(
             deps.inbound_client_repo.clone(),
@@ -113,6 +131,8 @@ impl ServiceContainer {
             server_manager,
             startup_orchestrator,
             authorization_service,
+            feature_set_resolver,
+            session_roots,
             space_resolver_service,
             prefix_cache_service,
             client_metadata_service,

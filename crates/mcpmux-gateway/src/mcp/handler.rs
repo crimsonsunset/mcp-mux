@@ -12,7 +12,7 @@ use rmcp::{
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-use super::context::{extract_oauth_context, OAuthContext};
+use super::context::{extract_oauth_context, extract_session_id, OAuthContext};
 use crate::consumers::MCPNotifier;
 use crate::server::ServiceContainer;
 
@@ -78,6 +78,36 @@ impl McpMuxGatewayHandler {
             // Deserialize client version into ProtocolVersion
             serde_json::from_value(serde_json::Value::String(client_version_str.to_string()))
                 .unwrap_or(our_max_version)
+        }
+    }
+
+    /// Shadow-mode log for the new FeatureSet resolver.
+    ///
+    /// Does not affect routing; prints the resolver's decision so operators
+    /// can compare against the legacy `get_client_grants` path before we
+    /// flip the switch.
+    async fn shadow_log_resolution(
+        resolver: &crate::services::FeatureSetResolverService,
+        client_id: &uuid::Uuid,
+        session_id: Option<&str>,
+    ) {
+        match resolver.resolve(client_id, session_id).await {
+            Ok(resolved) => {
+                info!(
+                    %client_id,
+                    session_id = session_id.unwrap_or("<none>"),
+                    feature_set_id = resolved.feature_set_id.map(|u| u.to_string()).unwrap_or_else(|| "<deny>".into()),
+                    source = ?resolved.source,
+                    "[FeatureSetResolver][shadow] resolved",
+                );
+            }
+            Err(e) => {
+                warn!(
+                    %client_id,
+                    error = %e,
+                    "[FeatureSetResolver][shadow] resolve failed",
+                );
+            }
         }
     }
 
@@ -158,7 +188,7 @@ impl ServerHandler for McpMuxGatewayHandler {
         // Register peer with MCPNotifier for list_changed notification delivery
         let peer = std::sync::Arc::new(context.peer);
         self.notification_bridge
-            .register_peer(oauth_ctx.client_id.clone(), peer);
+            .register_peer(oauth_ctx.client_id.clone(), peer.clone());
 
         // Mark the client stream as active immediately - RMCP's session transport
         // handles SSE streaming and message caching internally
@@ -169,6 +199,64 @@ impl ServerHandler for McpMuxGatewayHandler {
         self.notification_bridge
             .prime_hashes_for_space(oauth_ctx.space_id)
             .await;
+
+        // Resolver v2 (shadow mode): if the peer advertised the `roots`
+        // capability, fetch its reported workspace roots and stash them in the
+        // session registry. We then run the resolver and log its decision —
+        // the legacy grants path is still authoritative for routing.
+        if let Some(session_id) = extract_session_id(&context.extensions) {
+            let declares_roots = peer
+                .peer_info()
+                .map(|info| info.capabilities.roots.is_some())
+                .unwrap_or(false);
+            if declares_roots {
+                let peer_for_roots = peer.clone();
+                let session_roots = self.services.session_roots.clone();
+                let resolver = self.services.feature_set_resolver.clone();
+                let client_id_str = oauth_ctx.client_id.clone();
+                let session_id_for_task = session_id.clone();
+                tokio::spawn(async move {
+                    match peer_for_roots.list_roots().await {
+                        Ok(result) => {
+                            let uris: Vec<String> =
+                                result.roots.iter().map(|r| r.uri.to_string()).collect();
+                            session_roots
+                                .set(&session_id_for_task, uris.iter().map(|s| s.as_str()));
+                            debug!(
+                                client_id = %client_id_str,
+                                session_id = %session_id_for_task,
+                                roots = ?uris,
+                                "[FeatureSetResolver] fetched MCP roots",
+                            );
+                            if let Ok(client_uuid) = uuid::Uuid::parse_str(&client_id_str) {
+                                Self::shadow_log_resolution(
+                                    &resolver,
+                                    &client_uuid,
+                                    Some(&session_id_for_task),
+                                )
+                                .await;
+                            }
+                        }
+                        Err(e) => {
+                            debug!(
+                                client_id = %client_id_str,
+                                session_id = %session_id_for_task,
+                                error = %e,
+                                "[FeatureSetResolver] peer.list_roots() failed — falling back to Space active FS",
+                            );
+                        }
+                    }
+                });
+            } else if let Ok(client_uuid) = uuid::Uuid::parse_str(&oauth_ctx.client_id) {
+                // No roots declared — resolve immediately against pin / space active FS.
+                Self::shadow_log_resolution(
+                    &self.services.feature_set_resolver,
+                    &client_uuid,
+                    Some(&session_id),
+                )
+                .await;
+            }
+        }
 
         info!(
             client_id = %oauth_ctx.client_id,
