@@ -8,12 +8,13 @@ use mcpmux_core::{
     FeatureSetRepository, GatewayPortService, InboundMcpClientRepository,
     InstalledServerRepository, LogConfig, OutboundOAuthRepository, ServerDiscoveryService,
     ServerFeatureRepository as CoreServerFeatureRepository, ServerLogManager, SpaceRepository,
-    SpaceService,
+    SpaceService, WorkspaceBindingRepository,
 };
 use mcpmux_storage::{
     Database, FieldEncryptor, SqliteAppSettingsRepository, SqliteCredentialRepository,
     SqliteFeatureSetRepository, SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
     SqliteOutboundOAuthRepository, SqliteServerFeatureRepository, SqliteSpaceRepository,
+    SqliteWorkspaceBindingRepository,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,6 +49,8 @@ pub struct AppState {
     pub feature_set_repository: Arc<dyn FeatureSetRepository>,
     /// Client repository for AI clients
     pub client_repository: Arc<dyn InboundMcpClientRepository>,
+    /// Workspace-root -> FeatureSet bindings (resolver v2)
+    pub workspace_binding_repository: Arc<dyn WorkspaceBindingRepository>,
     /// Server feature repository for discovered MCP features (implements core trait)
     pub server_feature_repository: Arc<SqliteServerFeatureRepository>,
     /// Server feature repository cast to core trait (for gateway services)
@@ -102,6 +105,9 @@ impl AppState {
 
         let client_repository: Arc<dyn InboundMcpClientRepository> =
             Arc::new(SqliteInboundMcpClientRepository::new(db.clone()));
+
+        let workspace_binding_repository: Arc<dyn WorkspaceBindingRepository> =
+            Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
 
         let server_feature_repository = Arc::new(SqliteServerFeatureRepository::new(db.clone()));
         let server_feature_repository_core: Arc<dyn CoreServerFeatureRepository> =
@@ -162,6 +168,7 @@ impl AppState {
             backend_oauth_repository,
             feature_set_repository,
             client_repository,
+            workspace_binding_repository,
             server_feature_repository,
             server_feature_repository_core,
             encryptor,

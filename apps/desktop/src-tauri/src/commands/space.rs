@@ -179,6 +179,41 @@ pub async fn get_active_space(state: State<'_, AppState>) -> Result<Option<Space
     Ok(active)
 }
 
+/// Set (or clear with `None`) the active FeatureSet for a Space.
+///
+/// The active FS is the fallback applied when a connected client has no
+/// access-key pin and no workspace-binding match. See migration 002 for the
+/// schema and `FeatureSetResolverService` for enforcement.
+#[tauri::command]
+pub async fn set_space_active_feature_set(
+    space_id: String,
+    feature_set_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let space_uuid = Uuid::parse_str(&space_id).map_err(|e| e.to_string())?;
+    let fs_uuid = feature_set_id
+        .as_ref()
+        .map(|s| Uuid::parse_str(s))
+        .transpose()
+        .map_err(|e| e.to_string())?;
+
+    state
+        .space_service
+        .set_active_feature_set(&space_uuid, fs_uuid.as_ref())
+        .await
+        .map_err(|e| {
+            tracing::error!("[set_space_active_feature_set] {e}");
+            e.to_string()
+        })?;
+
+    info!(
+        space_id = %space_id,
+        feature_set_id = ?feature_set_id,
+        "[set_space_active_feature_set] active FS updated",
+    );
+    Ok(())
+}
+
 /// Set the active space.
 #[tauri::command]
 pub async fn set_active_space<R: tauri::Runtime>(

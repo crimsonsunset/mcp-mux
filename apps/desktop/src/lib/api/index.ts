@@ -8,3 +8,4 @@ export * from './clientInstall';
 export * from './clients';
 export * from './gateway';
 export * from './serverManager';
+export * from './workspaceBindings';

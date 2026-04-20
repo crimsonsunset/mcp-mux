@@ -736,6 +736,7 @@ pub fn run() {
             commands::delete_space,
             commands::get_active_space,
             commands::set_active_space,
+            commands::set_space_active_feature_set,
             commands::open_space_config_file,
             commands::read_space_config,
             commands::save_space_config,
@@ -793,6 +794,13 @@ pub fn run() {
             commands::get_all_client_grants,
             commands::grant_feature_set_to_client,
             commands::revoke_feature_set_from_client,
+            commands::update_client_pin,
+            // Workspace binding commands (resolver v2)
+            commands::list_workspace_bindings,
+            commands::list_workspace_bindings_for_space,
+            commands::create_workspace_binding,
+            commands::update_workspace_binding,
+            commands::delete_workspace_binding,
             // Config export commands
             commands::preview_config_export,
             commands::export_config_to_file,

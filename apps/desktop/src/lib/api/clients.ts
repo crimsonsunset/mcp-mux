@@ -9,7 +9,18 @@ export interface Client {
   client_type: string;
   connection_mode: 'locked' | 'follow_active' | 'ask_on_change';
   locked_space_id: string | null;
-  grants: Record<string, string[]>; // space_id -> feature_set_ids
+  grants: Record<string, string[]>; // space_id -> feature_set_ids (legacy, to be removed)
+  /**
+   * Resolver v2: Space this access key belongs to (chosen at approval).
+   * `null` on legacy pre-migration clients — resolver falls through to the
+   * default Space.
+   */
+  pinned_space_id: string | null;
+  /**
+   * Resolver v2: explicit FS pin. `null` means "follow workspace binding /
+   * space active FS".
+   */
+  pinned_feature_set_id: string | null;
   last_seen: string | null;
 }
 
@@ -126,4 +137,27 @@ export async function updateClientMode(
  */
 export async function initPresetClients(): Promise<void> {
   return invoke('init_preset_clients');
+}
+
+/**
+ * Pin a client to a Space + optional FeatureSet (resolver v2).
+ *
+ * Precedence used by the gateway's FeatureSetResolver:
+ *   1. pinned_feature_set_id (this pin)        → source = Pin
+ *   2. workspace binding matches a reported root → source = WorkspaceBinding
+ *   3. space.active_feature_set_id             → source = SpaceActive
+ *
+ * Pass `pinnedFeatureSetId = undefined` to let the resolver fall through to
+ * workspace/space default.
+ */
+export async function updateClientPin(
+  clientId: string,
+  pinnedSpaceId: string,
+  pinnedFeatureSetId?: string | null
+): Promise<void> {
+  return invoke('update_client_pin', {
+    clientId,
+    pinnedSpaceId,
+    pinnedFeatureSetId: pinnedFeatureSetId ?? null,
+  });
 }

@@ -100,4 +100,18 @@ impl SpaceService {
     pub async fn set_active(&self, id: &Uuid) -> anyhow::Result<()> {
         self.repository.set_default(id).await
     }
+
+    /// Set (or clear with `None`) the active FeatureSet for a Space.
+    ///
+    /// This is the fallback FS applied to every connected client when no
+    /// access-key pin and no workspace-root binding matches.
+    pub async fn set_active_feature_set(
+        &self,
+        space_id: &Uuid,
+        feature_set_id: Option<&Uuid>,
+    ) -> anyhow::Result<()> {
+        self.repository
+            .set_active_feature_set(space_id, feature_set_id)
+            .await
+    }
 }

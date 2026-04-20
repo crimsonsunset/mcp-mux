@@ -731,95 +731,44 @@ impl InboundClientRepository {
     }
 
     // =========================================================================
-    // Client Grants (Feature Set Permissions)
+    // Client Grants (legacy — `client_grants` table dropped in migration 003)
+    //
+    // These methods are retained as no-ops so existing Tauri commands and
+    // services continue to compile. All permission decisions now flow through
+    // `FeatureSetResolverService` (pin > workspace binding > space-active FS).
     // =========================================================================
 
-    /// Grant a feature set to a client in a specific space
     pub async fn grant_feature_set(
         &self,
-        client_id: &str,
-        space_id: &str,
-        feature_set_id: &str,
+        _client_id: &str,
+        _space_id: &str,
+        _feature_set_id: &str,
     ) -> Result<()> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        conn.execute(
-            "INSERT OR IGNORE INTO client_grants (client_id, space_id, feature_set_id)
-             VALUES (?1, ?2, ?3)",
-            params![client_id, space_id, feature_set_id],
-        )?;
-
         Ok(())
     }
 
-    /// Revoke a feature set from a client in a specific space
     pub async fn revoke_feature_set(
         &self,
-        client_id: &str,
-        space_id: &str,
-        feature_set_id: &str,
+        _client_id: &str,
+        _space_id: &str,
+        _feature_set_id: &str,
     ) -> Result<()> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        conn.execute(
-            "DELETE FROM client_grants 
-             WHERE client_id = ?1 AND space_id = ?2 AND feature_set_id = ?3",
-            params![client_id, space_id, feature_set_id],
-        )?;
-
         Ok(())
     }
 
-    /// Get all grants for a client in a specific space
     pub async fn get_grants_for_space(
         &self,
-        client_id: &str,
-        space_id: &str,
+        _client_id: &str,
+        _space_id: &str,
     ) -> Result<Vec<String>> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        let mut stmt = conn.prepare(
-            "SELECT feature_set_id FROM client_grants 
-             WHERE client_id = ?1 AND space_id = ?2",
-        )?;
-
-        let grants = stmt
-            .query_map(params![client_id, space_id], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        Ok(grants)
+        Ok(Vec::new())
     }
 
-    /// Get all grants for a client across all spaces
     pub async fn get_all_grants(
         &self,
-        client_id: &str,
+        _client_id: &str,
     ) -> Result<std::collections::HashMap<String, Vec<String>>> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        let mut stmt = conn.prepare(
-            "SELECT space_id, feature_set_id FROM client_grants 
-             WHERE client_id = ?1
-             ORDER BY space_id",
-        )?;
-
-        let mut grants: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-
-        let rows = stmt.query_map(params![client_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-
-        for row in rows {
-            let (space_id, feature_set_id) = row?;
-            grants.entry(space_id).or_default().push(feature_set_id);
-        }
-
-        Ok(grants)
+        Ok(std::collections::HashMap::new())
     }
 
     // =========================================================================

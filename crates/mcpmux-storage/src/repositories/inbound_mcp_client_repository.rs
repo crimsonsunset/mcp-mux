@@ -298,127 +298,59 @@ impl InboundMcpClientRepository for SqliteInboundMcpClientRepository {
         Ok(())
     }
 
+    // ------------------------------------------------------------------
+    // Legacy per-client grant methods.
+    //
+    // The `client_grants` table was dropped in migration 003 in favour of
+    // the FeatureSetResolver (pin > workspace binding > space active FS).
+    // These methods remain on the trait so upstream Tauri commands and
+    // services continue to compile; they are now no-ops.
+    // ------------------------------------------------------------------
+
     async fn grant_feature_set(
         &self,
-        client_id: &Uuid,
-        space_id: &str,
-        feature_set_id: &str,
+        _client_id: &Uuid,
+        _space_id: &str,
+        _feature_set_id: &str,
     ) -> Result<()> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        conn.execute(
-            "INSERT OR IGNORE INTO client_grants (client_id, space_id, feature_set_id)
-             VALUES (?1, ?2, ?3)",
-            params![client_id.to_string(), space_id, feature_set_id],
-        )?;
-
         Ok(())
     }
 
     async fn revoke_feature_set(
         &self,
-        client_id: &Uuid,
-        space_id: &str,
-        feature_set_id: &str,
+        _client_id: &Uuid,
+        _space_id: &str,
+        _feature_set_id: &str,
     ) -> Result<()> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        conn.execute(
-            "DELETE FROM client_grants 
-             WHERE client_id = ?1 AND space_id = ?2 AND feature_set_id = ?3",
-            params![client_id.to_string(), space_id, feature_set_id],
-        )?;
-
         Ok(())
     }
 
-    async fn get_grants_for_space(&self, client_id: &Uuid, space_id: &str) -> Result<Vec<String>> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        let mut stmt = conn.prepare(
-            "SELECT feature_set_id FROM client_grants 
-             WHERE client_id = ?1 AND space_id = ?2",
-        )?;
-
-        let grants = stmt
-            .query_map(params![client_id.to_string(), space_id], |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(grants)
+    async fn get_grants_for_space(
+        &self,
+        _client_id: &Uuid,
+        _space_id: &str,
+    ) -> Result<Vec<String>> {
+        Ok(Vec::new())
     }
 
     async fn get_all_grants(
         &self,
-        client_id: &Uuid,
+        _client_id: &Uuid,
     ) -> Result<std::collections::HashMap<String, Vec<String>>> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        let mut stmt = conn.prepare(
-            "SELECT space_id, feature_set_id FROM client_grants 
-             WHERE client_id = ?1
-             ORDER BY space_id",
-        )?;
-
-        let mut grants: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-
-        let rows = stmt.query_map(params![client_id.to_string()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-
-        for row in rows {
-            let (space_id, feature_set_id) = row?;
-            grants.entry(space_id).or_default().push(feature_set_id);
-        }
-
-        Ok(grants)
+        Ok(std::collections::HashMap::new())
     }
 
     async fn set_grants_for_space(
         &self,
-        client_id: &Uuid,
-        space_id: &str,
-        feature_set_ids: &[String],
+        _client_id: &Uuid,
+        _space_id: &str,
+        _feature_set_ids: &[String],
     ) -> Result<()> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        // Remove existing grants for this space
-        conn.execute(
-            "DELETE FROM client_grants WHERE client_id = ?1 AND space_id = ?2",
-            params![client_id.to_string(), space_id],
-        )?;
-
-        // Insert new grants
-        for feature_set_id in feature_set_ids {
-            conn.execute(
-                "INSERT INTO client_grants (client_id, space_id, feature_set_id)
-                 VALUES (?1, ?2, ?3)",
-                params![client_id.to_string(), space_id, feature_set_id],
-            )?;
-        }
-
         Ok(())
     }
 
-    async fn has_grants_for_space(&self, client_id: &Uuid, space_id: &str) -> Result<bool> {
-        let db = self.db.lock().await;
-        let conn = db.connection();
-
-        let count: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM client_grants
-             WHERE client_id = ?1 AND space_id = ?2",
-            params![client_id.to_string(), space_id],
-            |row| row.get(0),
-        )?;
-
-        Ok(count > 0)
+    async fn has_grants_for_space(&self, _client_id: &Uuid, _space_id: &str) -> Result<bool> {
+        Ok(false)
     }
 
     async fn set_pin(

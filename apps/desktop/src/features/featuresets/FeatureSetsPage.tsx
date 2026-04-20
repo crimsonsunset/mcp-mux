@@ -11,6 +11,7 @@ import {
   Star,
   Search,
   AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   Card,
@@ -28,6 +29,7 @@ import {
   deleteFeatureSet,
   getFeatureSetWithMembers,
 } from '@/lib/api/featureSets';
+import { setSpaceActiveFeatureSet, getSpace } from '@/lib/api/spaces';
 import { useViewSpace } from '@/stores';
 import { FeatureSetPanel } from './FeatureSetPanel';
 
@@ -81,6 +83,11 @@ export function FeatureSetsPage() {
   // Panel state
   const [selectedFeatureSet, setSelectedFeatureSet] = useState<FeatureSet | null>(null);
 
+  // Resolver v2: which FS is the Space's active fallback.
+  // Tracked locally so the "Active" badge updates immediately after clicking
+  // "Set Active" without waiting for a refetch of the whole viewSpace.
+  const [activeFeatureSetId, setActiveFeatureSetId] = useState<string | null>(null);
+
   const loadData = useCallback(async (spaceId?: string) => {
     setIsLoading(true);
     setError(null);
@@ -93,12 +100,34 @@ export function FeatureSetsPage() {
       // Backend filters out server-all feature sets for disabled servers
       const data = await listFeatureSetsBySpace(spaceId);
       setFeatureSets(data);
+
+      // Fetch the Space's active FS for the "Active" badge. The
+      // viewSpace from the store may be stale, so we fetch fresh here.
+      const space = await getSpace(spaceId);
+      setActiveFeatureSetId(space?.active_feature_set_id ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  const handleSetActive = async (fs: FeatureSet, event: React.MouseEvent) => {
+    // Stop card-click propagation so we don't open the panel.
+    event.stopPropagation();
+    if (!viewSpace) return;
+    const previous = activeFeatureSetId;
+    // Optimistic update — revert on failure.
+    setActiveFeatureSetId(fs.id);
+    try {
+      await setSpaceActiveFeatureSet(viewSpace.id, fs.id);
+      success('Active FeatureSet updated', `"${fs.name}" is now the default for this space`);
+    } catch (e) {
+      setActiveFeatureSetId(previous);
+      const msg = e instanceof Error ? e.message : String(e);
+      showError('Failed to set active FeatureSet', msg);
+    }
+  };
 
   useEffect(() => {
     setSelectedFeatureSet(null);
@@ -290,13 +319,14 @@ export function FeatureSetsPage() {
               {filteredSets.map((fs) => {
                 const isSelected = selectedFeatureSet?.id === fs.id;
                 const isBuiltin = fs.is_builtin;
-                
+                const isActive = activeFeatureSetId === fs.id;
+
                 return (
-                  <Card 
+                  <Card
                     key={fs.id}
                     className={`cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] ${
                       isSelected ? 'ring-2 ring-primary-500 shadow-lg' : ''
-                    }`}
+                    } ${isActive ? 'ring-2 ring-green-500/60' : ''}`}
                     onClick={() => handleOpenPanel(fs)}
                     data-testid={`featureset-card-${fs.id}`}
                   >
@@ -309,10 +339,19 @@ export function FeatureSetsPage() {
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-lg truncate mb-1.5 flex items-center gap-2">
                             {fs.name}
+                            {isActive && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                                title="Applied to all clients in this Space without a pin or workspace binding"
+                                data-testid={`featureset-active-badge-${fs.id}`}
+                              >
+                                <CheckCircle2 className="h-3 w-3" /> Active
+                              </span>
+                            )}
                           </h3>
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            isBuiltin 
-                              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' 
+                            isBuiltin
+                              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                               : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                           }`}>
                             {getFeatureSetTypeName(fs.feature_set_type)}
@@ -336,13 +375,26 @@ export function FeatureSetsPage() {
                             <span>{fs.members?.length || 0} members</span>
                           )}
                         </div>
-                        {isBuiltin && fs.feature_set_type !== 'default' ? (
-                          <span className="italic">Auto-managed</span>
-                        ) : (
-                          <span className="flex items-center gap-1 hover:text-primary-500 transition-colors">
-                            Configure <Settings className="h-3 w-3" />
-                          </span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {!isActive && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleSetActive(fs, e)}
+                              className="text-xs text-[rgb(var(--muted))] hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                              title="Make this the default FeatureSet for all clients in this Space (resolver fallback)"
+                              data-testid={`featureset-set-active-${fs.id}`}
+                            >
+                              Set Active
+                            </button>
+                          )}
+                          {isBuiltin && fs.feature_set_type !== 'default' ? (
+                            <span className="italic">Auto-managed</span>
+                          ) : (
+                            <span className="flex items-center gap-1 hover:text-primary-500 transition-colors">
+                              Configure <Settings className="h-3 w-3" />
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

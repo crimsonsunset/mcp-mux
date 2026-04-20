@@ -1,73 +1,61 @@
 //! Authorization Service
 //!
-//! Responsible for checking client permissions (grants) for accessing features.
-//! Follows SRP: Single responsibility is authorization checking.
-//! Follows DIP: Depends on repository abstractions, not concrete implementations.
+//! Delegates permission resolution to [`FeatureSetResolverService`] (pin >
+//! workspace binding > space-active FS). The old per-client grants table is
+//! no longer consulted — see migration 003 for its removal.
+//!
+//! This service remains as a thin adapter so existing callers that take a
+//! `Vec<feature_set_id>` continue to work: the resolver yields at most one
+//! FeatureSet, which we wrap in a Vec.
 
 use anyhow::Result;
-use mcpmux_core::FeatureSetRepository;
-use mcpmux_storage::InboundClientRepository;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// Authorization service for checking client permissions
+use super::feature_set_resolver::FeatureSetResolverService;
+
+/// Authorization service for checking client permissions.
 ///
-/// SRP: Only handles authorization decisions
-/// DIP: Depends on repository abstractions
+/// Backed by [`FeatureSetResolverService`]; no longer reads the legacy
+/// `client_grants` table.
 pub struct AuthorizationService {
-    client_repo: Arc<InboundClientRepository>,
-    feature_set_repo: Arc<dyn FeatureSetRepository>,
+    resolver: Arc<FeatureSetResolverService>,
 }
 
 impl AuthorizationService {
-    pub fn new(
-        client_repo: Arc<InboundClientRepository>,
-        feature_set_repo: Arc<dyn FeatureSetRepository>,
-    ) -> Self {
-        Self {
-            client_repo,
-            feature_set_repo,
-        }
+    pub fn new(resolver: Arc<FeatureSetResolverService>) -> Self {
+        Self { resolver }
     }
 
-    /// Get effective feature set grants for a client in a specific space.
+    /// Resolve the active FeatureSet for a client+session and return it as a
+    /// one-element Vec (or empty when the resolver denies).
     ///
-    /// Resolution strategy (least-privilege by default):
-    /// 1. Return explicit per-client grants from DB if any exist.
-    /// 2. Always include the Default feature set as a baseline.
-    ///
-    /// Clients with no explicit grants only receive the Default feature set,
-    /// which starts empty (no features). The user must explicitly grant
-    /// additional feature sets (e.g. "All", "ServerAll", or custom sets)
-    /// through the UI to expose tools/prompts/resources to a client.
-    /// This avoids accidental exposure of all server capabilities.
-    pub async fn get_client_grants(&self, client_id: &str, space_id: &Uuid) -> Result<Vec<String>> {
-        let space_id_str = space_id.to_string();
-
-        // Get explicit grants from DB
-        let mut grants = self
-            .client_repo
-            .get_grants_for_space(client_id, &space_id_str)
-            .await?;
-
-        // Always include the Default feature set as baseline permissions.
-        // Default starts empty — user must explicitly grant additional access.
-        if let Some(default_fs) = self
-            .feature_set_repo
-            .get_default_for_space(&space_id_str)
-            .await?
-        {
-            if !grants.contains(&default_fs.id) {
-                grants.push(default_fs.id);
-            }
-        }
-
-        Ok(grants)
+    /// `session_id` is the client's `mcp-session-id` header; pass `None` for
+    /// stateless callers (workspace-binding resolution will be skipped).
+    pub async fn get_client_grants(
+        &self,
+        client_id: &str,
+        _space_id: &Uuid,
+        session_id: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let client_uuid = Uuid::parse_str(client_id)?;
+        let resolved = self.resolver.resolve(&client_uuid, session_id).await?;
+        Ok(resolved
+            .feature_set_id
+            .map(|fs| vec![fs.to_string()])
+            .unwrap_or_default())
     }
 
     /// Check if a client has any grants in a space
-    pub async fn has_access(&self, client_id: &str, space_id: &Uuid) -> Result<bool> {
-        let grants = self.get_client_grants(client_id, space_id).await?;
+    pub async fn has_access(
+        &self,
+        client_id: &str,
+        space_id: &Uuid,
+        session_id: Option<&str>,
+    ) -> Result<bool> {
+        let grants = self
+            .get_client_grants(client_id, space_id, session_id)
+            .await?;
         Ok(!grants.is_empty())
     }
 
@@ -77,8 +65,11 @@ impl AuthorizationService {
         client_id: &str,
         space_id: &Uuid,
         feature_set_id: &str,
+        session_id: Option<&str>,
     ) -> Result<bool> {
-        let grants = self.get_client_grants(client_id, space_id).await?;
+        let grants = self
+            .get_client_grants(client_id, space_id, session_id)
+            .await?;
         Ok(grants.contains(&feature_set_id.to_string()))
     }
 }

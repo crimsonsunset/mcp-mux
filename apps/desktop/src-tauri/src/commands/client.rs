@@ -22,6 +22,10 @@ pub struct ClientResponse {
     pub connection_mode: String,
     pub locked_space_id: Option<String>,
     pub grants: HashMap<String, Vec<String>>,
+    /// Resolver v2: Space this access key belongs to (chosen at approval).
+    pub pinned_space_id: Option<String>,
+    /// Resolver v2: explicit FS pin (`None` → follow workspace / space active).
+    pub pinned_feature_set_id: Option<String>,
     pub last_seen: Option<String>,
 }
 
@@ -48,6 +52,8 @@ impl From<Client> for ClientResponse {
             connection_mode: mode,
             locked_space_id: locked_id,
             grants,
+            pinned_space_id: c.pinned_space_id.map(|u| u.to_string()),
+            pinned_feature_set_id: c.pinned_feature_set_id.map(|u| u.to_string()),
             last_seen: c.last_seen.map(|dt| dt.to_rfc3339()),
         }
     }
@@ -125,6 +131,48 @@ pub async fn create_client(
         .map_err(|e| e.to_string())?;
 
     Ok(client.into())
+}
+
+/// Pin a client to a Space + optional FeatureSet (resolver v2).
+///
+/// Precedence used by [`mcpmux_gateway::services::FeatureSetResolverService`]:
+///   1. `pinned_feature_set_id` (this pin)    → source = Pin
+///   2. workspace binding matches a root       → source = WorkspaceBinding
+///   3. space's `active_feature_set_id`        → source = SpaceActive
+///
+/// Pass `pinned_feature_set_id = None` to let the resolver fall through to
+/// workspace/space default.
+#[tauri::command]
+pub async fn update_client_pin(
+    client_id: String,
+    pinned_space_id: String,
+    pinned_feature_set_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let client_uuid = Uuid::parse_str(&client_id).map_err(|e| e.to_string())?;
+    let space_uuid = Uuid::parse_str(&pinned_space_id).map_err(|e| e.to_string())?;
+    let fs_uuid = pinned_feature_set_id
+        .as_ref()
+        .map(|s| Uuid::parse_str(s))
+        .transpose()
+        .map_err(|e| e.to_string())?;
+
+    state
+        .client_repository
+        .set_pin(&client_uuid, &space_uuid, fs_uuid.as_ref())
+        .await
+        .map_err(|e| {
+            tracing::error!("[update_client_pin] {e}");
+            e.to_string()
+        })?;
+
+    tracing::info!(
+        client_id = %client_id,
+        pinned_space_id = %pinned_space_id,
+        pinned_feature_set_id = ?pinned_feature_set_id,
+        "[update_client_pin] pin updated",
+    );
+    Ok(())
 }
 
 /// Delete a client.

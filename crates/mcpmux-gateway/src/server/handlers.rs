@@ -1049,11 +1049,14 @@ pub async fn oauth_get_client_features(
         space_id, client_id
     );
 
-    // Step 2: Get client grants (SRP: AuthorizationService)
+    // Step 2: Get client grants via the resolver.
+    // No MCP session context here (this is an HTTP API endpoint for the
+    // desktop UI), so workspace-binding resolution is skipped; we fall
+    // through to Space.active_feature_set_id.
     let feature_set_ids = match state
         .services
         .authorization_service
-        .get_client_grants(&client_id, &space_id)
+        .get_client_grants(&client_id, &space_id, None)
         .await
     {
         Ok(grants) => grants,

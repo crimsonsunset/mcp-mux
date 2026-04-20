@@ -10,6 +10,11 @@ export interface Space {
   description: string | null;
   is_default: boolean;
   sort_order: number;
+  /**
+   * Resolver v2: fallback FS applied when a connected client has no pin
+   * and no workspace-binding match. `null` → deny-by-default.
+   */
+  active_feature_set_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +59,23 @@ export async function getActiveSpace(): Promise<Space | null> {
  */
 export async function setActiveSpace(id: string): Promise<void> {
   return invoke('set_active_space', { id });
+}
+
+/**
+ * Set (or clear with `null`) the active FeatureSet for a Space.
+ *
+ * The active FS is the fallback applied when a connected client has no
+ * access-key pin and no workspace-binding match. See the FeatureSetResolver
+ * for the full precedence (pin > binding > active).
+ */
+export async function setSpaceActiveFeatureSet(
+  spaceId: string,
+  featureSetId: string | null
+): Promise<void> {
+  return invoke('set_space_active_feature_set', {
+    spaceId,
+    featureSetId,
+  });
 }
 
 /**

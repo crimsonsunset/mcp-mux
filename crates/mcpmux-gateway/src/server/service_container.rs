@@ -94,13 +94,7 @@ impl ServiceContainer {
             prefix_cache_service.clone(),
         ));
 
-        // Create authorization service (DIP: inject repository dependencies)
-        let authorization_service = Arc::new(AuthorizationService::new(
-            deps.inbound_client_repo.clone(),
-            deps.feature_set_repo.clone(),
-        ));
-
-        // Resolver v2 — runs in shadow mode alongside AuthorizationService.
+        // Resolver v2 — now authoritative. AuthorizationService delegates here.
         let session_roots = SessionRootsRegistry::new();
         let feature_set_resolver = Arc::new(FeatureSetResolverService::new(
             deps.inbound_mcp_client_repo.clone(),
@@ -108,6 +102,10 @@ impl ServiceContainer {
             deps.workspace_binding_repo.clone(),
             session_roots.clone(),
         ));
+
+        // Authorization service is now a thin adapter over the resolver.
+        let authorization_service =
+            Arc::new(AuthorizationService::new(feature_set_resolver.clone()));
 
         // Create space resolver service (DIP: inject repository dependencies)
         let space_resolver_service = Arc::new(SpaceResolverService::new(

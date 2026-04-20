@@ -278,7 +278,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         let feature_set_ids = self
             .services
             .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id)
+            .get_client_grants(
+                &oauth_ctx.client_id,
+                &oauth_ctx.space_id,
+                extract_session_id(&context.extensions).as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 
@@ -335,7 +339,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         let feature_set_ids = self
             .services
             .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id)
+            .get_client_grants(
+                &oauth_ctx.client_id,
+                &oauth_ctx.space_id,
+                extract_session_id(&context.extensions).as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 
@@ -426,7 +434,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         let feature_set_ids = self
             .services
             .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id)
+            .get_client_grants(
+                &oauth_ctx.client_id,
+                &oauth_ctx.space_id,
+                extract_session_id(&context.extensions).as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 
@@ -483,7 +495,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         let feature_set_ids = self
             .services
             .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id)
+            .get_client_grants(
+                &oauth_ctx.client_id,
+                &oauth_ctx.space_id,
+                extract_session_id(&context.extensions).as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 
@@ -541,7 +557,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         let feature_set_ids = self
             .services
             .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id)
+            .get_client_grants(
+                &oauth_ctx.client_id,
+                &oauth_ctx.space_id,
+                extract_session_id(&context.extensions).as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 
@@ -601,7 +621,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         let feature_set_ids = self
             .services
             .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id)
+            .get_client_grants(
+                &oauth_ctx.client_id,
+                &oauth_ctx.space_id,
+                extract_session_id(&context.extensions).as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 

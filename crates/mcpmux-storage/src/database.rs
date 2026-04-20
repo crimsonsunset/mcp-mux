@@ -43,6 +43,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "featureset_resolver",
         sql: include_str!("migrations/002_featureset_resolver.sql"),
     },
+    Migration {
+        version: 3,
+        name: "drop_legacy_grants",
+        sql: include_str!("migrations/003_drop_legacy_grants.sql"),
+    },
 ];
 
 /// SQLite database wrapper.
