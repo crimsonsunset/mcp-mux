@@ -65,7 +65,6 @@ export function MetaToolApprovalDialog() {
       } catch (e) {
         // Log but don't block UI — broker will time out and surface
         // `approval_timed_out` to the tool caller.
-        // eslint-disable-next-line no-console
         console.warn('respond_to_meta_tool_approval failed', e);
       } finally {
         setQueue((prev) => prev.slice(1));

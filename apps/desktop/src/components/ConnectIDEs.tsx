@@ -127,7 +127,9 @@ export function ConnectIDEs({ gatewayUrl, gatewayRunning }: ConnectIDEsProps) {
           <div>
             <CardTitle>Connect Your IDEs</CardTitle>
             <CardDescription>
-              Add McpMux to your AI clients. Auth happens on first connect.
+              Add mcpmux to your AI client, then <span className="font-medium">restart / reconnect
+              the MCP server in that client</span> — an approval prompt appears in this app when it
+              hits the gateway.
             </CardDescription>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-[rgb(var(--muted))]">

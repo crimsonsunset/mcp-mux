@@ -25,7 +25,13 @@ import {
   Search,
   AlertCircle,
   Zap,
+  PlugZap,
+  RotateCcw,
+  CheckCircle2,
 } from 'lucide-react';
+import { ConnectIDEs } from '@/components/ConnectIDEs';
+import type { GatewayStatus } from '@/lib/api/gateway';
+import { getGatewayStatus } from '@/lib/api/gateway';
 import {
   Card,
   CardContent,
@@ -132,6 +138,15 @@ export default function ClientsPage() {
   const [editMode, setEditMode] = useState('follow_active');
   const [editLockedSpaceId, setEditLockedSpaceId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Gateway status for the empty-state ConnectIDEs embed — fetched once on
+  // mount + refreshed whenever the gateway starts/stops elsewhere in the app.
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({
+    running: false,
+    url: null,
+    active_sessions: 0,
+    connected_backends: 0,
+  });
   
   // Feature set grant state
   const viewSpace = useViewSpace();
@@ -269,6 +284,9 @@ export default function ClientsPage() {
 
   useEffect(() => {
     loadData();
+    // Prime the gateway status so the empty-state ConnectIDEs can show the
+    // real mcpmux URL. Silent failure — the empty state tolerates stale data.
+    getGatewayStatus().then(setGatewayStatus).catch(() => {});
   }, []);
 
   // Auto-open a client panel when navigated from "Manage Permissions"
@@ -603,20 +621,114 @@ export default function ClientsPage() {
               <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
             </div>
           ) : filteredClients.length === 0 ? (
-            <Card className="max-w-2xl mx-auto">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <Laptop className="h-16 w-16 text-[rgb(var(--muted))] mb-4" />
-                <h3 className="text-lg font-medium mb-2">
-                  {searchQuery ? 'No clients match your search' : 'No clients connected'}
-                </h3>
-                <p className="text-sm text-[rgb(var(--muted))] text-center max-w-md">
-                  {searchQuery 
-                    ? 'Try adjusting your search terms' 
-                    : 'Clients like Cursor or VS Code will appear here after connecting via OAuth'
-                  }
-                </p>
-              </CardContent>
-            </Card>
+            searchQuery ? (
+              // Narrow empty state: keep the original card + copy for the
+              // "no search results" case; ConnectIDEs only shows on
+              // truly-empty (no clients configured at all).
+              <Card className="max-w-2xl mx-auto">
+                <CardContent className="flex flex-col items-center justify-center py-16">
+                  <Laptop className="h-16 w-16 text-[rgb(var(--muted))] mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No clients match your search</h3>
+                  <p className="text-sm text-[rgb(var(--muted))] text-center max-w-md">
+                    Try adjusting your search terms.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              // True empty — nothing has connected yet. Give them everything
+              // they need to finish the flow: install the IDE config, restart
+              // the IDE, then come back and approve. Each step is a distinct
+              // visual block so users don't skim past "and then approve here".
+              <div className="max-w-4xl mx-auto space-y-6" data-testid="clients-empty-connect">
+                <Card>
+                  <CardContent className="p-8">
+                    <div className="flex items-start gap-4 mb-2">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-[0_6px_16px_-4px_rgb(99_102_241/0.45)] flex-shrink-0">
+                        <PlugZap className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-semibold">Connect your first IDE</h2>
+                        <p className="text-sm text-[rgb(var(--muted))] mt-1">
+                          Nothing has connected to mcpmux yet. It only takes three steps:
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Three-step flow. Each step is explicit so users don't
+                        get lost between "I added the config" and "why doesn't
+                        my client show up here?". */}
+                    <ol className="mt-6 space-y-3 text-sm">
+                      <li className="flex gap-3 items-start">
+                        <span className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 font-semibold text-xs">
+                          1
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-medium">Add mcpmux to your IDE</p>
+                          <p className="text-[rgb(var(--muted))] text-xs mt-0.5">
+                            Pick one from the cards below — we&apos;ll copy the config or deep-link
+                            straight into the IDE.
+                          </p>
+                        </div>
+                      </li>
+                      <li className="flex gap-3 items-start">
+                        <RotateCcw className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
+                        <span className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 font-semibold text-xs">
+                          2
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-medium">Start or restart the MCP server in that IDE</p>
+                          <p className="text-[rgb(var(--muted))] text-xs mt-0.5">
+                            Some clients connect automatically on restart; others (Cursor, Claude
+                            Code) need you to toggle &quot;mcpmux&quot; on once.
+                          </p>
+                        </div>
+                      </li>
+                      <li className="flex gap-3 items-start">
+                        <CheckCircle2 className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
+                        <span className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-semibold text-xs">
+                          3
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-medium">
+                            Approve the connection here
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-semibold uppercase tracking-wide">
+                              on this page
+                            </span>
+                          </p>
+                          <p className="text-[rgb(var(--muted))] text-xs mt-0.5">
+                            As soon as the IDE hits the gateway, mcpmux will pop an approval
+                            dialog. Pick a Space + FeatureSet pin and the client shows up right
+                            here. Nothing gets routed until you approve.
+                          </p>
+                        </div>
+                      </li>
+                    </ol>
+
+                    {!gatewayStatus.running && (
+                      <div className="mt-5 flex items-start gap-2 p-3 rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 text-xs">
+                        <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-semibold text-amber-800 dark:text-amber-200">
+                            Gateway is stopped
+                          </p>
+                          <p className="text-amber-700 dark:text-amber-300 mt-0.5">
+                            Start it from the Dashboard first, otherwise your IDE will sit at
+                            &quot;initialize&quot; forever.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Reuse the shared ConnectIDEs grid from the Dashboard so users
+                    don't have to navigate away. */}
+                <ConnectIDEs
+                  gatewayUrl={gatewayStatus.url || 'http://localhost:45818'}
+                  gatewayRunning={gatewayStatus.running}
+                />
+              </div>
+            )
           ) : (
             <div className="grid gap-5 auto-fill-cards">
               {filteredClients.map((client) => {
