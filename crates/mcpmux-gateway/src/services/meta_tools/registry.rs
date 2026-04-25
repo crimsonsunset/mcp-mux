@@ -16,7 +16,6 @@ use rmcp::model::{CallToolResult, Tool};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::sync::broadcast;
-use uuid::Uuid;
 
 use super::approval::ApprovalBroker;
 use crate::pool::FeatureService;
@@ -51,8 +50,12 @@ pub struct MetaToolContext {
 }
 
 /// Per-request metadata threaded through every tool call.
+///
+/// `client_id` is the OAuth client identity from the JWT — opaque string
+/// (a UUID for preset-clients, a `client_metadata` URL for DCR-registered
+/// clients like Claude Code). The registry treats it as a hash key only.
 pub struct MetaToolCall<'a> {
-    pub client_id: &'a Uuid,
+    pub client_id: &'a str,
     pub session_id: Option<&'a str>,
     /// JSON arguments supplied in `CallToolRequestParams.arguments`.
     pub args: Value,
@@ -208,7 +211,7 @@ impl MetaToolRegistry {
     pub async fn call(
         &self,
         name: &str,
-        client_id: &Uuid,
+        client_id: &str,
         session_id: Option<&str>,
         args: Value,
     ) -> Result<CallToolResult, MetaToolError> {

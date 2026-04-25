@@ -157,6 +157,34 @@ impl McpMuxGatewayHandler {
         }
     }
 
+    /// Resolve the (Space, FeatureSet ids) the gateway should route a
+    /// session through. The OAuth-context space is *not* used for routing
+    /// — when a `WorkspaceBinding` matches, the binding's target space is
+    /// authoritative and may differ from the OAuth-bound space (this is
+    /// the whole point of workspace-root routing). Pass the returned
+    /// `space_id` to every `feature_service.get_*_for_grants` /
+    /// `routing_service.call_tool` invocation; otherwise the lookup queries
+    /// the wrong space and returns 0 matches.
+    async fn resolve_routing(
+        &self,
+        session_id: Option<&str>,
+    ) -> Result<(uuid::Uuid, Vec<String>), McpError> {
+        let resolved = self
+            .services
+            .authorization_service
+            .resolve(session_id)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to resolve: {e}"), None))?;
+        let space_id = resolved.space_id.ok_or_else(|| {
+            McpError::internal_error("No space resolved (no default space configured)", None)
+        })?;
+        let feature_set_ids = resolved
+            .feature_set_id
+            .map(|fs| vec![fs])
+            .unwrap_or_default();
+        Ok((space_id, feature_set_ids))
+    }
+
     /// Build InitializeResult with negotiated protocol version
     fn build_initialize_result(&self, protocol_version: ProtocolVersion) -> InitializeResult {
         let info = self.get_info();
@@ -416,28 +444,19 @@ impl ServerHandler for McpMuxGatewayHandler {
         _params: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let oauth_ctx = self
-            .get_oauth_context(&context.extensions)
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        // Resolve routing once: the resolver returns the authoritative
+        // (Space, FS) for this session — this may differ from oauth_ctx
+        // when a WorkspaceBinding redirects to another space.
+        let (space_id, feature_set_ids) = self
+            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .await?;
 
-        // Get client's grants
-        let feature_set_ids = self
-            .services
-            .authorization_service
-            .get_client_grants(
-                &oauth_ctx.client_id,
-                &oauth_ctx.space_id,
-                extract_session_id(&context.extensions).as_deref(),
-            )
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
-
-        // Get tools via FeatureService
+        // Get tools via FeatureService — using the *resolved* space.
         let tools = self
             .services
             .pool_services
             .feature_service
-            .get_tools_for_grants(&oauth_ctx.space_id.to_string(), &feature_set_ids)
+            .get_tools_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get tools: {}", e), None))?;
 
@@ -500,8 +519,9 @@ impl ServerHandler for McpMuxGatewayHandler {
             && self.services.meta_tool_registry.contains(&params.name)
             && self.services.meta_tool_registry.is_enabled().await
         {
-            let client_uuid = uuid::Uuid::parse_str(&oauth_ctx.client_id)
-                .map_err(|e| McpError::invalid_params(format!("bad client_id: {e}"), None))?;
+            // Note: client_id is the OAuth client identity (a URL for DCR-
+            // registered clients like Claude, a UUID for others). The meta-
+            // tool registry treats it as an opaque string identity key.
             let args: serde_json::Value = params
                 .arguments
                 .map(|a| serde_json::to_value(a).unwrap_or(serde_json::Value::Null))
@@ -509,7 +529,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             return match self
                 .services
                 .meta_tool_registry
-                .call(&params.name, &client_uuid, session_id, args)
+                .call(&params.name, &oauth_ctx.client_id, session_id, args)
                 .await
             {
                 Ok(result) => Ok(result),
@@ -517,13 +537,9 @@ impl ServerHandler for McpMuxGatewayHandler {
             };
         }
 
-        // Get client's feature set grants for authorization
-        let feature_set_ids = self
-            .services
-            .authorization_service
-            .get_client_grants(&oauth_ctx.client_id, &oauth_ctx.space_id, session_id)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
+        // Resolve routing — the binding's target space is authoritative,
+        // which may differ from oauth_ctx.space_id.
+        let (space_id, feature_set_ids) = self.resolve_routing(session_id).await?;
 
         // Call tool via routing service (handles auth and routing)
         let tool_result = self
@@ -531,7 +547,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .pool_services
             .routing_service
             .call_tool(
-                oauth_ctx.space_id,
+                space_id,
                 &feature_set_ids,
                 &params.name,
                 serde_json::to_value(params.arguments.unwrap_or_default()).unwrap_or_default(),
@@ -605,26 +621,15 @@ impl ServerHandler for McpMuxGatewayHandler {
         _params: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, McpError> {
-        let oauth_ctx = self
-            .get_oauth_context(&context.extensions)
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-
-        let feature_set_ids = self
-            .services
-            .authorization_service
-            .get_client_grants(
-                &oauth_ctx.client_id,
-                &oauth_ctx.space_id,
-                extract_session_id(&context.extensions).as_deref(),
-            )
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
+        let (space_id, feature_set_ids) = self
+            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .await?;
 
         let prompts = self
             .services
             .pool_services
             .feature_service
-            .get_prompts_for_grants(&oauth_ctx.space_id.to_string(), &feature_set_ids)
+            .get_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get prompts: {}", e), None))?;
 
@@ -657,35 +662,23 @@ impl ServerHandler for McpMuxGatewayHandler {
         params: GetPromptRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResult, McpError> {
-        let oauth_ctx = self
-            .get_oauth_context(&context.extensions)
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let (space_id, feature_set_ids) = self
+            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .await?;
 
         let (server_id, prompt_name) = self
             .services
             .pool_services
             .feature_service
-            .parse_qualified_prompt_name(&oauth_ctx.space_id.to_string(), &params.name)
+            .parse_qualified_prompt_name(&space_id.to_string(), &params.name)
             .await
             .map_err(|e| McpError::invalid_params(format!("Invalid prompt name: {}", e), None))?;
-
-        // Verify authorization
-        let feature_set_ids = self
-            .services
-            .authorization_service
-            .get_client_grants(
-                &oauth_ctx.client_id,
-                &oauth_ctx.space_id,
-                extract_session_id(&context.extensions).as_deref(),
-            )
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
 
         let authorized_prompts = self
             .services
             .pool_services
             .feature_service
-            .get_prompts_for_grants(&oauth_ctx.space_id.to_string(), &feature_set_ids)
+            .get_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -706,12 +699,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .pool_service
-            .get_prompt(
-                oauth_ctx.space_id,
-                &server_id,
-                &prompt_name,
-                params.arguments,
-            )
+            .get_prompt(space_id, &server_id, &prompt_name, params.arguments)
             .await
             .map_err(|e| McpError::internal_error(format!("Get prompt failed: {}", e), None))?;
 
@@ -728,26 +716,15 @@ impl ServerHandler for McpMuxGatewayHandler {
         _params: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        let oauth_ctx = self
-            .get_oauth_context(&context.extensions)
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-
-        let feature_set_ids = self
-            .services
-            .authorization_service
-            .get_client_grants(
-                &oauth_ctx.client_id,
-                &oauth_ctx.space_id,
-                extract_session_id(&context.extensions).as_deref(),
-            )
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
+        let (space_id, feature_set_ids) = self
+            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .await?;
 
         let resources = self
             .services
             .pool_services
             .feature_service
-            .get_resources_for_grants(&oauth_ctx.space_id.to_string(), &feature_set_ids)
+            .get_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get resources: {}", e), None)
@@ -778,15 +755,15 @@ impl ServerHandler for McpMuxGatewayHandler {
         params: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
-        let oauth_ctx = self
-            .get_oauth_context(&context.extensions)
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let (space_id, feature_set_ids) = self
+            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .await?;
 
         let server_id = self
             .services
             .pool_services
             .feature_service
-            .find_server_for_resource(&oauth_ctx.space_id.to_string(), &params.uri)
+            .find_server_for_resource(&space_id.to_string(), &params.uri)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to resolve resource: {}", e), None)
@@ -795,23 +772,11 @@ impl ServerHandler for McpMuxGatewayHandler {
                 McpError::invalid_params(format!("Resource '{}' not found", params.uri), None)
             })?;
 
-        // Verify authorization
-        let feature_set_ids = self
-            .services
-            .authorization_service
-            .get_client_grants(
-                &oauth_ctx.client_id,
-                &oauth_ctx.space_id,
-                extract_session_id(&context.extensions).as_deref(),
-            )
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to get grants: {}", e), None))?;
-
         let authorized_resources = self
             .services
             .pool_services
             .feature_service
-            .get_resources_for_grants(&oauth_ctx.space_id.to_string(), &feature_set_ids)
+            .get_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -832,7 +797,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .pool_service
-            .read_resource(oauth_ctx.space_id, &server_id, &params.uri)
+            .read_resource(space_id, &server_id, &params.uri)
             .await
             .map_err(|e| McpError::internal_error(format!("Read resource failed: {}", e), None))?;
 

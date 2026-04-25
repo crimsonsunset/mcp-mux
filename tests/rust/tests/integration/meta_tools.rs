@@ -37,7 +37,9 @@ struct Fixture {
     binding_repo: Arc<dyn WorkspaceBindingRepository>,
     session_roots: Arc<SessionRootsRegistry>,
     space_id: Uuid,
-    client_id: Uuid,
+    /// Opaque client identity (UUID-as-string here; in production for DCR
+    /// clients this can be a `client_metadata` URL).
+    client_id: String,
     session_id: String,
     fs_android_id: Uuid,
 }
@@ -86,7 +88,7 @@ impl Fixture {
 
         // Create test client — routing is per-session-root now, not per-client.
         let client = Client::new("TestClient", "test-type");
-        let client_id = client.id;
+        let client_id = client.id.to_string();
         client_repo.create(&client).await.unwrap();
 
         let session_roots = SessionRootsRegistry::new();
@@ -147,7 +149,7 @@ impl Fixture {
                     tokio::time::sleep(Duration::from_millis(5)).await;
                     b.respond(
                         &req.request_id,
-                        Uuid::parse_str(&req.client_id).unwrap(),
+                        &req.client_id,
                         &req.payload.tool_name,
                         decision,
                     );
@@ -504,7 +506,7 @@ async fn bare_registry(
     settings_repo: Option<Arc<dyn mcpmux_core::AppSettingsRepository>>,
 ) -> (
     Arc<MetaToolRegistry>,
-    Uuid,
+    String,
     broadcast::Sender<DomainEvent>,
     broadcast::Receiver<DomainEvent>,
 ) {
@@ -521,7 +523,7 @@ async fn bare_registry(
 
     let _space = space_repo.get_default().await.unwrap().unwrap();
     let client = Client::new("c", "t");
-    let client_id = client.id;
+    let client_id = client.id.to_string();
     client_repo.create(&client).await.unwrap();
 
     let resolver = Arc::new(FeatureSetResolverService::new(

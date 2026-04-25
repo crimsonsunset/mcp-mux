@@ -18,6 +18,11 @@
 //!     not persisted). A gateway restart re-prompts. This is a deliberate
 //!     security default — auto-approved writes deserve a fresh nod on every
 //!     launch. Users can still tick the checkbox once per session.
+//!
+//! Client identity is treated as an opaque `String` (the OAuth client_id
+//! from the JWT — a UUID for the legacy preset-clients path, a
+//! client_metadata URL for DCR-registered clients like Claude Code). The
+//! broker doesn't parse it; equality + hashing is enough.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -104,9 +109,11 @@ pub struct ApprovalBroker {
     /// `respond_to_meta_tool_approval` resolves these.
     pending: DashMap<String, oneshot::Sender<ApprovalDecision>>,
     /// Session-scoped always-allow grants, keyed by (client_id, tool_name).
-    always_allow: DashMap<(Uuid, String), ()>,
+    /// `client_id` is opaque (UUID for preset clients, URL for DCR clients);
+    /// the broker only does equality lookups.
+    always_allow: DashMap<(String, String), ()>,
     /// (client_id) -> Vec<request_timestamp> for rate limiting.
-    rate_limit: DashMap<Uuid, Vec<Instant>>,
+    rate_limit: DashMap<String, Vec<Instant>>,
     /// Published to the desktop layer; `None` means headless.
     publisher: Mutex<Option<ApprovalPublisher>>,
     timeout: Duration,
@@ -140,11 +147,11 @@ impl ApprovalBroker {
     }
 
     /// For tests / headless scenarios: pre-approve everything from a
-    /// specific client. Returns a guard struct you drop to clear it.
+    /// specific client.
     #[cfg(test)]
-    pub fn insert_always_allow(&self, client_id: Uuid, tool_name: &str) {
+    pub fn insert_always_allow(&self, client_id: &str, tool_name: &str) {
         self.always_allow
-            .insert((client_id, tool_name.to_string()), ());
+            .insert((client_id.to_string(), tool_name.to_string()), ());
     }
 
     /// Resolve a pending approval. Called from Tauri command when the user
@@ -153,7 +160,7 @@ impl ApprovalBroker {
     pub fn respond(
         &self,
         request_id: &str,
-        client_id: Uuid,
+        client_id: &str,
         tool_name: &str,
         decision: ApprovalDecision,
     ) -> bool {
@@ -161,7 +168,7 @@ impl ApprovalBroker {
         // call from the same client sees it.
         if matches!(decision, ApprovalDecision::AlwaysForThisSessionAndClient) {
             self.always_allow
-                .insert((client_id, tool_name.to_string()), ());
+                .insert((client_id.to_string(), tool_name.to_string()), ());
         }
         if let Some((_, tx)) = self.pending.remove(request_id) {
             tx.send(decision).is_ok()
@@ -181,14 +188,14 @@ impl ApprovalBroker {
     }
 
     /// List always-allow grants (for the UI to display + revoke).
-    pub fn list_always_allow(&self) -> Vec<(Uuid, String)> {
+    pub fn list_always_allow(&self) -> Vec<(String, String)> {
         self.always_allow.iter().map(|e| e.key().clone()).collect()
     }
 
     /// Revoke an always-allow entry.
-    pub fn revoke_always_allow(&self, client_id: Uuid, tool_name: &str) -> bool {
+    pub fn revoke_always_allow(&self, client_id: &str, tool_name: &str) -> bool {
         self.always_allow
-            .remove(&(client_id, tool_name.to_string()))
+            .remove(&(client_id.to_string(), tool_name.to_string()))
             .is_some()
     }
 
@@ -201,14 +208,14 @@ impl ApprovalBroker {
     ///   4. Emit + wait → Allow / Deny / Timeout.
     pub async fn request_approval(
         &self,
-        client_id: Uuid,
+        client_id: &str,
         tool_name: &str,
         payload: ApprovalPayload,
     ) -> Result<ApprovalDecision, MetaToolError> {
         // 1. Always-allow short-circuit.
         if self
             .always_allow
-            .contains_key(&(client_id, tool_name.to_string()))
+            .contains_key(&(client_id.to_string(), tool_name.to_string()))
         {
             debug!(
                 %client_id,
@@ -222,7 +229,7 @@ impl ApprovalBroker {
         self.prune_rate_limit(client_id);
         let pending_for_client = self
             .rate_limit
-            .get(&client_id)
+            .get(client_id)
             .map(|e| e.value().len())
             .unwrap_or(0);
         if pending_for_client >= RATE_LIMIT_MAX_PENDING {
@@ -235,7 +242,7 @@ impl ApprovalBroker {
             return Err(MetaToolError::RateLimited);
         }
         self.rate_limit
-            .entry(client_id)
+            .entry(client_id.to_string())
             .or_default()
             .push(Instant::now());
 
@@ -288,8 +295,8 @@ impl ApprovalBroker {
         }
     }
 
-    fn prune_rate_limit(&self, client_id: Uuid) {
-        if let Some(mut entry) = self.rate_limit.get_mut(&client_id) {
+    fn prune_rate_limit(&self, client_id: &str) {
+        if let Some(mut entry) = self.rate_limit.get_mut(client_id) {
             let cutoff = Instant::now() - RATE_LIMIT_WINDOW;
             entry.retain(|t| *t > cutoff);
         }
@@ -315,7 +322,11 @@ mod tests {
     async fn no_publisher_returns_no_desktop_error() {
         let broker = ApprovalBroker::new();
         let err = broker
-            .request_approval(Uuid::new_v4(), "mcpmux_pin_this_session", make_payload())
+            .request_approval(
+                &Uuid::new_v4().to_string(),
+                "mcpmux_pin_this_session",
+                make_payload(),
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, MetaToolError::ApprovalRequiredNoDesktop));
@@ -324,10 +335,25 @@ mod tests {
     #[tokio::test]
     async fn always_allow_short_circuits() {
         let broker = ApprovalBroker::new();
-        let client_id = Uuid::new_v4();
-        broker.insert_always_allow(client_id, "mcpmux_pin_this_session");
+        let client_id = Uuid::new_v4().to_string();
+        broker.insert_always_allow(&client_id, "mcpmux_pin_this_session");
         let d = broker
-            .request_approval(client_id, "mcpmux_pin_this_session", make_payload())
+            .request_approval(&client_id, "mcpmux_pin_this_session", make_payload())
+            .await
+            .unwrap();
+        assert_eq!(d, ApprovalDecision::AllowOnce);
+    }
+
+    #[tokio::test]
+    async fn url_client_id_works() {
+        // Regression for the bug where DCR-registered clients (which use
+        // a client_metadata URL as their client_id) couldn't get past the
+        // approval flow because we tried to parse the URL as a UUID.
+        let broker = ApprovalBroker::new();
+        let url_client_id = "https://claude.ai/oauth/claude-code-client-metadata";
+        broker.insert_always_allow(url_client_id, "mcpmux_pin_this_session");
+        let d = broker
+            .request_approval(url_client_id, "mcpmux_pin_this_session", make_payload())
             .await
             .unwrap();
         assert_eq!(d, ApprovalDecision::AllowOnce);
@@ -337,7 +363,7 @@ mod tests {
     async fn publisher_allow_resolves() {
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
         let broker_clone = broker.clone();
-        let client_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4().to_string();
 
         // Publisher responds asynchronously with Allow.
         let publisher: ApprovalPublisher = Arc::new(move |req| {
@@ -347,7 +373,7 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                     b.respond(
                         &req.request_id,
-                        Uuid::parse_str(&req.client_id).unwrap(),
+                        &req.client_id,
                         &req.payload.tool_name,
                         ApprovalDecision::AllowOnce,
                     );
@@ -359,7 +385,7 @@ mod tests {
         broker.set_publisher(publisher).await;
 
         let decision = broker
-            .request_approval(client_id, "mcpmux_pin_this_session", make_payload())
+            .request_approval(&client_id, "mcpmux_pin_this_session", make_payload())
             .await
             .unwrap();
         assert_eq!(decision, ApprovalDecision::AllowOnce);
@@ -369,7 +395,7 @@ mod tests {
     async fn publisher_deny_returns_denied_error() {
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
         let broker_clone = broker.clone();
-        let client_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4().to_string();
 
         let publisher: ApprovalPublisher = Arc::new(move |req| {
             let b = broker_clone.clone();
@@ -378,7 +404,7 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                     b.respond(
                         &req.request_id,
-                        Uuid::parse_str(&req.client_id).unwrap(),
+                        &req.client_id,
                         &req.payload.tool_name,
                         ApprovalDecision::Deny,
                     );
@@ -390,7 +416,7 @@ mod tests {
         broker.set_publisher(publisher).await;
 
         let err = broker
-            .request_approval(client_id, "mcpmux_pin_this_session", make_payload())
+            .request_approval(&client_id, "mcpmux_pin_this_session", make_payload())
             .await
             .unwrap_err();
         assert!(matches!(err, MetaToolError::ApprovalDenied));
@@ -404,7 +430,11 @@ mod tests {
         broker.set_publisher(publisher).await;
 
         let err = broker
-            .request_approval(Uuid::new_v4(), "mcpmux_pin_this_session", make_payload())
+            .request_approval(
+                &Uuid::new_v4().to_string(),
+                "mcpmux_pin_this_session",
+                make_payload(),
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, MetaToolError::ApprovalTimedOut));
@@ -414,7 +444,7 @@ mod tests {
     async fn always_scope_persists_across_calls() {
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
         let broker_clone = broker.clone();
-        let client_id = Uuid::new_v4();
+        let client_id = Uuid::new_v4().to_string();
 
         let publisher: ApprovalPublisher = Arc::new(move |req| {
             let b = broker_clone.clone();
@@ -423,7 +453,7 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                     b.respond(
                         &req.request_id,
-                        Uuid::parse_str(&req.client_id).unwrap(),
+                        &req.client_id,
                         &req.payload.tool_name,
                         ApprovalDecision::AlwaysForThisSessionAndClient,
                     );
@@ -436,14 +466,14 @@ mod tests {
 
         // First call → dialog, returns AlwaysForThisSessionAndClient.
         let d1 = broker
-            .request_approval(client_id, "mcpmux_pin_this_session", make_payload())
+            .request_approval(&client_id, "mcpmux_pin_this_session", make_payload())
             .await
             .unwrap();
         assert_eq!(d1, ApprovalDecision::AlwaysForThisSessionAndClient);
 
         // Second call → short-circuits via always-allow entry.
         let d2 = broker
-            .request_approval(client_id, "mcpmux_pin_this_session", make_payload())
+            .request_approval(&client_id, "mcpmux_pin_this_session", make_payload())
             .await
             .unwrap();
         assert_eq!(d2, ApprovalDecision::AllowOnce);

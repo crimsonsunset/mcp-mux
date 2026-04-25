@@ -14,7 +14,6 @@ use serde::Serialize;
 use tauri::State;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::commands::gateway::GatewayAppState;
 
@@ -44,7 +43,6 @@ pub async fn respond_to_meta_tool_approval(
         "deny" => ApprovalDecision::Deny,
         other => return Err(format!("unknown decision: {other}")),
     };
-    let client_uuid = Uuid::parse_str(&client_id).map_err(|e| format!("bad client_id: {e}"))?;
 
     let broker = {
         let state = gateway_state.read().await;
@@ -55,7 +53,10 @@ pub async fn respond_to_meta_tool_approval(
         return Ok(false);
     };
 
-    let resolved = broker.respond(&request_id, client_uuid, &tool_name, decision);
+    // client_id is opaque (UUID for preset clients, OAuth client_metadata
+    // URL for DCR clients like Claude Code). The broker treats it as a
+    // hash key only.
+    let resolved = broker.respond(&request_id, &client_id, &tool_name, decision);
     info!(
         %request_id,
         %client_id,
@@ -86,7 +87,7 @@ pub async fn list_meta_tool_grants(
         .list_always_allow()
         .into_iter()
         .map(|(client_id, tool_name)| MetaToolGrantEntry {
-            client_id: client_id.to_string(),
+            client_id,
             tool_name,
         })
         .collect())
@@ -99,7 +100,6 @@ pub async fn revoke_meta_tool_grant(
     tool_name: String,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<bool, String> {
-    let client_uuid = Uuid::parse_str(&client_id).map_err(|e| format!("bad client_id: {e}"))?;
     let broker = {
         let state = gateway_state.read().await;
         state.approval_broker.clone()
@@ -107,5 +107,5 @@ pub async fn revoke_meta_tool_grant(
     let Some(broker) = broker else {
         return Ok(false);
     };
-    Ok(broker.revoke_always_allow(client_uuid, &tool_name))
+    Ok(broker.revoke_always_allow(&client_id, &tool_name))
 }

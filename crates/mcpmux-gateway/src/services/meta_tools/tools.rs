@@ -285,7 +285,7 @@ where
     };
     call.ctx
         .approval_broker
-        .request_approval(*call.client_id, tool_name, payload)
+        .request_approval(call.client_id, tool_name, payload)
         .await?;
     mutate().await
 }
