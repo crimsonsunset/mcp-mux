@@ -473,6 +473,16 @@ pub fn run() {
                 let event_emitter = server.event_emitter();
                 let grant_service = server.grant_service();
                 let session_roots = server.session_roots();
+                let approval_broker = server.approval_broker();
+
+                // Wire the approval broker to the desktop event bus so
+                // write meta tools can prompt the React dialog. Without
+                // this, every write surfaces as "no desktop attached".
+                crate::commands::gateway::attach_approval_publisher(
+                    &approval_broker,
+                    app_handle_for_sm.clone(),
+                )
+                .await;
 
                 // Start domain event bridge
                 crate::commands::gateway::start_domain_event_bridge(&app_handle_for_sm, gw_inner_state.clone());
@@ -510,6 +520,7 @@ pub fn run() {
                 state.feature_service = Some(feature_service);
                 state.event_emitter = Some(event_emitter);
                 state.grant_service = Some(grant_service);
+                state.approval_broker = Some(approval_broker);
                 state.session_roots = Some(session_roots);
 
                 info!(

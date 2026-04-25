@@ -114,6 +114,62 @@ pub(crate) async fn shutdown_gateway_handle(mut handle: mcpmux_gateway::GatewayS
     }
 }
 
+/// Bring the main webview window forward so the user sees a popup the
+/// gateway just emitted. Best-effort — silently no-ops when the window
+/// doesn't exist (rare, e.g. during teardown). Used by the approval
+/// publisher and the WorkspaceNeedsBinding bridge so an LLM tool call or
+/// a fresh client connection automatically draws the user's eye to the
+/// mcpmux app instead of the dialog rendering invisibly under another
+/// window.
+pub(crate) fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    // unminimize + show + set_focus together cover every state the user
+    // could have left the window in (minimized, hidden behind another
+    // app, hidden by user via the close-to-tray flow).
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// Wire the meta-tool approval broker to the desktop event bus so write
+/// tools (e.g. `mcpmux_bind_current_workspace`) can prompt the React
+/// dialog. Both the manual `start_gateway` command and the lib.rs
+/// auto-start path must call this — without it the broker stays
+/// publisher-less and every write surfaces as
+/// `approval_required: no desktop attached to mcpmux gateway`.
+pub(crate) async fn attach_approval_publisher<R: tauri::Runtime>(
+    approval_broker: &Arc<mcpmux_gateway::services::ApprovalBroker>,
+    app_handle: tauri::AppHandle<R>,
+) {
+    let publisher: mcpmux_gateway::services::meta_tools::ApprovalPublisher = Arc::new(move |req| {
+        let app_handle = app_handle.clone();
+        Box::pin(async move {
+            // Bring the window forward BEFORE emitting so the dialog
+            // animates into a visible window — otherwise it'd render
+            // behind whatever the user is currently focused on.
+            focus_main_window(&app_handle);
+            // Emit the request; the React layer owns rendering +
+            // collecting the user's decision. Failure to emit means
+            // no desktop frontend is listening — broker maps that to
+            // "approval_required" to the calling tool.
+            match app_handle.emit("meta-tool-approval-request", &req) {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "[meta-tool] failed to emit approval request"
+                    );
+                    false
+                }
+            }
+        })
+    });
+    approval_broker.set_publisher(publisher).await;
+}
+
 /// Wires up ServerManager state + the OAuth completion handler + the
 /// periodic refresh loop after a GatewayServer has been spawned.
 ///
@@ -244,6 +300,14 @@ pub fn start_domain_event_bridge(
 
         while let Ok(event) = event_rx.recv().await {
             let event_type = event.type_name();
+
+            // Some domain events imply a popup the user must see (a workspace
+            // root needs binding, a backend wants OAuth, etc.). Bring the
+            // window forward BEFORE emitting so the popup animates into a
+            // visible window instead of rendering behind another app.
+            if matches!(event, DomainEvent::WorkspaceNeedsBinding { .. }) {
+                focus_main_window(&app_handle_clone);
+            }
 
             // Map domain events to UI channels
             let (channel, payload) = map_domain_event_to_ui(&event);
@@ -822,30 +886,7 @@ pub async fn start_gateway(
     // Meta-tool approval broker — attach a Tauri-event publisher so
     // incoming approval requests reach the React dialog.
     let approval_broker = server.approval_broker();
-    {
-        let app_handle_for_broker = app_handle.clone();
-        let publisher: mcpmux_gateway::services::meta_tools::ApprovalPublisher =
-            std::sync::Arc::new(move |req| {
-                let app_handle = app_handle_for_broker.clone();
-                Box::pin(async move {
-                    // Emit the request; the React layer owns rendering +
-                    // collecting the user's decision. Failure to emit means
-                    // no desktop frontend is listening — broker maps that to
-                    // "approval_required" to the calling tool.
-                    match app_handle.emit("meta-tool-approval-request", &req) {
-                        Ok(()) => true,
-                        Err(e) => {
-                            tracing::warn!(
-                                error = %e,
-                                "[meta-tool] failed to emit approval request"
-                            );
-                            false
-                        }
-                    }
-                })
-            });
-        approval_broker.set_publisher(publisher).await;
-    }
+    attach_approval_publisher(&approval_broker, app_handle.clone()).await;
 
     // Start domain event bridge (clean architecture)
     start_domain_event_bridge(&app_handle, gw_state.clone());
