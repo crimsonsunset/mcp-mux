@@ -155,58 +155,14 @@ impl MetaTool for ListFeatureSetsTool {
 }
 
 // ---------------------------------------------------------------------------
-// mcpmux_describe_resolution — read
-// ---------------------------------------------------------------------------
-
-pub struct DescribeResolutionTool;
-
-#[async_trait]
-impl MetaTool for DescribeResolutionTool {
-    fn name(&self) -> &'static str {
-        "mcpmux_describe_resolution"
-    }
-
-    fn description(&self) -> &'static str {
-        "Explain which FeatureSet the caller is currently resolved to and \
-         why (pin | workspace_binding | space_active | deny). Always call \
-         this before a write tool so you know the baseline."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({ "type": "object", "properties": {} })
-    }
-
-    async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
-        let resolved = call.ctx.resolver.resolve(call.session_id).await?;
-        let fs_id = resolved.feature_set_id.clone();
-        let fs_name = if let Some(id) = fs_id.as_deref() {
-            call.ctx.feature_set_repo.get(id).await?.map(|fs| fs.name)
-        } else {
-            None
-        };
-        let tool_count = if let Some(id) = fs_id.as_deref() {
-            let space_id = caller_space_id(&call).await?;
-            call.ctx
-                .feature_service
-                .get_tools_for_grants(&space_id.to_string(), &[id.to_string()])
-                .await?
-                .iter()
-                .filter(|f| f.is_available)
-                .count()
-        } else {
-            0
-        };
-        Ok(text_result(json!({
-            "feature_set_id": fs_id,
-            "feature_set_name": fs_name,
-            "source": resolved.source,
-            "resolved_tool_count": tool_count,
-        })))
-    }
-}
-
-// ---------------------------------------------------------------------------
 // mcpmux_describe_workspace — read
+//
+// Single read endpoint that combines:
+//   • workspace roots reported by the caller
+//   • the matched WorkspaceBinding (if any)
+//   • the resolved FeatureSet (id, name, source, tool count)
+// — replacing the older two-tool split where `describe_resolution` and
+// `describe_workspace` returned overlapping fragments.
 // ---------------------------------------------------------------------------
 
 pub struct DescribeWorkspaceTool;
@@ -218,10 +174,11 @@ impl MetaTool for DescribeWorkspaceTool {
     }
 
     fn description(&self) -> &'static str {
-        "Report the workspace roots the caller declared via the MCP `roots` \
-         capability, and any WorkspaceBinding in this Space that matches. \
-         Empty roots means the client didn't declare the `roots` capability \
-         — bindings won't apply and workspace-based tools should be skipped."
+        "Report everything that determines this caller's effective tool set: \
+         the workspace roots declared via MCP `roots`, the matched \
+         WorkspaceBinding (if any), and the resolved FeatureSet (id, name, \
+         source, tool count). Always call this before a write tool so you \
+         know the baseline."
     }
 
     fn input_schema(&self) -> Value {
@@ -242,6 +199,31 @@ impl MetaTool for DescribeWorkspaceTool {
         } else {
             None
         };
+
+        // Walk the resolver too — that's the authoritative answer for "which
+        // FS would actually apply right now". A binding may exist but the
+        // caller's resolution chain may still pick something else (e.g. a
+        // session pin, when those exist again).
+        let resolved = call.ctx.resolver.resolve(call.session_id).await?;
+        let fs_id = resolved.feature_set_id.clone();
+        let fs_name = if let Some(id) = fs_id.as_deref() {
+            call.ctx.feature_set_repo.get(id).await?.map(|fs| fs.name)
+        } else {
+            None
+        };
+        let tool_count = if let Some(id) = fs_id.as_deref() {
+            let resolved_space = resolved.space_id.unwrap_or(space_id);
+            call.ctx
+                .feature_service
+                .get_tools_for_grants(&resolved_space.to_string(), &[id.to_string()])
+                .await?
+                .iter()
+                .filter(|f| f.is_available)
+                .count()
+        } else {
+            0
+        };
+
         Ok(text_result(json!({
             "space_id": space_id,
             "reported_roots": roots,
@@ -251,6 +233,12 @@ impl MetaTool for DescribeWorkspaceTool {
                 "space_id": b.space_id,
                 "feature_set_id": b.feature_set_id,
             })),
+            "resolution": {
+                "feature_set_id": fs_id,
+                "feature_set_name": fs_name,
+                "source": resolved.source,
+                "resolved_tool_count": tool_count,
+            },
         })))
     }
 }

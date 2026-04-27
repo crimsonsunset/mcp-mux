@@ -484,17 +484,32 @@ impl MCPNotifier {
             } => {
                 use mcpmux_core::ConnectionStatus;
 
-                // Only notify if server disconnected (features unavailable)
-                // We DO NOT notify on Connect because:
-                // 1. If it's a new server, ToolsChanged will fire separately if needed
-                // 2. If it's a reconnect, hashing will handle it
-                // 3. Most importantly: Client connections trigger auto-connects, which would cause loops
-                if matches!(status, ConnectionStatus::Disconnected) {
+                // Disconnect AND reconnect both flip the per-feature
+                // `is_available` flag, which `get_all_features_for_space`
+                // filters on — so the content hash actually changes both
+                // ways. We notify on each so the client's effective tool
+                // list reflects "configured but unavailable" features
+                // dropping out (on Disconnect) and coming back in (on
+                // Connect). `force=false` lets the hash dedup absorb the
+                // intermediate transient states (Connecting / Refreshing /
+                // AuthRequired) without spamming.
+                //
+                // Loop concern (the old comment): a client `tools/list`
+                // query that triggers a lazy backend connect would chain
+                // Connected -> list_changed -> client refetch. Hashing
+                // breaks that chain on the second iteration: the second
+                // refetch sees the same hash as the first and dedupes.
+                let should_notify = matches!(
+                    status,
+                    ConnectionStatus::Connected | ConnectionStatus::Disconnected
+                );
+                if should_notify {
                     info!(
                         server_id = %server_id,
                         space_id = %space_id,
                         status = ?status,
-                        "[MCPNotifier] ServerStatusChanged (Disconnected) - notifying clients to clear features"
+                        "[MCPNotifier] ServerStatusChanged ({:?}) - re-checking effective list",
+                        status,
                     );
                     self.notify_all_list_changed(space_id, false).await;
                 } else {
@@ -502,7 +517,7 @@ impl MCPNotifier {
                         server_id = %server_id,
                         space_id = %space_id,
                         status = ?status,
-                        "[MCPNotifier] ServerStatusChanged - ignoring (not a disconnection)"
+                        "[MCPNotifier] ServerStatusChanged - transient state, no notify"
                     );
                 }
             }

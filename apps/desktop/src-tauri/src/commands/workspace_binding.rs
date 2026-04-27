@@ -320,6 +320,17 @@ pub struct EffectiveFeatureDto {
     pub available: bool,
 }
 
+/// Per-server total counts in the resolved Space, regardless of the
+/// FeatureSet filter. The UI shows badges like "3 / {total}" — the right
+/// side is the total the server exposes in the Space, so the user can see
+/// "this FS includes 3 of the 10 cloudflare-docs tools available."
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerFeatureTotalsDto {
+    pub tools: usize,
+    pub prompts: usize,
+    pub resources: usize,
+}
+
 /// Top-level DTO: the resolved (Space, FeatureSet) pair for a given root,
 /// plus its full configured tool/prompt/resource lists with availability.
 #[derive(Debug, Clone, Serialize)]
@@ -342,6 +353,10 @@ pub struct WorkspaceEffectiveFeaturesDto {
     pub tools: Vec<EffectiveFeatureDto>,
     pub prompts: Vec<EffectiveFeatureDto>,
     pub resources: Vec<EffectiveFeatureDto>,
+    /// `server_id -> totals` over every feature the server exposes in the
+    /// resolved Space (no FS filter applied). Used by the UI to render
+    /// "{mapped} / {server total}" badges.
+    pub server_totals: HashMap<String, ServerFeatureTotalsDto>,
 }
 
 /// Walk a FeatureSet's members (with nested-FS recursion) to compute the
@@ -518,14 +533,32 @@ pub async fn get_workspace_effective_features(
     let mut visited = HashSet::<String>::new();
     collect_member_ids(&fs, &fs_lookup, &mut allowed, &mut excluded, &mut visited);
 
-    // 7. Pull every feature in the Space, then keep only those that pass
-    //    the FS filter — without the `is_available` gate, so we can show
-    //    "configured but disconnected" rows.
+    // 7. Pull every feature in the Space, compute per-server totals (the
+    //    badge denominator), then keep only the FS-filtered subset for the
+    //    rendered list. The `is_available` gate is intentionally not
+    //    applied here — disconnected features still appear, dimmed.
     let all_features = state
         .server_feature_repository_core
         .list_for_space(&space_id.to_string())
         .await
         .map_err(|e| e.to_string())?;
+
+    let mut server_totals: HashMap<String, ServerFeatureTotalsDto> = HashMap::new();
+    for f in &all_features {
+        let entry = server_totals
+            .entry(f.server_id.clone())
+            .or_insert(ServerFeatureTotalsDto {
+                tools: 0,
+                prompts: 0,
+                resources: 0,
+            });
+        match f.feature_type {
+            mcpmux_core::FeatureType::Tool => entry.tools += 1,
+            mcpmux_core::FeatureType::Prompt => entry.prompts += 1,
+            mcpmux_core::FeatureType::Resource => entry.resources += 1,
+        }
+    }
+
     let filtered: Vec<ServerFeature> = all_features
         .into_iter()
         .filter(|f| {
@@ -598,5 +631,6 @@ pub async fn get_workspace_effective_features(
         tools,
         prompts,
         resources,
+        server_totals,
     })
 }

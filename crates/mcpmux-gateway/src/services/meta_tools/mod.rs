@@ -77,7 +77,10 @@ pub fn build_default_registry(
     // Reads — no approval needed.
     registry.register(Box::new(tools::ListAllToolsTool));
     registry.register(Box::new(tools::ListFeatureSetsTool));
-    registry.register(Box::new(tools::DescribeResolutionTool));
+    // `describe_workspace` also returns the resolution fields the older
+    // `describe_resolution` tool used to expose — the split was confusing
+    // for LLMs (two reads with overlapping output) and trimming it shrinks
+    // the toolbar visible to the caller.
     registry.register(Box::new(tools::DescribeWorkspaceTool));
     // Writes — gated by ApprovalBroker.
     registry.register(Box::new(tools::CreateFeatureSetTool));

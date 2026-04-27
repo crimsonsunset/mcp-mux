@@ -109,13 +109,21 @@ export function WorkspacesPage() {
     void loadData().finally(() => setIsLoading(false));
   }, [loadData]);
 
-  // Refresh the list whenever a session reports (or changes) its roots.
+  // Refresh whenever something the table reflects changes outside the page:
+  //   • `session-roots-changed` — a connected client newly reported a root.
+  //   • `workspace-binding-changed` — a binding was created/updated/deleted
+  //     by another surface (e.g. the new-workspace popup or the meta-tool).
+  // Without the binding listener, popup-driven saves leave this page showing
+  // the stale "UNMAPPED" badge until the user navigates away and back.
   useEffect(() => {
-    const un = listen('session-roots-changed', () => {
+    const reload = () => {
       void loadData();
-    });
+    };
+    const unRoots = listen('session-roots-changed', reload);
+    const unBinding = listen('workspace-binding-changed', reload);
     return () => {
-      un.then((fn) => fn());
+      unRoots.then((fn) => fn());
+      unBinding.then((fn) => fn());
     };
   }, [loadData]);
 
@@ -942,8 +950,12 @@ interface ServerGroup {
   tools: EffectiveFeature[];
   prompts: EffectiveFeature[];
   resources: EffectiveFeature[];
-  total: number;
-  unavailable_total: number;
+  /** Mapped count for this server in the resolved FS (= tools+prompts+resources lengths). */
+  mapped: number;
+  /** Total count of features the server exposes in the resolved Space, regardless of FS. */
+  server_total: number;
+  /** Of `mapped`, how many are unavailable because the server is disconnected. */
+  unavailable_mapped: number;
 }
 
 function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
@@ -951,6 +963,10 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
   const place = (item: EffectiveFeature, kind: 'tool' | 'prompt' | 'resource') => {
     let g = map.get(item.server_id);
     if (!g) {
+      const totals = data.server_totals[item.server_id];
+      const server_total = totals
+        ? totals.tools + totals.prompts + totals.resources
+        : 0;
       g = {
         server_id: item.server_id,
         server_alias: item.server_alias ?? item.server_id,
@@ -961,16 +977,17 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
         tools: [],
         prompts: [],
         resources: [],
-        total: 0,
-        unavailable_total: 0,
+        mapped: 0,
+        server_total,
+        unavailable_mapped: 0,
       };
       map.set(item.server_id, g);
     }
     if (kind === 'tool') g.tools.push(item);
     else if (kind === 'prompt') g.prompts.push(item);
     else g.resources.push(item);
-    g.total += 1;
-    if (!item.available) g.unavailable_total += 1;
+    g.mapped += 1;
+    if (!item.available) g.unavailable_mapped += 1;
   };
   for (const t of data.tools) place(t, 'tool');
   for (const p of data.prompts) place(p, 'prompt');
@@ -1063,7 +1080,7 @@ function EffectiveFeaturesContent({
   const groups = useMemo(() => (data ? buildServerGroups(data) : []), [data]);
   const totalCount = data ? data.tools.length + data.prompts.length + data.resources.length : 0;
   const availableCount = useMemo(
-    () => groups.reduce((acc, g) => acc + (g.total - g.unavailable_total), 0),
+    () => groups.reduce((acc, g) => acc + (g.mapped - g.unavailable_mapped), 0),
     [groups]
   );
 
@@ -1203,9 +1220,13 @@ function ServerGroupRow({
   onToggle: () => void;
 }) {
   const issue = serverStatusIssue(group.server_status);
-  const availableCount = group.total - group.unavailable_total;
-  const allAvailable = group.total > 0 && availableCount === group.total;
-  const someAvailable = availableCount > 0 && availableCount < group.total;
+  const availableCount = group.mapped - group.unavailable_mapped;
+  // Badge denominator is the server's *total* feature count in the Space,
+  // not the mapped count — the user wants to see "3 of 10 cloudflare-docs
+  // tools are in this FS" rather than "3 of 3 mapped tools work".
+  const denominator = group.server_total > 0 ? group.server_total : group.mapped;
+  const allAvailable = group.mapped > 0 && availableCount === group.mapped;
+  const someAvailable = availableCount > 0 && availableCount < group.mapped;
   const noneAvailable = availableCount === 0;
 
   // Strip reverse-DNS prefix so display reads "cloudflare-bindings" not
@@ -1252,7 +1273,7 @@ function ServerGroupRow({
                       : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-300/70 dark:border-amber-700/70',
                 ].join(' ')}
               >
-                {availableCount}/{group.total}
+                {group.mapped}/{denominator}
               </span>
               {issue && (
                 <span
@@ -1285,8 +1306,8 @@ function ServerGroupRow({
                 ].join(' ')}
                 style={{
                   width:
-                    group.total > 0
-                      ? `${(availableCount / group.total) * 100}%`
+                    group.mapped > 0
+                      ? `${(availableCount / group.mapped) * 100}%`
                       : '0%',
                 }}
               />

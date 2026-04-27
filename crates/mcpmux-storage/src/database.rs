@@ -68,6 +68,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "concrete_binding",
         sql: include_str!("migrations/007_concrete_binding.sql"),
     },
+    Migration {
+        version: 8,
+        name: "canonical_default_space",
+        sql: include_str!("migrations/008_canonical_default_space.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

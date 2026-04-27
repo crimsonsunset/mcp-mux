@@ -123,6 +123,16 @@ export interface EffectiveFeature {
   available: boolean;
 }
 
+/**
+ * Per-server total feature counts in the resolved Space, regardless of FS
+ * filter. The right-hand side of the "{mapped} / {total}" badges.
+ */
+export interface ServerFeatureTotals {
+  tools: number;
+  prompts: number;
+  resources: number;
+}
+
 export interface WorkspaceEffectiveFeatures {
   workspace_root: string;
   /** `binding` when a saved WorkspaceBinding matched; `fallback` for the default Space's Default FS. */
@@ -136,6 +146,8 @@ export interface WorkspaceEffectiveFeatures {
   tools: EffectiveFeature[];
   prompts: EffectiveFeature[];
   resources: EffectiveFeature[];
+  /** `server_id -> totals` for every server installed in the resolved Space. */
+  server_totals: Record<string, ServerFeatureTotals>;
 }
 
 /**
