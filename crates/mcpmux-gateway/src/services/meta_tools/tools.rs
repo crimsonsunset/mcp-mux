@@ -39,17 +39,25 @@ fn text_result(v: Value) -> CallToolResult {
     CallToolResult::success(vec![Content::text(v.to_string())])
 }
 
-/// Resolve the caller's effective Space id — always the default/active space
-/// in the current (no-client-pinning) model. Returns an error only in the
-/// pathological "no default space" setup.
+/// Resolve the Space the caller is *actually* routed into — i.e. whichever
+/// Space the resolver picks via WorkspaceBinding for this session's reported
+/// roots, falling back to the default Space when no binding matches.
+///
+/// Every meta tool reads (and writes) inside this Space. That keeps the
+/// caller's tool/FS view aligned with the tools the gateway actually exposes
+/// to them, and prevents an LLM in workspace A from mutating FSes in
+/// workspace B just because both sit under the same default-Space-flagged
+/// row in the DB.
 async fn caller_space_id(call: &MetaToolCall<'_>) -> Result<Uuid, MetaToolError> {
-    let default_space = call
-        .ctx
-        .space_repo
-        .get_default()
-        .await?
-        .ok_or_else(|| MetaToolError::Internal("no default space".into()))?;
-    Ok(default_space.id)
+    let resolved = call.ctx.resolver.resolve(call.session_id).await?;
+    if let Some(space_id) = resolved.space_id {
+        return Ok(space_id);
+    }
+    // Resolver returned no space — should only happen in the pathological
+    // "no default space configured" setup. Fail loudly so callers see why.
+    Err(MetaToolError::Internal(
+        "no Space resolved for this caller (no default Space configured?)".into(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -65,10 +73,10 @@ impl MetaTool for ListAllToolsTool {
     }
 
     fn description(&self) -> &'static str {
-        "List EVERY tool available on every connected MCP server, without the \
-         current FeatureSet filter applied. Useful when you want to know what's \
-         possible in this workspace before deciding which tools to pin. Returns \
-         an array of {server_id, qualified_name, description, available}."
+        "List every tool installed in the caller's resolved Space, without \
+         the current FeatureSet filter applied. Use this to see what the \
+         workspace could expose before composing a custom FeatureSet. \
+         Returns an array of {server_id, qualified_name, description, available}."
     }
 
     fn input_schema(&self) -> Value {
@@ -111,11 +119,10 @@ impl MetaTool for ListFeatureSetsTool {
     }
 
     fn description(&self) -> &'static str {
-        "List every FeatureSet in the caller's Space — built-ins and custom. \
-         Each entry carries `id`, `name`, `type`, `is_active` (the one that \
-         applies when no pin/binding matches), and `is_pinned` (this caller's \
-         current pin). Use before proposing a pin so you don't recreate one \
-         that already fits."
+        "List every FeatureSet defined in the caller's resolved Space — \
+         built-ins and custom. Each entry carries `id`, `name`, `description`, \
+         `type`, and `is_builtin`. Use before composing a new FeatureSet so \
+         you don't recreate one that already fits."
     }
 
     fn input_schema(&self) -> Value {
@@ -211,11 +218,11 @@ impl MetaTool for CreateFeatureSetTool {
     }
 
     fn description(&self) -> &'static str {
-        "Create a new custom FeatureSet in the caller's Space from an explicit \
-         list of qualified tool names (e.g. ['github_create_issue', \
-         'firebase_deploy']). Returns the new FS id; does NOT activate it — \
-         call mcpmux_pin_this_session or mcpmux_set_space_active separately \
-         so the user sees the activation dialog distinct from creation."
+        "Create a new custom FeatureSet in the caller's resolved Space from \
+         an explicit list of qualified tool names (e.g. ['github_create_issue', \
+         'firebase_deploy']). Returns the new FS id. To make a workspace \
+         actually route through this FeatureSet, follow up with \
+         `mcpmux_bind_current_workspace`."
     }
 
     fn input_schema(&self) -> Value {
@@ -338,10 +345,10 @@ impl MetaTool for BindCurrentWorkspaceTool {
 
     fn description(&self) -> &'static str {
         "Persistently bind the caller's first reported workspace root to the \
-         given FeatureSet. Every future connection in this Space that reports \
-         the same root (or a subdirectory) will resolve to this FeatureSet \
-         unless they have an explicit pin. Requires user approval and the \
-         calling client MUST have declared MCP roots."
+         given FeatureSet inside the caller's resolved Space. Every future \
+         connection that reports the same root (or a subdirectory) will \
+         resolve to this FeatureSet. Requires user approval and the calling \
+         client MUST have declared MCP roots."
     }
 
     fn input_schema(&self) -> Value {
