@@ -248,68 +248,11 @@ async fn list_feature_sets_returns_space_contents() {
     assert_eq!(sets.len(), 3, "Default + 2 custom expected");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn describe_workspace_reports_default_resolution() {
-    // With no bindings and no reported roots, the resolver falls through
-    // to the Default tier and returns the space's auto-seeded
-    // `fs_default_<space>` FS. `describe_workspace` surfaces this in its
-    // `resolution` block (the field used to live on a separate
-    // `describe_resolution` tool that we collapsed into this one).
-    let f = Fixture::new().await;
-    let result = f
-        .registry
-        .call(
-            "mcpmux_describe_workspace",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({}),
-        )
-        .await
-        .unwrap();
-    let body = Fixture::result_json(&result);
-    let resolution = body.get("resolution").unwrap();
-    assert_eq!(
-        resolution.get("source").unwrap().as_str().unwrap(),
-        "default"
-    );
-    let fs_id = resolution.get("feature_set_id").unwrap().as_str().unwrap();
-    assert!(
-        fs_id.starts_with("fs_default_"),
-        "default tier should surface the Default FS, got {fs_id}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn describe_workspace_reports_reported_roots() {
-    let f = Fixture::new().await;
-    let path = if cfg!(windows) {
-        "d:\\android\\myapp"
-    } else {
-        "/android/myapp"
-    };
-    f.session_roots.set(&f.session_id, [path]);
-
-    let result = f
-        .registry
-        .call(
-            "mcpmux_describe_workspace",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({}),
-        )
-        .await
-        .unwrap();
-    let body = Fixture::result_json(&result);
-    let roots = body.get("reported_roots").unwrap().as_array().unwrap();
-    assert_eq!(roots.len(), 1);
-    assert!(body.get("matched_binding").unwrap().is_null());
-    // Resolution still reports the default tier — no binding matched.
-    let resolution = body.get("resolution").unwrap();
-    assert_eq!(
-        resolution.get("source").unwrap().as_str().unwrap(),
-        "default"
-    );
-}
+// `describe_resolution` and `describe_workspace` were both removed at the
+// user's request — the read surface is now just `list_all_tools` and
+// `list_feature_sets`. Behavior previously asserted here is covered by
+// `FeatureSetResolverService`'s own tests in
+// `tests/rust/tests/integration/feature_set_resolver.rs`.
 
 // ---------------------------------------------------------------------------
 // Writes — gated by ApprovalBroker
@@ -490,18 +433,18 @@ async fn registry_advertises_every_default_tool_with_annotations() {
     for expected in [
         "mcpmux_list_all_tools",
         "mcpmux_list_feature_sets",
-        "mcpmux_describe_workspace",
         "mcpmux_create_feature_set",
         "mcpmux_bind_current_workspace",
     ] {
         assert!(names.iter().any(|n| n == expected), "missing {expected}");
     }
-    // describe_resolution was collapsed into describe_workspace — the
-    // registry must NOT advertise it any more.
-    assert!(
-        !names.iter().any(|n| n == "mcpmux_describe_resolution"),
-        "describe_resolution should be removed; got {names:?}"
-    );
+    // Both describe_* tools were removed — they must NOT be advertised.
+    for removed in ["mcpmux_describe_resolution", "mcpmux_describe_workspace"] {
+        assert!(
+            !names.iter().any(|n| n == removed),
+            "{removed} should be removed; got {names:?}"
+        );
+    }
     // Writes carry the destructive_hint annotation.
     let bind = tools
         .iter()
@@ -577,12 +520,7 @@ async fn read_tool_emits_meta_tool_invoked_with_decision_read() {
     let (registry, client_id, _tx, mut rx) = bare_registry(None).await;
 
     registry
-        .call(
-            "mcpmux_describe_workspace",
-            &client_id,
-            Some("s"),
-            json!({}),
-        )
+        .call("mcpmux_list_all_tools", &client_id, Some("s"), json!({}))
         .await
         .unwrap();
 
@@ -596,7 +534,7 @@ async fn read_tool_emits_meta_tool_invoked_with_decision_read() {
             decision,
             ..
         } => {
-            assert_eq!(tool_name, "mcpmux_describe_workspace");
+            assert_eq!(tool_name, "mcpmux_list_all_tools");
             assert_eq!(decision, "read");
         }
         other => panic!("unexpected event: {other:?}"),
