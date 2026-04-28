@@ -153,20 +153,20 @@ async fn test_ensure_builtin_for_space() {
     let space = fixtures::test_space("Test Space");
     SpaceRepository::create(&space_repo, &space).await.unwrap();
 
-    // Ensure builtin (only Default; All/ServerAll were removed)
+    // Ensure builtin (only the auto-Starter; All/ServerAll were removed)
     FeatureSetRepository::ensure_builtin_for_space(&feature_repo, &space.id.to_string())
         .await
         .expect("Failed to ensure builtin");
 
-    // Get Default feature set
-    let default_set =
-        FeatureSetRepository::get_default_for_space(&feature_repo, &space.id.to_string())
+    // Get Starter feature set
+    let starter_set =
+        FeatureSetRepository::get_starter_for_space(&feature_repo, &space.id.to_string())
             .await
-            .expect("Failed to get Default");
-    assert!(default_set.is_some());
+            .expect("Failed to get Starter");
+    assert!(starter_set.is_some());
     assert_eq!(
-        default_set.unwrap().feature_set_type,
-        FeatureSetType::Default
+        starter_set.unwrap().feature_set_type,
+        FeatureSetType::Starter
     );
 }
 
@@ -191,11 +191,11 @@ async fn test_ensure_builtin_idempotent() {
     let by_space = FeatureSetRepository::list_by_space(&feature_repo, &space.id.to_string())
         .await
         .expect("Failed to list by space");
-    let default_count = by_space
+    let starter_count = by_space
         .iter()
-        .filter(|fs| matches!(fs.feature_set_type, FeatureSetType::Default))
+        .filter(|fs| matches!(fs.feature_set_type, FeatureSetType::Starter))
         .count();
-    assert_eq!(default_count, 1, "exactly one Default FS per space");
+    assert_eq!(starter_count, 1, "exactly one Starter FS per space");
 }
 
 // =============================================================================
@@ -368,20 +368,22 @@ async fn test_feature_set_types() {
     let space = fixtures::test_space("Test Space");
     SpaceRepository::create(&space_repo, &space).await.unwrap();
 
-    // Space creation auto-seeds the Default FS; add a Custom one by hand.
+    // Space creation auto-seeds the Starter FS; add a Custom one by hand.
     let custom = fixtures::test_feature_set("Custom", &space.id.to_string());
 
     FeatureSetRepository::create(&feature_repo, &custom)
         .await
         .unwrap();
 
-    let default_id = format!("fs_default_{}", space.id);
+    // Stable id prefix kept for FK compatibility — `fs_default_<space>`
+    // remains the row id even after the type rename.
+    let starter_id = format!("fs_default_{}", space.id);
 
-    let default_loaded = FeatureSetRepository::get(&feature_repo, &default_id)
+    let starter_loaded = FeatureSetRepository::get(&feature_repo, &starter_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(default_loaded.feature_set_type, FeatureSetType::Default);
+    assert_eq!(starter_loaded.feature_set_type, FeatureSetType::Starter);
 
     let custom_loaded = FeatureSetRepository::get(&feature_repo, &custom.id)
         .await

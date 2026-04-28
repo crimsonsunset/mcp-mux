@@ -18,6 +18,8 @@ import {
   Trash2,
   FolderOpen,
   Check,
+  Globe,
+  ShieldOff,
 } from 'lucide-react';
 import { ConnectIDEs } from '@/components/ConnectIDEs';
 import type { GatewayStatus, OAuthClient } from '@/lib/api/gateway';
@@ -26,7 +28,15 @@ import {
   listOAuthClients,
   updateOAuthClient,
   deleteOAuthClient,
+  getOAuthClientGrants,
+  grantOAuthClientFeatureSet,
+  revokeOAuthClientFeatureSet,
 } from '@/lib/api/gateway';
+import {
+  isStarterFeatureSet,
+  listFeatureSetsBySpace,
+  type FeatureSet,
+} from '@/lib/api/featureSets';
 import {
   Card,
   CardContent,
@@ -36,6 +46,7 @@ import {
   useConfirm,
 } from '@mcpmux/ui';
 import {
+  useDefaultSpace,
   useNavigateTo,
   usePendingClientId,
   useSetPendingClientId,
@@ -117,6 +128,7 @@ export default function ClientsPage() {
   const pendingClientId = usePendingClientId();
   const setPendingClientId = useSetPendingClientId();
   const navigateTo = useNavigateTo();
+  const defaultSpace = useDefaultSpace();
 
   const loadClients = async () => {
     setIsLoading(true);
@@ -363,11 +375,10 @@ export default function ClientsPage() {
                           />
                           Last seen {formatLastSeen(client.last_seen)}
                         </span>
-                        {client.software_version && (
-                          <span className="px-2 py-0.5 bg-[rgb(var(--surface))] rounded-full">
-                            v{client.software_version}
-                          </span>
-                        )}
+                        <CapabilityBadge
+                          reportsRoots={client.reports_roots}
+                          rootsCapabilityKnown={client.roots_capability_known}
+                        />
                       </div>
                     </CardContent>
                   </Card>
@@ -389,6 +400,7 @@ export default function ClientsPage() {
             editAlias={editAlias}
             setEditAlias={setEditAlias}
             isSaving={isSaving}
+            defaultSpaceId={defaultSpace?.id ?? null}
             onClose={() => setSelected(null)}
             onSaveAlias={handleSaveAlias}
             onRevoke={() => handleRevoke(selected)}
@@ -396,6 +408,8 @@ export default function ClientsPage() {
               setSelected(null);
               navigateTo('workspaces');
             }}
+            onToastError={showError}
+            onToastSuccess={success}
           />
         </>
       )}
@@ -414,6 +428,57 @@ function lastSeenDotColor(lastSeen: string | null, now: number): string {
   return 'bg-gray-400';
 }
 
+/**
+ * Tri-state capability chip: shows nothing until the gateway has actually
+ * observed this client's `initialize` (so a brand-new client doesn't
+ * misleadingly look "Rootless" before we know which it is). Once we've
+ * processed at least one session the chip resolves to:
+ *  - **Reports workspace** (green) — the client declared MCP `roots`,
+ *    routing flows through Workspace bindings, per-client grants are a
+ *    rare-case fallback only.
+ *  - **Rootless** (amber) — the client explicitly does NOT declare the
+ *    `roots` capability (Claude.ai web, ChatGPT connectors, …); the
+ *    per-client grant list below is the routing source.
+ *
+ * Sticky-positive: once a client has been seen reporting roots we keep
+ * the green badge across reconnects so a one-off rootless session doesn't
+ * flip the UI to amber.
+ */
+function CapabilityBadge({
+  reportsRoots,
+  rootsCapabilityKnown,
+}: {
+  reportsRoots: boolean;
+  rootsCapabilityKnown: boolean;
+}) {
+  if (!rootsCapabilityKnown) {
+    // Unknown — hide the badge entirely. Returning null keeps adjacent
+    // layout stable (the panel header + the grants section both render
+    // their own context, so we don't need a placeholder).
+    return null;
+  }
+  if (reportsRoots) {
+    return (
+      <span
+        title="This client declares the MCP roots capability. Its sessions route via Workspace bindings; the per-client grant list below applies only to rare rootless reconnects."
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+      >
+        <FolderOpen className="h-3 w-3" />
+        Reports workspace
+      </span>
+    );
+  }
+  return (
+    <span
+      title="This client does NOT declare the MCP roots capability. It always routes via the per-client grants set in this panel — configure them below."
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+    >
+      <Globe className="h-3 w-3" />
+      Rootless
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Side panel
 // ---------------------------------------------------------------------------
@@ -423,10 +488,13 @@ interface SidePanelProps {
   editAlias: string;
   setEditAlias: (v: string) => void;
   isSaving: boolean;
+  defaultSpaceId: string | null;
   onClose: () => void;
   onSaveAlias: () => void;
   onRevoke: () => void;
   onOpenWorkspaces: () => void;
+  onToastError: (title: string, body?: string) => void;
+  onToastSuccess: (title: string, body?: string) => void;
 }
 
 function SidePanel({
@@ -434,10 +502,13 @@ function SidePanel({
   editAlias,
   setEditAlias,
   isSaving,
+  defaultSpaceId,
   onClose,
   onSaveAlias,
   onRevoke,
   onOpenWorkspaces,
+  onToastError,
+  onToastSuccess,
 }: SidePanelProps) {
   const aliasDirty = (client.client_alias || '') !== editAlias;
 
@@ -456,9 +527,15 @@ function SidePanel({
               <h2 className="text-lg font-bold truncate">
                 {client.client_alias || client.client_name}
               </h2>
-              <p className="text-xs text-[rgb(var(--muted))] truncate">
-                {client.client_alias ? client.client_name : client.client_id}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs text-[rgb(var(--muted))] truncate flex-1 min-w-0">
+                  {client.client_alias ? client.client_name : client.client_id}
+                </p>
+                <CapabilityBadge
+                  reportsRoots={client.reports_roots}
+                  rootsCapabilityKnown={client.roots_capability_known}
+                />
+              </div>
             </div>
           </div>
           <button
@@ -512,7 +589,6 @@ function SidePanel({
               <p className="text-xs text-[rgb(var(--muted))] mt-1">
                 When this client reports a folder as an MCP root, mcpmux uses the
                 matching Workspace binding to pick the Space and FeatureSet.
-                Nothing is configured per-client anymore.
               </p>
               <button
                 onClick={onOpenWorkspaces}
@@ -523,6 +599,24 @@ function SidePanel({
             </div>
           </div>
         </section>
+
+        {/* Per-client grants only matter for clients that explicitly do
+            NOT declare the MCP `roots` capability — Claude.ai web,
+            ChatGPT connectors, and similar rootless connectors. For
+            roots-capable clients (Cursor, VS Code, Claude Desktop)
+            routing flows through Workspace bindings and these grants
+            never apply, so the section is just chrome. For clients
+            we haven't observed yet, the capability is unknown and the
+            section would have no audience either way — defer it until
+            the first `initialize` reveals the answer. */}
+        {client.roots_capability_known && !client.reports_roots && (
+          <RootlessGrantsSection
+            clientId={client.client_id}
+            defaultSpaceId={defaultSpaceId}
+            onError={onToastError}
+            onSuccess={onToastSuccess}
+          />
+        )}
 
         <section>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[rgb(var(--muted))] mb-2">
@@ -563,6 +657,275 @@ function SidePanel({
         </Button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rootless-fallback FeatureSet grants
+//
+// Edits the `client_grants` table. Only consulted by the resolver when the
+// client did NOT declare the MCP `roots` capability — i.e. Claude.ai web,
+// ChatGPT, and similar connectors that don't surface a workspace folder.
+// Roots-capable desktop clients (Cursor, VS Code, Claude Desktop) ignore
+// these grants entirely; their routing comes from Workspace bindings.
+//
+// We render this section unconditionally rather than hiding it for
+// roots-capable clients: capability detection only happens at session time,
+// so a client we've classified as "reports workspace" today might tomorrow
+// open a rootless session (e.g. CLI subcommand). Surfacing the grant
+// editor + a clear "only used when…" note is more honest than hiding it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the per-client FS grant editor. The parent decides whether to
+ * mount this — only mounted for clients that have explicitly declared
+ * they do NOT support the MCP `roots` capability. Roots-capable and
+ * unknown-capability clients don't see this section at all.
+ */
+function RootlessGrantsSection({
+  clientId,
+  defaultSpaceId,
+  onError,
+  onSuccess,
+}: {
+  clientId: string;
+  defaultSpaceId: string | null;
+  onError: (title: string, body?: string) => void;
+  onSuccess: (title: string, body?: string) => void;
+}) {
+  const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
+  const [grantedIds, setGrantedIds] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pendingFsId, setPendingFsId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  // Filter the FS list by search query (name + description, case-
+  // insensitive). Always show currently-granted FSes even if they don't
+  // match the query — otherwise the operator could "lose" a granted FS
+  // they're trying to revoke. A small "+ N granted" hint surfaces them
+  // so the omission is visible.
+  const filteredFs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return featureSets;
+    return featureSets.filter((f) => {
+      if (grantedIds.includes(f.id)) return true;
+      if (f.name.toLowerCase().includes(q)) return true;
+      if (f.description?.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [featureSets, search, grantedIds]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!defaultSpaceId) {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    Promise.all([
+      listFeatureSetsBySpace(defaultSpaceId),
+      getOAuthClientGrants(clientId, defaultSpaceId),
+    ])
+      .then(([fs, grants]) => {
+        if (cancelled) return;
+        setFeatureSets(fs);
+        setGrantedIds(grants);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        onError(
+          'Failed to load grants',
+          e instanceof Error ? e.message : String(e)
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, defaultSpaceId]);
+
+  const toggle = async (fs: FeatureSet) => {
+    if (!defaultSpaceId) return;
+    const isGranted = grantedIds.includes(fs.id);
+    setPendingFsId(fs.id);
+    // Optimistic update — gateway emits ClientGrantChanged + we'll re-sync
+    // via the `oauth-client-changed` listener at the parent level.
+    setGrantedIds((prev) =>
+      isGranted ? prev.filter((id) => id !== fs.id) : [...prev, fs.id]
+    );
+    try {
+      if (isGranted) {
+        await revokeOAuthClientFeatureSet(clientId, defaultSpaceId, fs.id);
+        onSuccess(`Revoked "${fs.name}"`);
+      } else {
+        await grantOAuthClientFeatureSet(clientId, defaultSpaceId, fs.id);
+        onSuccess(`Granted "${fs.name}"`);
+      }
+    } catch (e) {
+      // Roll back the optimistic update on failure.
+      setGrantedIds((prev) =>
+        isGranted ? [...prev, fs.id] : prev.filter((id) => id !== fs.id)
+      );
+      onError(
+        isGranted ? 'Failed to revoke grant' : 'Failed to grant',
+        e instanceof Error ? e.message : String(e)
+      );
+    } finally {
+      setPendingFsId(null);
+    }
+  };
+
+  return (
+    <section>
+      <div className="flex items-start gap-2 mb-2">
+        <div className="flex-1">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[rgb(var(--muted))]">
+            Default for rootless sessions
+          </h3>
+        </div>
+        <span
+          className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-[rgb(var(--accent))] bg-[rgb(var(--accent))]/10 px-2 py-0.5 rounded-full"
+          title="Used only when this client connects without reporting a workspace folder"
+        >
+          <Globe className="h-3 w-3" />
+          Rootless only
+        </span>
+      </div>
+      <p className="text-xs text-[rgb(var(--muted))] mb-3 leading-relaxed">
+        This client doesn&apos;t declare the MCP{' '}
+        <code className="px-1 rounded bg-[rgb(var(--surface))] text-[10px]">
+          roots
+        </code>{' '}
+        capability, so its sessions route through the FeatureSets you
+        pick here instead of through Workspace bindings. Leaving the
+        list empty denies the client — rootless sessions then see only
+        the built-in
+        <code className="px-1 mx-1 rounded bg-[rgb(var(--surface))] text-[10px]">
+          mcpmux_*
+        </code>
+        management tools.
+      </p>
+
+      {!defaultSpaceId ? (
+        <p className="text-xs text-[rgb(var(--muted))] italic">
+          No default Space configured.
+        </p>
+      ) : isLoading ? (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-[rgb(var(--muted))]" />
+        </div>
+      ) : featureSets.length === 0 ? (
+        <p className="text-xs text-[rgb(var(--muted))] italic">
+          No FeatureSets exist in the default Space yet.
+        </p>
+      ) : (
+        // Bordered container, search at the top, scrollable body — same
+        // shape as the Workspaces binding picker so the two screens feel
+        // consistent. Always-on search since even small lists benefit
+        // from typeahead, and it caps height growth as the FS count
+        // grows past the visible area.
+        <div
+          className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))]"
+          data-testid="rootless-grants-list"
+        >
+          <div className="p-2 border-b border-[rgb(var(--border-subtle))]">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[rgb(var(--muted))]" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={`Search ${featureSets.length} feature set${featureSets.length === 1 ? '' : 's'}…`}
+                className="w-full pl-7 pr-2.5 py-1.5 text-xs bg-[rgb(var(--surface))] border border-[rgb(var(--border-subtle))] rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                data-testid="rootless-grants-search"
+              />
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1.5 space-y-1">
+            {filteredFs.length === 0 ? (
+              <p className="text-xs text-[rgb(var(--muted))] italic px-2 py-3 text-center">
+                No feature sets match &ldquo;{search}&rdquo;.
+              </p>
+            ) : (
+              filteredFs.map((fs) => {
+                const isGranted = grantedIds.includes(fs.id);
+                const isPending = pendingFsId === fs.id;
+                return (
+                  <button
+                    key={fs.id}
+                    onClick={() => toggle(fs)}
+                    disabled={isPending}
+                    className={[
+                      'w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-left text-sm transition-colors',
+                      isGranted
+                        ? 'bg-primary-500/10 hover:bg-primary-500/15'
+                        : 'hover:bg-[rgb(var(--surface-hover))]',
+                      isPending ? 'opacity-60 cursor-wait' : 'cursor-pointer',
+                    ].join(' ')}
+                    data-testid={`grant-toggle-${fs.id}`}
+                  >
+                    <div
+                      className={[
+                        'h-4 w-4 rounded border flex items-center justify-center flex-shrink-0',
+                        isGranted
+                          ? 'bg-primary-500 border-primary-500'
+                          : 'border-[rgb(var(--border-strong))] bg-[rgb(var(--surface))]',
+                      ].join(' ')}
+                    >
+                      {isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin text-white" />
+                      ) : isGranted ? (
+                        <Check className="h-3 w-3 text-white" strokeWidth={3} />
+                      ) : null}
+                    </div>
+                    <span className="flex-shrink-0 text-base leading-none">
+                      {fs.icon ?? '📦'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{fs.name}</p>
+                      {fs.description && (
+                        <p className="text-[11px] text-[rgb(var(--muted))] truncate">
+                          {fs.description}
+                        </p>
+                      )}
+                    </div>
+                    {isStarterFeatureSet(fs) && (
+                      <span
+                        className="text-[9px] uppercase tracking-wide text-[rgb(var(--muted))] bg-[rgb(var(--surface))] px-1 py-0.5 rounded flex-shrink-0"
+                        title="Auto-seeded with this Space."
+                      >
+                        starter
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {search && filteredFs.length > 0 && filteredFs.length < featureSets.length && (
+            <div className="px-3 py-1.5 text-[11px] text-[rgb(var(--muted))] border-t border-[rgb(var(--border-subtle))]">
+              {filteredFs.length} of {featureSets.length} shown
+              {grantedIds.some((id) => !filteredFs.find((f) => f.id === id)) &&
+                ' (granted FSes always visible)'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {grantedIds.length === 0 && featureSets.length > 0 && !isLoading && (
+        <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))]">
+          <ShieldOff className="h-4 w-4 text-[rgb(var(--muted))] mt-0.5 flex-shrink-0" />
+          <p className="text-[11px] text-[rgb(var(--muted))]">
+            No defaults set — rootless sessions from this client are denied.
+            That&apos;s the safe default. Pick a FeatureSet above only if
+            you trust this client to operate without a workspace folder.
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 

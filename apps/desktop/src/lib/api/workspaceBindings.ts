@@ -1,26 +1,31 @@
 import { invoke } from '@tauri-apps/api/core';
 
 /**
- * A WorkspaceBinding maps one normalized filesystem path to a concrete
- * (Space, FeatureSet) pair. When an MCP session reports a root that matches
- * a binding (longest-prefix wins), the resolver hands back the binding's
- * `space_id` + `feature_set_id` directly — no "follow active" indirection.
+ * A WorkspaceBinding maps one normalized filesystem path to one or more
+ * FeatureSets within a Space. When an MCP session reports a root that
+ * matches a binding (longest-prefix wins), the resolver hands back the
+ * binding's `space_id` and the union of `feature_set_ids` — multiple FSes
+ * compose into a single allow set, no "follow active" indirection.
  */
 export interface WorkspaceBinding {
   id: string;
   workspace_root: string;
   space_id: string;
-  /** FeatureSet ids are strings (builtins use `fs_default_<space>`, customs use UUIDs). */
-  feature_set_id: string;
+  /**
+   * Non-empty by construction. Order is the operator-chosen rendering
+   * order; the resolver treats the list as a set. FeatureSet ids are
+   * strings (builtins use `fs_default_<space>`, customs use UUIDs).
+   */
+  feature_set_ids: string[];
   created_at: string;
   updated_at: string;
 }
 
-/** Input payload for create / update. */
+/** Input payload for create / update. `feature_set_ids` must be non-empty. */
 export interface WorkspaceBindingInput {
   workspace_root: string;
   space_id: string;
-  feature_set_id: string;
+  feature_set_ids: string[];
 }
 
 /** List every binding (sorted by workspace_root). */
@@ -87,7 +92,7 @@ export function toInput(b: WorkspaceBinding): WorkspaceBindingInput {
   return {
     workspace_root: b.workspace_root,
     space_id: b.space_id,
-    feature_set_id: b.feature_set_id,
+    feature_set_ids: b.feature_set_ids,
   };
 }
 
@@ -133,16 +138,22 @@ export interface ServerFeatureTotals {
   resources: number;
 }
 
+/** One FeatureSet contributing to the resolved view. */
+export interface EffectiveFeatureSetSummary {
+  id: string;
+  name: string;
+  feature_set_type: 'starter' | 'default' | 'custom';
+}
+
 export interface WorkspaceEffectiveFeatures {
   workspace_root: string;
-  /** `binding` when a saved WorkspaceBinding matched; `fallback` for the default Space's Default FS. */
-  source: 'binding' | 'fallback';
+  /** `binding` when a saved WorkspaceBinding matched; `unbound` when no binding matched — the `feature_sets` field previews the default Space's Default FS but a live session here would be denied. */
+  source: 'binding' | 'unbound';
   binding_id: string | null;
   space_id: string;
   space_name: string;
-  feature_set_id: string;
-  feature_set_name: string;
-  feature_set_type: 'default' | 'custom';
+  /** All FeatureSets contributing to the resolved view, in operator-chosen order. ≥ 1. */
+  feature_sets: EffectiveFeatureSetSummary[];
   tools: EffectiveFeature[];
   prompts: EffectiveFeature[];
   resources: EffectiveFeature[];

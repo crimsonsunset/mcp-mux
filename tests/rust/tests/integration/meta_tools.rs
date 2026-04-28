@@ -21,8 +21,9 @@ use mcpmux_gateway::services::{
     FeatureSetResolverService, MetaToolRegistry, PrefixCacheService, SessionRootsRegistry,
 };
 use mcpmux_storage::{
-    Database, SqliteFeatureSetRepository, SqliteInboundMcpClientRepository,
-    SqliteServerFeatureRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
+    Database, InboundClientRepository, SqliteFeatureSetRepository,
+    SqliteInboundMcpClientRepository, SqliteServerFeatureRepository, SqliteSpaceRepository,
+    SqliteWorkspaceBindingRepository,
 };
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex};
@@ -94,11 +95,12 @@ impl Fixture {
         let session_roots = SessionRootsRegistry::new();
         let session_id = "sess-meta".to_string();
 
+        let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
         let resolver = Arc::new(FeatureSetResolverService::new(
             space_repo.clone(),
             binding_repo.clone(),
-            feature_set_repo.clone(),
             session_roots.clone(),
+            inbound_client_repo.clone(),
         ));
 
         let prefix_cache = Arc::new(PrefixCacheService::new());
@@ -395,7 +397,10 @@ async fn bind_current_workspace_creates_binding_with_normalized_root() {
     assert!(!stored.ends_with('/') && !stored.ends_with('\\'));
     // Binding points at the concrete FS we passed in.
     assert_eq!(bindings[0].space_id, f.space_id);
-    assert_eq!(bindings[0].feature_set_id, f.fs_android_id.to_string());
+    assert_eq!(
+        bindings[0].feature_set_ids,
+        vec![f.fs_android_id.to_string()]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -486,11 +491,12 @@ async fn bare_registry(
     let client_id = client.id.to_string();
     client_repo.create(&client).await.unwrap();
 
+    let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
     let resolver = Arc::new(FeatureSetResolverService::new(
         space_repo.clone(),
         binding_repo.clone(),
-        feature_set_repo.clone(),
         SessionRootsRegistry::new(),
+        inbound_client_repo.clone(),
     ));
     let prefix_cache = Arc::new(PrefixCacheService::new());
     let feature_service = Arc::new(FeatureService::new(
@@ -597,11 +603,12 @@ async fn master_switch_toggles_registry_visibility() {
         Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
     let server_feature_repo: Arc<dyn ServerFeatureRepository> =
         Arc::new(SqliteServerFeatureRepository::new(db.clone()));
+    let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
     let resolver = Arc::new(FeatureSetResolverService::new(
         space_repo.clone(),
         binding_repo.clone(),
-        feature_set_repo.clone(),
         SessionRootsRegistry::new(),
+        inbound_client_repo.clone(),
     ));
     let prefix_cache = Arc::new(PrefixCacheService::new());
     let feature_service = Arc::new(FeatureService::new(

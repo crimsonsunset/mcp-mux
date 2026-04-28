@@ -400,7 +400,7 @@ impl FeatureSetRepository for MockFeatureSetRepository {
         Ok(())
     }
 
-    async fn get_default_for_space(&self, space_id: &str) -> RepoResult<Option<FeatureSet>> {
+    async fn get_starter_for_space(&self, space_id: &str) -> RepoResult<Option<FeatureSet>> {
         Ok(self
             .sets
             .read()
@@ -408,14 +408,14 @@ impl FeatureSetRepository for MockFeatureSetRepository {
             .values()
             .find(|s| {
                 s.space_id.as_deref() == Some(space_id)
-                    && s.feature_set_type == FeatureSetType::Default
+                    && s.feature_set_type == FeatureSetType::Starter
             })
             .cloned())
     }
 
     async fn ensure_builtin_for_space(&self, space_id: &str) -> RepoResult<()> {
-        if self.get_default_for_space(space_id).await?.is_none() {
-            self.create(&FeatureSet::new_default(space_id)).await?;
+        if self.get_starter_for_space(space_id).await?.is_none() {
+            self.create(&FeatureSet::new_starter(space_id)).await?;
         }
         Ok(())
     }

@@ -157,13 +157,16 @@ pub trait FeatureSetRepository: Send + Sync {
     /// Delete a feature set (soft delete)
     async fn delete(&self, id: &str) -> RepoResult<()>;
 
-    /// Get the "Default" featureset for a space
-    async fn get_default_for_space(&self, space_id: &str) -> RepoResult<Option<FeatureSet>>;
+    /// Get the auto-seeded "Starter" FeatureSet for a Space, if it
+    /// exists. Routing-irrelevant under resolver v3 — UI helpers use it
+    /// to suggest a default selection in the binding/grant pickers.
+    async fn get_starter_for_space(&self, space_id: &str) -> RepoResult<Option<FeatureSet>>;
 
-    /// Ensure the built-in Default feature set exists for a space.
+    /// Ensure the auto-seeded Starter FeatureSet exists for a Space.
     ///
-    /// Called during Space creation and any time the resolver falls back and
-    /// cannot find a Default to route to (defensive re-seed).
+    /// Called during Space creation and any time a defensive re-seed is
+    /// needed (Workspace inspector references the Starter as a "preview"
+    /// for unbound roots and would crash with `None`).
     async fn ensure_builtin_for_space(&self, space_id: &str) -> RepoResult<()>;
 
     /// Add an individual feature as a member of a feature set

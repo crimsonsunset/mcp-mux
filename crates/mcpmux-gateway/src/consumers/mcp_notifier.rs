@@ -26,29 +26,40 @@ use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
 use crate::pool::FeatureService;
-use crate::services::SpaceResolverService;
+use crate::services::{FeatureSetResolverService, SpaceResolverService};
 
-/// MCP Notifier - Sends list_changed notifications to connected MCP clients
+/// MCP Notifier — sends `list_changed` notifications to connected sessions.
 ///
-/// **Smart Consumer Pattern:**
-/// - Subscribes to DomainEvents from the EventBus
-/// - Tracks connected peers by client_id for notification delivery
-/// - Resolves client spaces dynamically at notification time (handles follow_active mode)
-/// - Dispatches list_changed notifications only to affected clients
-/// - Interprets events based on MCP notification context
-/// - **Content-Based Deduping**: Hashes feature lists to prevent redundant notifications
-/// - **Throttles notifications** to prevent infinite loops from rapid backend changes
+/// **Session-keyed registry.** A single OAuth client (Cursor, Claude
+/// Desktop) can hold multiple concurrent MCP sessions, and each session
+/// can resolve to a *different* (Space, FeatureSet) via WorkspaceBinding
+/// — two VS Code windows on different folders are the canonical case.
+/// Indexing by `mcp-session-id` lets us notify the right session(s)
+/// without over-notifying the others, and matches the request-side
+/// routing model (resolver consults session_id, not client_id).
 ///
-/// **Peer Registry:**
-/// - Registers peers when clients initialize (used by session manager)
-/// - Unregisters peers when sessions close
+/// **Fanout uses the same resolver as the request handlers.** When an
+/// event implies "FS X may have changed for any session resolving to it",
+/// we re-run the resolver per session and notify the ones whose resolved
+/// FS list contains X (or whose resolved space matches, depending on the
+/// trigger). This is what closes the "FS edit doesn't reflect until
+/// reconnect" loophole.
+///
+/// **Other duties (unchanged):**
+/// - Listens to DomainEvents from the EventBus.
+/// - Throttles per (space_id, notification_type) to prevent flapping.
+/// - Hashes feature lists to dedupe spurious notifications.
 #[derive(Clone)]
 pub struct MCPNotifier {
-    /// Map: client_id -> peer handle
-    /// Clients are tracked by client_id, not by space (space is resolved per-request)
-    client_peers: Arc<RwLock<HashMap<String, PeerHandle>>>,
-    /// Space resolver for determining which space a client is currently in
+    /// Map: `mcp-session-id` → session handle.
+    sessions: Arc<RwLock<HashMap<String, SessionEntry>>>,
+    /// Space resolver for the legacy client-→home-space query (kept for
+    /// callers that don't have a session id; the new fanout paths use
+    /// `feature_set_resolver` instead).
     space_resolver: Arc<SpaceResolverService>,
+    /// FeatureSet resolver — same one the request handlers use. Consulted
+    /// per session to decide whether a notification applies.
+    feature_set_resolver: Arc<FeatureSetResolverService>,
     /// Feature service for calculating content hashes
     feature_service: Arc<FeatureService>,
     /// Throttle tracker: (space_id, notification_type) -> last_sent_timestamp
@@ -76,19 +87,25 @@ enum NotificationType {
 /// prevents rapid state oscillation (flapping).
 const THROTTLE_WINDOW: Duration = Duration::from_secs(1);
 
-/// Wrapper around Peer for storage
+/// One registered MCP session — the gateway's view of a single live
+/// `mcp-session-id`. The peer is what we push notifications to; the
+/// `client_id` is kept for per-client fanout (e.g. on grant change).
 #[derive(Clone)]
-struct PeerHandle {
+struct SessionEntry {
     peer: Arc<Peer<RoleServer>>,
-    /// Whether this peer has an active SSE stream (can receive notifications)
+    client_id: String,
+    /// True once the SSE stream for this session is open and notifications
+    /// will actually deliver. Sessions register on `initialize`; the
+    /// stream-active flag flips when the gateway opens the SSE side.
     has_active_stream: bool,
 }
 
-impl PeerHandle {
-    fn new(peer: Arc<Peer<RoleServer>>) -> Self {
+impl SessionEntry {
+    fn new(client_id: String, peer: Arc<Peer<RoleServer>>) -> Self {
         Self {
             peer,
-            has_active_stream: false, // Initially false until stream is created
+            client_id,
+            has_active_stream: false,
         }
     }
 }
@@ -96,11 +113,13 @@ impl PeerHandle {
 impl MCPNotifier {
     pub fn new(
         space_resolver: Arc<SpaceResolverService>,
+        feature_set_resolver: Arc<FeatureSetResolverService>,
         feature_service: Arc<FeatureService>,
     ) -> Self {
         Self {
-            client_peers: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(HashMap::new())),
             space_resolver,
+            feature_set_resolver,
             feature_service,
             throttle_tracker: Arc::new(RwLock::new(HashMap::new())),
             state_hashes: Arc::new(RwLock::new(HashMap::new())),
@@ -139,28 +158,32 @@ impl MCPNotifier {
         hasher.finish()
     }
 
-    /// Register a peer for a client
+    /// Register a session for notification delivery.
     ///
-    /// Called when a client initializes. Tracks by client_id (not space_id) because
-    /// space resolution is dynamic (follow_active mode can change active space).
+    /// Called from `on_initialized` once per `mcp-session-id`. The same
+    /// client may register multiple sessions concurrently (two VS Code
+    /// windows on different folders share one OAuth `client_id`); the
+    /// session-keyed map keeps them independent.
     ///
-    /// Handles both initial connection and resume/reconnect scenarios.
-    ///
-    /// **Note**: Peer starts with `has_active_stream = false`. Call `mark_client_stream_active()`
-    /// after the client creates an SSE stream to enable notifications.
-    pub fn register_peer(&self, client_id: String, peer: Arc<Peer<RoleServer>>) {
-        let handle = PeerHandle::new(peer);
-        let mut peers = self.client_peers.write();
-
-        // Replace any existing peer for this client (handles reconnect/resume)
-        let is_reconnect = peers.contains_key(&client_id);
-        peers.insert(client_id.clone(), handle);
-
+    /// **Note**: starts with `has_active_stream = false`. Call
+    /// [`mark_session_stream_active`](Self::mark_session_stream_active)
+    /// after the SSE stream opens.
+    pub fn register_session(
+        &self,
+        session_id: String,
+        client_id: String,
+        peer: Arc<Peer<RoleServer>>,
+    ) {
+        let entry = SessionEntry::new(client_id.clone(), peer);
+        let mut sessions = self.sessions.write();
+        let is_reconnect = sessions.contains_key(&session_id);
+        sessions.insert(session_id.clone(), entry);
         info!(
-            client_id = %client_id,
-            is_reconnect = is_reconnect,
-            total_peers = peers.len(),
-            "[MCPNotifier] 📡 Registered peer for client (stream not yet active)"
+            %session_id,
+            %client_id,
+            is_reconnect,
+            total_sessions = sessions.len(),
+            "[MCPNotifier] 📡 Registered session (stream not yet active)"
         );
     }
 
@@ -173,19 +196,19 @@ impl MCPNotifier {
     /// spurious "first notification" issues. Without this, the first `list_changed`
     /// event would always be forwarded (no hash to compare against), potentially
     /// causing client reconnection loops.
-    pub fn mark_client_stream_active(&self, client_id: &str) {
-        let mut peers = self.client_peers.write();
-
-        if let Some(handle) = peers.get_mut(client_id) {
-            handle.has_active_stream = true;
+    pub fn mark_session_stream_active(&self, session_id: &str) {
+        let mut sessions = self.sessions.write();
+        if let Some(entry) = sessions.get_mut(session_id) {
+            entry.has_active_stream = true;
             info!(
-                client_id = %client_id,
-                "[MCPNotifier] ✅ Client stream is now active (notifications enabled)"
+                %session_id,
+                client_id = %entry.client_id,
+                "[MCPNotifier] ✅ Session stream is now active (notifications enabled)"
             );
         } else {
             warn!(
-                client_id = %client_id,
-                "[MCPNotifier] ⚠️ Attempted to mark stream active for unknown peer"
+                %session_id,
+                "[MCPNotifier] ⚠️ Attempted to mark stream active for unknown session"
             );
         }
     }
@@ -228,22 +251,22 @@ impl MCPNotifier {
         );
     }
 
-    /// Unregister a peer
+    /// Unregister a session.
     ///
-    /// Called when a client disconnects or session closes
-    pub fn unregister_peer(&self, client_id: &str) {
-        let mut peers = self.client_peers.write();
-
-        if peers.remove(client_id).is_some() {
+    /// Called when a client disconnects or the session closes.
+    pub fn unregister_session(&self, session_id: &str) {
+        let mut sessions = self.sessions.write();
+        if let Some(removed) = sessions.remove(session_id) {
             info!(
-                client_id = %client_id,
-                remaining_peers = peers.len(),
-                "[MCPNotifier] 📴 Unregistered peer"
+                %session_id,
+                client_id = %removed.client_id,
+                remaining_sessions = sessions.len(),
+                "[MCPNotifier] 📴 Unregistered session"
             );
         } else {
             warn!(
-                client_id = %client_id,
-                "[MCPNotifier] ⚠️ Attempted to unregister unknown peer"
+                %session_id,
+                "[MCPNotifier] ⚠️ Attempted to unregister unknown session"
             );
         }
     }
@@ -299,52 +322,55 @@ impl MCPNotifier {
         tracker.insert((space_id, NotificationType::All), timestamp);
     }
 
-    /// Get all peers for a specific space (resolves client spaces at notification time)
+    /// Get every peer whose **session** currently routes into `space_id`.
     ///
-    /// **Key Feature**: Resolves space dynamically for each client, handling:
-    /// - follow_active mode (clients see active space changes)
-    /// - locked mode (clients stay in their locked space)
-    /// - Space changes without reconnection
+    /// Iterates the session registry and re-runs the FeatureSet resolver
+    /// per session — same logic the request handlers use, so a session
+    /// redirected by `WorkspaceBinding` to a non-default space is matched
+    /// correctly. Sessions whose stream isn't active yet are skipped (the
+    /// notification would be queued but not delivered).
     async fn get_peers_for_space(&self, space_id: Uuid) -> Vec<Arc<Peer<RoleServer>>> {
-        // Clone the client list to avoid holding lock across await
-        let client_list: Vec<(String, Arc<Peer<RoleServer>>)> = {
-            let peers = self.client_peers.read();
-            peers
+        let session_list: Vec<(String, String, Arc<Peer<RoleServer>>)> = {
+            let sessions = self.sessions.read();
+            sessions
                 .iter()
-                .map(|(client_id, handle)| (client_id.clone(), handle.peer.clone()))
+                .filter(|(_, e)| e.has_active_stream)
+                .map(|(sid, entry)| (sid.clone(), entry.client_id.clone(), entry.peer.clone()))
                 .collect()
         };
 
         let mut matching_peers = Vec::new();
-
-        for (client_id, peer) in client_list {
-            // Resolve current space for this client
+        let _space_resolver = &self.space_resolver; // kept-but-unused; resolver below is authoritative
+        for (session_id, client_id, peer) in session_list {
             match self
-                .space_resolver
-                .resolve_space_for_client(&client_id)
+                .feature_set_resolver
+                .resolve(Some(&session_id), Some(&client_id))
                 .await
             {
-                Ok(client_space) if client_space == space_id => {
+                Ok(resolved) if resolved.space_id == Some(space_id) => {
                     debug!(
-                        client_id = %client_id,
-                        space_id = %space_id,
-                        "[MCPNotifier] Client is in target space"
+                        %session_id,
+                        %client_id,
+                        %space_id,
+                        "[MCPNotifier] Session resolves to target space"
                     );
                     matching_peers.push(peer);
                 }
-                Ok(other_space) => {
+                Ok(resolved) => {
                     debug!(
-                        client_id = %client_id,
-                        client_space = %other_space,
-                        target_space = %space_id,
-                        "[MCPNotifier] Client is in different space, skipping"
+                        %session_id,
+                        %client_id,
+                        resolved_space = ?resolved.space_id,
+                        %space_id,
+                        "[MCPNotifier] Session is in a different space, skipping"
                     );
                 }
                 Err(e) => {
                     warn!(
-                        client_id = %client_id,
+                        %session_id,
+                        %client_id,
                         error = %e,
-                        "[MCPNotifier] ⚠️ Failed to resolve space for client"
+                        "[MCPNotifier] ⚠️ Failed to resolve space for session"
                     );
                 }
             }
@@ -413,6 +439,23 @@ impl MCPNotifier {
                     "[MCPNotifier] 📨 FeatureSetMembersChanged - notifying all clients in space"
                 );
                 self.notify_all_list_changed(space_id, true).await;
+            }
+
+            // Per-client grant changed — only the rootless-fallback path
+            // consumes these grants, so we only need to notify peers
+            // registered under this client_id. Bypass the space-wide fanout
+            // (which would over-notify roots-capable peers in the space
+            // whose resolution didn't change).
+            DomainEvent::ClientGrantChanged {
+                client_id,
+                space_id,
+            } => {
+                info!(
+                    %client_id,
+                    %space_id,
+                    "[MCPNotifier] 📨 ClientGrantChanged - notifying peer for this client"
+                );
+                self.notify_peer_lists_changed(&client_id).await;
             }
 
             // A workspace binding was created / updated / deleted. Every
@@ -749,64 +792,59 @@ impl MCPNotifier {
         }
     }
 
-    /// Get peers for a space that have active SSE streams (for notifications)
+    /// Get peers for a space that have active SSE streams.
     ///
-    /// Returns both the peers and their client_ids (for logging)
+    /// Session-keyed: iterates `sessions`, re-runs the FeatureSet resolver
+    /// per session (same path as the request handlers), and returns the
+    /// peers whose session resolves into `space_id`. The second tuple
+    /// element is `client_id`s of those sessions, kept for log clarity.
     async fn get_peers_for_space_with_streams(
         &self,
         space_id: Uuid,
     ) -> (Vec<Arc<Peer<RoleServer>>>, Vec<String>) {
-        // Clone the client list to avoid holding lock across await
-        let client_list: Vec<(String, PeerHandle)> = {
-            let peers = self.client_peers.read();
-            peers
+        let session_list: Vec<(String, String, Arc<Peer<RoleServer>>)> = {
+            let sessions = self.sessions.read();
+            sessions
                 .iter()
-                .map(|(client_id, handle)| (client_id.clone(), handle.clone()))
+                .filter(|(_, e)| e.has_active_stream)
+                .map(|(sid, entry)| (sid.clone(), entry.client_id.clone(), entry.peer.clone()))
                 .collect()
         };
 
         let mut matching_peers = Vec::new();
         let mut matching_client_ids = Vec::new();
 
-        for (client_id, handle) in client_list {
-            // Skip peers without active streams
-            if !handle.has_active_stream {
-                debug!(
-                    client_id = %client_id,
-                    space_id = %space_id,
-                    "[MCPNotifier] Skipping peer without active stream"
-                );
-                continue;
-            }
-
-            // Resolve current space for this client
+        for (session_id, client_id, peer) in session_list {
             match self
-                .space_resolver
-                .resolve_space_for_client(&client_id)
+                .feature_set_resolver
+                .resolve(Some(&session_id), Some(&client_id))
                 .await
             {
-                Ok(client_space) if client_space == space_id => {
+                Ok(resolved) if resolved.space_id == Some(space_id) => {
                     debug!(
-                        client_id = %client_id,
-                        space_id = %space_id,
-                        "[MCPNotifier] Client is in target space with active stream"
+                        %session_id,
+                        %client_id,
+                        %space_id,
+                        "[MCPNotifier] Session in target space with active stream"
                     );
-                    matching_peers.push(handle.peer.clone());
+                    matching_peers.push(peer);
                     matching_client_ids.push(client_id);
                 }
-                Ok(other_space) => {
+                Ok(resolved) => {
                     debug!(
-                        client_id = %client_id,
-                        client_space = %other_space,
+                        %session_id,
+                        %client_id,
+                        resolved_space = ?resolved.space_id,
                         target_space = %space_id,
-                        "[MCPNotifier] Client is in different space, skipping"
+                        "[MCPNotifier] Session in different space, skipping"
                     );
                 }
                 Err(e) => {
                     warn!(
-                        client_id = %client_id,
+                        %session_id,
+                        %client_id,
                         error = %e,
-                        "[MCPNotifier] ⚠️ Failed to resolve space for client"
+                        "[MCPNotifier] ⚠️ Failed to resolve space for session"
                     );
                 }
             }
@@ -953,28 +991,43 @@ impl MCPNotifier {
             return;
         }
 
-        let peer = {
-            let peers = self.client_peers.read();
-            peers
-                .get(client_id)
-                .filter(|h| h.has_active_stream)
-                .map(|h| h.peer.clone())
+        // A single client may hold several active sessions (multi-window
+        // editors, parallel CLI invocations). Push the notification on
+        // every active session for that client_id; client-side dedup is
+        // their problem, but missing a session would be ours.
+        let peers: Vec<Arc<Peer<RoleServer>>> = {
+            let sessions = self.sessions.read();
+            sessions
+                .iter()
+                .filter(|(_, e)| e.client_id == client_id && e.has_active_stream)
+                .map(|(_, e)| e.peer.clone())
+                .collect()
         };
-        let Some(peer) = peer else {
-            debug!(%client_id, "[MCPNotifier] no active peer — skipping peer list_changed");
+
+        if peers.is_empty() {
+            debug!(
+                %client_id,
+                "[MCPNotifier] no active session — skipping peer list_changed"
+            );
             return;
-        };
-
-        info!(%client_id, "[MCPNotifier] 📤 per-peer list_changed (resolution flipped)");
-
-        if let Err(e) = peer.notify_tool_list_changed().await {
-            warn!(error = ?e, %client_id, "[MCPNotifier] failed tools/list_changed");
         }
-        if let Err(e) = peer.notify_prompt_list_changed().await {
-            warn!(error = ?e, %client_id, "[MCPNotifier] failed prompts/list_changed");
-        }
-        if let Err(e) = peer.notify_resource_list_changed().await {
-            warn!(error = ?e, %client_id, "[MCPNotifier] failed resources/list_changed");
+
+        info!(
+            %client_id,
+            session_count = peers.len(),
+            "[MCPNotifier] 📤 per-client list_changed (resolution flipped or grant edited)"
+        );
+
+        for peer in &peers {
+            if let Err(e) = peer.notify_tool_list_changed().await {
+                warn!(error = ?e, %client_id, "[MCPNotifier] failed tools/list_changed");
+            }
+            if let Err(e) = peer.notify_prompt_list_changed().await {
+                warn!(error = ?e, %client_id, "[MCPNotifier] failed prompts/list_changed");
+            }
+            if let Err(e) = peer.notify_resource_list_changed().await {
+                warn!(error = ?e, %client_id, "[MCPNotifier] failed resources/list_changed");
+            }
         }
     }
 }

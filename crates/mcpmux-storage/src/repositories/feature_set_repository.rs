@@ -298,16 +298,21 @@ impl FeatureSetRepository for SqliteFeatureSetRepository {
         Ok(())
     }
 
-    async fn get_default_for_space(&self, space_id: &str) -> Result<Option<FeatureSet>> {
+    async fn get_starter_for_space(&self, space_id: &str) -> Result<Option<FeatureSet>> {
         let db = self.db.lock().await;
         let conn = db.connection();
 
+        // Match on `'starter' OR 'default'` so a freshly-migrated DB and a
+        // pre-013 read both resolve correctly; migration 013 itself
+        // rewrites stored rows so the legacy alias is dead weight quickly.
         let result = conn
             .query_row(
                 "SELECT id, name, description, icon, space_id, feature_set_type,
                         server_id, is_builtin, is_deleted, created_at, updated_at
                  FROM feature_sets
-                 WHERE space_id = ? AND feature_set_type = 'default' AND is_deleted = 0",
+                 WHERE space_id = ?
+                   AND feature_set_type IN ('starter', 'default')
+                   AND is_deleted = 0",
                 params![space_id],
                 Self::row_to_feature_set,
             )
@@ -317,9 +322,9 @@ impl FeatureSetRepository for SqliteFeatureSetRepository {
     }
 
     async fn ensure_builtin_for_space(&self, space_id: &str) -> Result<()> {
-        if self.get_default_for_space(space_id).await?.is_none() {
-            let default = FeatureSet::new_default(space_id);
-            self.create(&default).await?;
+        if self.get_starter_for_space(space_id).await?.is_none() {
+            let starter = FeatureSet::new_starter(space_id);
+            self.create(&starter).await?;
         }
         Ok(())
     }
@@ -426,22 +431,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_default_feature_set_seeded_for_default_space() {
+    async fn test_starter_feature_set_seeded_for_default_space() {
         let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
         let repo = SqliteFeatureSetRepository::new(db);
 
-        // Migration 001 seeds the Default FS for the migration-created
-        // default space; later migrations preserve it. Confirm it's
-        // present and blocked from deletion (builtins aren't user-deletable).
-        let default = repo
-            .get_default_for_space(DEFAULT_SPACE_ID)
+        // Migration 001 seeds the auto-Starter FS for the migration-
+        // created default Space; migration 013 renames its type from
+        // 'default' to 'starter'. Confirm it's present and blocked from
+        // deletion (builtins aren't user-deletable).
+        let starter = repo
+            .get_starter_for_space(DEFAULT_SPACE_ID)
             .await
             .unwrap()
-            .expect("Default FS should exist for the default space");
-        assert_eq!(default.feature_set_type, FeatureSetType::Default);
+            .expect("Starter FS should exist for the default space");
+        assert_eq!(starter.feature_set_type, FeatureSetType::Starter);
 
-        let result = repo.delete(&default.id).await;
-        assert!(result.is_err(), "builtin Default FS must not be deletable");
+        let result = repo.delete(&starter.id).await;
+        assert!(result.is_err(), "builtin Starter FS must not be deletable");
     }
 
     #[tokio::test]
@@ -457,10 +463,10 @@ mod tests {
             .unwrap();
 
         let by_space = repo.list_by_space(DEFAULT_SPACE_ID).await.unwrap();
-        let defaults = by_space
+        let starters = by_space
             .iter()
-            .filter(|f| matches!(f.feature_set_type, FeatureSetType::Default))
+            .filter(|f| matches!(f.feature_set_type, FeatureSetType::Starter))
             .count();
-        assert_eq!(defaults, 1);
+        assert_eq!(starters, 1);
     }
 }

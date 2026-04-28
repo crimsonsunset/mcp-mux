@@ -73,6 +73,36 @@ const MIGRATIONS: &[Migration] = &[
         name: "canonical_default_space",
         sql: include_str!("migrations/008_canonical_default_space.sql"),
     },
+    Migration {
+        version: 9,
+        name: "restore_client_grants",
+        sql: include_str!("migrations/009_restore_client_grants.sql"),
+    },
+    Migration {
+        version: 10,
+        name: "inbound_client_reports_roots",
+        sql: include_str!("migrations/010_inbound_client_reports_roots.sql"),
+    },
+    Migration {
+        version: 11,
+        name: "inbound_client_roots_capability_known",
+        sql: include_str!("migrations/011_inbound_client_roots_capability_known.sql"),
+    },
+    Migration {
+        version: 12,
+        name: "workspace_binding_feature_sets",
+        sql: include_str!("migrations/012_workspace_binding_feature_sets.sql"),
+    },
+    Migration {
+        version: 13,
+        name: "rename_default_to_starter",
+        sql: include_str!("migrations/013_rename_default_to_starter.sql"),
+    },
+    Migration {
+        version: 14,
+        name: "rewrite_starter_seed_copy",
+        sql: include_str!("migrations/014_rewrite_starter_seed_copy.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

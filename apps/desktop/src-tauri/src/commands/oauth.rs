@@ -692,6 +692,8 @@ pub async fn get_oauth_clients(
             metadata_cache_ttl: client.metadata_cache_ttl,
             last_seen: client.last_seen,
             created_at: client.created_at,
+            reports_roots: client.reports_roots,
+            roots_capability_known: client.roots_capability_known,
         })
         .collect();
 
@@ -762,6 +764,20 @@ pub struct OAuthClientInfo {
 
     pub last_seen: Option<String>,
     pub created_at: String,
+
+    /// Sticky-positive bit: `true` once any session of this client
+    /// declared the MCP `roots` capability. Meaningful only when
+    /// `roots_capability_known` is `true` — for a brand-new client we
+    /// haven't seen `initialize` for yet, this defaults to `false` but
+    /// the UI must hide the "Rootless" badge instead of trusting it.
+    pub reports_roots: bool,
+
+    /// `true` once we've processed at least one `notifications/initialized`
+    /// for this client. Until then, the UI treats the capability as
+    /// unknown (no badge). Once known, the badge resolves to either
+    /// "Reports workspace" (`reports_roots = true`) or "Rootless"
+    /// (`reports_roots = false`).
+    pub roots_capability_known: bool,
 }
 
 /// Request to update client settings.
@@ -825,6 +841,8 @@ pub async fn update_oauth_client(
         metadata_cache_ttl: updated_client.metadata_cache_ttl,
         last_seen: updated_client.last_seen,
         created_at: updated_client.created_at,
+        reports_roots: updated_client.reports_roots,
+        roots_capability_known: updated_client.roots_capability_known,
     })
 }
 
@@ -971,4 +989,109 @@ pub async fn open_url(url: String) -> Result<(), String> {
         info!("[OAuth] URL opened successfully");
         Ok(())
     }
+}
+
+// ============================================================================
+// Client grants — rootless OAuth-client fallback path.
+//
+// Roots-capable sessions ignore these grants; the resolver routes them via
+// `WorkspaceBinding`. These commands target the older `client_grants` table
+// (restored in migration 009) and back the per-client FS toggles in the
+// Clients UI. Each write is funnelled through `GrantService` so a
+// `ClientGrantChanged` domain event fires + MCPNotifier pushes
+// `list_changed` to that client's open peers.
+// ============================================================================
+
+/// Read the FeatureSet ids granted to a (client, space) pair.
+///
+/// Returns an empty Vec when nothing is granted — the UI renders the
+/// "no defaults configured" state in that case. The default-FS layering
+/// from older revisions is *not* applied here: the resolver itself decides
+/// what an unconfigured grant means (deny when rootless), and the UI shows
+/// the literal grant set so the user can see exactly what they configured.
+#[tauri::command]
+pub async fn get_oauth_client_grants(
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+    client_id: String,
+    space_id: String,
+) -> Result<Vec<String>, String> {
+    let gw_state = gateway_state.read().await;
+    let Some(ref grant_service) = gw_state.grant_service else {
+        return Err("Gateway not running".to_string());
+    };
+    grant_service
+        .get_grants_for_space(&client_id, &space_id)
+        .await
+        .map_err(|e| format!("Failed to get grants: {}", e))
+}
+
+/// Grant a feature set to an OAuth client in a specific space.
+/// Idempotent at the DB layer; always emits `ClientGrantChanged`.
+#[tauri::command]
+pub async fn grant_oauth_client_feature_set(
+    app_handle: tauri::AppHandle,
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+    client_id: String,
+    space_id: String,
+    feature_set_id: String,
+) -> Result<(), String> {
+    info!(
+        "[OAuth] grant_oauth_client_feature_set: client_id={}, space_id={}, feature_set_id={}",
+        client_id, space_id, feature_set_id
+    );
+
+    let gw_state = gateway_state.read().await;
+    let Some(ref grant_service) = gw_state.grant_service else {
+        error!("[OAuth] Grant service unavailable (gateway not running)");
+        return Err("Gateway not running".to_string());
+    };
+
+    grant_service
+        .grant_feature_set(&client_id, &space_id, &feature_set_id)
+        .await
+        .map_err(|e| format!("Failed to grant feature set: {}", e))?;
+
+    if let Err(e) = app_handle.emit(
+        "oauth-client-changed",
+        serde_json::json!({
+            "action": "grants_updated",
+            "client_id": client_id,
+        }),
+    ) {
+        error!("[OAuth] Failed to emit oauth-client-changed event: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Revoke a feature set from an OAuth client in a specific space.
+#[tauri::command]
+pub async fn revoke_oauth_client_feature_set(
+    app_handle: tauri::AppHandle,
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+    client_id: String,
+    space_id: String,
+    feature_set_id: String,
+) -> Result<(), String> {
+    let gw_state = gateway_state.read().await;
+    let Some(ref grant_service) = gw_state.grant_service else {
+        return Err("Gateway not running".to_string());
+    };
+
+    grant_service
+        .revoke_feature_set(&client_id, &space_id, &feature_set_id)
+        .await
+        .map_err(|e| format!("Failed to revoke feature set: {}", e))?;
+
+    if let Err(e) = app_handle.emit(
+        "oauth-client-changed",
+        serde_json::json!({
+            "action": "grants_updated",
+            "client_id": client_id,
+        }),
+    ) {
+        error!("[OAuth] Failed to emit oauth-client-changed event: {}", e);
+    }
+
+    Ok(())
 }

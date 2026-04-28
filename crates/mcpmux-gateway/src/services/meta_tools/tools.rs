@@ -49,7 +49,11 @@ fn text_result(v: Value) -> CallToolResult {
 /// workspace B just because both sit under the same default-Space-flagged
 /// row in the DB.
 async fn caller_space_id(call: &MetaToolCall<'_>) -> Result<Uuid, MetaToolError> {
-    let resolved = call.ctx.resolver.resolve(call.session_id).await?;
+    let resolved = call
+        .ctx
+        .resolver
+        .resolve(call.session_id, Some(call.client_id))
+        .await?;
     if let Some(space_id) = resolved.space_id {
         return Ok(space_id);
     }

@@ -25,6 +25,16 @@ pub struct SessionRootsRegistry {
     /// We compare each fresh resolution to this snapshot; a different value
     /// means the client's effective tools changed and we must notify it.
     last_resolution: DashMap<String, Option<String>>,
+    /// `session_id -> declared MCP `roots` capability` (true when the peer's
+    /// `initialize.params.capabilities.roots` was non-empty).
+    ///
+    /// Stamped during `on_initialized` regardless of whether roots have
+    /// arrived yet. The resolver reads this to decide between
+    /// `WorkspaceBinding` routing (capable) and the rootless `client_grants`
+    /// fallback (not capable). Absence here means we never saw an
+    /// `initialize` for that session — treated as "unknown" by the resolver
+    /// and routed via grants.
+    roots_capable: DashMap<String, bool>,
 }
 
 impl SessionRootsRegistry {
@@ -32,7 +42,21 @@ impl SessionRootsRegistry {
         Arc::new(Self {
             map: DashMap::new(),
             last_resolution: DashMap::new(),
+            roots_capable: DashMap::new(),
         })
+    }
+
+    /// Record whether a session declared the MCP `roots` capability on
+    /// `initialize`. Idempotent — called once per session lifecycle.
+    pub fn set_roots_capable(&self, session_id: impl Into<String>, capable: bool) {
+        self.roots_capable.insert(session_id.into(), capable);
+    }
+
+    /// `Some(true)` when the session declared `roots`, `Some(false)` when it
+    /// explicitly didn't, `None` when no `initialize` has been observed
+    /// (callers without a session id, or pre-init requests).
+    pub fn is_roots_capable(&self, session_id: &str) -> Option<bool> {
+        self.roots_capable.get(session_id).map(|v| *v)
     }
 
     /// Store the reported roots for a session. `roots` should already be
@@ -59,6 +83,7 @@ impl SessionRootsRegistry {
     pub fn remove(&self, session_id: &str) {
         self.map.remove(session_id);
         self.last_resolution.remove(session_id);
+        self.roots_capable.remove(session_id);
     }
 
     /// Compare-and-set the session's resolved feature-set id. Returns `true`

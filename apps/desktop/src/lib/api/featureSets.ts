@@ -6,7 +6,25 @@ import { invoke } from '@tauri-apps/api/core';
  * - `default`: auto-created per Space. Fallback when no WorkspaceBinding matches.
  * - `custom`: user-defined.
  */
-export type FeatureSetType = 'default' | 'custom';
+/**
+ * `starter` is the auto-seeded FS that comes with each Space. It has no
+ * special routing role under resolver v3 — bindings and per-client grants
+ * pick FeatureSets explicitly. The legacy `'default'` value is accepted on
+ * read because migration 013 rewrites stored rows lazily and a stale fetch
+ * could still surface it; new writes use `'starter'`.
+ */
+export type FeatureSetType = 'starter' | 'default' | 'custom';
+
+/**
+ * Is this FeatureSet the auto-seeded "Starter" for its Space? Returns
+ * `true` for both the new `'starter'` value and the legacy `'default'`
+ * — migration 013 rewrites rows in-place but a stale read could still
+ * surface the old value. Use this everywhere instead of comparing the
+ * type literal directly so the transition window is invisible to UI.
+ */
+export function isStarterFeatureSet(fs: { feature_set_type: FeatureSetType }): boolean {
+  return fs.feature_set_type === 'starter' || fs.feature_set_type === 'default';
+}
 
 /**
  * Member type in a feature set.

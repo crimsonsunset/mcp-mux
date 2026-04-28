@@ -947,6 +947,10 @@ pub fn run() {
             commands::update_oauth_client,
             commands::delete_oauth_client,
             commands::open_url,
+            // Per-client grants for the rootless fallback path
+            commands::get_oauth_client_grants,
+            commands::grant_oauth_client_feature_set,
+            commands::revoke_oauth_client_feature_set,
             // Server Manager commands (event-driven v2)
             commands::get_server_statuses,
             commands::enable_server_v2,

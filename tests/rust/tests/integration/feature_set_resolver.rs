@@ -1,12 +1,15 @@
-//! Decision-table tests for the FeatureSet resolver.
+//! Decision-table tests for the FeatureSet resolver (capability-branched v3).
 //!
-//! Post-simplification the resolver has exactly two outcomes:
-//!
-//!   1. **WorkspaceBinding** — session reports roots AND a binding matches.
-//!      Both `space_id` and `feature_set_id` are pulled directly from the
-//!      binding row — no "active FS" indirection.
-//!   2. **Default** — no roots / no match. Returns the default Space's
-//!      auto-seeded `fs_default_<space>` FeatureSet.
+//! Outcomes:
+//!   1. **WorkspaceBinding** — session reported roots AND a binding matched
+//!      one of them. `space_id` + `feature_set_ids[0]` come from the binding.
+//!   2. **PendingRoots** — session declared MCP `roots` capability but the
+//!      list hasn't arrived yet. Empty FS list; resolver fires
+//!      `list_changed` later when roots populate.
+//!   3. **ClientGrant** — rootless-by-design client. Per-client grants
+//!      from the `client_grants` table apply.
+//!   4. **Deny** — every other case (roots reported but no binding; no
+//!      session id and no grants; etc.). Empty FS list.
 
 use std::sync::Arc;
 
@@ -16,7 +19,8 @@ use mcpmux_core::{
 };
 use mcpmux_gateway::services::{FeatureSetResolverService, ResolutionSource, SessionRootsRegistry};
 use mcpmux_storage::{
-    Database, SqliteFeatureSetRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
+    Database, InboundClient, InboundClientRepository, RegistrationType, SqliteFeatureSetRepository,
+    SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -25,8 +29,8 @@ struct Fixture {
     resolver: FeatureSetResolverService,
     session_roots: Arc<SessionRootsRegistry>,
     binding_repo: Arc<dyn WorkspaceBindingRepository>,
+    client_repo: Arc<InboundClientRepository>,
     space_id: Uuid,
-    default_fs_id: String,
     fs_a_id: String,
     fs_b_id: String,
 }
@@ -39,17 +43,10 @@ impl Fixture {
             Arc::new(SqliteFeatureSetRepository::new(db.clone()));
         let binding_repo: Arc<dyn WorkspaceBindingRepository> =
             Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
+        let client_repo = Arc::new(InboundClientRepository::new(db.clone()));
 
         let default_space = space_repo.get_default().await.unwrap().unwrap();
         let space_id = default_space.id;
-
-        // Migration seeds exactly one builtin per space: Default.
-        let default_fs_id = fs_repo
-            .get_default_for_space(&space_id.to_string())
-            .await
-            .unwrap()
-            .expect("Default FS seeded by migration")
-            .id;
 
         let a = FeatureSet::new_custom("A", space_id.to_string());
         let b = FeatureSet::new_custom("B", space_id.to_string());
@@ -62,19 +59,50 @@ impl Fixture {
         let resolver = FeatureSetResolverService::new(
             space_repo.clone(),
             binding_repo.clone(),
-            fs_repo.clone(),
             session_roots.clone(),
+            client_repo.clone(),
         );
 
         Self {
             resolver,
             session_roots,
             binding_repo,
+            client_repo,
             space_id,
-            default_fs_id,
             fs_a_id,
             fs_b_id,
         }
+    }
+
+    /// Insert an inbound client row so we can attach grants to it (the
+    /// `client_grants` FK requires the row to exist).
+    async fn make_client(&self, client_id: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        let c = InboundClient {
+            client_id: client_id.to_string(),
+            registration_type: RegistrationType::Dcr,
+            client_name: "test-client".to_string(),
+            client_alias: None,
+            redirect_uris: vec!["http://localhost/cb".to_string()],
+            grant_types: vec!["authorization_code".to_string()],
+            response_types: vec!["code".to_string()],
+            token_endpoint_auth_method: "none".to_string(),
+            scope: None,
+            approved: true,
+            logo_uri: None,
+            client_uri: None,
+            software_id: None,
+            software_version: None,
+            metadata_url: None,
+            metadata_cached_at: None,
+            metadata_cache_ttl: None,
+            last_seen: None,
+            created_at: now.clone(),
+            updated_at: now,
+            reports_roots: false,
+            roots_capability_known: false,
+        };
+        self.client_repo.save_client(&c).await.unwrap();
     }
 }
 
@@ -87,38 +115,56 @@ fn test_root() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// Tier 2: Default fallback
+// Deny tier
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn default_when_no_session_id() {
+async fn deny_when_no_session_id_and_no_grants() {
     let f = Fixture::new().await;
-    let r = f.resolver.resolve(None).await.unwrap();
-    assert_eq!(r.source, ResolutionSource::Default);
+    let r = f.resolver.resolve(None, None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::Deny);
+    assert!(r.feature_set_ids.is_empty());
     assert_eq!(r.space_id, Some(f.space_id));
-    assert_eq!(r.feature_set_id, Some(f.default_fs_id));
 }
 
 #[tokio::test]
-async fn default_when_session_has_no_roots() {
+async fn deny_when_session_has_no_roots_and_not_capable() {
+    // Default capability state is "unknown" (None). The resolver treats
+    // missing capability info as rootless, so this falls through to Tier 2
+    // (no client_id supplied → Deny).
     let f = Fixture::new().await;
-    let r = f.resolver.resolve(Some("orphan")).await.unwrap();
-    assert_eq!(r.source, ResolutionSource::Default);
-    assert_eq!(r.feature_set_id, Some(f.default_fs_id));
+    let r = f.resolver.resolve(Some("orphan"), None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::Deny);
 }
 
 #[tokio::test]
-async fn default_when_no_binding_matches_reported_root() {
+async fn deny_when_roots_reported_but_no_binding_matches() {
     let f = Fixture::new().await;
     let other = if cfg!(windows) { "d:\\tmp" } else { "/tmp" };
     f.session_roots.set("sess", [other]);
-    let r = f.resolver.resolve(Some("sess")).await.unwrap();
-    assert_eq!(r.source, ResolutionSource::Default);
-    assert_eq!(r.feature_set_id, Some(f.default_fs_id));
+    let r = f.resolver.resolve(Some("sess"), None).await.unwrap();
+    // Roots present but no binding → upstream emits WorkspaceNeedsBinding;
+    // resolver itself reports Deny (no FS to apply).
+    assert_eq!(r.source, ResolutionSource::Deny);
+    assert!(r.feature_set_ids.is_empty());
 }
 
 // ---------------------------------------------------------------------------
-// Tier 1: WorkspaceBinding — concrete (space_id, feature_set_id) pointers
+// PendingRoots tier
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn pending_when_capable_but_roots_havent_arrived() {
+    let f = Fixture::new().await;
+    f.session_roots.set_roots_capable("sess", true);
+    // No roots set in the registry yet.
+    let r = f.resolver.resolve(Some("sess"), None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::PendingRoots);
+    assert!(r.feature_set_ids.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceBinding tier
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -131,11 +177,12 @@ async fn binding_routes_to_its_target_space_and_fs() {
     );
     f.binding_repo.create(&binding).await.unwrap();
     f.session_roots.set("s", [test_root()]);
+    f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s")).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(r.space_id, Some(f.space_id));
-    assert_eq!(r.feature_set_id, Some(f.fs_a_id));
+    assert_eq!(r.feature_set_ids, vec![f.fs_a_id]);
 }
 
 #[tokio::test]
@@ -169,8 +216,72 @@ async fn longest_prefix_wins_across_nested_bindings() {
         "/work/proj/src"
     };
     f.session_roots.set("s", [deep]);
+    f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s")).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
-    assert_eq!(r.feature_set_id, Some(f.fs_b_id));
+    assert_eq!(r.feature_set_ids, vec![f.fs_b_id]);
+}
+
+// ---------------------------------------------------------------------------
+// ClientGrant tier — rootless fallback
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn rootless_client_uses_grants() {
+    let f = Fixture::new().await;
+    let client_id = "rootless.example/client";
+    f.make_client(client_id).await;
+    f.client_repo
+        .grant_feature_set(client_id, &f.space_id.to_string(), &f.fs_a_id)
+        .await
+        .unwrap();
+
+    // Session declared no roots capability — Tier-2 grant lookup applies.
+    f.session_roots.set_roots_capable("s", false);
+    let r = f
+        .resolver
+        .resolve(Some("s"), Some(client_id))
+        .await
+        .unwrap();
+    assert_eq!(r.source, ResolutionSource::ClientGrant);
+    assert_eq!(r.feature_set_ids, vec![f.fs_a_id]);
+}
+
+#[tokio::test]
+async fn rootless_client_without_grants_denies() {
+    let f = Fixture::new().await;
+    let client_id = "rootless.example/no-grants";
+    f.make_client(client_id).await;
+    f.session_roots.set_roots_capable("s", false);
+    let r = f
+        .resolver
+        .resolve(Some("s"), Some(client_id))
+        .await
+        .unwrap();
+    assert_eq!(r.source, ResolutionSource::Deny);
+    assert!(r.feature_set_ids.is_empty());
+}
+
+#[tokio::test]
+async fn capable_session_does_not_fall_through_to_grants() {
+    // Critical: the leak we set out to fix. A roots-capable session whose
+    // roots haven't arrived yet must NOT pick up any client grants. It
+    // returns PendingRoots and only resolves once the roots actually land.
+    let f = Fixture::new().await;
+    let client_id = "permissive.example/client";
+    f.make_client(client_id).await;
+    f.client_repo
+        .grant_feature_set(client_id, &f.space_id.to_string(), &f.fs_a_id)
+        .await
+        .unwrap();
+
+    f.session_roots.set_roots_capable("s", true);
+    let r = f
+        .resolver
+        .resolve(Some("s"), Some(client_id))
+        .await
+        .unwrap();
+    assert_eq!(r.source, ResolutionSource::PendingRoots);
+    assert!(r.feature_set_ids.is_empty());
 }

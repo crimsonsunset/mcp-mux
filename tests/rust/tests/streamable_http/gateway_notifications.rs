@@ -143,6 +143,8 @@ impl TestGateway {
             last_seen: None,
             created_at: now.clone(),
             updated_at: now,
+            reports_roots: false,
+            roots_capability_known: false,
         };
         inbound_client_repo
             .save_client(&test_client)
@@ -197,6 +199,7 @@ impl TestGateway {
         // Create MCPNotifier
         let notifier = Arc::new(MCPNotifier::new(
             services.space_resolver_service.clone(),
+            services.feature_set_resolver.clone(),
             services.pool_services.feature_service.clone(),
         ));
 

@@ -27,6 +27,7 @@ import {
   createFeatureSet,
   deleteFeatureSet,
   getFeatureSetWithMembers,
+  isStarterFeatureSet,
 } from '@/lib/api/featureSets';
 import { useViewSpace } from '@/stores';
 import { FeatureSetPanel } from './FeatureSetPanel';
@@ -36,7 +37,8 @@ const getFeatureSetIcon = (fs: FeatureSet) => {
   if (fs.icon) return <span className="text-xl">{fs.icon}</span>;
 
   switch (fs.feature_set_type) {
-    case 'default':
+    case 'starter':
+    case 'default': // legacy alias — pre-migration-013 reads still parse here
       return <Star className="h-8 w-8 text-yellow-500" />;
     case 'custom':
     default:
@@ -44,11 +46,14 @@ const getFeatureSetIcon = (fs: FeatureSet) => {
   }
 };
 
-// Get display name for feature set type
+// Get display name for feature set type. The 'default' alias is kept on
+// the read path so a stale row from before migration 013 still renders
+// the right pill — migration 013 rewrites stored values to 'starter'.
 const getFeatureSetTypeName = (type: string) => {
   switch (type) {
+    case 'starter':
     case 'default':
-      return 'Default';
+      return 'Starter';
     case 'custom':
     default:
       return 'Custom';
@@ -178,8 +183,15 @@ export function FeatureSetsPage() {
       );
     })
     .sort((a, b) => {
-      // Default FS first (pinned to top), then Custom sets alphabetically
-      const order: Record<string, number> = { default: 0, custom: 1 };
+      // Starter FS first (pinned to top — operator usually wants the
+      // auto-seeded one near the top so they can edit / delete it
+      // first), then Custom sets alphabetically. The 'default' key is
+      // kept so a stale row read pre-migration still sorts correctly.
+      const order: Record<string, number> = {
+        starter: 0,
+        default: 0,
+        custom: 1,
+      };
       const aOrder = order[a.feature_set_type] ?? 1;
       const bOrder = order[b.feature_set_type] ?? 1;
       if (aOrder !== bOrder) return aOrder - bOrder;
@@ -300,7 +312,7 @@ export function FeatureSetsPage() {
               {filteredSets.map((fs) => {
                 const isSelected = selectedFeatureSet?.id === fs.id;
                 const isBuiltin = fs.is_builtin;
-                const isDefault = fs.feature_set_type === 'default';
+                const isStarter = isStarterFeatureSet(fs);
 
                 return (
                   <Card
@@ -308,21 +320,21 @@ export function FeatureSetsPage() {
                     className={`relative overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:scale-[1.01] ${
                       isSelected ? 'ring-2 ring-primary-500 shadow-lg' : ''
                     } ${
-                      isDefault
+                      isStarter
                         ? 'ring-1 ring-emerald-300 dark:ring-emerald-700/60 bg-gradient-to-br from-emerald-50/40 via-transparent to-transparent dark:from-emerald-900/15'
                         : ''
                     }`}
                     onClick={() => handleOpenPanel(fs)}
                     data-testid={`featureset-card-${fs.id}`}
                   >
-                    {isDefault && (
+                    {isStarter && (
                       <div
                         className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-green-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-[0_4px_12px_-2px_rgb(16_185_129/0.5)]"
-                        title="Auto-seeded fallback; applied when a reported workspace root has no binding"
-                        data-testid={`featureset-default-badge-${fs.id}`}
+                        title="Auto-seeded with this Space. Edit, rename, or delete freely — no special routing role; bindings and per-client grants pick FeatureSets explicitly."
+                        data-testid={`featureset-starter-badge-${fs.id}`}
                       >
                         <CheckCircle2 className="h-3 w-3" />
-                        Default
+                        Starter
                       </div>
                     )}
 

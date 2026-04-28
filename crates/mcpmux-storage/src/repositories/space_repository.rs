@@ -106,12 +106,14 @@ impl SpaceRepository for SqliteSpaceRepository {
             ],
         )?;
 
-        // Auto-create the builtin "Default" featureset for this space.
-        // It's the fallback FS when no WorkspaceBinding matches. No other
-        // builtin sets are seeded — user can create Custom sets as needed.
+        // Auto-seed the builtin "Starter" FeatureSet for this Space — a
+        // ready-to-use starting point. The id prefix `fs_default_<space>`
+        // is preserved for FK-stability across the rename (migration 013).
+        // No special routing role under resolver v3 — bindings and per-
+        // client grants pick FeatureSets explicitly.
         conn.execute(
             "INSERT OR IGNORE INTO feature_sets (id, name, description, icon, space_id, feature_set_type, is_builtin, created_at, updated_at)
-             VALUES (?1, 'Default', 'The fallback feature set for this space', '⭐', ?2, 'default', 1, ?3, ?3)",
+             VALUES (?1, 'Starter', 'Auto-created with this Space. Edit, rename, or delete freely — bindings and per-client grants pick FeatureSets explicitly, so this one has no special routing role.', '⭐', ?2, 'starter', 1, ?3, ?3)",
             params![
                 format!("fs_default_{}", space_id),
                 space_id,

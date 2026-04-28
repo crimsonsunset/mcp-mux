@@ -226,9 +226,11 @@ impl GatewayServer {
             base_url: self.config.base_url(),
         };
 
-        // Create MCP notifier (smart consumer for domain events with dynamic space resolution)
+        // Create MCP notifier (session-keyed fanout, consults the same
+        // FeatureSet resolver the request handlers use).
         let notification_bridge = Arc::new(MCPNotifier::new(
             self.services.space_resolver_service.clone(),
+            self.services.feature_set_resolver.clone(),
             self.services.pool_services.feature_service.clone(),
         ));
 

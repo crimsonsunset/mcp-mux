@@ -1,10 +1,18 @@
-//! WorkspaceBinding entity — maps a workspace root on disk to a concrete
-//! (Space, FeatureSet) pair.
+//! WorkspaceBinding entity — maps a workspace root on disk to one or more
+//! FeatureSets within a Space.
 //!
 //! Bindings are the only override surface for FS resolution:
 //!
-//!   workspace root matches a binding?  →  (binding.space_id, binding.feature_set_id)
-//!                                  else  →  (default Space, its seeded Default FS)
+//!   workspace root matches a binding?  →  (binding.space_id, binding.feature_set_ids)
+//!                                  else  →  deny (live session would hit
+//!                                                 PendingRoots / WorkspaceNeedsBinding)
+//!
+//! A binding may resolve to multiple FeatureSets — the resolver hands them
+//! all to `FeatureService::get_*_for_grants` which composes the union.
+//! This is what lets one folder layer e.g. `Read Only` + `Project-specific
+//! tools` without forcing the user to merge them into a single FS by hand.
+//! Empty `feature_set_ids` is rejected at validation time; storing one
+//! would be indistinguishable from "not bound" yet route via Tier 1.
 //!
 //! Path handling is **platform-agnostic**. A binding written on Windows
 //! (`d:\work\proj`) has to match correctly on a Linux host that's just
@@ -17,30 +25,46 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A binding between a normalized workspace root and a concrete
-/// (Space, FeatureSet) pair.
+/// A binding between a normalized workspace root and the FeatureSet(s) it
+/// resolves to. `feature_set_ids` is non-empty by construction — see
+/// [`WorkspaceBinding::new`] / `new_multi`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkspaceBinding {
     pub id: Uuid,
     pub workspace_root: String,
     pub space_id: Uuid,
-    pub feature_set_id: String,
+    /// Order matters for UI rendering only — the resolver treats them as
+    /// a set. Stored in the `workspace_binding_feature_sets` junction
+    /// table (one row per FS, `sort_order` from this Vec's index).
+    pub feature_set_ids: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl WorkspaceBinding {
+    /// Convenience for the common single-FS case.
     pub fn new(
         workspace_root: impl Into<String>,
         space_id: Uuid,
         feature_set_id: impl Into<String>,
+    ) -> Self {
+        Self::new_multi(workspace_root, space_id, vec![feature_set_id.into()])
+    }
+
+    /// Construct a binding with one or more FeatureSets. Caller must
+    /// guarantee `feature_set_ids` is non-empty; the storage layer rejects
+    /// empties with a validation error.
+    pub fn new_multi(
+        workspace_root: impl Into<String>,
+        space_id: Uuid,
+        feature_set_ids: Vec<String>,
     ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             workspace_root: workspace_root.into(),
             space_id,
-            feature_set_id: feature_set_id.into(),
+            feature_set_ids,
             created_at: now,
             updated_at: now,
         }

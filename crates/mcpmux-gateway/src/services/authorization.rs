@@ -1,10 +1,10 @@
 //! Authorization Service.
 //!
 //! Thin adapter over [`FeatureSetResolverService`]. Routing decisions are
-//! keyed purely on session (→ workspace root → binding); client_id is only
-//! used for approval (upstream of this service), never for routing. That's
-//! what fixes the "two VS Code windows share a pin" bug — a single client
-//! can have many sessions, each routing independently.
+//! keyed primarily on session (→ workspace root → binding); `client_id` is
+//! consulted only on the rootless Tier-2 fallback (`client_grants` lookup).
+//! Two VS Code windows sharing one OAuth identity still route independently
+//! because the binding path uses session-reported roots.
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -21,34 +21,34 @@ impl AuthorizationService {
         Self { resolver }
     }
 
-    /// Resolve the active FeatureSet for a session and return it as a
-    /// one-element Vec (or empty when resolution fully fails — no active
-    /// space + no "All" FS, a pathological setup).
+    /// Resolve the active FeatureSet ids for a session/client pair.
     ///
-    /// `session_id` is the client's `mcp-session-id` header. `client_id`
-    /// and `space_id` are ignored — they come from legacy call sites and
-    /// are not used by the new resolver.
+    /// Returns an empty Vec when resolution denies (no roots + no grants,
+    /// or roots reported but no binding matched). The MCP request handler
+    /// surfaces this as "no tools" plus its own `WorkspaceNeedsBinding`
+    /// nudge for bound-but-unbound roots.
     pub async fn get_client_grants(
         &self,
-        _client_id: &str,
+        client_id: &str,
         _space_id: &Uuid,
         session_id: Option<&str>,
     ) -> Result<Vec<String>> {
-        let resolved = self.resolver.resolve(session_id).await?;
-        Ok(resolved
-            .feature_set_id
-            .map(|fs| vec![fs])
-            .unwrap_or_default())
+        let resolved = self.resolver.resolve(session_id, Some(client_id)).await?;
+        Ok(resolved.feature_set_ids)
     }
 
-    /// Full resolution metadata — returns (Space, FS, source) so the MCP
-    /// handler can also filter on the resolved Space rather than the
+    /// Full resolution metadata — returns (Space, FS list, source) so the
+    /// MCP handler can also filter on the resolved Space rather than the
     /// caller-advertised one.
-    pub async fn resolve(&self, session_id: Option<&str>) -> Result<ResolvedFeatureSet> {
-        self.resolver.resolve(session_id).await
+    pub async fn resolve(
+        &self,
+        session_id: Option<&str>,
+        client_id: Option<&str>,
+    ) -> Result<ResolvedFeatureSet> {
+        self.resolver.resolve(session_id, client_id).await
     }
 
-    /// Does this session resolve to any FeatureSet?
+    /// Does this session/client resolve to any FeatureSet?
     pub async fn has_access(
         &self,
         client_id: &str,

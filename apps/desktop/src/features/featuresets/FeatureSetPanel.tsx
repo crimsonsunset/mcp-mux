@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { Button, useToast, ToastContainer, useConfirm } from '@mcpmux/ui';
 import type { FeatureSet, AddMemberInput } from '@/lib/api/featureSets';
-import { setFeatureSetMembers } from '@/lib/api/featureSets';
+import { isStarterFeatureSet, setFeatureSetMembers } from '@/lib/api/featureSets';
 import type { ServerFeature } from '@/lib/api/serverFeatures';
 import { listServerFeatures } from '@/lib/api/serverFeatures';
 
@@ -58,7 +58,9 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
 
   // Both FS types are member-driven now.
   const isConfigurable = true;
-  const isDefault = featureSet.feature_set_type === 'default';
+  // The auto-seeded "Starter" FS is treated identically to a Custom one
+  // — the type tag is a UI hint, not a routing flag.
+  const isStarter = isStarterFeatureSet(featureSet);
   const isCustom = featureSet.feature_set_type === 'custom';
 
   const getActualMemberCount = () => selectedFeatureIds.size;
@@ -252,14 +254,21 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                 {featureSet.name}
               </h2>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${
-                  isDefault 
-                    ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800'
-                    : isCustom
-                      ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800'
-                      : 'bg-gray-50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-800'
-                }`}>
-                  {featureSet.feature_set_type.toUpperCase()}
+                <span
+                  title={
+                    isStarter
+                      ? 'Auto-created with this Space. Edit, rename, or delete freely — no special routing role.'
+                      : undefined
+                  }
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${
+                    isStarter
+                      ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800'
+                      : isCustom
+                        ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800'
+                        : 'bg-gray-50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-800'
+                  }`}
+                >
+                  {isStarter ? 'STARTER' : featureSet.feature_set_type.toUpperCase()}
                 </span>
                 <span className="text-xs text-[rgb(var(--muted))] truncate">
                   ID: {featureSet.id}
@@ -325,12 +334,12 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                   </p>
                 </div>
                 
-                {isDefault && (
+                {isStarter && (
                   <div className="p-3 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                     <div className="flex gap-2">
                       <Star className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
                       <div className="text-xs text-yellow-800 dark:text-yellow-200">
-                        <strong>Default Feature Set:</strong> Features selected here are automatically granted to all clients in this workspace.
+                        <strong>Starter FeatureSet:</strong> auto-created with this Space. It&apos;s an ordinary FeatureSet — edit, rename, or delete it freely. <em>No special routing role:</em> Workspace bindings and per-client grants pick FeatureSets explicitly.
                       </div>
                     </div>
                   </div>

@@ -99,38 +99,39 @@ impl McpMuxGatewayHandler {
         root_for_prompt: Option<&str>,
     ) {
         let resolver = &services.feature_set_resolver;
-        match resolver.resolve(session_id).await {
+        match resolver.resolve(session_id, Some(client_id)).await {
             Ok(resolved) => {
                 info!(
                     %client_id,
                     session_id = session_id.unwrap_or("<none>"),
-                    feature_set_id = resolved.feature_set_id.clone().unwrap_or_else(|| "<deny>".into()),
+                    feature_set_ids = ?resolved.feature_set_ids,
                     space_id = resolved.space_id.map(|u| u.to_string()).unwrap_or_else(|| "<none>".into()),
                     source = ?resolved.source,
                     "[FeatureSetResolver] resolved",
                 );
 
-                // Track the resolved FS per session so we can detect flips.
-                // The very first sighting (no prior entry) counts as a flip
-                // — that's the case where the client's `tools/list` at init
-                // saw the fallback set but roots arriving later may have
-                // landed on a different binding. Firing once on first sight
-                // is safe (idempotent re-list); the dedup protects against
-                // repeated identical resolutions.
+                // Track the resolved FS fingerprint per session so we can
+                // detect flips. The very first sighting (no prior entry)
+                // counts as a flip — that's the case where the client's
+                // `tools/list` at init saw an empty/pending list but roots
+                // arriving later may have landed on a binding. Firing once
+                // on first sight is safe (idempotent re-list); the dedup
+                // protects against repeated identical resolutions.
                 if let (Some(sid), Some(notifier)) = (session_id, notifier) {
                     let changed = services
                         .session_roots
-                        .record_resolution(sid, resolved.feature_set_id.as_deref());
+                        .record_resolution(sid, resolved.fingerprint().as_deref());
                     if changed {
                         notifier.notify_peer_lists_changed(client_id).await;
                     }
                 }
 
-                // Prompt only when the session reported a root AND no binding
-                // matched (source=Default). `session_id` must be Some too so
-                // the UI can correlate back to this peer.
+                // Prompt only when the session reported a root but no
+                // binding matched (`Deny` with a non-empty root_for_prompt).
+                // PendingRoots / ClientGrant / WorkspaceBinding never
+                // trigger the prompt.
                 let should_prompt =
-                    matches!(resolved.source, crate::services::ResolutionSource::Default);
+                    matches!(resolved.source, crate::services::ResolutionSource::Deny);
                 if let (true, Some(sid), Some(space_id), Some(root)) = (
                     should_prompt,
                     session_id,
@@ -168,21 +169,18 @@ impl McpMuxGatewayHandler {
     async fn resolve_routing(
         &self,
         session_id: Option<&str>,
+        client_id: &str,
     ) -> Result<(uuid::Uuid, Vec<String>), McpError> {
         let resolved = self
             .services
             .authorization_service
-            .resolve(session_id)
+            .resolve(session_id, Some(client_id))
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to resolve: {e}"), None))?;
         let space_id = resolved.space_id.ok_or_else(|| {
             McpError::internal_error("No space resolved (no default space configured)", None)
         })?;
-        let feature_set_ids = resolved
-            .feature_set_id
-            .map(|fs| vec![fs])
-            .unwrap_or_default();
-        Ok((space_id, feature_set_ids))
+        Ok((space_id, resolved.feature_set_ids))
     }
 
     /// Build InitializeResult with negotiated protocol version
@@ -259,15 +257,26 @@ impl ServerHandler for McpMuxGatewayHandler {
             }
         };
 
-        // Register peer with MCPNotifier for list_changed notification delivery
+        // Register the *session* with MCPNotifier so subsequent fanout can
+        // re-resolve per session (a single OAuth client can hold multiple
+        // sessions on different folders, each routing independently).
         let peer = std::sync::Arc::new(context.peer);
-        self.notification_bridge
-            .register_peer(oauth_ctx.client_id.clone(), peer.clone());
-
-        // Mark the client stream as active immediately - RMCP's session transport
-        // handles SSE streaming and message caching internally
-        self.notification_bridge
-            .mark_client_stream_active(&oauth_ctx.client_id);
+        let session_id_for_register = extract_session_id(&context.extensions);
+        if let Some(sid) = session_id_for_register.as_deref() {
+            self.notification_bridge.register_session(
+                sid.to_string(),
+                oauth_ctx.client_id.clone(),
+                peer.clone(),
+            );
+            // Mark the SSE stream as active immediately — RMCP's session
+            // transport handles streaming + message caching internally.
+            self.notification_bridge.mark_session_stream_active(sid);
+        } else {
+            warn!(
+                client_id = %oauth_ctx.client_id,
+                "[on_initialized] no mcp-session-id; skipping notifier registration (rare — stateless transport?)"
+            );
+        }
 
         // Pre-populate feature hashes to prevent spurious first notifications
         self.notification_bridge
@@ -282,6 +291,33 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .peer_info()
                 .map(|info| info.capabilities.roots.is_some())
                 .unwrap_or(false);
+            // Stash the capability so the resolver can branch between
+            // workspace-binding routing (capable) and the per-client grant
+            // fallback (rootless). Done unconditionally so the registry has
+            // a definitive answer for every session, not just those with
+            // roots declared.
+            self.services
+                .session_roots
+                .set_roots_capable(&session_id, declares_roots);
+            // Persist the bit on the client row, *always* — the Clients UI
+            // needs to distinguish "never observed" from "explicitly
+            // rootless" so its capability badge isn't misleading on
+            // newly-approved clients. The repo applies sticky-positive
+            // semantics on `reports_roots` so a one-off rootless reconnect
+            // doesn't bounce the badge.
+            {
+                let repo = self.services.dependencies.inbound_client_repo.clone();
+                let cid = oauth_ctx.client_id.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = repo.mark_roots_capability(&cid, declares_roots).await {
+                        debug!(
+                            client_id = %cid,
+                            error = %e,
+                            "[on_initialized] mark_roots_capability failed (non-fatal)"
+                        );
+                    }
+                });
+            }
             if declares_roots {
                 let peer_for_roots = peer.clone();
                 let session_roots = self.services.session_roots.clone();
@@ -444,11 +480,17 @@ impl ServerHandler for McpMuxGatewayHandler {
         _params: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
+        let oauth_ctx = self
+            .get_oauth_context(&context.extensions)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         // Resolve routing once: the resolver returns the authoritative
         // (Space, FS) for this session — this may differ from oauth_ctx
         // when a WorkspaceBinding redirects to another space.
         let (space_id, feature_set_ids) = self
-            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .resolve_routing(
+                extract_session_id(&context.extensions).as_deref(),
+                &oauth_ctx.client_id,
+            )
             .await?;
 
         // Get tools via FeatureService — using the *resolved* space.
@@ -539,7 +581,9 @@ impl ServerHandler for McpMuxGatewayHandler {
 
         // Resolve routing — the binding's target space is authoritative,
         // which may differ from oauth_ctx.space_id.
-        let (space_id, feature_set_ids) = self.resolve_routing(session_id).await?;
+        let (space_id, feature_set_ids) = self
+            .resolve_routing(session_id, &oauth_ctx.client_id)
+            .await?;
 
         // Call tool via routing service (handles auth and routing)
         let tool_result = self
@@ -621,8 +665,14 @@ impl ServerHandler for McpMuxGatewayHandler {
         _params: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, McpError> {
+        let oauth_ctx = self
+            .get_oauth_context(&context.extensions)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let (space_id, feature_set_ids) = self
-            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .resolve_routing(
+                extract_session_id(&context.extensions).as_deref(),
+                &oauth_ctx.client_id,
+            )
             .await?;
 
         let prompts = self
@@ -662,8 +712,14 @@ impl ServerHandler for McpMuxGatewayHandler {
         params: GetPromptRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResult, McpError> {
+        let oauth_ctx = self
+            .get_oauth_context(&context.extensions)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let (space_id, feature_set_ids) = self
-            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .resolve_routing(
+                extract_session_id(&context.extensions).as_deref(),
+                &oauth_ctx.client_id,
+            )
             .await?;
 
         let (server_id, prompt_name) = self
@@ -716,8 +772,14 @@ impl ServerHandler for McpMuxGatewayHandler {
         _params: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
+        let oauth_ctx = self
+            .get_oauth_context(&context.extensions)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let (space_id, feature_set_ids) = self
-            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .resolve_routing(
+                extract_session_id(&context.extensions).as_deref(),
+                &oauth_ctx.client_id,
+            )
             .await?;
 
         let resources = self
@@ -755,8 +817,14 @@ impl ServerHandler for McpMuxGatewayHandler {
         params: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
+        let oauth_ctx = self
+            .get_oauth_context(&context.extensions)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let (space_id, feature_set_ids) = self
-            .resolve_routing(extract_session_id(&context.extensions).as_deref())
+            .resolve_routing(
+                extract_session_id(&context.extensions).as_deref(),
+                &oauth_ctx.client_id,
+            )
             .await?;
 
         let server_id = self

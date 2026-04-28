@@ -106,8 +106,8 @@ impl ServiceContainer {
         let feature_set_resolver = Arc::new(FeatureSetResolverService::new(
             deps.space_repo.clone(),
             deps.workspace_binding_repo.clone(),
-            deps.feature_set_repo.clone(),
             session_roots.clone(),
+            deps.inbound_client_repo.clone(),
         ));
 
         // Authorization service is now a thin adapter over the resolver.
@@ -145,6 +145,7 @@ impl ServiceContainer {
         // the MCP notifier can fan list_changed out to every peer that
         // resolves into the affected set.
         let grant_service = Arc::new(GrantService::new(
+            deps.inbound_client_repo.clone(),
             deps.feature_set_repo.clone(),
             domain_event_tx.clone(),
         ));

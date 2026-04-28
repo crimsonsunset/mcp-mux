@@ -21,7 +21,11 @@ import { listen } from '@tauri-apps/api/event';
 import { Check, ChevronDown, FolderOpen, Loader2, Sparkles, X } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import { createWorkspaceBinding } from '@/lib/api/workspaceBindings';
-import { listFeatureSetsBySpace, type FeatureSet } from '@/lib/api/featureSets';
+import {
+  isStarterFeatureSet,
+  listFeatureSetsBySpace,
+  type FeatureSet,
+} from '@/lib/api/featureSets';
 import { listSpaces, type Space } from '@/lib/api/spaces';
 
 interface WorkspaceNeedsBindingPayload {
@@ -116,9 +120,10 @@ export function WorkspaceBindingSheet() {
         if (cancelled) return;
         const visible = list.filter((fs) => !fs.is_deleted);
         setFeatureSets(visible);
-        const defaultFs =
-          visible.find((fs) => fs.feature_set_type === 'default') ?? visible[0];
-        if (defaultFs) setSelectedFsId(defaultFs.id);
+        // Pre-select the auto-seeded Starter as a sensible default in
+        // the sheet — operator can change it before approving.
+        const seedFs = visible.find(isStarterFeatureSet) ?? visible[0];
+        if (seedFs) setSelectedFsId(seedFs.id);
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -147,7 +152,9 @@ export function WorkspaceBindingSheet() {
       await createWorkspaceBinding({
         workspace_root: payload.workspace_root,
         space_id: selectedSpaceId,
-        feature_set_id: selectedFsId,
+        // Sheet flow only writes one FS — the multi-FS picker lives in the
+        // full Workspaces editor.
+        feature_set_ids: [selectedFsId],
       });
       markSeenAndClose(payload);
     } catch (e) {
@@ -251,7 +258,7 @@ export function WorkspaceBindingSheet() {
                     onSelect={() => setSelectedFsId(fs.id)}
                     title={fs.name}
                     subtitle={fs.description || describeFs(fs)}
-                    badge={fs.feature_set_type === 'default' ? 'builtin' : undefined}
+                    badge={isStarterFeatureSet(fs) ? 'starter' : undefined}
                   />
                 ))}
               </div>
@@ -265,10 +272,13 @@ export function WorkspaceBindingSheet() {
               {error}
             </div>
           )}
+          {/* "Not now" auto-sizes to its label; the primary action takes
+              the rest of the row. Equal flex-1 columns wrapped the longer
+              "Remember for this folder" text onto two lines. */}
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              className="flex-1"
+              className="px-5"
               onClick={handleDismiss}
               disabled={saving}
             >
@@ -276,14 +286,14 @@ export function WorkspaceBindingSheet() {
             </Button>
             <Button
               variant="primary"
-              className="flex-1"
+              className="flex-1 whitespace-nowrap"
               onClick={handleSave}
               disabled={saving || loadingFs || !selectedSpaceId}
             >
               {saving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
-                <Check className="mr-2 h-4 w-4" />
+                <Check className="mr-1.5 h-4 w-4" />
               )}
               Remember for this folder
             </Button>

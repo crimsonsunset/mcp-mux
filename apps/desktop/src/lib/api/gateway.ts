@@ -203,6 +203,23 @@ export interface OAuthClient {
 
   last_seen: string | null;
   created_at: string;
+
+  /**
+   * Sticky-positive bit: `true` once any session of this client declared
+   * the MCP `roots` capability. **Only meaningful when
+   * `roots_capability_known` is `true`** — for clients we haven't observed
+   * yet, this defaults to `false` and the UI must NOT render "Rootless"
+   * based on it alone.
+   */
+  reports_roots: boolean;
+
+  /**
+   * `true` once we've processed `notifications/initialized` for at least
+   * one session of this client. Until then the capability is **unknown**
+   * and the UI hides the badge entirely. Once known the badge resolves
+   * to either "Reports workspace" or "Rootless".
+   */
+  roots_capability_known: boolean;
 }
 
 /**
@@ -234,6 +251,63 @@ export async function updateOAuthClient(
  */
 export async function deleteOAuthClient(clientId: string): Promise<void> {
   return invoke('delete_oauth_client', { clientId });
+}
+
+// =============================================================================
+// Per-client FeatureSet grants (rootless fallback path)
+// =============================================================================
+//
+// These grants only apply to clients that did NOT declare the MCP `roots`
+// capability — Claude.ai web, ChatGPT, and similar rootless connectors.
+// Roots-capable desktop clients (Cursor, VS Code, Claude Desktop) route via
+// `WorkspaceBinding` and ignore these grants.
+//
+// Backed by the `client_grants` table (restored in migration 009). Writes
+// emit a `ClientGrantChanged` domain event so MCPNotifier pushes
+// `notifications/{tools,prompts,resources}/list_changed` to the client's
+// connected peers without requiring a reconnect.
+
+/**
+ * Read the FeatureSet ids granted to a (client, space) pair. Empty array
+ * means the rootless fallback would deny — consumer should render the
+ * "no defaults configured" empty state.
+ */
+export async function getOAuthClientGrants(
+  clientId: string,
+  spaceId: string
+): Promise<string[]> {
+  return invoke('get_oauth_client_grants', { clientId, spaceId });
+}
+
+/**
+ * Grant a FeatureSet to an OAuth client in a space. Idempotent at the DB
+ * layer; always emits the change event so peers re-fetch.
+ */
+export async function grantOAuthClientFeatureSet(
+  clientId: string,
+  spaceId: string,
+  featureSetId: string
+): Promise<void> {
+  return invoke('grant_oauth_client_feature_set', {
+    clientId,
+    spaceId,
+    featureSetId,
+  });
+}
+
+/**
+ * Revoke a FeatureSet from an OAuth client in a space.
+ */
+export async function revokeOAuthClientFeatureSet(
+  clientId: string,
+  spaceId: string,
+  featureSetId: string
+): Promise<void> {
+  return invoke('revoke_oauth_client_feature_set', {
+    clientId,
+    spaceId,
+    featureSetId,
+  });
 }
 
 /**

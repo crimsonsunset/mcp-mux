@@ -46,12 +46,16 @@ async fn emit_binding_changed(
 }
 
 /// DTO returned to the React layer.
+///
+/// `feature_set_ids` is non-empty by construction — empty bindings are
+/// rejected at the create/update commands. Order is the operator-chosen
+/// rendering order; the resolver treats the list as a set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceBindingDto {
     pub id: String,
     pub workspace_root: String,
     pub space_id: String,
-    pub feature_set_id: String,
+    pub feature_set_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -62,33 +66,46 @@ impl From<WorkspaceBinding> for WorkspaceBindingDto {
             id: b.id.to_string(),
             workspace_root: b.workspace_root,
             space_id: b.space_id.to_string(),
-            feature_set_id: b.feature_set_id,
+            feature_set_ids: b.feature_set_ids,
             created_at: b.created_at.to_rfc3339(),
             updated_at: b.updated_at.to_rfc3339(),
         }
     }
 }
 
-/// Input for creating or updating a binding. Both `space_id` (UUID) and
-/// `feature_set_id` (stringy — custom sets use UUIDs, builtins use
-/// `fs_default_<uuid>`) are required.
+/// Input for creating or updating a binding. Pass at least one
+/// `feature_set_id` in `feature_set_ids` — empty is rejected.
+///
+/// Order matters for UI rendering only; the resolver merges them.
 #[derive(Debug, Deserialize)]
 pub struct WorkspaceBindingInput {
     pub workspace_root: String,
     pub space_id: String,
-    pub feature_set_id: String,
+    pub feature_set_ids: Vec<String>,
 }
 
 fn parse_space_id(input: &WorkspaceBindingInput) -> Result<Uuid, String> {
     Uuid::parse_str(&input.space_id).map_err(|e| format!("bad space_id: {e}"))
 }
 
-fn validate_non_empty_fs(input: &WorkspaceBindingInput) -> Result<String, String> {
-    if input.feature_set_id.trim().is_empty() {
-        Err("feature_set_id required".into())
-    } else {
-        Ok(input.feature_set_id.clone())
+fn validate_fs_list(input: &WorkspaceBindingInput) -> Result<Vec<String>, String> {
+    let cleaned: Vec<String> = input
+        .feature_set_ids
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if cleaned.is_empty() {
+        return Err("at least one feature_set_id is required".into());
     }
+    // Dedup while preserving order so the operator's intent ("primary then
+    // overlay") survives a duplicate they may have accidentally supplied.
+    let mut seen = HashSet::new();
+    let deduped: Vec<String> = cleaned
+        .into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect();
+    Ok(deduped)
 }
 
 /// List every filesystem path connected MCP clients have reported as a
@@ -174,10 +191,10 @@ pub async fn create_workspace_binding(
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<WorkspaceBindingDto, String> {
     let space_id = parse_space_id(&input)?;
-    let feature_set_id = validate_non_empty_fs(&input)?;
+    let feature_set_ids = validate_fs_list(&input)?;
     let normalized = normalize_and_validate(&input.workspace_root)?;
 
-    let binding = WorkspaceBinding::new(normalized.clone(), space_id, feature_set_id);
+    let binding = WorkspaceBinding::new_multi(normalized.clone(), space_id, feature_set_ids);
 
     state
         .workspace_binding_repository
@@ -189,7 +206,7 @@ pub async fn create_workspace_binding(
         binding_id = %binding.id,
         root = %binding.workspace_root,
         %space_id,
-        feature_set_id = %binding.feature_set_id,
+        feature_sets = ?binding.feature_set_ids,
         "[workspace_binding] created",
     );
 
@@ -213,7 +230,7 @@ pub async fn update_workspace_binding(
 ) -> Result<WorkspaceBindingDto, String> {
     let id_uuid = Uuid::parse_str(&id).map_err(|e| e.to_string())?;
     let space_id = parse_space_id(&input)?;
-    let feature_set_id = validate_non_empty_fs(&input)?;
+    let feature_set_ids = validate_fs_list(&input)?;
     let normalized = normalize_and_validate(&input.workspace_root)?;
 
     let existing = state
@@ -228,7 +245,7 @@ pub async fn update_workspace_binding(
         id: existing.id,
         workspace_root: normalized,
         space_id,
-        feature_set_id,
+        feature_set_ids,
         created_at: existing.created_at,
         updated_at: chrono::Utc::now(),
     };
@@ -331,25 +348,41 @@ pub struct ServerFeatureTotalsDto {
     pub resources: usize,
 }
 
-/// Top-level DTO: the resolved (Space, FeatureSet) pair for a given root,
-/// plus its full configured tool/prompt/resource lists with availability.
+/// One FeatureSet that the binding resolves through. The Workspaces UI
+/// renders these as a chip strip ("FS-A + FS-B"); the resolver merges
+/// their members into a single allow set.
+#[derive(Debug, Clone, Serialize)]
+pub struct EffectiveFeatureSetDto {
+    pub id: String,
+    pub name: String,
+    /// `default` | `custom` — matches `FeatureSetType`.
+    pub feature_set_type: String,
+}
+
+/// Top-level DTO: the resolved (Space, FeatureSet…) for a given root,
+/// plus the union of their tool/prompt/resource lists with availability.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceEffectiveFeaturesDto {
     /// Normalized form of the input root (lower-case drive letter, no
     /// trailing slash, etc.).
     pub workspace_root: String,
     /// `binding` when a `WorkspaceBinding` matched the longest prefix of
-    /// the root; `fallback` when no binding matched and the resolver fell
-    /// through to the default Space's Default FS.
+    /// the root; `unbound` when no binding matched. With the new resolver,
+    /// `unbound` means a live roots-capable session for this folder would
+    /// be **denied** — the `feature_sets` field below shows the default
+    /// Space's Default FS purely as a *preview* of what binding the folder
+    /// to that FS would expose, not as the active routing target.
     pub source: String,
     /// `Some(id)` only when `source == "binding"`.
     pub binding_id: Option<String>,
     pub space_id: String,
     pub space_name: String,
-    pub feature_set_id: String,
-    pub feature_set_name: String,
-    pub feature_set_type: String,
-    /// Configured features by type (includes unavailable ones).
+    /// All FeatureSets contributing to the resolved view, in
+    /// operator-chosen order. Always ≥ 1 entry (resolved or preview).
+    pub feature_sets: Vec<EffectiveFeatureSetDto>,
+    /// Configured features (union across all `feature_sets`) by type;
+    /// includes unavailable ones for the "configured but disconnected"
+    /// rendering case.
     pub tools: Vec<EffectiveFeatureDto>,
     pub prompts: Vec<EffectiveFeatureDto>,
     pub resources: Vec<EffectiveFeatureDto>,
@@ -469,25 +502,30 @@ pub async fn get_workspace_effective_features(
         .await
         .map_err(|e| e.to_string())?;
 
-    let (source, binding_id, space_id, fs_id) = match binding {
+    let (source, binding_id, space_id, fs_ids) = match binding {
         Some(b) => (
             "binding".to_string(),
             Some(b.id.to_string()),
             b.space_id,
-            b.feature_set_id,
+            b.feature_set_ids,
         ),
         None => {
-            let default_fs = state
+            // Source = `unbound` mirrors the new resolver: a live session
+            // here would be denied. We still surface the default Space's
+            // Default FS as a *preview* so the UI can render "if you bound
+            // this folder to <FS>, here's what it would see" — it's
+            // informational, not the active routing target.
+            let starter_fs = state
                 .feature_set_repository
-                .get_default_for_space(&default_space.id.to_string())
+                .get_starter_for_space(&default_space.id.to_string())
                 .await
                 .map_err(|e| e.to_string())?
-                .ok_or("Default Space has no Default FeatureSet")?;
+                .ok_or("Default Space has no Starter FeatureSet")?;
             (
-                "fallback".to_string(),
+                "unbound".to_string(),
                 None,
                 default_space.id,
-                default_fs.id,
+                vec![starter_fs.id],
             )
         }
     };
@@ -499,13 +537,18 @@ pub async fn get_workspace_effective_features(
         .map_err(|e| e.to_string())?
         .ok_or("Resolved Space no longer exists")?;
 
-    // 4. The FS itself — with members for the walk below.
-    let fs = state
-        .feature_set_repository
-        .get_with_members(&fs_id)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("Resolved FeatureSet not found")?;
+    // 4. Resolve every FeatureSet the binding points to (preserving order)
+    //    so we can walk their members below for the union allow set.
+    let mut resolved_sets: Vec<FeatureSet> = Vec::with_capacity(fs_ids.len());
+    for fs_id in &fs_ids {
+        let fs = state
+            .feature_set_repository
+            .get_with_members(fs_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Resolved FeatureSet {fs_id} not found"))?;
+        resolved_sets.push(fs);
+    }
 
     // 5. Pre-fetch every FS in the same Space so nested-FS members can be
     //    resolved without N round trips. Cheap — this is just a metadata
@@ -525,13 +568,26 @@ pub async fn get_workspace_effective_features(
             fs_lookup.insert(full.id.clone(), full);
         }
     }
-    fs_lookup.insert(fs.id.clone(), fs.clone());
+    for fs in &resolved_sets {
+        fs_lookup.insert(fs.id.clone(), fs.clone());
+    }
 
-    // 6. Walk members → allowed / excluded id sets.
+    // 6. Walk every FS in the binding → union allow set, union exclude set.
+    //    Excludes win over includes within a single FS (collect_member_ids
+    //    contract); when multiple FSes disagree we keep the include because
+    //    the user's intent for adding the FS to the binding was to surface
+    //    its members. Visiting state is shared across the loop so a nested
+    //    FS shared between two parent FSes is walked once.
     let mut allowed = HashSet::<String>::new();
     let mut excluded = HashSet::<String>::new();
     let mut visited = HashSet::<String>::new();
-    collect_member_ids(&fs, &fs_lookup, &mut allowed, &mut excluded, &mut visited);
+    for fs in &resolved_sets {
+        collect_member_ids(fs, &fs_lookup, &mut allowed, &mut excluded, &mut visited);
+    }
+    // Cross-FS exclude → include resolution: if any FS lists the feature as
+    // an explicit include, override an exclude from a sibling FS. This is
+    // the operator-friendly default — adding an FS is additive.
+    excluded.retain(|id| !allowed.contains(id));
 
     // 7. Pull every feature in the Space, compute per-server totals (the
     //    badge denominator), then keep only the FS-filtered subset for the
@@ -614,10 +670,17 @@ pub async fn get_workspace_effective_features(
     prompts.sort_by_key(sort_key);
     resources.sort_by_key(sort_key);
 
-    let feature_set_type = match fs.feature_set_type {
-        FeatureSetType::Default => "default",
-        FeatureSetType::Custom => "custom",
-    };
+    let feature_sets: Vec<EffectiveFeatureSetDto> = resolved_sets
+        .into_iter()
+        .map(|fs| EffectiveFeatureSetDto {
+            id: fs.id,
+            name: fs.name,
+            feature_set_type: match fs.feature_set_type {
+                FeatureSetType::Starter => "starter".to_string(),
+                FeatureSetType::Custom => "custom".to_string(),
+            },
+        })
+        .collect();
 
     Ok(WorkspaceEffectiveFeaturesDto {
         workspace_root: normalized,
@@ -625,9 +688,7 @@ pub async fn get_workspace_effective_features(
         binding_id,
         space_id: space_id.to_string(),
         space_name: space.name,
-        feature_set_id: fs.id,
-        feature_set_name: fs.name,
-        feature_set_type: feature_set_type.to_string(),
+        feature_sets,
         tools,
         prompts,
         resources,

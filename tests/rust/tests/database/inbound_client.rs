@@ -37,6 +37,8 @@ fn create_test_client(name: &str) -> InboundClient {
         last_seen: None,
         created_at: now.clone(),
         updated_at: now,
+        reports_roots: false,
+        roots_capability_known: false,
     }
 }
 

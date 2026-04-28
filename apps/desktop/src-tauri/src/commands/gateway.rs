@@ -685,6 +685,20 @@ fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, serde_json::Val
                 "workspace_root": workspace_root,
             }),
         ),
+
+        // Per-client grant edited — Clients page re-fetches the toggles for
+        // the affected client. MCPNotifier handles the corresponding
+        // `list_changed` push to the client's open peers separately.
+        DomainEvent::ClientGrantChanged {
+            client_id,
+            space_id,
+        } => (
+            "client-grant-changed",
+            serde_json::json!({
+                "client_id": client_id,
+                "space_id": space_id,
+            }),
+        ),
     }
 }
 

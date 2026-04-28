@@ -90,6 +90,23 @@ pub struct InboundClient {
     pub last_seen: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+
+    /// `true` once the gateway has observed this client declare the MCP
+    /// `roots` capability on `initialize`. Sticky-positive — a roots-capable
+    /// client that opens a one-off rootless session keeps the flag set so
+    /// the UI doesn't bounce. Reset by re-approving the client.
+    ///
+    /// Meaningful only when [`Self::roots_capability_known`] is `true`; for
+    /// `roots_capability_known = false` the value is undefined and the UI
+    /// treats it as "unknown".
+    pub reports_roots: bool,
+
+    /// `true` once we've processed `notifications/initialized` for *any*
+    /// session of this client and so know whether `reports_roots` reflects
+    /// a real declaration. Defaults to `false` for newly-approved clients
+    /// that haven't opened a session yet — the UI hides the capability
+    /// badge in that state instead of misleadingly showing "Rootless".
+    pub roots_capability_known: bool,
 }
 
 /// Authorization code (pending exchange)
@@ -165,6 +182,8 @@ impl InboundClientRepository {
         let grant_types_json: Option<String> = row.get(9)?;
         let response_types_json: Option<String> = row.get(10)?;
         let approved_int: i32 = row.get::<_, Option<i32>>(19)?.unwrap_or(0);
+        let reports_roots_int: i32 = row.get::<_, Option<i32>>(20)?.unwrap_or(0);
+        let roots_capability_known_int: i32 = row.get::<_, Option<i32>>(21)?.unwrap_or(0);
 
         Ok(InboundClient {
             client_id: row.get(0)?,
@@ -196,6 +215,8 @@ impl InboundClientRepository {
             created_at: row.get(17)?,
             updated_at: row.get(18)?,
             approved: approved_int != 0,
+            reports_roots: reports_roots_int != 0,
+            roots_capability_known: roots_capability_known_int != 0,
         })
     }
 
@@ -205,7 +226,7 @@ impl InboundClientRepository {
          logo_uri, client_uri, software_id, software_version,
          redirect_uris, grant_types, response_types, token_endpoint_auth_method, scope,
          metadata_url, metadata_cached_at, metadata_cache_ttl,
-         last_seen, created_at, updated_at, approved";
+         last_seen, created_at, updated_at, approved, reports_roots, roots_capability_known";
 
     // =========================================================================
     // Client Operations (unified inbound_clients table)
@@ -677,6 +698,133 @@ impl InboundClientRepository {
             info!("[OAuth] Cleaned up {} expired tokens", deleted);
         }
         Ok(deleted)
+    }
+
+    // =========================================================================
+    // Client Grants (Feature Set Permissions for rootless OAuth clients)
+    //
+    // Consulted by FeatureSetResolverService when a session belongs to a
+    // client that did not declare the MCP `roots` capability (or has no
+    // workspace context). Roots-capable clients route through
+    // WorkspaceBinding instead — these methods are the rootless fallback.
+    // =========================================================================
+
+    /// Grant a feature set to a client in a specific space.
+    pub async fn grant_feature_set(
+        &self,
+        client_id: &str,
+        space_id: &str,
+        feature_set_id: &str,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        conn.execute(
+            "INSERT OR IGNORE INTO client_grants (client_id, space_id, feature_set_id)
+             VALUES (?1, ?2, ?3)",
+            params![client_id, space_id, feature_set_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Revoke a feature set from a client in a specific space.
+    pub async fn revoke_feature_set(
+        &self,
+        client_id: &str,
+        space_id: &str,
+        feature_set_id: &str,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        conn.execute(
+            "DELETE FROM client_grants
+             WHERE client_id = ?1 AND space_id = ?2 AND feature_set_id = ?3",
+            params![client_id, space_id, feature_set_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Record the MCP `roots` capability state for a client.
+    ///
+    /// Called from the gateway's `on_initialized` for *every* session,
+    /// regardless of whether the client declared the capability. After the
+    /// first call:
+    ///   - `roots_capability_known` flips to 1 and stays there.
+    ///   - `reports_roots` is sticky-positive: it goes 0 → 1 the first
+    ///     session that declares roots, but a later session that doesn't
+    ///     declare can't flip it back to 0. This prevents the UI badge
+    ///     from bouncing on transient rootless reconnects from a normally
+    ///     roots-capable client.
+    ///
+    /// Reset by re-approving the client (delete + re-DCR).
+    pub async fn mark_roots_capability(&self, client_id: &str, declares: bool) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        // `MAX(reports_roots, ?2)` is the sticky-positive update — once 1,
+        // stays 1 even when `declares = false`.
+        conn.execute(
+            "UPDATE inbound_clients
+                SET roots_capability_known = 1,
+                    reports_roots = MAX(reports_roots, ?2)
+              WHERE client_id = ?1",
+            params![client_id, declares as i32],
+        )?;
+        Ok(())
+    }
+
+    /// Get all granted feature_set_ids for a (client, space) pair.
+    /// Empty Vec means "no grant" → resolver returns Deny.
+    pub async fn get_grants_for_space(
+        &self,
+        client_id: &str,
+        space_id: &str,
+    ) -> Result<Vec<String>> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        let mut stmt = conn.prepare(
+            "SELECT feature_set_id FROM client_grants
+             WHERE client_id = ?1 AND space_id = ?2",
+        )?;
+
+        let grants = stmt
+            .query_map(params![client_id, space_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(grants)
+    }
+
+    /// Get every grant for a client across all spaces, grouped by space_id.
+    /// Used by the Clients UI to render the full permission picture.
+    pub async fn get_all_grants(
+        &self,
+        client_id: &str,
+    ) -> Result<std::collections::HashMap<String, Vec<String>>> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        let mut stmt = conn.prepare(
+            "SELECT space_id, feature_set_id FROM client_grants
+             WHERE client_id = ?1
+             ORDER BY space_id",
+        )?;
+
+        let mut grants: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+
+        let rows = stmt.query_map(params![client_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        for row in rows {
+            let (space_id, feature_set_id) = row?;
+            grants.entry(space_id).or_default().push(feature_set_id);
+        }
+
+        Ok(grants)
     }
 }
 

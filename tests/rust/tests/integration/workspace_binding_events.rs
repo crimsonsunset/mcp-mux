@@ -7,9 +7,10 @@
 //!
 //! 1. `WorkspaceBindingChanged` + `WorkspaceNeedsBinding` round-trip through
 //!    JSON with the shape the Tauri bridge and the frontend consumers expect.
-//! 2. The resolver's decision table: roots + no binding → `source = Default`
-//!    (the trigger the gateway uses to decide whether to emit the event).
-//! 3. Creating / updating a binding flips the next resolution from Default to
+//! 2. The resolver's decision table: roots + no binding → `source = Deny`
+//!    (the trigger the gateway uses to decide whether to emit the
+//!    `WorkspaceNeedsBinding` prompt).
+//! 3. Creating / updating a binding flips the next resolution from Deny to
 //!    WorkspaceBinding — the behaviour that justifies firing list_changed.
 
 use std::sync::Arc;
@@ -20,7 +21,8 @@ use mcpmux_core::{
 };
 use mcpmux_gateway::services::{FeatureSetResolverService, ResolutionSource, SessionRootsRegistry};
 use mcpmux_storage::{
-    Database, SqliteFeatureSetRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
+    Database, InboundClientRepository, SqliteFeatureSetRepository, SqliteSpaceRepository,
+    SqliteWorkspaceBindingRepository,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -41,6 +43,7 @@ impl Ctx {
             Arc::new(SqliteFeatureSetRepository::new(db.clone()));
         let binding_repo: Arc<dyn WorkspaceBindingRepository> =
             Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
+        let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
 
         let default_space = space_repo.get_default().await.unwrap().unwrap();
         let space_id = default_space.id;
@@ -52,8 +55,8 @@ impl Ctx {
         let resolver = FeatureSetResolverService::new(
             space_repo.clone(),
             binding_repo.clone(),
-            fs_repo.clone(),
             session_roots.clone(),
+            inbound_client_repo.clone(),
         );
 
         Self {
@@ -66,20 +69,22 @@ impl Ctx {
     }
 }
 
-/// Session with roots, no binding → resolver returns `source = Default`.
+/// Session with roots, no binding → resolver returns `source = Deny`.
 /// This is the exact condition `handler.rs::log_and_notify_resolution`
 /// turns into a `WorkspaceNeedsBinding` emission.
 #[tokio::test(flavor = "multi_thread")]
-async fn session_with_unbound_root_resolves_via_default() {
+async fn session_with_unbound_root_resolves_via_deny() {
     let ctx = Ctx::new().await;
     ctx.session_roots.set("sess-1", ["/proj/unbound"]);
+    ctx.session_roots.set_roots_capable("sess-1", true);
 
-    let resolved = ctx.resolver.resolve(Some("sess-1")).await.unwrap();
-    assert_eq!(resolved.source, ResolutionSource::Default);
+    let resolved = ctx.resolver.resolve(Some("sess-1"), None).await.unwrap();
+    assert_eq!(resolved.source, ResolutionSource::Deny);
     assert_eq!(resolved.space_id, Some(ctx.space_id));
-    // Default always hands back the Space's "All" FS so the client gets a
-    // working toolset even before the user binds the folder.
-    assert!(resolved.feature_set_id.is_some());
+    // No FS resolves until the user binds the folder; mcpmux_* meta tools
+    // are appended unconditionally by the request handler so the LLM can
+    // self-bind from this state.
+    assert!(resolved.feature_set_ids.is_empty());
 }
 
 /// After creating a binding for the root the next resolve flips to
@@ -98,29 +103,34 @@ async fn creating_binding_flips_next_resolution_source() {
     };
     let root = normalize_workspace_root(raw);
     ctx.session_roots.set("sess-1", [raw]);
+    ctx.session_roots.set_roots_capable("sess-1", true);
 
-    let before = ctx.resolver.resolve(Some("sess-1")).await.unwrap();
-    assert_eq!(before.source, ResolutionSource::Default);
+    let before = ctx.resolver.resolve(Some("sess-1"), None).await.unwrap();
+    assert_eq!(before.source, ResolutionSource::Deny);
 
     let binding = WorkspaceBinding::new(root, ctx.space_id, ctx.fs_custom_id.clone());
     ctx.binding_repo.create(&binding).await.unwrap();
 
-    let after = ctx.resolver.resolve(Some("sess-1")).await.unwrap();
+    let after = ctx.resolver.resolve(Some("sess-1"), None).await.unwrap();
     assert_eq!(after.source, ResolutionSource::WorkspaceBinding);
-    assert_eq!(after.feature_set_id, Some(ctx.fs_custom_id.clone()));
+    assert_eq!(after.feature_set_ids, vec![ctx.fs_custom_id.clone()]);
 }
 
-/// Rootless session never resolves via a binding — stays at Default and
-/// should never produce a `WorkspaceNeedsBinding` event. This test pins the
-/// rootless-silence contract; if it ever fails, the notifier would start
-/// prompting users with no folder context.
+/// Rootless session without client grants resolves to `Deny`. No
+/// `WorkspaceNeedsBinding` is appropriate here (rootless = nothing to
+/// bind). This pins the rootless-silence contract — if it ever fails, the
+/// notifier would start prompting users with no folder context.
 #[tokio::test(flavor = "multi_thread")]
-async fn rootless_session_stays_default_no_prompt() {
+async fn rootless_session_without_grants_denies_silently() {
     let ctx = Ctx::new().await;
-    // Deliberately no call to session_roots.set — simulates a rootless
-    // (CLI-ish) client.
-    let resolved = ctx.resolver.resolve(Some("rootless")).await.unwrap();
-    assert_eq!(resolved.source, ResolutionSource::Default);
+    // Deliberately no roots set; capability stamped as false (rootless).
+    ctx.session_roots.set_roots_capable("rootless", false);
+    let resolved = ctx
+        .resolver
+        .resolve(Some("rootless"), Some("unknown-client"))
+        .await
+        .unwrap();
+    assert_eq!(resolved.source, ResolutionSource::Deny);
 }
 
 /// Binding → different Space should actually route the session to that
@@ -134,6 +144,7 @@ async fn binding_to_non_default_space_reroutes_session() {
         Arc::new(SqliteFeatureSetRepository::new(db.clone()));
     let binding_repo: Arc<dyn WorkspaceBindingRepository> =
         Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
+    let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
 
     let default_space = space_repo.get_default().await.unwrap().unwrap();
 
@@ -150,8 +161,8 @@ async fn binding_to_non_default_space_reroutes_session() {
     let resolver = FeatureSetResolverService::new(
         space_repo.clone(),
         binding_repo.clone(),
-        fs_repo.clone(),
         session_roots.clone(),
+        inbound_client_repo.clone(),
     );
 
     let raw = if cfg!(windows) {
@@ -161,21 +172,23 @@ async fn binding_to_non_default_space_reroutes_session() {
     };
     let root = normalize_workspace_root(raw);
     session_roots.set("sess-X", [raw]);
+    session_roots.set_roots_capable("sess-X", true);
 
-    // Before binding: Default tier — lands in the *default* space with its
-    // Default FS.
-    let before = resolver.resolve(Some("sess-X")).await.unwrap();
-    assert_eq!(before.source, ResolutionSource::Default);
+    // Before binding: roots reported, no binding → Deny in the default
+    // space (the resolver still reports a space_id so the upstream prompt
+    // knows where to scope the binding sheet).
+    let before = resolver.resolve(Some("sess-X"), None).await.unwrap();
+    assert_eq!(before.source, ResolutionSource::Deny);
     assert_eq!(before.space_id, Some(default_space.id));
 
     // Create a binding targeting `other` space's Custom FS.
     let b = WorkspaceBinding::new(root, other_id, other_fs.id.clone());
     binding_repo.create(&b).await.unwrap();
 
-    let after = resolver.resolve(Some("sess-X")).await.unwrap();
+    let after = resolver.resolve(Some("sess-X"), None).await.unwrap();
     assert_eq!(after.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(after.space_id, Some(other_id));
-    assert_eq!(after.feature_set_id, Some(other_fs.id));
+    assert_eq!(after.feature_set_ids, vec![other_fs.id]);
 }
 
 /// Minimal "is the Tauri bridge payload the shape the webview expects?"

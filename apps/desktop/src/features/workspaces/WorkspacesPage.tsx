@@ -43,7 +43,11 @@ import {
   type WorkspaceBindingInput,
   type WorkspaceEffectiveFeatures,
 } from '@/lib/api/workspaceBindings';
-import { listFeatureSets, type FeatureSet } from '@/lib/api/featureSets';
+import {
+  isStarterFeatureSet,
+  listFeatureSets,
+  type FeatureSet,
+} from '@/lib/api/featureSets';
 import { useSpaces } from '@/stores';
 import type { Space } from '@/lib/api/spaces';
 
@@ -163,7 +167,7 @@ export function WorkspacesPage() {
     if (!space) return null;
     const fs =
       featureSets.find(
-        (f) => f.space_id === space.id && f.feature_set_type === 'default'
+        (f) => f.space_id === space.id && isStarterFeatureSet(f)
       ) ?? null;
     return { space, fs };
   }, [spaces, featureSets]);
@@ -218,11 +222,15 @@ export function WorkspacesPage() {
       if (filter === 'unmapped' && e.kind !== 'unmapped-live') return false;
       if (!q) return true;
       const spaceName = e.binding ? spaceById.get(e.binding.space_id)?.name ?? '' : '';
-      const fsName = e.binding ? fsById.get(e.binding.feature_set_id)?.name ?? '' : '';
+      const fsNames = e.binding
+        ? e.binding.feature_set_ids
+            .map((id) => fsById.get(id)?.name ?? '')
+            .join(' ')
+        : '';
       return (
         e.root.toLowerCase().includes(q) ||
         spaceName.toLowerCase().includes(q) ||
-        fsName.toLowerCase().includes(q)
+        fsNames.toLowerCase().includes(q)
       );
     });
   }, [entries, searchQuery, filter, spaceById, fsById]);
@@ -374,7 +382,11 @@ export function WorkspacesPage() {
                   ? spaceById.get(entry.binding.space_id)?.name
                   : fallback?.space.name;
                 const resolvedFsName = entry.binding
-                  ? fsById.get(entry.binding.feature_set_id)?.name
+                  ? formatFsList(
+                      entry.binding.feature_set_ids.map(
+                        (id) => fsById.get(id)?.name ?? id
+                      )
+                    )
                   : fallback?.fs?.name;
                 return (
                   <EntryCard
@@ -430,6 +442,18 @@ export function WorkspacesPage() {
 // ---------------------------------------------------------------------------
 // Filter segmented control
 // ---------------------------------------------------------------------------
+
+/**
+ * Render a list of FeatureSet names as a single string for display
+ * surfaces (cards, badges, panel headers) where a multi-FS binding has
+ * to fit on one line. Returns '' for empty input so callers can fall
+ * back to a placeholder. Drops empty/missing entries silently — they're
+ * already known to the caller as "fs not found", and there's nothing
+ * useful to show.
+ */
+function formatFsList(names: string[]): string {
+  return names.filter((n) => n && n.length > 0).join(' + ');
+}
 
 function SegmentedFilter<T extends string>({
   value,
@@ -553,9 +577,9 @@ function EntryCard({
             {!entry.binding && (
               <span
                 className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60"
-                title="No binding matches this folder yet — using the default Space's Default FeatureSet. Click to override."
+                title="No binding matches this folder yet — a live session would be denied. Click to bind it to a FeatureSet."
               >
-                via fallback
+                unbound
               </span>
             )}
           </div>
@@ -841,7 +865,11 @@ function InspectorPanel({
                 ? 'Configure routing for this live workspace.'
                 : isMapped && entry?.binding
                   ? `Routes to ${
-                      featureSets.find((f) => f.id === entry.binding!.feature_set_id)?.name ?? '—'
+                      formatFsList(
+                        entry.binding!.feature_set_ids.map(
+                          (id) => featureSets.find((f) => f.id === id)?.name ?? id
+                        )
+                      ) || '—'
                     } in ${
                       spaces.find((s) => s.id === entry.binding!.space_id)?.name ?? '—'
                     }`
@@ -1123,21 +1151,26 @@ function EffectiveFeaturesContent({
             Resolves to
           </span>
           <span className="text-sm font-semibold text-[rgb(var(--foreground))] truncate">
-            {data.feature_set_name}
+            {formatFsList(data.feature_sets.map((fs) => fs.name)) || '—'}
           </span>
           <span className="text-xs text-[rgb(var(--muted))]">in</span>
           <span className="text-sm font-medium text-[rgb(var(--foreground))]">
             {data.space_name}
           </span>
           <span
+            title={
+              data.source === 'binding'
+                ? 'A workspace binding matched this folder — live sessions reporting it route here.'
+                : 'No binding matches this folder. A live roots-capable session would be denied; the FeatureSet shown is a preview of what binding here would expose.'
+            }
             className={[
               'ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border',
               data.source === 'binding'
                 ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-300/70 dark:border-purple-700/70'
-                : 'bg-[rgb(var(--surface-dim))] text-[rgb(var(--muted))] border-[rgb(var(--border))]',
+                : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-300/70 dark:border-amber-700/70',
             ].join(' ')}
           >
-            {data.source === 'binding' ? 'binding' : 'fallback'}
+            {data.source === 'binding' ? 'binding' : 'unbound'}
           </span>
         </div>
 
@@ -1468,7 +1501,11 @@ function BindingForm({
   const rootRef = useRef<HTMLInputElement | null>(null);
   const [root, setRoot] = useState(initial?.workspace_root ?? prefillRoot ?? '');
   const [spaceId, setSpaceId] = useState<string>(initial?.space_id ?? defaultSpaceId);
-  const [fsId, setFsId] = useState<string>(initial?.feature_set_id ?? '');
+  // Multi-FS: a binding may resolve to N FeatureSets (the resolver merges
+  // their members into one allow set). Order is preserved so the operator
+  // can rank a "primary" FS first; the resolver itself doesn't care.
+  const [fsIds, setFsIds] = useState<string[]>(initial?.feature_set_ids ?? []);
+  const [fsSearch, setFsSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const isEdit = mode === 'edit';
 
@@ -1526,19 +1563,48 @@ function BindingForm({
     [featureSets, spaceId]
   );
 
+  // Filter the available FS list by the search query. Search runs against
+  // name + description, case-insensitive — matches the typeahead expectation
+  // most operators bring from the FeatureSets editor.
+  const filteredFs = useMemo(() => {
+    const q = fsSearch.trim().toLowerCase();
+    if (!q) return availableFs;
+    return availableFs.filter((f) => {
+      if (f.name.toLowerCase().includes(q)) return true;
+      if (f.description?.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [availableFs, fsSearch]);
+
+  // When the Space changes, drop selections that aren't in the new Space's
+  // FS list. Reseed an empty selection with the default FS so the operator
+  // doesn't have to click anything for a "single-FS, default" binding.
   useEffect(() => {
-    if (availableFs.length === 0) return;
-    if (!availableFs.some((f) => f.id === fsId)) {
-      const fallback =
-        availableFs.find((f) => f.feature_set_type === 'default') ?? availableFs[0];
-      setFsId(fallback.id);
+    if (availableFs.length === 0) {
+      if (fsIds.length > 0) setFsIds([]);
+      return;
     }
-  }, [availableFs, fsId]);
+    const validIds = new Set(availableFs.map((f) => f.id));
+    const filtered = fsIds.filter((id) => validIds.has(id));
+    if (filtered.length === 0) {
+      const fallback = availableFs.find(isStarterFeatureSet) ?? availableFs[0];
+      setFsIds([fallback.id]);
+    } else if (filtered.length !== fsIds.length) {
+      setFsIds(filtered);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableFs]);
+
+  const toggleFs = (id: string) => {
+    setFsIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const canSubmit =
     !submitting &&
     !!spaceId &&
-    !!fsId &&
+    fsIds.length > 0 &&
     (rootValidation.state === 'ok' || !rootEditable);
 
   const handleSubmit = async () => {
@@ -1554,8 +1620,8 @@ function BindingForm({
       onError('Pick a Space.');
       return;
     }
-    if (!fsId) {
-      onError('Pick a feature set.');
+    if (fsIds.length === 0) {
+      onError('Pick at least one feature set.');
       return;
     }
     setSubmitting(true);
@@ -1563,7 +1629,7 @@ function BindingForm({
       await onSubmit({
         workspace_root: root.trim(),
         space_id: spaceId,
-        feature_set_id: fsId,
+        feature_set_ids: fsIds,
       });
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -1579,10 +1645,13 @@ function BindingForm({
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!isEdit || !initial) return;
+    const sameFs =
+      fsIds.length === initial.feature_set_ids.length &&
+      fsIds.every((id, i) => id === initial.feature_set_ids[i]);
     const same =
       root.trim() === initial.workspace_root &&
       spaceId === initial.space_id &&
-      fsId === initial.feature_set_id;
+      sameFs;
     if (same) return;
     if (!canSubmit) return;
     const seq = ++saveSeqRef.current;
@@ -1595,7 +1664,7 @@ function BindingForm({
         await onSubmit({
           workspace_root: root.trim(),
           space_id: spaceId,
-          feature_set_id: fsId,
+          feature_set_ids: fsIds,
         });
         if (saveSeqRef.current !== seq) return;
         onSaveStatusChange?.({ kind: 'saved' });
@@ -1618,7 +1687,7 @@ function BindingForm({
     initial,
     root,
     spaceId,
-    fsId,
+    fsIds,
     canSubmit,
     onSubmit,
     onError,
@@ -1696,25 +1765,117 @@ function BindingForm({
         />
       </FormField>
 
-      <FormField label="Feature set" hint="Which tools this folder sees.">
-        <Picker
-          value={fsId}
-          onChange={setFsId}
-          placeholder={
-            !spaceId
-              ? 'Pick a Space first'
-              : availableFs.length === 0
-                ? 'No feature sets in that Space'
-                : 'Pick a feature set'
-          }
-          options={availableFs.map((f) => ({
-            value: f.id,
-            label: f.feature_set_type === 'default' ? `${f.name} · builtin` : f.name,
-            icon: f.icon ?? undefined,
-          }))}
-          disabled={!spaceId || availableFs.length === 0}
-          testId="workspace-binding-fs"
-        />
+      <FormField
+        label={
+          fsIds.length > 1
+            ? `Feature sets (${fsIds.length} selected)`
+            : 'Feature set'
+        }
+        hint="Which tools this folder sees. Pick one or compose several — selected sets union into a single allow list."
+      >
+        {!spaceId ? (
+          <p className="text-xs text-[rgb(var(--muted))] italic px-3 py-2">
+            Pick a Space first.
+          </p>
+        ) : availableFs.length === 0 ? (
+          <p className="text-xs text-[rgb(var(--muted))] italic px-3 py-2">
+            No feature sets in that Space yet.
+          </p>
+        ) : (
+          <div
+            className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))]"
+            data-testid="workspace-binding-fs"
+          >
+            <div className="p-2 border-b border-[rgb(var(--border-subtle))]">
+              <input
+                type="text"
+                value={fsSearch}
+                onChange={(e) => setFsSearch(e.target.value)}
+                placeholder={`Search ${availableFs.length} feature set${availableFs.length === 1 ? '' : 's'}…`}
+                className="w-full px-2.5 py-1.5 text-xs bg-[rgb(var(--surface))] border border-[rgb(var(--border-subtle))] rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                data-testid="workspace-binding-fs-search"
+              />
+            </div>
+            <div className="max-h-56 overflow-y-auto p-1.5 space-y-1">
+              {filteredFs.length === 0 ? (
+                <p className="text-xs text-[rgb(var(--muted))] italic px-2 py-3 text-center">
+                  No feature sets match &ldquo;{fsSearch}&rdquo;.
+                </p>
+              ) : (
+                filteredFs.map((f) => {
+                  const isSelected = fsIds.includes(f.id);
+                  const order = isSelected ? fsIds.indexOf(f.id) + 1 : null;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => toggleFs(f.id)}
+                      className={[
+                        'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-sm transition-colors',
+                        isSelected
+                          ? 'bg-primary-500/10 hover:bg-primary-500/15'
+                          : 'hover:bg-[rgb(var(--surface-hover))]',
+                      ].join(' ')}
+                      data-testid={`workspace-binding-fs-toggle-${f.id}`}
+                    >
+                      <div
+                        className={[
+                          'h-4 w-4 rounded border flex items-center justify-center flex-shrink-0',
+                          isSelected
+                            ? 'bg-primary-500 border-primary-500'
+                            : 'border-[rgb(var(--border-strong))] bg-[rgb(var(--surface))]',
+                        ].join(' ')}
+                      >
+                        {isSelected ? (
+                          <Check
+                            className="h-3 w-3 text-white"
+                            strokeWidth={3}
+                          />
+                        ) : null}
+                      </div>
+                      {f.icon && (
+                        <span className="text-base leading-none flex-shrink-0">
+                          {f.icon}
+                        </span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium truncate">{f.name}</p>
+                          {isStarterFeatureSet(f) && (
+                            <span
+                              className="text-[9px] uppercase tracking-wide text-[rgb(var(--muted))] bg-[rgb(var(--surface))] px-1 py-0.5 rounded flex-shrink-0"
+                              title="Auto-seeded with this Space."
+                            >
+                              starter
+                            </span>
+                          )}
+                        </div>
+                        {f.description && (
+                          <p className="text-[11px] text-[rgb(var(--muted))] truncate">
+                            {f.description}
+                          </p>
+                        )}
+                      </div>
+                      {order !== null && fsIds.length > 1 && (
+                        <span
+                          className="text-[10px] font-bold text-primary-600 dark:text-primary-300 bg-primary-500/15 rounded-full h-5 w-5 flex items-center justify-center flex-shrink-0"
+                          title="Render order — first FS rendered first; resolver merges all into one set."
+                        >
+                          {order}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            {fsSearch && filteredFs.length > 0 && filteredFs.length < availableFs.length && (
+              <div className="px-3 py-1.5 text-[11px] text-[rgb(var(--muted))] border-t border-[rgb(var(--border-subtle))]">
+                {filteredFs.length} of {availableFs.length} shown
+              </div>
+            )}
+          </div>
+        )}
       </FormField>
 
       {!isEdit && (

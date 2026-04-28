@@ -284,6 +284,18 @@ pub enum DomainEvent {
     // ════════════════════════════════════════════════════════════════════════
     // CLIENT & GRANTS
     // ════════════════════════════════════════════════════════════════════════
+    /// A client's per-space FeatureSet grants were added, removed, or
+    /// replaced wholesale. MCPNotifier listens and pushes
+    /// `notifications/{tools,prompts,resources}/list_changed` to every
+    /// peer registered under this `client_id` so they re-fetch under the
+    /// new permission set.
+    ///
+    /// Used only by the rootless-client fallback path (the resolver consults
+    /// `client_grants` when a session has no roots and the client did not
+    /// declare the MCP `roots` capability). Roots-capable sessions ignore
+    /// these grants and continue to route via `WorkspaceBinding`.
+    ClientGrantChanged { client_id: String, space_id: Uuid },
+
     /// An MCP client was registered (Cursor, VS Code, etc.)
     ClientRegistered {
         client_id: String,
@@ -408,6 +420,7 @@ impl DomainEvent {
             Self::FeatureSetUpdated { .. } => "feature_set_updated",
             Self::FeatureSetDeleted { .. } => "feature_set_deleted",
             Self::FeatureSetMembersChanged { .. } => "feature_set_members_changed",
+            Self::ClientGrantChanged { .. } => "client_grant_changed",
             Self::ClientRegistered { .. } => "client_registered",
             Self::ClientReconnected { .. } => "client_reconnected",
             Self::ClientUpdated { .. } => "client_updated",
@@ -441,6 +454,8 @@ impl DomainEvent {
             Self::ServerFeaturesRefreshed { .. } => true,
             // Feature set member changes affect granted capabilities
             Self::FeatureSetMembersChanged { .. } => true,
+            // Per-client grant changes affect what rootless sessions see
+            Self::ClientGrantChanged { .. } => true,
             // Backend server notifications
             Self::ToolsChanged { .. }
             | Self::PromptsChanged { .. }
@@ -472,6 +487,7 @@ impl DomainEvent {
             | Self::FeatureSetUpdated { space_id, .. }
             | Self::FeatureSetDeleted { space_id, .. }
             | Self::FeatureSetMembersChanged { space_id, .. }
+            | Self::ClientGrantChanged { space_id, .. }
             | Self::ToolsChanged { space_id, .. }
             | Self::PromptsChanged { space_id, .. }
             | Self::ResourcesChanged { space_id, .. }
@@ -517,6 +533,7 @@ impl DomainEvent {
             | Self::ClientUpdated { client_id, .. }
             | Self::ClientDeleted { client_id, .. }
             | Self::ClientTokenIssued { client_id, .. }
+            | Self::ClientGrantChanged { client_id, .. }
             | Self::WorkspaceNeedsBinding { client_id, .. } => Some(client_id),
             _ => None,
         }

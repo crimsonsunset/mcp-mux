@@ -162,9 +162,9 @@ pub mod fixtures {
             .with_description(format!("Test feature set: {}", name))
     }
 
-    /// Create a "default" feature set
-    pub fn default_feature_set(space_id: &str) -> FeatureSet {
-        FeatureSet::new_default(space_id)
+    /// Create the auto-seeded "Starter" FeatureSet for a Space.
+    pub fn starter_feature_set(space_id: &str) -> FeatureSet {
+        FeatureSet::new_starter(space_id)
     }
 
     /// Generate a random UUID string
