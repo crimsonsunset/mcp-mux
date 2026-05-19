@@ -1,7 +1,7 @@
 # Dynamic MCP Toggling via Meta Tools
 
 **Last Updated:** May 19, 2026
-**Status:** Phase 2 complete — `mcpmux_list_servers` read tool shipped; Phases 3–5 pending
+**Status:** Phase 3 complete — session-scope enable/disable meta tools; Phases 4–5 pending
 **Branch:** `feat/dynamic-mcp-toggle-meta-tools`
 **Base branch:** `feat/workspace-root-routing` ([upstream PR #151](https://github.com/mcpmux/mcp-mux/pull/151))
 **Issue:** TBD — file after planning review
@@ -200,20 +200,19 @@ Each write fires `tools/list_changed` per-peer via the existing `MCPNotifier::no
 
 **Outcome:** LLM calls `mcpmux_list_servers` and gets a server roster with per-server status. No state mutation.
 
-### Phase 3 — `mcpmux_enable_server` / `mcpmux_disable_server` (session scope)
+### Phase 3 — `mcpmux_enable_server` / `mcpmux_disable_server` (session scope) ✅
 
-**Effort:** 1 day
+**Effort:** 1 day  
+**Completed:** May 19, 2026
 
-- Add `EnableServerTool` + `DisableServerTool` to `meta_tools/tools.rs`.
-- Args: `{ server_id: string, scope?: "session" | "workspace" (default "session") }`.
-- Session-scope flow: validate `server_id` exists in caller's resolved Space → look up `gateway.session_overrides_require_approval` setting → if `false`, mutate registry directly; if `true`, route through `with_approval` first.
-- Enable adds to `enabled` and removes from `disabled` (the two sets are mutually exclusive per server-id, last-write-wins).
-- Disable mirror: adds to `disabled`, removes from `enabled`.
-- After mutation: fire per-peer `tools/list_changed` via `notify_peer_lists_changed(client_id)`. Emit `MetaToolInvoked` with `decision: "session_override"` when auto-allowed, `"allow_once"` when approval was required.
-- Reject `scope: "workspace"` with `MetaToolError::InvalidArgument("workspace scope not yet implemented; see Phase 4")` until Phase 4 lands.
-- Integration tests: enable → tool appears in next `tools/list`, disable → tool disappears, both with the per-peer notify firing.
+- [x] `EnableServerTool` + `DisableServerTool` in `meta_tools/tools.rs` with `{ server_id, scope? }` args
+- [x] Session flow: validate server in Space → optional approval via `gateway.session_overrides_require_approval` → mutate `SessionOverrideRegistry`
+- [x] Workspace scope rejected until Phase 4
+- [x] Auto-allowed writes audit as `session_override`; approval-gated writes audit as `allow_once`
+- [x] Handler fires `MCPNotifier::notify_session_lists_changed` after successful enable/disable
+- [x] Integration tests: enable adds tools, disable removes tools, workspace rejected, audit decision
 
-**Outcome:** From a fresh Cursor window (no binding, no overrides), an LLM calls `mcpmux_enable_server({"server_id": "github"})`. The GitHub tools appear in the next `tools/list`. The LLM uses them, then calls `mcpmux_disable_server({"server_id": "github"})` when done. Tools disappear. No DB writes; closing Cursor and reopening it = clean slate.
+**Outcome:** LLM can toggle servers mid-session; tools appear/disappear on next `tools/list`. No DB writes.
 
 ### Phase 4 — Workspace-scope variants
 

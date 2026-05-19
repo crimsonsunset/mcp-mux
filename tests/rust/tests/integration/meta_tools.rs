@@ -47,6 +47,7 @@ struct Fixture {
     session_id: String,
     fs_android_id: Uuid,
     github_tool_id: Uuid,
+    event_rx: broadcast::Receiver<DomainEvent>,
 }
 
 impl Fixture {
@@ -118,7 +119,7 @@ impl Fixture {
         ));
 
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
-        let (tx, _rx) = broadcast::channel::<DomainEvent>(32);
+        let (tx, event_rx) = broadcast::channel::<DomainEvent>(32);
 
         let registry = meta_tools::build_default_registry(
             client_repo.clone(),
@@ -149,6 +150,7 @@ impl Fixture {
             session_id,
             fs_android_id,
             github_tool_id,
+            event_rx,
         }
     }
 
@@ -355,6 +357,102 @@ async fn list_servers_shows_session_override_statuses() {
     assert_eq!(server_status(&body, "firebase"), "enabled_via_session");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn enable_server_adds_tools_on_next_list() {
+    let f = Fixture::new().await;
+    let result = f
+        .registry
+        .call(
+            "mcpmux_enable_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "github" }),
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+
+    let tools = f
+        .feature_service
+        .get_tools_for_grants(&f.space_id.to_string(), &[], Some(&f.session_id))
+        .await
+        .unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].server_id, "github");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disable_server_removes_tools_from_list() {
+    let f = Fixture::new().await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    f.registry
+        .call(
+            "mcpmux_disable_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "github" }),
+        )
+        .await
+        .unwrap();
+
+    let tools = f
+        .feature_service
+        .get_tools_for_grants(&f.space_id.to_string(), &[], Some(&f.session_id))
+        .await
+        .unwrap();
+    assert!(tools.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn enable_server_rejects_workspace_scope() {
+    let f = Fixture::new().await;
+    let result = f
+        .call_tool_as_handler_would(
+            "mcpmux_enable_server",
+            json!({ "server_id": "github", "scope": "workspace" }),
+        )
+        .await;
+    assert!(Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    assert!(
+        body.get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .contains("Phase 4")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn enable_server_emits_session_override_audit_decision() {
+    let mut f = Fixture::new().await;
+    f.registry
+        .call(
+            "mcpmux_enable_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "github" }),
+        )
+        .await
+        .unwrap();
+
+    let evt = tokio::time::timeout(Duration::from_millis(200), f.event_rx.recv())
+        .await
+        .expect("receive within 200ms")
+        .expect("event");
+    match evt {
+        DomainEvent::MetaToolInvoked {
+            tool_name,
+            decision,
+            ..
+        } => {
+            assert_eq!(tool_name, "mcpmux_enable_server");
+            assert_eq!(decision, "session_override");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
 // `describe_resolution` and `describe_workspace` were both removed at the
 // user's request — the read surface is now just `list_all_tools` and
 // `list_feature_sets`. Behavior previously asserted here is covered by
@@ -544,6 +642,8 @@ async fn registry_advertises_every_default_tool_with_annotations() {
         "mcpmux_list_all_tools",
         "mcpmux_list_feature_sets",
         "mcpmux_list_servers",
+        "mcpmux_enable_server",
+        "mcpmux_disable_server",
         "mcpmux_create_feature_set",
         "mcpmux_bind_current_workspace",
     ] {

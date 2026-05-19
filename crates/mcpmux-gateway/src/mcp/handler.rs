@@ -752,7 +752,19 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .call(&params.name, &oauth_ctx.client_id, session_id, args)
                 .await
             {
-                Ok(result) => Ok(result),
+                Ok(result) => {
+                    if matches!(
+                        params.name.as_ref(),
+                        "mcpmux_enable_server" | "mcpmux_disable_server"
+                    ) {
+                        if let Some(sid) = session_id {
+                            self.notification_bridge
+                                .notify_session_lists_changed(sid)
+                                .await;
+                        }
+                    }
+                    Ok(result)
+                }
                 Err(e) => Ok(e.into_call_tool_result()),
             };
         }

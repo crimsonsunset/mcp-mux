@@ -1064,45 +1064,100 @@ impl MCPNotifier {
         );
 
         for (session_id, peer) in &live {
-            match peer.notify_tool_list_changed().await {
-                Ok(_) => debug!(
-                    %session_id,
-                    %client_id,
-                    "[MCPNotifier] ✅ Sent tools/list_changed to session (per-client)"
-                ),
-                Err(e) => warn!(
-                    %session_id,
-                    %client_id,
-                    error = ?e,
-                    "[MCPNotifier] failed tools/list_changed"
-                ),
-            }
-            match peer.notify_prompt_list_changed().await {
-                Ok(_) => debug!(
-                    %session_id,
-                    %client_id,
-                    "[MCPNotifier] ✅ Sent prompts/list_changed to session (per-client)"
-                ),
-                Err(e) => warn!(
-                    %session_id,
-                    %client_id,
-                    error = ?e,
-                    "[MCPNotifier] failed prompts/list_changed"
-                ),
-            }
-            match peer.notify_resource_list_changed().await {
-                Ok(_) => debug!(
-                    %session_id,
-                    %client_id,
-                    "[MCPNotifier] ✅ Sent resources/list_changed to session (per-client)"
-                ),
-                Err(e) => warn!(
-                    %session_id,
-                    %client_id,
-                    error = ?e,
-                    "[MCPNotifier] failed resources/list_changed"
-                ),
-            }
+            self.send_all_lists_changed_to_peer(session_id, client_id, peer)
+                .await;
+        }
+    }
+
+    /// Send all three list_changed notifications to one session, bypassing
+    /// space-level hash dedup. Used after session-scoped override mutations
+    /// so only the calling session refreshes its tool list.
+    pub async fn notify_session_lists_changed(&self, session_id: &str) {
+        if DISABLE_ALL_NOTIFICATIONS {
+            trace!(
+                %session_id,
+                "[MCPNotifier] 🚫 disabled — skipping session list_changed"
+            );
+            return;
+        }
+
+        let snapshot: Option<(String, Arc<Peer<RoleServer>>)> = {
+            let sessions = self.sessions.read();
+            sessions.get(session_id).and_then(|entry| {
+                if entry.has_active_stream {
+                    Some((entry.client_id.clone(), entry.peer.clone()))
+                } else {
+                    None
+                }
+            })
+        };
+
+        let Some((client_id, peer)) = snapshot else {
+            debug!(
+                %session_id,
+                "[MCPNotifier] no active stream — skipping session list_changed"
+            );
+            return;
+        };
+
+        if self.reap_dead_sessions(&[(session_id.to_string(), peer.clone())]).contains(&session_id.to_string()) {
+            return;
+        }
+
+        info!(
+            %session_id,
+            %client_id,
+            "[MCPNotifier] 📤 session list_changed (override mutated)"
+        );
+        self.send_all_lists_changed_to_peer(session_id, &client_id, &peer)
+            .await;
+    }
+
+    /// Push tools/prompts/resources list_changed to a single peer.
+    async fn send_all_lists_changed_to_peer(
+        &self,
+        session_id: &str,
+        client_id: &str,
+        peer: &Peer<RoleServer>,
+    ) {
+        match peer.notify_tool_list_changed().await {
+            Ok(_) => debug!(
+                %session_id,
+                %client_id,
+                "[MCPNotifier] ✅ Sent tools/list_changed to session"
+            ),
+            Err(e) => warn!(
+                %session_id,
+                %client_id,
+                error = ?e,
+                "[MCPNotifier] failed tools/list_changed"
+            ),
+        }
+        match peer.notify_prompt_list_changed().await {
+            Ok(_) => debug!(
+                %session_id,
+                %client_id,
+                "[MCPNotifier] ✅ Sent prompts/list_changed to session"
+            ),
+            Err(e) => warn!(
+                %session_id,
+                %client_id,
+                error = ?e,
+                "[MCPNotifier] failed prompts/list_changed"
+            ),
+        }
+        match peer.notify_resource_list_changed().await {
+            Ok(_) => debug!(
+                %session_id,
+                %client_id,
+                "[MCPNotifier] ✅ Sent resources/list_changed to session"
+            ),
+            Err(e) => warn!(
+                %session_id,
+                %client_id,
+                error = ?e,
+                "[MCPNotifier] failed resources/list_changed"
+            ),
         }
     }
 }

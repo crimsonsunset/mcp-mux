@@ -15,7 +15,9 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::approval::{ApprovalPayload, ApprovalScope};
-use super::registry::{MetaTool, MetaToolCall, MetaToolError};
+use super::registry::{
+    MetaTool, MetaToolCall, MetaToolError, SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY,
+};
 use crate::services::ResolvedFeatureSet;
 
 /// Fire a `FeatureSetMembersChanged` event so MCPNotifier pushes a
@@ -333,6 +335,244 @@ fn parse_uuid_arg(args: &Value, field: &str) -> Result<Uuid, MetaToolError> {
         .ok_or_else(|| MetaToolError::InvalidArgument(format!("missing `{field}`")))?;
     Uuid::parse_str(s)
         .map_err(|_| MetaToolError::InvalidArgument(format!("`{field}` is not a UUID: {s}")))
+}
+
+fn parse_string_arg(args: &Value, field: &str) -> Result<String, MetaToolError> {
+    args.get(field)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| MetaToolError::InvalidArgument(format!("missing `{field}`")))
+}
+
+/// Parse `scope` — only `"session"` is implemented in Phase 3.
+fn parse_scope(args: &Value) -> Result<&'static str, MetaToolError> {
+    match args.get("scope").and_then(|v| v.as_str()) {
+        None | Some("session") => Ok("session"),
+        Some("workspace") => Err(MetaToolError::InvalidArgument(
+            "workspace scope not yet implemented; see Phase 4".into(),
+        )),
+        Some(other) => Err(MetaToolError::InvalidArgument(format!(
+            "invalid scope '{other}'; expected 'session' or 'workspace'"
+        ))),
+    }
+}
+
+/// Whether session-scope server overrides require desktop approval.
+async fn session_overrides_require_approval(ctx: &super::registry::MetaToolContext) -> bool {
+    let Some(repo) = ctx.settings_repo.as_ref() else {
+        return false;
+    };
+    match repo.get(SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY).await {
+        Ok(Some(v)) => matches!(v.as_str(), "true" | "1"),
+        _ => false,
+    }
+}
+
+/// Ensure `server_id` has at least one feature row in the caller's Space.
+async fn validate_server_in_space(
+    call: &MetaToolCall<'_>,
+    space_id: Uuid,
+    server_id: &str,
+) -> Result<(), MetaToolError> {
+    let features = call
+        .ctx
+        .server_feature_repo
+        .list_for_space(&space_id.to_string())
+        .await?;
+    if features.iter().any(|f| f.server_id == server_id) {
+        return Ok(());
+    }
+    Err(MetaToolError::InvalidArgument(format!(
+        "unknown server_id '{server_id}' in this Space"
+    )))
+}
+
+fn require_session_id(call: &MetaToolCall<'_>) -> Result<String, MetaToolError> {
+    call.session_id
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            MetaToolError::InvalidArgument("session scope requires an MCP session id".into())
+        })
+}
+
+// ---------------------------------------------------------------------------
+// mcpmux_enable_server / mcpmux_disable_server — write (session scope)
+// ---------------------------------------------------------------------------
+
+pub struct EnableServerTool;
+
+#[async_trait]
+impl MetaTool for EnableServerTool {
+    fn name(&self) -> &'static str {
+        "mcpmux_enable_server"
+    }
+
+    fn description(&self) -> &'static str {
+        "Enable an MCP server for the current session only. The server's tools \
+         appear on the next tools/list without changing workspace bindings. \
+         Use mcpmux_list_servers first to see current status."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["server_id"],
+            "properties": {
+                "server_id": { "type": "string" },
+                "scope": {
+                    "type": "string",
+                    "enum": ["session", "workspace"],
+                    "default": "session"
+                }
+            }
+        })
+    }
+
+    fn is_write(&self) -> bool {
+        true
+    }
+
+    async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
+        parse_scope(&call.args)?;
+        let server_id = parse_string_arg(&call.args, "server_id")?;
+        let space_id = caller_space_id(&call).await?;
+        validate_server_in_space(&call, space_id, &server_id).await?;
+        let session_id = require_session_id(&call)?;
+
+        if session_overrides_require_approval(call.ctx).await {
+            let overrides = call.ctx.session_overrides.clone();
+            let server_id_for_closure = server_id.clone();
+            let session_id_owned = session_id.to_string();
+            let summary = format!("Enable server '{server_id}' for this session");
+            return with_approval(
+                &call,
+                "mcpmux_enable_server",
+                summary,
+                None,
+                false,
+                call.args.clone(),
+                || async move {
+                    overrides.enable(&session_id_owned, &server_id_for_closure);
+                    info!(
+                        session_id = %session_id_owned,
+                        server_id = %server_id_for_closure,
+                        "[meta_tools] enable_server applied (approved)"
+                    );
+                    Ok(text_result(json!({
+                        "ok": true,
+                        "server_id": server_id_for_closure,
+                        "scope": "session",
+                    })))
+                },
+            )
+            .await;
+        }
+
+        call.ctx
+            .session_overrides
+            .enable(&session_id, &server_id);
+        if let Ok(mut decision) = call.audit_decision.lock() {
+            *decision = Some("session_override");
+        }
+        info!(
+            %session_id,
+            server_id = %server_id,
+            "[meta_tools] enable_server applied"
+        );
+        Ok(text_result(json!({
+            "ok": true,
+            "server_id": server_id,
+            "scope": "session",
+        })))
+    }
+}
+
+pub struct DisableServerTool;
+
+#[async_trait]
+impl MetaTool for DisableServerTool {
+    fn name(&self) -> &'static str {
+        "mcpmux_disable_server"
+    }
+
+    fn description(&self) -> &'static str {
+        "Disable an MCP server for the current session only. Bound servers \
+         are muted until re-enabled or the session ends. Use \
+         mcpmux_list_servers to inspect status first."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["server_id"],
+            "properties": {
+                "server_id": { "type": "string" },
+                "scope": {
+                    "type": "string",
+                    "enum": ["session", "workspace"],
+                    "default": "session"
+                }
+            }
+        })
+    }
+
+    fn is_write(&self) -> bool {
+        true
+    }
+
+    async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
+        parse_scope(&call.args)?;
+        let server_id = parse_string_arg(&call.args, "server_id")?;
+        let space_id = caller_space_id(&call).await?;
+        validate_server_in_space(&call, space_id, &server_id).await?;
+        let session_id = require_session_id(&call)?;
+
+        if session_overrides_require_approval(call.ctx).await {
+            let overrides = call.ctx.session_overrides.clone();
+            let server_id_for_closure = server_id.clone();
+            let session_id_owned = session_id.to_string();
+            let summary = format!("Disable server '{server_id}' for this session");
+            return with_approval(
+                &call,
+                "mcpmux_disable_server",
+                summary,
+                None,
+                false,
+                call.args.clone(),
+                || async move {
+                    overrides.disable(&session_id_owned, &server_id_for_closure);
+                    info!(
+                        session_id = %session_id_owned,
+                        server_id = %server_id_for_closure,
+                        "[meta_tools] disable_server applied (approved)"
+                    );
+                    Ok(text_result(json!({
+                        "ok": true,
+                        "server_id": server_id_for_closure,
+                        "scope": "session",
+                    })))
+                },
+            )
+            .await;
+        }
+
+        call.ctx
+            .session_overrides
+            .disable(&session_id, &server_id);
+        if let Ok(mut decision) = call.audit_decision.lock() {
+            *decision = Some("session_override");
+        }
+        info!(
+            %session_id,
+            server_id = %server_id,
+            "[meta_tools] disable_server applied"
+        );
+        Ok(text_result(json!({
+            "ok": true,
+            "server_id": server_id,
+            "scope": "session",
+        })))
+    }
 }
 
 // ---------------------------------------------------------------------------

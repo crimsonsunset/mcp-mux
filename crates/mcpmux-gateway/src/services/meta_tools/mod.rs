@@ -30,7 +30,10 @@ pub use approval::{
     ApprovalScope,
 };
 pub use diff::ToolDiff;
-pub use registry::{MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY};
+pub use registry::{
+    MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY,
+    SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY,
+};
 
 /// Every built-in tool's name must start with this prefix so the handler
 /// can intercept it before routing to backend servers.
@@ -80,10 +83,9 @@ pub fn build_default_registry(
     registry.register(Box::new(tools::ListAllToolsTool));
     registry.register(Box::new(tools::ListFeatureSetsTool));
     registry.register(Box::new(tools::ListServersTool));
-    // Both `describe_resolution` and `describe_workspace` were removed by
-    // user request — the read surface is just the two list_* tools above,
-    // which an LLM can stitch into the same picture without an extra hop.
-    // Writes — gated by ApprovalBroker.
+    // Writes — gated by ApprovalBroker (or auto-allowed for session overrides).
+    registry.register(Box::new(tools::EnableServerTool));
+    registry.register(Box::new(tools::DisableServerTool));
     registry.register(Box::new(tools::CreateFeatureSetTool));
     registry.register(Box::new(tools::BindCurrentWorkspaceTool));
     std::sync::Arc::new(registry)

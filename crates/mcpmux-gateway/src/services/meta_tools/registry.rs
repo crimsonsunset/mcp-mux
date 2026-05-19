@@ -5,7 +5,7 @@
 //! `tools/list` response.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mcpmux_core::{
@@ -26,6 +26,11 @@ use crate::services::{
 /// App-settings key that toggles the entire `mcpmux_*` namespace.
 /// Present + "false" → hidden; missing or anything else → enabled.
 pub const META_TOOLS_ENABLED_KEY: &str = "gateway.meta_tools_enabled";
+
+/// When `"true"`, session-scope enable/disable routes through the approval
+/// broker. Default (missing / unparseable): auto-allow.
+pub const SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY: &str =
+    "gateway.session_overrides_require_approval";
 
 /// Context injected into every meta-tool invocation.
 ///
@@ -63,6 +68,9 @@ pub struct MetaToolCall<'a> {
     /// JSON arguments supplied in `CallToolRequestParams.arguments`.
     pub args: Value,
     pub ctx: &'a MetaToolContext,
+    /// Write tools set this before returning `Ok` to override the default
+    /// `"allow_once"` audit decision (e.g. `"session_override"`).
+    pub audit_decision: Arc<Mutex<Option<&'static str>>>,
 }
 
 /// Errors a meta tool can surface that map cleanly to `CallToolResult::error`.
@@ -223,16 +231,25 @@ impl MetaToolRegistry {
             .get(name)
             .ok_or_else(|| MetaToolError::InvalidArgument(format!("unknown meta tool: {name}")))?;
         let is_write = tool.is_write();
+        let audit_decision = Arc::new(Mutex::new(None));
         let call = MetaToolCall {
             client_id,
             session_id,
             args: args.clone(),
             ctx: &self.ctx,
+            audit_decision: audit_decision.clone(),
         };
         let result = tool.call(call).await;
 
         let (decision, summary) = match &result {
-            Ok(_) if is_write => ("allow_once", format!("{name} succeeded")),
+            Ok(_) if is_write => (
+                audit_decision
+                    .lock()
+                    .ok()
+                    .and_then(|g| *g)
+                    .unwrap_or("allow_once"),
+                format!("{name} succeeded"),
+            ),
             Ok(_) => ("read", format!("{name} read")),
             Err(MetaToolError::ApprovalDenied) => ("deny", format!("{name} denied by user")),
             Err(MetaToolError::ApprovalTimedOut) => ("timeout", format!("{name} timed out")),
