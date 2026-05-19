@@ -19,9 +19,7 @@ use tokio::sync::broadcast;
 
 use super::approval::ApprovalBroker;
 use crate::pool::FeatureService;
-use crate::services::{
-    FeatureSetResolverService, SessionOverrideRegistry, SessionRootsRegistry,
-};
+use crate::services::{FeatureSetResolverService, SessionOverrideRegistry, SessionRootsRegistry};
 
 /// App-settings key that toggles the entire `mcpmux_*` namespace.
 /// Present + "false" → hidden; missing or anything else → enabled.

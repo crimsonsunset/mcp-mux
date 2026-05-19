@@ -24,14 +24,10 @@ async fn resolve_workspace_binding(
     call: &MetaToolCall<'_>,
     space_id: Uuid,
 ) -> Result<(WorkspaceBinding, String), MetaToolError> {
-    let session_id = call
-        .session_id
-        .ok_or_else(|| MetaToolError::InvalidArgument("workspace scope requires an MCP session id".into()))?;
-    let roots = call
-        .ctx
-        .session_roots
-        .get(session_id)
-        .unwrap_or_default();
+    let session_id = call.session_id.ok_or_else(|| {
+        MetaToolError::InvalidArgument("workspace scope requires an MCP session id".into())
+    })?;
+    let roots = call.ctx.session_roots.get(session_id).unwrap_or_default();
     let root = roots.into_iter().next().ok_or_else(|| {
         MetaToolError::InvalidArgument(
             "caller did not report any MCP roots; cannot resolve workspace".into(),

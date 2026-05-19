@@ -1,7 +1,7 @@
 # Dynamic MCP Toggling via Meta Tools
 
 **Last Updated:** May 19, 2026
-**Status:** Phase 5 complete — UI surface for session overrides + settings toggle
+**Status:** Feature complete — pending validation + PR
 **Branch:** `feat/dynamic-mcp-toggle-meta-tools`
 **Base branch:** `feat/workspace-root-routing` ([upstream PR #151](https://github.com/mcpmux/mcp-mux/pull/151))
 **Issue:** TBD — file after planning review
@@ -162,8 +162,12 @@ Each write fires `tools/list_changed` per-peer via the existing `MCPNotifier::no
 | [`crates/mcpmux-gateway/src/consumers/mcp_notifier.rs`](../../crates/mcpmux-gateway/src/consumers/mcp_notifier.rs) | In the session-reap pass, also call `SessionOverrideRegistry::remove(session_id)` alongside `SessionRootsRegistry::remove`. |
 | [`crates/mcpmux-core/src/domain/event.rs`](../../crates/mcpmux-core/src/domain/event.rs) | No new variant — `MetaToolInvoked` already carries `decision: String`. Document `"session_override"` as a valid value in the doc comment. |
 | [`apps/desktop/src/features/workspaces/WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) | New "Active session overrides" sub-panel under the live-session inspector: per-session list of enabled / disabled server_ids with a "clear" button. |
-| [`apps/desktop/src-tauri/src/commands/workspace_binding.rs`](../../apps/desktop/src-tauri/src/commands/workspace_binding.rs) | New Tauri commands: `list_session_overrides(session_id)`, `clear_session_overrides(session_id)`. Read-only + clear; mutation happens via the MCP tool, not the UI. |
-| [`apps/desktop/src/lib/api/workspaceBindings.ts`](../../apps/desktop/src/lib/api/workspaceBindings.ts) | TS wrappers for the two new commands. |
+| [`apps/desktop/src-tauri/src/commands/session_overrides.rs`](../../apps/desktop/src-tauri/src/commands/session_overrides.rs) | Tauri commands: `list_session_overrides`, `clear_session_overrides`. Read-only + clear; mutation via MCP tools. |
+| [`apps/desktop/src-tauri/src/commands/settings.rs`](../../apps/desktop/src-tauri/src/commands/settings.rs) | `get/set_session_overrides_require_approval` settings commands. |
+| [`apps/desktop/src-tauri/src/commands/gateway.rs`](../../apps/desktop/src-tauri/src/commands/gateway.rs) | Wire `session_overrides` + `mcp_notifier` into `GatewayAppState` on gateway start. |
+| [`apps/desktop/src/lib/api/sessionOverrides.ts`](../../apps/desktop/src/lib/api/sessionOverrides.ts) | TS wrappers for session override commands + workspace root matching helpers. |
+| [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | `session_overrides()`, `notification_bridge()` accessors; shared `MCPNotifier` instance. |
+| [`README.md`](../../README.md) | Self-Management Meta Tools feature subsection. |
 
 ---
 
@@ -228,7 +232,7 @@ Each write fires `tools/list_changed` per-peer via the existing `MCPNotifier::no
 
 **Outcome:** Workspace binding gains/loses persistent server-all FeatureSet layers via meta tools.
 
-### Phase 5 — UI surface for session overrides
+### Phase 5 — UI surface for session overrides ✅
 
 **Effort:** 1 day
 
@@ -236,9 +240,28 @@ Each write fires `tools/list_changed` per-peer via the existing `MCPNotifier::no
 - [x] "Clear all overrides" button per session — calls the new `clear_session_overrides` Tauri command. Useful when a session got into a weird state and the user wants a clean default-routing read.
 - [x] New Tauri commands: `list_session_overrides(session_id) -> { enabled: string[], disabled: string[] }`, `clear_session_overrides(session_id)`.
 - [x] Settings checkbox under Gateway settings: "Require approval for session-scope overrides" — wires to `gateway.session_overrides_require_approval`.
-- [ ] README + CHANGELOG entries describing the new meta-tools and the manifest-driven workflow.
+- [x] README section describing the new meta-tools and manifest-driven workflow ([README.md](../../README.md)).
+- [x] CHANGELOG — release-please from conventional `feat(meta-tools):` commits; no manual edit to `CHANGELOG.md`.
 
 **Outcome:** From the Workspaces tab, a user can see at a glance "session abc123 has GitHub enabled (session) and Firebase disabled (session)" and clear them with one click. The new approval-required setting is discoverable in Gateway settings without reading docs.
+
+---
+
+## Pre-PR validation
+
+Do **not** open a PR until all automated checks pass and the production build is verified manually.
+
+| Step | Command | Purpose |
+| ---- | ------- | ------- |
+| Full validate | `pnpm validate` | fmt, clippy, check, eslint, typecheck |
+| Rust tests | `pnpm test:rust` | unit + integration (`meta_tools.rs`) |
+| TS tests | `pnpm test:ts` | vitest |
+| Production build | `pnpm build` | Tauri build on current platform |
+| Manual smoke (recommended) | Run app, exercise Workspaces overrides panel + Settings toggles | UX verification |
+
+Optional (slow / env-dependent): `pnpm test:e2e`, `pnpm test:e2e:web`.
+
+**PR target:** `feat/workspace-root-routing` (stacked on [PR #151](https://github.com/mcpmux/mcp-mux/pull/151)).
 
 ---
 
@@ -283,3 +306,9 @@ Each write fires `tools/list_changed` per-peer via the existing `MCPNotifier::no
 ## Reconciliation
 
 This doc is the source of truth for what gets built. When implementation completes, update the **Status** field at the top and reconcile any deviations (extra files, dropped phases, scope changes) per [`update-planning-md`](~/.cursor/commands/update-planning-md.md).
+
+**May 19, 2026 closeout:**
+- Phases 1–5 implemented on `feat/dynamic-mcp-toggle-meta-tools`.
+- Tauri commands landed in `session_overrides.rs` (not `workspace_binding.rs` as originally planned).
+- CHANGELOG handled by release-please; README updated in-repo.
+- Pre-PR validation gate documented above; PR blocked until validate + tests + build pass.

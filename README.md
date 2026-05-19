@@ -113,6 +113,28 @@ Not every AI client should have the same power. Create Feature Sets — permissi
 
 ![Feature Sets — granular per-server tool selection](docs/screenshots/featureset-detail.png)
 
+### Self-Management Meta Tools (mcpmux_*)
+
+Routing everything through one gateway endpoint means connected AI clients can see every backend tool at session start — even when the project only needs a handful. Workspace bindings pin stable per-folder toolsets, but they do not cover one-off needs ("enable Firebase for the next 15 minutes") or discovery-driven workflows where the LLM picks servers as it goes.
+
+McpMux exposes a built-in `mcpmux_*` tool namespace so the LLM can introspect and reshape its own tool surface mid-conversation:
+
+1. Call **`mcpmux_list_servers`** — server-level manifest with per-server status: `enabled_via_binding`, `enabled_via_session`, `disabled_via_session`, or `inactive`.
+2. Call **`mcpmux_enable_server`** or **`mcpmux_disable_server`** — toggle servers on or off. The gateway pushes `tools/list_changed` so the tool list refreshes without reconnecting.
+3. Use **`scope: "session"`** (default) for ephemeral overrides that die with the MCP session, or **`scope: "workspace"`** to persistently add/remove a server from the workspace binding (workspace writes always require approval).
+
+| Tool | Type | Purpose |
+| ---- | ---- | ------- |
+| `mcpmux_list_all_tools` | read | Full tool roster in the resolved Space |
+| `mcpmux_list_feature_sets` | read | FeatureSets available in the resolved Space |
+| `mcpmux_list_servers` | read | Server-level manifest with status |
+| `mcpmux_enable_server` | write | Enable a server (session or workspace scope) |
+| `mcpmux_disable_server` | write | Disable a server (session or workspace scope) |
+| `mcpmux_create_feature_set` | write | Create a custom FeatureSet |
+| `mcpmux_bind_current_workspace` | write | Bind the session's workspace root to FeatureSets |
+
+In the desktop app: **Settings → Self-management tools** toggles the whole namespace and optional approval for session-scope overrides. **Workspaces → live folder inspector → Active session overrides** shows per-session enabled/disabled servers and lets you clear overrides with one click.
+
 ### See and Manage Every Connected Client
 
 Cursor, VS Code, Windsurf, Claude Code — see every AI client connected to your gateway in real time. Click any client to manage its workspace, grant or revoke feature sets, and see exactly which tools it can access. New clients authenticate via OAuth with a one-click approval flow.

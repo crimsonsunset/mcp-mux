@@ -37,11 +37,7 @@ fn build_dtos(gateway: &GatewayAppState) -> Vec<SessionOverrideDto> {
     let roots_by_session: std::collections::HashMap<String, Vec<String>> = gateway
         .session_roots
         .as_ref()
-        .map(|reg| {
-            reg.list_all_sessions()
-                .into_iter()
-                .collect()
-        })
+        .map(|reg| reg.list_all_sessions().into_iter().collect())
         .unwrap_or_default();
 
     overrides
@@ -94,7 +90,10 @@ pub async fn clear_session_overrides(
         notifier.notify_session_lists_changed(&session_id).await;
     }
 
-    info!("[session_overrides] cleared overrides for session {}", session_id);
+    info!(
+        "[session_overrides] cleared overrides for session {}",
+        session_id
+    );
 
     if let Err(e) = app_handle.emit(
         "session-overrides-changed",

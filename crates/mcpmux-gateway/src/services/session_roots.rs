@@ -159,8 +159,7 @@ impl SessionRootsRegistry {
         if unchanged {
             return false;
         }
-        self.last_resolution
-            .insert(session_id.to_string(), new_val);
+        self.last_resolution.insert(session_id.to_string(), new_val);
         true
     }
 

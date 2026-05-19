@@ -581,8 +581,9 @@ async fn test_gateway_content_deduping_prevents_spurious_notifications() {
     let tools_count = client_handler.tools_count.clone();
     let client = connect_client(&gw.url, client_handler).await;
 
-    // Wait for init + hash priming
+    // Wait for init + hash priming (first tools/list may fire one resolution-flip notification)
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let baseline = tools_count.load(Ordering::SeqCst);
 
     // Emit ToolsChanged WITHOUT changing features (hash stays same)
     gw.emit(DomainEvent::ToolsChanged {
@@ -595,7 +596,7 @@ async fn test_gateway_content_deduping_prevents_spurious_notifications() {
 
     assert_eq!(
         tools_count.load(Ordering::SeqCst),
-        0,
+        baseline,
         "No notification should be sent when features haven't changed (content deduping)"
     );
 

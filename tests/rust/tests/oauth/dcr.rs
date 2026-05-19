@@ -71,11 +71,20 @@ fn test_external_https_rejected() {
 }
 
 #[test]
-fn test_mixed_valid_invalid_rejected() {
-    // One invalid URI should fail the whole validation
+fn test_mixed_valid_invalid_skips_invalid() {
+    // Invalid URIs are skipped — clients like Cursor send a mix and only use valid ones.
     let uris = vec![
         "http://127.0.0.1:8080/callback".to_string(),
-        "https://evil.com/steal".to_string(), // invalid
+        "https://evil.com/steal".to_string(),
+    ];
+    assert!(validate_redirect_uris(&uris).is_ok());
+}
+
+#[test]
+fn test_all_invalid_rejected() {
+    let uris = vec![
+        "https://evil.com/steal".to_string(),
+        "http://example.com/callback".to_string(),
     ];
     assert!(validate_redirect_uris(&uris).is_err());
 }

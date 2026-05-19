@@ -676,7 +676,11 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_tools_for_grants(&space_id.to_string(), &feature_set_ids, session_id_owned.as_deref())
+            .get_tools_for_grants(
+                &space_id.to_string(),
+                &feature_set_ids,
+                session_id_owned.as_deref(),
+            )
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get tools: {}", e), None))?;
 

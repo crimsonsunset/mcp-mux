@@ -1100,7 +1100,10 @@ impl MCPNotifier {
             return;
         };
 
-        if self.reap_dead_sessions(&[(session_id.to_string(), peer.clone())]).contains(&session_id.to_string()) {
+        if self
+            .reap_dead_sessions(&[(session_id.to_string(), peer.clone())])
+            .contains(&session_id.to_string())
+        {
             return;
         }
 

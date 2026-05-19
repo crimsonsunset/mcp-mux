@@ -285,11 +285,7 @@ async fn bind_github_only_to_session_root(f: &Fixture) -> String {
     let root = "/tmp/mcpmux-list-servers-test";
     f.session_roots.set_roots_capable(&f.session_id, true);
     f.session_roots.set(&f.session_id, [root]);
-    let binding = WorkspaceBinding::new(
-        normalize_workspace_root(root),
-        f.space_id,
-        fs_id.clone(),
-    );
+    let binding = WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, fs_id.clone());
     f.binding_repo.create(&binding).await.unwrap();
     fs_id
 }
@@ -486,11 +482,7 @@ async fn disable_server_workspace_removes_server_all_from_binding() {
 
     let tools = f
         .feature_service
-        .get_tools_for_grants(
-            &f.space_id.to_string(),
-            &binding.feature_set_ids,
-            None,
-        )
+        .get_tools_for_grants(&f.space_id.to_string(), &binding.feature_set_ids, None)
         .await
         .unwrap();
     assert_eq!(tools.len(), 1);
@@ -502,7 +494,8 @@ async fn enable_server_workspace_requires_binding() {
     let f = Fixture::new().await;
     f.attach_auto_publisher(ApprovalDecision::AllowOnce);
     f.session_roots.set_roots_capable(&f.session_id, true);
-    f.session_roots.set(&f.session_id, ["/tmp/unbound-workspace"]);
+    f.session_roots
+        .set(&f.session_id, ["/tmp/unbound-workspace"]);
 
     let result = f
         .call_tool_as_handler_would(
@@ -992,7 +985,11 @@ async fn session_override_disable_mutes_bound_server() {
 
     let before = f
         .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &[fs_id.clone()], Some(&f.session_id))
+        .get_tools_for_grants(
+            &f.space_id.to_string(),
+            &[fs_id.clone()],
+            Some(&f.session_id),
+        )
         .await
         .unwrap();
     assert_eq!(before.len(), 1);
@@ -1021,7 +1018,8 @@ async fn session_override_additive_over_binding() {
         .unwrap();
 
     assert_eq!(tools.len(), 2);
-    let servers: std::collections::HashSet<_> = tools.iter().map(|t| t.server_id.as_str()).collect();
+    let servers: std::collections::HashSet<_> =
+        tools.iter().map(|t| t.server_id.as_str()).collect();
     assert!(servers.contains("github"));
     assert!(servers.contains("firebase"));
 }

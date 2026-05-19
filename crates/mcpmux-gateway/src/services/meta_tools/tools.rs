@@ -386,11 +386,9 @@ async fn validate_server_in_space(
 }
 
 fn require_session_id(call: &MetaToolCall<'_>) -> Result<String, MetaToolError> {
-    call.session_id
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            MetaToolError::InvalidArgument("session scope requires an MCP session id".into())
-        })
+    call.session_id.map(|s| s.to_string()).ok_or_else(|| {
+        MetaToolError::InvalidArgument("session scope requires an MCP session id".into())
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -472,9 +470,7 @@ impl MetaTool for EnableServerTool {
             .await;
         }
 
-        call.ctx
-            .session_overrides
-            .enable(&session_id, &server_id);
+        call.ctx.session_overrides.enable(&session_id, &server_id);
         if let Ok(mut decision) = call.audit_decision.lock() {
             *decision = Some("session_override");
         }
@@ -567,9 +563,7 @@ impl MetaTool for DisableServerTool {
             .await;
         }
 
-        call.ctx
-            .session_overrides
-            .disable(&session_id, &server_id);
+        call.ctx.session_overrides.disable(&session_id, &server_id);
         if let Ok(mut decision) = call.audit_decision.lock() {
             *decision = Some("session_override");
         }
