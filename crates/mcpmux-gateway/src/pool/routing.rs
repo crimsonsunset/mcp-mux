@@ -187,6 +187,7 @@ impl RoutingService {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
+        session_id: Option<&str>,
         tool_name: &str,
         arguments: Value,
     ) -> Result<ToolCallResult> {
@@ -199,10 +200,10 @@ impl RoutingService {
             .await?
             .ok_or_else(|| anyhow!("Tool '{}' not found", tool_name))?;
 
-        // 2. Check if the tool is allowed by grants
+        // 2. Check if the tool is allowed by grants (session overrides included)
         let allowed_features = self
             .feature_service
-            .resolve_feature_sets(&space_id_str, feature_set_ids)
+            .get_tools_for_grants(&space_id_str, feature_set_ids, session_id)
             .await?;
 
         info!(

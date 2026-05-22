@@ -793,6 +793,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .call_tool(
                 space_id,
                 &feature_set_ids,
+                session_id,
                 &params.name,
                 serde_json::to_value(params.arguments.unwrap_or_default()).unwrap_or_default(),
             )
