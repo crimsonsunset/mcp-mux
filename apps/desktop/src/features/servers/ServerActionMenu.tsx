@@ -11,7 +11,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { MoreVertical, Settings, RefreshCw, RotateCcw, FileText, Code, Trash2 } from 'lucide-react';
+import { MoreVertical, Settings, RefreshCw, RotateCcw, FileText, Code, Trash2, Copy } from 'lucide-react';
 
 export interface ServerActionMenuProps {
   serverId: string;
@@ -20,11 +20,14 @@ export interface ServerActionMenuProps {
   isOAuth: boolean;
   isEnabled: boolean;
   isConnected: boolean;
+  /** Show "Add another account…" for registry/manual installs (not clones-of-clones). */
+  canCloneAccount?: boolean;
   onConfigure: () => void;
   onRefresh: () => void;
   onReconnect: () => void;
   onViewLogs: () => void;
   onViewDefinition: () => void;
+  onCloneAccount?: () => void;
   onUninstall: () => void;
 }
 
@@ -35,11 +38,13 @@ export function ServerActionMenu({
   isOAuth,
   isEnabled,
   isConnected: _isConnected,
+  canCloneAccount = false,
   onConfigure,
   onRefresh,
   onReconnect,
   onViewLogs,
   onViewDefinition,
+  onCloneAccount,
   onUninstall,
 }: ServerActionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -162,6 +167,19 @@ export function ServerActionMenu({
             <Code className="h-4 w-4 text-[rgb(var(--muted))]" />
             View Definition
           </button>
+
+          {/* Add another account - registry/manual installs only, not clones-of-clones */}
+          {canCloneAccount && onCloneAccount && (
+            <button
+              onClick={() => handleAction(onCloneAccount)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[rgb(var(--foreground))] hover:bg-[rgb(var(--surface-hover))] transition-colors"
+              role="menuitem"
+              data-testid={`clone-account-${serverId}`}
+            >
+              <Copy className="h-4 w-4 text-[rgb(var(--muted))]" />
+              Add another account…
+            </button>
+          )}
 
           {/* Separator */}
           <div className="my-1 border-t border-[rgb(var(--border-subtle))]" />

@@ -6,6 +6,8 @@ import type { InstallationSource } from '@/types/registry';
 
 interface SourceBadgeProps {
   source: InstallationSource | undefined;
+  /** Source server ID when this install is a clone (display-only lineage). */
+  clonedFrom?: string | null;
   className?: string;
 }
 
@@ -16,7 +18,19 @@ interface SourceBadgeProps {
  * - Config File: Green badge - synced from user's JSON config file
  * - Manual: Gray badge - manually entered via UI
  */
-export function SourceBadge({ source, className = '' }: SourceBadgeProps) {
+export function SourceBadge({ source, clonedFrom, className = '' }: SourceBadgeProps) {
+  if (clonedFrom) {
+    return (
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 ${className}`}
+        title={`Cloned from ${clonedFrom}`}
+        data-testid="source-badge-clone"
+      >
+        Clone of {clonedFrom}
+      </span>
+    );
+  }
+
   if (!source) {
     return null;
   }

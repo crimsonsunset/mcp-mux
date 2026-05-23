@@ -21,6 +21,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import { ServerActionMenu } from './ServerActionMenu';
+import { CloneAccountModal } from './CloneAccountModal';
 import type { ServerViewModel, ServerDefinition, InstalledServerState, InputDefinition } from '../../types/registry';
 import type { ServerFeature } from '@/lib/api/serverFeatures';
 import { listServerFeaturesByServer } from '@/lib/api/serverFeatures';
@@ -36,12 +37,36 @@ import { ServerLogViewer } from '@/components/ServerLogViewer';
 import { ConfigEditorModal } from '@/components/ConfigEditorModal';
 import { ServerDefinitionModal } from '@/components/ServerDefinitionModal';
 import { SourceBadge } from '@/components/SourceBadge';
+import type { ClonedInstalledServer } from '@/lib/api/serverClone';
+
+/** Server view model extended with optional clone lineage from the backend. */
+type ServerViewModelWithClone = ServerViewModel & { cloned_from?: string };
+
+/**
+ * Read clone lineage from an installed-server row when the TS type has not caught up yet.
+ */
+function getInstalledCloneLineage(state: InstalledServerState): string | undefined {
+  const clonedFrom = (state as InstalledServerState & { cloned_from?: string | null }).cloned_from;
+  return clonedFrom ?? undefined;
+}
+
+/**
+ * Whether the overflow menu should offer "Add another account…".
+ */
+function canCloneServer(server: ServerViewModelWithClone): boolean {
+  if (server.cloned_from) {
+    return false;
+  }
+
+  const sourceType = server.installation_source?.type;
+  return sourceType === 'registry' || sourceType === 'manual_entry';
+}
 
 // Helper to merge definitions with states (same as registryStore)
 function mergeDefinitionsWithStates(
   definitions: ServerDefinition[],
   states: InstalledServerState[]
-): ServerViewModel[] {
+): ServerViewModelWithClone[] {
   const stateMap = new Map(states.map(s => [s.server_id, s]));
   
   return definitions.map(def => {
@@ -70,6 +95,7 @@ function mergeDefinitionsWithStates(
       last_error: null, // Runtime-only, will be set by ServerManager events
       created_at: state?.created_at, // Include for sorting
       installation_source: state?.source, // Track how server was installed
+      cloned_from: state ? getInstalledCloneLineage(state) : undefined,
       env_overrides: state?.env_overrides ?? {},
       args_append: state?.args_append ?? [],
       extra_headers: state?.extra_headers ?? {},
@@ -79,7 +105,7 @@ function mergeDefinitionsWithStates(
 
 // Helper to create ServerViewModel from installed state when registry is unavailable
 // Uses cached_definition if available (proper offline support), otherwise falls back to minimal data
-function createOfflineServerViewModel(state: InstalledServerState): ServerViewModel {
+function createOfflineServerViewModel(state: InstalledServerState): ServerViewModelWithClone {
   // Try to use cached definition first (proper offline support)
   if (state.cached_definition) {
     try {
@@ -104,6 +130,7 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
         last_error: null,
         created_at: state.created_at,
         installation_source: state.source,
+        cloned_from: getInstalledCloneLineage(state),
         env_overrides: state.env_overrides ?? {},
         args_append: state.args_append ?? [],
         extra_headers: state.extra_headers ?? {},
@@ -140,6 +167,7 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
     last_error: null,
     created_at: state.created_at,
     installation_source: state.source,
+    cloned_from: getInstalledCloneLineage(state),
     env_overrides: state.env_overrides ?? {},
     args_append: state.args_append ?? [],
     extra_headers: state.extra_headers ?? {},
@@ -162,7 +190,7 @@ interface ConfigModalState {
 }
 
 export function ServersPage() {
-  const [installedServers, setInstalledServers] = useState<ServerViewModel[]>([]);
+  const [installedServers, setInstalledServers] = useState<ServerViewModelWithClone[]>([]);
   const [gatewayRunning, setGatewayRunning] = useState(false);
   const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -189,6 +217,9 @@ export function ServersPage() {
 
   // Definition viewer state
   const [definitionServer, setDefinitionServer] = useState<{ id: string; name: string } | null>(null);
+
+  // Clone account wizard state
+  const [cloneModalServer, setCloneModalServer] = useState<ServerViewModelWithClone | null>(null);
   
   // Config editor state
   const [editConfigSpace, setEditConfigSpace] = useState<{ id: string; name: string } | null>(null);
@@ -327,7 +358,7 @@ export function ServersPage() {
       
       // Merge definitions with installed states
       // If definitions are missing, create minimal ServerViewModels from installed states
-      let mergedServers: ServerViewModel[];
+      let mergedServers: ServerViewModelWithClone[];
       
       if (definitions.length > 0) {
         // Normal case: merge definitions with states
@@ -595,7 +626,6 @@ export function ServersPage() {
     }
   };
 
-  // Handle Configure button click (from overflow menu or pending_config state)
   const handleConfigureClick = (server: ServerViewModel) => {
     const serverInputs = server.transport.metadata?.inputs ?? [];
     const initialValues: Record<string, string> = {};
@@ -611,6 +641,60 @@ export function ServersPage() {
       argsAppend: [...(server.args_append ?? [])],
       extraHeaders: { ...(server.extra_headers ?? {}) },
     });
+  };
+
+  /**
+   * Build a view model from a freshly cloned install row for the configure step.
+   */
+  const createViewModelFromClone = (cloned: ClonedInstalledServer): ServerViewModelWithClone | null => {
+    if (!cloned.cached_definition) {
+      return null;
+    }
+
+    try {
+      const definition: ServerDefinition = JSON.parse(cloned.cached_definition);
+      const inputValues = cloned.input_values ?? {};
+      const inputs = definition.transport.metadata?.inputs ?? [];
+      const missing_required_inputs = inputs.some(
+        (input: InputDefinition) => input.required && !inputValues[input.id]
+      );
+
+      return {
+        ...definition,
+        is_installed: true,
+        enabled: cloned.enabled,
+        oauth_connected: cloned.oauth_connected,
+        input_values: inputValues,
+        connection_status: 'disconnected',
+        missing_required_inputs,
+        last_error: null,
+        created_at: cloned.created_at,
+        installation_source: cloned.source,
+        cloned_from: cloned.cloned_from ?? undefined,
+        env_overrides: cloned.env_overrides ?? {},
+        args_append: cloned.args_append ?? [],
+        extra_headers: cloned.extra_headers ?? {},
+      };
+    } catch (e) {
+      console.warn('[ServersPage] Failed to parse cloned server definition:', e);
+      return null;
+    }
+  };
+
+  /**
+   * Open the configure modal after a successful clone so the user can enter credentials.
+   */
+  const handleCloneComplete = async (cloned: ClonedInstalledServer) => {
+    await loadData();
+
+    const clonedViewModel = createViewModelFromClone(cloned);
+    if (clonedViewModel) {
+      handleConfigureClick(clonedViewModel);
+      showToast(`Created ${clonedViewModel.name}`, 'success');
+      return;
+    }
+
+    showToast('Account created — configure it from My Servers', 'success');
   };
 
   const handleSaveConfig = async () => {
@@ -1028,7 +1112,10 @@ export function ServersPage() {
                           <span className="text-xs text-[rgb(var(--muted))]">{server.transport.type}</span>
                           
                           {/* Installation Source Badge */}
-                          <SourceBadge source={server.installation_source} />
+                          <SourceBadge
+                            source={server.installation_source}
+                            clonedFrom={server.cloned_from}
+                          />
                         </div>
                         
                         {/* Show runtime message inline (from ServerManager events) */}
@@ -1169,11 +1256,13 @@ export function ServersPage() {
                         }
                         isEnabled={server.enabled}
                         isConnected={serverAction === 'running' || serverAction === 'connected_auto'}
+                        canCloneAccount={canCloneServer(server)}
                         onConfigure={() => handleConfigureClick(server)}
                         onRefresh={() => handleRefresh(server)}
                         onReconnect={() => handleReconnect(server)}
                         onViewLogs={() => setLogViewerServer({ id: server.id, name: server.name })}
                         onViewDefinition={() => setDefinitionServer({ id: server.id, name: server.name })}
+                        onCloneAccount={() => setCloneModalServer(server)}
                         onUninstall={() => handleUninstall(server)}
                       />
                     </div>
@@ -1289,6 +1378,17 @@ export function ServersPage() {
             );
           })}
         </div>
+      )}
+
+      {/* Clone Account Modal */}
+      {cloneModalServer && viewSpace && (
+        <CloneAccountModal
+          open={!!cloneModalServer}
+          spaceId={viewSpace.id}
+          sourceServer={cloneModalServer}
+          onClose={() => setCloneModalServer(null)}
+          onCloned={handleCloneComplete}
+        />
       )}
 
       {/* Configuration Modal */}
