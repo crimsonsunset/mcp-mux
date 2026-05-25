@@ -107,6 +107,8 @@ export function WorkspacesPage() {
   const [selected, setSelected] = useState<Selected | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'live' | 'unmapped'>('all');
+  /** Optimistic icon overrides while the inspector panel is open. */
+  const [liveEntryIcons, setLiveEntryIcons] = useState<Map<string, string>>(new Map());
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -278,12 +280,21 @@ export function WorkspacesPage() {
     selected?.mode === 'entry' ? entries.find((e) => e.id === selected.id) ?? null : null;
   const resolveEntryIcon = useCallback(
     (entry: Entry): string | null =>
-      entry.binding?.icon ?? appearancesByRoot.get(entry.root.toLowerCase()) ?? null,
-    [appearancesByRoot]
+      liveEntryIcons.get(entry.id) ??
+      entry.binding?.icon ??
+      appearancesByRoot.get(entry.root.toLowerCase()) ??
+      null,
+    [appearancesByRoot, liveEntryIcons]
   );
 
   const selectedIsNew = selected?.mode === 'new';
   const panelOpen = selected !== null;
+
+  useEffect(() => {
+    if (!panelOpen) {
+      setLiveEntryIcons(new Map());
+    }
+  }, [panelOpen]);
 
   const handleCreate = async (input: WorkspaceBindingInput): Promise<WorkspaceBinding> => {
     const created = await createWorkspaceBinding(input);
@@ -466,6 +477,18 @@ export function WorkspacesPage() {
             }}
             resolvedIcon={selectedEntry ? resolveEntryIcon(selectedEntry) : null}
             onError={(msg) => showError('Could not save', msg)}
+            onIconChange={(icon) => {
+              if (!selectedEntry) return;
+              setLiveEntryIcons((prev) => {
+                const next = new Map(prev);
+                if (icon) {
+                  next.set(selectedEntry.id, icon);
+                } else {
+                  next.delete(selectedEntry.id);
+                }
+                return next;
+              });
+            }}
           />
         </>
       )}
@@ -879,6 +902,7 @@ function InspectorPanel({
   onSubmit,
   onDelete,
   onError,
+  onIconChange,
 }: {
   entry: Entry | null;
   isNew: boolean;
@@ -889,7 +913,22 @@ function InspectorPanel({
   onSubmit: (input: WorkspaceBindingInput) => Promise<void>;
   onDelete: () => Promise<void>;
   onError: (msg: string) => void;
+  /** Live icon edits from the binding form (before autosave lands in entry state). */
+  onIconChange?: (icon: string | null) => void;
 }) {
+  const [liveIcon, setLiveIcon] = useState<string | null>(resolvedIcon);
+
+  useEffect(() => {
+    setLiveIcon(resolvedIcon);
+  }, [resolvedIcon, entry?.id]);
+
+  const handleIconChange = useCallback(
+    (icon: string | null) => {
+      setLiveIcon(icon);
+      onIconChange?.(icon);
+    },
+    [onIconChange]
+  );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -925,8 +964,8 @@ function InspectorPanel({
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="w-11 h-11 flex items-center justify-center bg-[rgb(var(--background))] rounded-lg flex-shrink-0 border border-[rgb(var(--border-subtle))]">
-              {resolvedIcon ? (
-                <ServerIcon icon={resolvedIcon} className="h-6 w-6 object-contain" fallback="📁" />
+              {liveIcon ? (
+                <ServerIcon icon={liveIcon} className="h-6 w-6 object-contain" fallback="📁" />
               ) : (
                 <FolderOpen className="h-5 w-5 text-[rgb(var(--muted))]" />
               )}
@@ -1000,6 +1039,7 @@ function InspectorPanel({
             onSubmit={onSubmit}
             onError={onError}
             onSaveStatusChange={setSaveStatus}
+            onIconChange={handleIconChange}
           />
         </CollapsibleSection>
 
@@ -1777,6 +1817,7 @@ function BindingForm({
   onSubmit,
   onError,
   onSaveStatusChange,
+  onIconChange,
 }: {
   mode: 'create' | 'edit' | 'create-from-live';
   spaces: Space[];
@@ -1789,6 +1830,8 @@ function BindingForm({
   onError: (message: string) => void;
   /** Surfaced upward so the section header can show a Saving / Saved pill. */
   onSaveStatusChange?: (status: SaveStatus) => void;
+  /** Propagate icon edits to the inspector header and card list. */
+  onIconChange?: (icon: string | null) => void;
 }) {
   const defaultSpaceId = useMemo(
     () => spaces.find((s) => s.is_default)?.id ?? spaces[0]?.id ?? '',
@@ -2077,6 +2120,44 @@ function BindingForm({
   const lastSavedAppearanceRef = useRef<string | null>(
     mode === 'create-from-live' ? normalizeIcon(initialUnmappedIcon) : null
   );
+
+  /**
+   * Persist icon immediately after upload so the card updates without waiting
+   * for the debounced autosave or a panel close flush.
+   */
+  const persistIconNow = async (nextIcon: string) => {
+    const workspaceRoot = root.trim();
+    if (!workspaceRoot) return;
+    const normalizedIcon = normalizeIcon(nextIcon);
+
+    if (mode === 'edit' && initial && canSubmit) {
+      const payload: WorkspaceBindingInput = {
+        workspace_root: workspaceRoot,
+        label: label.trim() || null,
+        icon: normalizedIcon,
+        space_id: spaceId,
+        feature_set_ids: fsIds,
+      };
+      lastSavedRef.current = payload;
+      pendingPayloadRef.current = null;
+      await onSubmit(payload);
+      return;
+    }
+
+    if (mode === 'create-from-live') {
+      if (normalizedIcon) {
+        await upsertWorkspaceAppearance({
+          workspace_root: workspaceRoot,
+          icon: normalizedIcon,
+        });
+        lastSavedAppearanceRef.current = normalizedIcon;
+      } else {
+        await deleteWorkspaceAppearance(workspaceRoot);
+        lastSavedAppearanceRef.current = null;
+      }
+    }
+  };
+
   useEffect(() => {
     if (mode !== 'create-from-live') return;
     const workspaceRoot = root.trim();
@@ -2138,7 +2219,11 @@ function BindingForm({
               <input
                 type="text"
                 value={icon}
-                onChange={(e) => setIcon(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setIcon(next);
+                  onIconChange?.(normalizeIcon(next));
+                }}
                 placeholder="Emoji, URL, or local: ref"
                 className="w-full px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                 data-testid="workspace-binding-icon-input"
@@ -2163,6 +2248,8 @@ function BindingForm({
                       if (typeof picked !== 'string' || picked.length === 0) return;
                       const localRef = await uploadWorkspaceIcon(picked);
                       setIcon(localRef);
+                      onIconChange?.(localRef);
+                      await persistIconNow(localRef);
                     } catch (e) {
                       onError(e instanceof Error ? e.message : String(e));
                     }
@@ -2174,7 +2261,13 @@ function BindingForm({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIcon('')}
+                  onClick={() => {
+                    setIcon('');
+                    onIconChange?.(null);
+                    void persistIconNow('').catch((e) =>
+                      onError(e instanceof Error ? e.message : String(e))
+                    );
+                  }}
                   disabled={!icon.trim()}
                   data-testid="workspace-binding-icon-clear"
                 >

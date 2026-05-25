@@ -292,11 +292,9 @@ pub async fn update_workspace_binding(
     } else {
         existing.label.clone()
     };
-    let icon = if input.icon.is_some() {
-        normalize_icon(&input.icon)
-    } else {
-        existing.icon.clone()
-    };
+    // Frontend always sends `icon` (string or null) on update — apply it
+    // directly so uploads and clears persist without a separate code path.
+    let icon = normalize_icon(&input.icon);
 
     let updated = WorkspaceBinding {
         id: existing.id,
