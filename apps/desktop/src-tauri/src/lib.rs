@@ -912,6 +912,11 @@ pub fn run() {
             commands::delete_workspace_binding,
             commands::validate_workspace_root,
             commands::get_workspace_effective_features,
+            commands::list_workspace_appearances,
+            commands::upsert_workspace_appearance,
+            commands::delete_workspace_appearance,
+            commands::upload_workspace_icon,
+            commands::resolve_workspace_icon_path,
             // Meta-tool approval (self-management mcpmux_* tools)
             commands::respond_to_meta_tool_approval,
             commands::list_meta_tool_grants,

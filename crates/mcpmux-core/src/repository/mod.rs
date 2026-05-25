@@ -6,13 +6,9 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-#[path = "../domain/workspace_appearance.rs"]
-mod workspace_appearance;
-pub use workspace_appearance::WorkspaceAppearance;
-
 use crate::domain::{
     Client, Credential, CredentialType, FeatureSet, FeatureSetMember, InstalledServer, MemberMode,
-    OutboundOAuthRegistration, ServerFeature, Space, WorkspaceBinding,
+    OutboundOAuthRegistration, ServerFeature, Space, WorkspaceAppearance, WorkspaceBinding,
 };
 
 /// Result type for repository operations

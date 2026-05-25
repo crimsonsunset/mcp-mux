@@ -16,6 +16,7 @@ mod server;
 mod server_feature;
 mod server_log;
 mod space;
+mod workspace_appearance;
 mod workspace_binding;
 
 // Export event types first (ConnectionStatus is defined here)
@@ -32,6 +33,7 @@ pub use server::*;
 pub use server_feature::*;
 pub use server_log::*;
 pub use space::*;
+pub use workspace_appearance::WorkspaceAppearance;
 pub use workspace_binding::{
     longest_prefix_match, normalize_workspace_root, validate_workspace_root, WorkspaceBinding,
     WorkspaceRootValidation,

@@ -24,9 +24,6 @@
 //! Longest-prefix matching (used by the resolver) is done in-memory against
 //! `list()` since a mcpmux DB is expected to hold O(tens) of bindings.
 
-#[path = "workspace_appearance_repository.rs"]
-pub mod workspace_appearance_repository;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 

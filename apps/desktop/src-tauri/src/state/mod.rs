@@ -8,13 +8,13 @@ use mcpmux_core::{
     GatewayPortService, InboundMcpClientRepository, InstalledServerRepository, LogConfig,
     OutboundOAuthRepository, ServerDiscoveryService,
     ServerFeatureRepository as CoreServerFeatureRepository, ServerLogManager, SpaceRepository,
-    SpaceService, WorkspaceBindingRepository,
+    SpaceService, WorkspaceAppearanceRepository, WorkspaceBindingRepository,
 };
 use mcpmux_storage::{
     Database, FieldEncryptor, SqliteAppSettingsRepository, SqliteCredentialRepository,
     SqliteFeatureSetRepository, SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
     SqliteOutboundOAuthRepository, SqliteServerFeatureRepository, SqliteSpaceRepository,
-    SqliteWorkspaceBindingRepository,
+    SqliteWorkspaceAppearanceRepository, SqliteWorkspaceBindingRepository,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -49,6 +49,8 @@ pub struct AppState {
     pub client_repository: Arc<dyn InboundMcpClientRepository>,
     /// Workspace-root -> FeatureSet bindings (resolver v2)
     pub workspace_binding_repository: Arc<dyn WorkspaceBindingRepository>,
+    /// Appearance overrides for workspace roots (unmapped + mapped)
+    pub workspace_appearance_repository: Arc<dyn WorkspaceAppearanceRepository>,
     /// Server feature repository for discovered MCP features (implements core trait)
     pub server_feature_repository: Arc<SqliteServerFeatureRepository>,
     /// Server feature repository cast to core trait (for gateway services)
@@ -106,6 +108,8 @@ impl AppState {
 
         let workspace_binding_repository: Arc<dyn WorkspaceBindingRepository> =
             Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
+        let workspace_appearance_repository: Arc<dyn WorkspaceAppearanceRepository> =
+            Arc::new(SqliteWorkspaceAppearanceRepository::new(db.clone()));
 
         let server_feature_repository = Arc::new(SqliteServerFeatureRepository::new(db.clone()));
         let server_feature_repository_core: Arc<dyn CoreServerFeatureRepository> =
@@ -164,6 +168,7 @@ impl AppState {
             feature_set_repository,
             client_repository,
             workspace_binding_repository,
+            workspace_appearance_repository,
             server_feature_repository,
             server_feature_repository_core,
             encryptor,

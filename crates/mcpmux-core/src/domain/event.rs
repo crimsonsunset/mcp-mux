@@ -354,6 +354,12 @@ pub enum DomainEvent {
         workspace_root: String,
     },
 
+    /// A workspace appearance override changed for a normalized root.
+    ///
+    /// Emitted by desktop commands for upsert/delete of `workspace_appearances`
+    /// and for appearance->binding migration on first bind.
+    WorkspaceAppearanceChanged { workspace_root: String },
+
     /// A client session resolved via `source=Default` because no binding
     /// matched any of its reported roots. The desktop UI uses this to
     /// prompt the user once per new (space, root) pair to pick a FeatureSet
@@ -432,6 +438,7 @@ impl DomainEvent {
             Self::PromptsChanged { .. } => "prompts_changed",
             Self::ResourcesChanged { .. } => "resources_changed",
             Self::WorkspaceBindingChanged { .. } => "workspace_binding_changed",
+            Self::WorkspaceAppearanceChanged { .. } => "workspace_appearance_changed",
             Self::WorkspaceNeedsBinding { .. } => "workspace_needs_binding",
             Self::SessionRootsChanged => "session_roots_changed",
             Self::MetaToolInvoked { .. } => "meta_tool_invoked",
@@ -462,6 +469,8 @@ impl DomainEvent {
             | Self::ResourcesChanged { .. } => true,
             // Binding changes reshuffle every peer's resolution in the space
             Self::WorkspaceBindingChanged { .. } => true,
+            // Appearance changes only affect desktop rendering metadata.
+            Self::WorkspaceAppearanceChanged { .. } => false,
             // WorkspaceNeedsBinding is a UI prompt — doesn't itself change what
             // tools a client sees, just invites the user to configure.
             // All other events don't affect MCP capabilities
@@ -501,6 +510,7 @@ impl DomainEvent {
             | Self::ClientTokenIssued { .. }
             | Self::GatewayStarted { .. }
             | Self::GatewayStopped
+            | Self::WorkspaceAppearanceChanged { .. }
             | Self::SessionRootsChanged
             | Self::MetaToolInvoked { .. } => None,
         }

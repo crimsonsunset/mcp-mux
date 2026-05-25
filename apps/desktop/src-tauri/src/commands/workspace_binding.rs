@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 use super::gateway::GatewayAppState;
 use super::server_manager::ServerManagerState;
+use super::workspace_appearance::{
+    emit_workspace_appearance_changed, maybe_remove_orphaned_icon_file,
+};
 use crate::state::AppState;
 
 /// Publish `WorkspaceBindingChanged` on the gateway's domain bus so
@@ -55,6 +58,7 @@ pub struct WorkspaceBindingDto {
     pub id: String,
     pub workspace_root: String,
     pub label: Option<String>,
+    pub icon: Option<String>,
     pub space_id: String,
     pub feature_set_ids: Vec<String>,
     pub created_at: String,
@@ -67,6 +71,7 @@ impl From<WorkspaceBinding> for WorkspaceBindingDto {
             id: b.id.to_string(),
             workspace_root: b.workspace_root,
             label: b.label,
+            icon: b.icon,
             space_id: b.space_id.to_string(),
             feature_set_ids: b.feature_set_ids,
             created_at: b.created_at.to_rfc3339(),
@@ -83,6 +88,7 @@ impl From<WorkspaceBinding> for WorkspaceBindingDto {
 pub struct WorkspaceBindingInput {
     pub workspace_root: String,
     pub label: Option<String>,
+    pub icon: Option<String>,
     pub space_id: String,
     pub feature_set_ids: Vec<String>,
 }
@@ -92,6 +98,12 @@ fn normalize_label(label: &Option<String>) -> Option<String> {
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+fn normalize_icon(icon: &Option<String>) -> Option<String> {
+    icon.as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn parse_space_id(input: &WorkspaceBindingInput) -> Result<Uuid, String> {
@@ -206,12 +218,35 @@ pub async fn create_workspace_binding(
 
     let mut binding = WorkspaceBinding::new_multi(normalized.clone(), space_id, feature_set_ids);
     binding.label = normalize_label(&input.label);
+    binding.icon = normalize_icon(&input.icon);
+
+    let appearance_to_migrate = if binding.icon.is_none() {
+        state
+            .workspace_appearance_repository
+            .get(&normalized)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        None
+    };
+    if let Some(appearance) = &appearance_to_migrate {
+        binding.icon = Some(appearance.icon.clone());
+    }
 
     state
         .workspace_binding_repository
         .create(&binding)
         .await
         .map_err(|e| e.to_string())?;
+
+    if appearance_to_migrate.is_some() {
+        state
+            .workspace_appearance_repository
+            .delete(&normalized)
+            .await
+            .map_err(|e| e.to_string())?;
+        emit_workspace_appearance_changed(gateway_state.inner(), normalized.clone()).await;
+    }
 
     info!(
         binding_id = %binding.id,
@@ -255,13 +290,19 @@ pub async fn update_workspace_binding(
     let label = if input.label.is_some() {
         normalize_label(&input.label)
     } else {
-        existing.label
+        existing.label.clone()
+    };
+    let icon = if input.icon.is_some() {
+        normalize_icon(&input.icon)
+    } else {
+        existing.icon.clone()
     };
 
     let updated = WorkspaceBinding {
         id: existing.id,
         workspace_root: normalized,
         label,
+        icon,
         space_id,
         feature_set_ids,
         created_at: existing.created_at,
@@ -273,6 +314,10 @@ pub async fn update_workspace_binding(
         .update(&updated)
         .await
         .map_err(|e| e.to_string())?;
+
+    if existing.icon != updated.icon {
+        maybe_remove_orphaned_icon_file(&state, existing.icon.as_deref()).await?;
+    }
 
     // Notify the NEW target space first (peers that now route via this
     // binding). If the space changed, also notify the OLD target so peers
@@ -317,6 +362,7 @@ pub async fn delete_workspace_binding(
         .map_err(|e| e.to_string())?;
 
     if let Some(b) = existing {
+        maybe_remove_orphaned_icon_file(&state, b.icon.as_deref()).await?;
         emit_binding_changed(gateway_state.inner(), b.space_id, b.workspace_root).await;
     }
     Ok(())

@@ -668,6 +668,12 @@ fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, serde_json::Val
                 "workspace_root": workspace_root,
             }),
         ),
+        DomainEvent::WorkspaceAppearanceChanged { workspace_root } => (
+            "workspace-binding-changed",
+            serde_json::json!({
+                "workspace_root": workspace_root,
+            }),
+        ),
 
         // The set of live reported session roots changed — the Workspaces
         // tab re-fetches so unbound folders stay visible.

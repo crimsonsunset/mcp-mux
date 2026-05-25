@@ -462,6 +462,12 @@ impl MCPNotifier {
                 );
                 self.notify_all_list_changed(space_id, true).await;
             }
+            DomainEvent::WorkspaceAppearanceChanged { workspace_root } => {
+                debug!(
+                    workspace_root = %workspace_root,
+                    "[MCPNotifier] WorkspaceAppearanceChanged ignored (UI-only)"
+                );
+            }
 
             // ============ Backend Server Notifications (Pass-through with Throttling) ============
             // IMPORTANT: These events come from backend MCP servers. Some servers are "chatty" and

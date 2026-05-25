@@ -21,6 +21,7 @@ pub mod server_manager;
 pub mod session_overrides;
 pub mod settings;
 pub mod space;
+pub mod workspace_appearance;
 pub mod workspace_binding;
 
 // Re-export commands for convenience
@@ -41,4 +42,5 @@ pub use server_manager::*;
 pub use session_overrides::*;
 pub use settings::*;
 pub use space::*;
+pub use workspace_appearance::*;
 pub use workspace_binding::*;
