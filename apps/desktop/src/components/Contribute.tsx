@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
 import { Bug, Github, Heart, Lightbulb, Package, SendHorizontal } from 'lucide-react';
-import { Button } from '@mcpmux/ui';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@mcpmux/ui';
 import { CONTRIBUTE, openExternal } from '@/lib/contribute';
 
 /**
@@ -71,18 +76,6 @@ export function ContributeMenu({
   variant?: 'primary' | 'secondary' | 'ghost';
   size?: 'sm' | 'md';
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
   const items = [
     {
       label: 'Request a new server',
@@ -111,42 +104,24 @@ export function ContributeMenu({
   ];
 
   return (
-    <div className="relative inline-block" ref={ref}>
-      <Button
-        variant={variant}
-        size={size}
-        onClick={() => setOpen((v) => !v)}
-        data-testid="contribute-menu-trigger"
-      >
-        <Heart className="h-4 w-4 mr-1.5" />
-        Contribute
-      </Button>
-      {open && (
-        <div
-          className="absolute right-0 mt-2 z-20 w-72 rounded-xl border border-[rgb(var(--border))] bg-white dark:bg-zinc-900 shadow-xl p-1"
-          data-testid="contribute-menu"
-        >
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                openExternal(item.href);
-              }}
-              className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-[rgb(var(--surface))] transition-colors"
-            >
-              <item.icon className="h-4 w-4 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{item.label}</p>
-                <p className="text-[11px] text-[rgb(var(--muted))] leading-snug">
-                  {item.caption}
-                </p>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger data-testid="contribute-menu-trigger">
+        <Button variant={variant} size={size} type="button">
+          <Heart className="h-4 w-4 mr-1.5" />
+          Contribute
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72 p-1.5" data-testid="contribute-menu">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.label}
+            icon={item.icon}
+            label={item.label}
+            description={item.caption}
+            onSelect={() => openExternal(item.href)}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

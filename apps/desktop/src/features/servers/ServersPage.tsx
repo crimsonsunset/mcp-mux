@@ -21,13 +21,24 @@ import {
   FolderOpen,
   UnfoldVertical,
   FoldVertical,
+  Search,
 } from 'lucide-react';
+import { Button, SearchField } from '@mcpmux/ui';
 import { ServerActionMenu } from './ServerActionMenu';
 import { CloneAccountModal } from './CloneAccountModal';
+import { AddServerMenu } from './AddServerMenu';
+import { ServersFiltersPopover } from './ServersFiltersPopover';
 import { UninstallSourceWithClonesDialog } from './UninstallSourceWithClonesDialog';
 import type { ServerViewModel, ServerDefinition, InstalledServerState, InputDefinition } from '../../types/registry';
 import type { ServerFeature } from '@/lib/api/serverFeatures';
-import { listServerFeaturesByServer } from '@/lib/api/serverFeatures';
+import { listServerFeatures, listServerFeaturesByServer } from '@/lib/api/serverFeatures';
+import {
+  groupFeaturesByServerId,
+  serverMatchesFilters,
+  type ServerActionKey,
+  type StatusFilterKey,
+  type TransportFilter,
+} from './servers-page.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
 import { useViewSpace, useNavigateTo } from '@/stores';
@@ -195,6 +206,9 @@ interface ConfigModalState {
 
 export function ServersPage() {
   const [installedServers, setInstalledServers] = useState<ServerViewModelWithClone[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [transportFilter, setTransportFilter] = useState<TransportFilter>('all');
+  const [activeStatusFilters, setActiveStatusFilters] = useState<Set<StatusFilterKey>>(new Set());
   const [gatewayRunning, setGatewayRunning] = useState(false);
   const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -412,6 +426,15 @@ export function ServersPage() {
       setInstalledServers(mergedServers);
       setGatewayRunning(gateway.running);
       setGatewayUrl(gateway.url);
+
+      if (viewSpace?.id) {
+        try {
+          const allFeatures = await listServerFeatures(viewSpace.id);
+          setServerFeatures(groupFeaturesByServerId(allFeatures));
+        } catch (featureError) {
+          console.warn('[ServersPage] Failed to load server features for search:', featureError);
+        }
+      }
     } catch (e) {
       console.error('Failed to load data:', e);
     } finally {
@@ -551,6 +574,45 @@ export function ServersPage() {
 
   const expandableServerCount = installedServers.filter(isServerExpandable).length;
   const hasExpandedServers = expandedServers.size > 0;
+
+  /** Installed servers matching transport, status, and search filters. */
+  const filteredServers = installedServers.filter((server) =>
+    serverMatchesFilters(
+      server,
+      searchQuery,
+      serverFeatures[server.id] ?? [],
+      transportFilter,
+      activeStatusFilters,
+      getServerAction(server) as ServerActionKey
+    )
+  );
+
+  /** Toggle a Beeper-style status filter chip on or off. */
+  const toggleStatusFilter = (statusKey: StatusFilterKey) => {
+    setActiveStatusFilters((previous) => {
+      const next = new Set(previous);
+      if (next.has(statusKey)) {
+        next.delete(statusKey);
+      } else {
+        next.add(statusKey);
+      }
+      return next;
+    });
+  };
+
+  /** Reset transport and status filters to defaults. */
+  const clearAllServerFilters = () => {
+    setTransportFilter('all');
+    setActiveStatusFilters(new Set());
+  };
+
+  /** Expand or collapse a connected server row; loads features on first expand. */
+  const handleServerRowActivate = (server: ServerViewModel) => {
+    if (!isServerExpandable(server)) {
+      return;
+    }
+    toggleExpanded(server.id);
+  };
 
   // Get display status for UI
   const getDisplayStatus = (server: ServerViewModel): string => {
@@ -1048,82 +1110,105 @@ export function ServersPage() {
         />
       )}
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="servers-title">My Servers</h1>
-          <p className="text-sm text-[rgb(var(--muted))]">
-            Manage your installed MCP servers
-          </p>
-        </div>
-        {viewSpace && (
-          <div className="flex items-center gap-2">
-            {installedServers.length > 0 && (
-              <>
-                <button
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-shrink-0">
+            <h1 className="text-2xl font-bold" data-testid="servers-title">My Servers</h1>
+            <p className="text-sm text-[rgb(var(--muted))]">
+              Manage your installed MCP servers
+            </p>
+          </div>
+
+          <div
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm flex-shrink-0 ${
+              gatewayRunning
+                ? 'bg-[rgb(var(--success))]/10 border-[rgb(var(--success))]/30'
+                : 'bg-[rgb(var(--warning))]/10 border-[rgb(var(--warning))]/30'
+            }`}
+            data-testid="gateway-status-chip"
+          >
+            <span
+              className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${
+                gatewayRunning ? 'bg-[rgb(var(--success))] animate-pulse' : 'bg-[rgb(var(--warning))]'
+              }`}
+            />
+            <span className="font-medium whitespace-nowrap">
+              {gatewayRunning ? 'Gateway Running' : 'Gateway Stopped'}
+            </span>
+            {gatewayRunning && gatewayUrl && (
+              <code className="text-xs bg-[rgb(var(--surface-elevated))] px-2 py-0.5 rounded text-[rgb(var(--primary))] truncate max-w-[200px]">
+                {gatewayUrl}
+              </code>
+            )}
+            {!gatewayRunning && viewSpace && (
+              <button
+                type="button"
+                onClick={handleStartGateway}
+                className="px-2.5 py-1 text-xs font-medium bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] rounded-md hover:bg-[rgb(var(--primary-hover))] transition-colors whitespace-nowrap"
+              >
+                Start Gateway
+              </button>
+            )}
+          </div>
+
+          {viewSpace && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {installedServers.length > 0 && (
+                <>
+                <Button
+                  variant="secondary"
+                  size="md"
                   type="button"
                   onClick={expandAllServers}
                   disabled={expandableServerCount === 0}
-                  className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-lg bg-[rgb(var(--surface-elevated))] border border-[rgb(var(--border))] hover:bg-[rgb(var(--surface-hover))] hover:border-[rgb(var(--border-subtle))] shadow-sm hover:shadow transition-all disabled:opacity-40 disabled:pointer-events-none"
                   title="Expand all connected servers"
                   data-testid="expand-all-servers"
                 >
                   <UnfoldVertical className="h-4 w-4 text-[rgb(var(--muted))]" />
                   Expand all
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="md"
                   type="button"
                   onClick={collapseAllServers}
                   disabled={!hasExpandedServers}
-                  className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-lg bg-[rgb(var(--surface-elevated))] border border-[rgb(var(--border))] hover:bg-[rgb(var(--surface-hover))] hover:border-[rgb(var(--border-subtle))] shadow-sm hover:shadow transition-all disabled:opacity-40 disabled:pointer-events-none"
                   title="Collapse all servers"
                   data-testid="collapse-all-servers"
                 >
                   <FoldVertical className="h-4 w-4 text-[rgb(var(--muted))]" />
                   Collapse all
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => setEditConfigSpace({ id: viewSpace.id, name: viewSpace.name })}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg bg-[rgb(var(--surface-elevated))] border border-[rgb(var(--border))] hover:bg-[rgb(var(--surface-hover))] hover:border-[rgb(var(--border-subtle))] shadow-sm hover:shadow transition-all"
-            >
-              <FileJson className="h-4 w-4 text-[rgb(var(--primary))]" />
-              Add Custom Server
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Gateway Status */}
-      <div
-        className={`p-4 rounded-xl border ${
-          gatewayRunning
-            ? 'bg-[rgb(var(--success))]/10 border-[rgb(var(--success))]/30'
-            : 'bg-[rgb(var(--warning))]/10 border-[rgb(var(--warning))]/30'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className={`h-3 w-3 rounded-full ${gatewayRunning ? 'bg-[rgb(var(--success))] animate-pulse' : 'bg-[rgb(var(--warning))]'}`} />
-            <span className="font-medium">
-              {gatewayRunning ? 'Gateway Running' : 'Gateway Stopped'}
-            </span>
-            {gatewayRunning && (
-              <code className="text-xs bg-[rgb(var(--surface-elevated))] px-2 py-1 rounded text-[rgb(var(--primary))]">
-                {gatewayUrl}
-              </code>
-            )}
-          </div>
-          {!gatewayRunning && (
-            <button
-              onClick={handleStartGateway}
-              className="px-4 py-2 text-sm bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] rounded-lg hover:bg-[rgb(var(--primary-hover))] transition-colors"
-            >
-              Start Gateway
-            </button>
+                </Button>
+                </>
+              )}
+              <AddServerMenu
+                onDiscover={() => navigateTo('registry')}
+                onCustom={() => setEditConfigSpace({ id: viewSpace.id, name: viewSpace.name })}
+              />
+            </div>
           )}
         </div>
+
+        {viewSpace && installedServers.length > 0 && (
+          <div className="flex items-center gap-2 w-full">
+            <SearchField
+              className="flex-1 min-w-0"
+              placeholder="Search servers or tools…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClear={() => setSearchQuery('')}
+              data-testid="servers-search"
+            />
+            <ServersFiltersPopover
+              transportFilter={transportFilter}
+              onTransportFilterChange={setTransportFilter}
+              activeStatusFilters={activeStatusFilters}
+              onToggleStatusFilter={toggleStatusFilter}
+              onClearStatusFilters={() => setActiveStatusFilters(new Set())}
+              onClearAllFilters={clearAllServerFilters}
+            />
+          </div>
+        )}
       </div>
 
       {/* Server List */}
@@ -1131,18 +1216,27 @@ export function ServersPage() {
         <div className="text-center py-12 text-[rgb(var(--muted))]">
           <div className="text-5xl mb-4">📦</div>
           <p className="text-lg mb-2">No servers installed</p>
-          <button
-            onClick={() => navigateTo('registry')}
-            className="mt-3 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] hover:bg-[rgb(var(--primary-hover))] shadow-sm hover:shadow transition-all"
-            data-testid="discover-servers-btn"
-          >
-            Discover MCP Servers
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-          </button>
+          <p className="text-sm max-w-md mx-auto mb-4">
+            Add from the community registry or define a custom server in your Space config.
+          </p>
+          {viewSpace && (
+            <div className="flex justify-center">
+              <AddServerMenu
+                onDiscover={() => navigateTo('registry')}
+                onCustom={() => setEditConfigSpace({ id: viewSpace.id, name: viewSpace.name })}
+              />
+            </div>
+          )}
+        </div>
+      ) : filteredServers.length === 0 ? (
+        <div className="text-center py-12 text-[rgb(var(--muted))]">
+          <Search className="h-12 w-12 mx-auto mb-4 opacity-40" />
+          <p className="text-lg mb-2">No servers match your filters</p>
+          <p className="text-sm">Try adjusting your search or filters</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {installedServers.map((server) => {
+          {filteredServers.map((server) => {
             const serverAction = getServerAction(server);
             const displayStatus = getDisplayStatus(server);
             const enableLoading = actionLoading === `enable-${server.id}`;
@@ -1166,21 +1260,33 @@ export function ServersPage() {
               >
                 {/* Server Header */}
                 <div className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className={`flex items-center gap-4 ${!server.enabled ? 'opacity-60' : ''}`}>
-                      {/* Expand/Collapse button for connected servers */}
-                      {isConnected && (
-                        <button
-                          onClick={() => toggleExpanded(server.id)}
-                          className="p-1 rounded hover:bg-[rgb(var(--surface-hover))] transition-colors"
-                          data-testid={`expand-server-${server.id}`}
-                        >
+                  <div className="flex items-center justify-between gap-4">
+                    <div
+                      role={isServerExpandable(server) ? 'button' : undefined}
+                      tabIndex={isServerExpandable(server) ? 0 : undefined}
+                      onClick={() => handleServerRowActivate(server)}
+                      onKeyDown={(event) => {
+                        if (!isServerExpandable(server)) {
+                          return;
+                        }
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleServerRowActivate(server);
+                        }
+                      }}
+                      className={`flex items-center gap-4 flex-1 min-w-0 ${
+                        !server.enabled ? 'opacity-60' : ''
+                      } ${isServerExpandable(server) ? 'cursor-pointer rounded-lg hover:bg-[rgb(var(--surface-hover))]/60 -m-2 p-2 transition-colors' : ''}`}
+                      data-testid={`server-row-${server.id}`}
+                    >
+                      {isServerExpandable(server) && (
+                        <span className="p-1" data-testid={`expand-server-${server.id}`}>
                           {isExpanded ? (
                             <ChevronDown className="h-5 w-5 text-[rgb(var(--muted))]" />
                           ) : (
                             <ChevronRight className="h-5 w-5 text-[rgb(var(--muted))]" />
                           )}
-                        </button>
+                        </span>
                       )}
                       
                       <div className="text-3xl flex items-center justify-center">
@@ -1280,7 +1386,11 @@ export function ServersPage() {
                             <span className="font-medium">Connection error</span>
                             <span className="text-[rgb(var(--muted))]">·</span>
                             <button
-                              onClick={() => setLogViewerServer({ id: server.id, name: server.name })}
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setLogViewerServer({ id: server.id, name: server.name });
+                              }}
                               className="text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] underline cursor-pointer transition-colors"
                             >
                               View logs for details
@@ -1291,7 +1401,10 @@ export function ServersPage() {
                     </div>
 
                     {/* Actions - horizontal row with primary and secondary actions */}
-                    <div className="flex items-center gap-2">
+                    <div
+                      className="flex items-center gap-2 flex-shrink-0"
+                      onClick={(event) => event.stopPropagation()}
+                    >
                       {/* Primary action button */}
                       {serverAction === 'enable' && (
                         <button

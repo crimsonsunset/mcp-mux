@@ -12,6 +12,26 @@ export { StatusBar, StatusBarItem } from './components/layout/StatusBar';
 // Common components
 export { Button } from './components/common/Button';
 export { Input } from './components/common/Input';
+export { SearchField } from './components/common/SearchField';
+export type { SearchFieldProps } from './components/common/SearchField';
+export { ChipButton } from './components/common/ChipButton';
+export type { ChipButtonProps, ChipButtonVariant } from './components/common/ChipButton';
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuAction,
+  DropdownMenuSeparator,
+} from './components/common/DropdownMenu';
+export type {
+  DropdownMenuProps,
+  DropdownMenuTriggerProps,
+  DropdownMenuContentProps,
+  DropdownMenuItemProps,
+} from './components/common/DropdownMenu';
+export { HoverTooltip } from './components/common/HoverTooltip';
+export type { HoverTooltipProps } from './components/common/HoverTooltip';
 export { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/common/Card';
 export { Switch } from './components/common/Switch';
 export { Toast, ToastContainer } from './components/common/Toast';
@@ -22,6 +42,7 @@ export type { ConfirmDialogState, ConfirmDialogProps } from './components/common
 // Hooks
 export { useToast } from './hooks/useToast';
 export type { ToastOptions } from './hooks/useToast';
+export { useClickOutside } from './hooks/useClickOutside';
 
 // Utilities
 export { cn } from './lib/cn';
