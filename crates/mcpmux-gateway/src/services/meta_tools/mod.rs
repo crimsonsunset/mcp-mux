@@ -22,7 +22,7 @@
 
 pub mod approval;
 pub mod diff;
-mod invoke;
+pub mod invoke;
 mod registry;
 mod tools;
 mod workspace_server;

@@ -2,13 +2,95 @@
 
 use async_trait::async_trait;
 use rmcp::model::{CallToolResult, Content};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::tools::{caller_resolution, caller_space_id};
 use crate::pool::{format_invoke_permission_denied, format_server_inactive_error};
 use crate::services::tool_discovery::ToolDiscoveryService;
 use mcpmux_core::FeatureType;
+
+/// Default row cap for smart truncation when `filter` is omitted.
+pub const DEFAULT_MAX_ROWS: usize = 50;
+
+/// Default byte cap for smart truncation when `filter` is omitted.
+pub const DEFAULT_MAX_BYTES: usize = 65_536;
+
+/// Object keys that commonly hold large list payloads from backend tools.
+const HEAVY_ARRAY_KEYS: &[&str] = &[
+    "items", "data", "results", "rows", "records", "issues", "entries", "values", "list",
+];
+
+/// Optional post-processing controls for invoke results.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InvokeResultFilter {
+    pub max_rows: Option<usize>,
+    pub max_bytes: Option<usize>,
+    pub fields: Option<Vec<String>>,
+    pub format: Option<String>,
+}
+
+/// Parse the optional `filter` object from `mcpmux_invoke_tool` arguments.
+pub fn parse_invoke_filter(value: Option<&Value>) -> Option<InvokeResultFilter> {
+    let filter = value?;
+    if !filter.is_object() {
+        return None;
+    }
+
+    Some(InvokeResultFilter {
+        max_rows: filter
+            .get("max_rows")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize),
+        max_bytes: filter
+            .get("max_bytes")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize),
+        fields: filter.get("fields").and_then(|v| {
+            v.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect()
+            })
+        }),
+        format: filter
+            .get("format")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    })
+}
+
+impl InvokeResultFilter {
+    fn effective_max_rows(&self, use_defaults: bool) -> Option<usize> {
+        self.max_rows
+            .or_else(|| use_defaults.then_some(DEFAULT_MAX_ROWS))
+    }
+
+    fn effective_max_bytes(&self, use_defaults: bool) -> Option<usize> {
+        self.max_bytes
+            .or_else(|| use_defaults.then_some(DEFAULT_MAX_BYTES))
+    }
+
+    fn is_summary(&self) -> bool {
+        self.format.as_deref() == Some("summary")
+    }
+}
+
+/// Post-process routed tool output before returning it to the MCP client.
+pub fn apply_invoke_result_filter(
+    content: Vec<Value>,
+    structured_content: Option<Value>,
+    filter: Option<&InvokeResultFilter>,
+    use_defaults: bool,
+) -> (Vec<Value>, Option<Value>) {
+    let filter = filter.cloned().unwrap_or_default();
+    let shaped_structured = structured_content.map(|value| shape_json_value(value, &filter, use_defaults));
+    let shaped_content = content
+        .into_iter()
+        .map(|block| shape_content_block(block, &filter, use_defaults))
+        .collect();
+    (shaped_content, shaped_structured)
+}
 
 /// Meta tool that forwards invocations to [`RoutingService::call_tool`].
 pub struct InvokeToolTool;
@@ -23,7 +105,8 @@ impl MetaTool for InvokeToolTool {
         "Invoke a backend MCP tool by server_id and tool name. Requires the \
          server to be active (binding or session enable) and the tool to be \
          in the current permission set. Use mcpmux_search_tools and \
-         mcpmux_get_tool_schema before calling."
+         mcpmux_get_tool_schema before calling. Large list payloads are \
+         truncated by default; pass an optional filter object to control shaping."
     }
 
     fn input_schema(&self) -> Value {
@@ -43,6 +126,32 @@ impl MetaTool for InvokeToolTool {
                     "type": "object",
                     "description": "Arguments object passed to the backend tool",
                     "default": {}
+                },
+                "filter": {
+                    "type": "object",
+                    "description": "Optional result shaping. When omitted, large arrays are truncated with returned/total/truncated metadata.",
+                    "properties": {
+                        "max_rows": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Maximum rows/items to return from large arrays"
+                        },
+                        "max_bytes": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Maximum UTF-8 bytes for text or serialized JSON payloads"
+                        },
+                        "fields": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "When set, keep only these fields on each object in list results"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["summary", "full"],
+                            "description": "summary keeps metadata plus a bounded sample; full returns truncated rows"
+                        }
+                    }
                 }
             }
         })
@@ -66,6 +175,8 @@ impl MetaTool for InvokeToolTool {
             .ok_or_else(|| MetaToolError::InvalidArgument("missing `tool`".into()))?
             .to_string();
         let args = call.args.get("args").cloned().unwrap_or_else(|| json!({}));
+        let filter = parse_invoke_filter(call.args.get("filter"));
+        let use_defaults = call.args.get("filter").is_none();
 
         let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
@@ -170,22 +281,207 @@ impl MetaTool for InvokeToolTool {
             .await
         {
             Ok(result) => {
-                let content: Vec<Content> = result
-                    .content
+                if result.is_error {
+                    let content: Vec<Content> = result
+                        .content
+                        .into_iter()
+                        .filter_map(|v| serde_json::from_value(v).ok())
+                        .collect();
+                    let mut mcp_result = CallToolResult::error(content);
+                    mcp_result.structured_content = result.structured_content;
+                    return Ok(mcp_result);
+                }
+
+                let (content, structured_content) = apply_invoke_result_filter(
+                    result.content,
+                    result.structured_content,
+                    filter.as_ref(),
+                    use_defaults,
+                );
+                let parsed_content: Vec<Content> = content
                     .into_iter()
                     .filter_map(|v| serde_json::from_value(v).ok())
                     .collect();
-                let mut mcp_result = if result.is_error {
-                    CallToolResult::error(content)
-                } else {
-                    CallToolResult::success(content)
-                };
-                mcp_result.structured_content = result.structured_content;
+                let mut mcp_result = CallToolResult::success(parsed_content);
+                mcp_result.structured_content = structured_content;
                 Ok(mcp_result)
             }
             Err(e) => Ok(invoke_error(e.to_string())),
         }
     }
+}
+
+/// Shape one MCP content block (typically `{ "type": "text", "text": "..." }`).
+fn shape_content_block(block: Value, filter: &InvokeResultFilter, use_defaults: bool) -> Value {
+    let Some(text) = block.get("text").and_then(|v| v.as_str()) else {
+        return block;
+    };
+
+    if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+        let shaped = shape_json_value(parsed, filter, use_defaults);
+        return json!({
+            "type": "text",
+            "text": shaped.to_string(),
+        });
+    }
+
+    let max_bytes = filter.effective_max_bytes(use_defaults);
+    let Some(max_bytes) = max_bytes else {
+        return block;
+    };
+    if text.len() <= max_bytes {
+        return block;
+    }
+
+    let mut truncated = text[..max_bytes].to_string();
+    truncated.push_str("\n...[truncated]");
+    json!({
+        "type": "text",
+        "text": truncated,
+    })
+}
+
+/// Shape a JSON value, applying smart truncation for large arrays when enabled.
+pub fn shape_json_value(value: Value, filter: &InvokeResultFilter, use_defaults: bool) -> Value {
+    match value {
+        Value::Array(items) => shape_array(items, filter, use_defaults, "items"),
+        Value::Object(map) => shape_object(map, filter, use_defaults),
+        other => enforce_byte_limit(other, filter, use_defaults),
+    }
+}
+
+fn shape_object(map: Map<String, Value>, filter: &InvokeResultFilter, use_defaults: bool) -> Value {
+    for key in HEAVY_ARRAY_KEYS {
+        if let Some(Value::Array(items)) = map.get(*key).cloned() {
+            if should_truncate(items.len(), filter, use_defaults) {
+                return shape_object_with_truncated_array(map, key, items, filter, use_defaults);
+            }
+        }
+    }
+
+    for (key, value) in &map {
+        if let Value::Array(items) = value {
+            if should_truncate(items.len(), filter, use_defaults) {
+                return shape_object_with_truncated_array(map.clone(), key, items.clone(), filter, use_defaults);
+            }
+        }
+    }
+
+    enforce_byte_limit(Value::Object(map), filter, use_defaults)
+}
+
+fn shape_object_with_truncated_array(
+    mut map: Map<String, Value>,
+    array_key: &str,
+    items: Vec<Value>,
+    filter: &InvokeResultFilter,
+    use_defaults: bool,
+) -> Value {
+    let shaped_array = shape_array(items, filter, use_defaults, array_key);
+    if let Value::Object(truncation) = &shaped_array {
+        if truncation.get("truncated") == Some(&Value::Bool(true)) {
+            for (meta_key, meta_value) in truncation {
+                if meta_key != array_key {
+                    map.insert(meta_key.clone(), meta_value.clone());
+                }
+            }
+            if let Some(data) = truncation.get(array_key) {
+                map.insert(array_key.to_string(), data.clone());
+            }
+            return enforce_byte_limit(Value::Object(map), filter, use_defaults);
+        }
+    }
+
+    map.insert(array_key.to_string(), shaped_array);
+    enforce_byte_limit(Value::Object(map), filter, use_defaults)
+}
+
+fn shape_array(
+    items: Vec<Value>,
+    filter: &InvokeResultFilter,
+    use_defaults: bool,
+    data_key: &str,
+) -> Value {
+    let total = items.len();
+    let filtered_items = apply_fields_filter(items, filter);
+    let max_rows = filter.effective_max_rows(use_defaults);
+
+    let Some(max_rows) = max_rows else {
+        return Value::Array(filtered_items);
+    };
+
+    if total <= max_rows {
+        return Value::Array(filtered_items);
+    }
+
+    let sample_size = if filter.is_summary() {
+        max_rows.min(5)
+    } else {
+        max_rows
+    };
+    let sample: Vec<Value> = filtered_items.into_iter().take(sample_size).collect();
+    let returned = sample.len();
+
+    json!({
+        "returned": returned,
+        "total": total,
+        "truncated": true,
+        data_key: sample,
+    })
+}
+
+fn apply_fields_filter(items: Vec<Value>, filter: &InvokeResultFilter) -> Vec<Value> {
+    let Some(fields) = &filter.fields else {
+        return items;
+    };
+
+    items
+        .into_iter()
+        .map(|item| pick_fields(item, fields))
+        .collect()
+}
+
+fn pick_fields(value: Value, fields: &[String]) -> Value {
+    let Value::Object(map) = value else {
+        return value;
+    };
+
+    let mut picked = Map::new();
+    for field in fields {
+        if let Some(v) = map.get(field) {
+            picked.insert(field.clone(), v.clone());
+        }
+    }
+    Value::Object(picked)
+}
+
+fn should_truncate(length: usize, filter: &InvokeResultFilter, use_defaults: bool) -> bool {
+    match filter.effective_max_rows(use_defaults) {
+        Some(max_rows) => length > max_rows,
+        None => false,
+    }
+}
+
+fn enforce_byte_limit(value: Value, filter: &InvokeResultFilter, use_defaults: bool) -> Value {
+    let Some(max_bytes) = filter.effective_max_bytes(use_defaults) else {
+        return value;
+    };
+
+    let serialized = value.to_string();
+    if serialized.len() <= max_bytes {
+        return value;
+    }
+
+    let total_bytes = serialized.len();
+    let mut truncated = serialized;
+    truncated.truncate(max_bytes);
+    truncated.push_str("...[truncated]");
+    json!({
+        "returned": truncated.len(),
+        "total": total_bytes,
+        "truncated": true,
+        "text": truncated,
+    })
 }
 
 /// Build a structured MCP error payload for invoke failures.
@@ -195,4 +491,47 @@ fn invoke_error(message: String) -> CallToolResult {
         "message": message,
     });
     CallToolResult::error(vec![Content::text(payload.to_string())])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_truncates_large_top_level_array() {
+        let items: Vec<Value> = (0..100).map(|i| json!({ "id": i, "name": format!("n{i}") })).collect();
+        let shaped = shape_json_value(Value::Array(items), &InvokeResultFilter::default(), true);
+        assert_eq!(shaped.get("returned"), Some(&json!(50)));
+        assert_eq!(shaped.get("total"), Some(&json!(100)));
+        assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn explicit_max_rows_overrides_default() {
+        let items: Vec<Value> = (0..20).map(|i| json!({ "id": i })).collect();
+        let filter = InvokeResultFilter {
+            max_rows: Some(3),
+            ..Default::default()
+        };
+        let shaped = shape_json_value(Value::Array(items), &filter, false);
+        assert_eq!(shaped.get("returned"), Some(&json!(3)));
+        assert_eq!(shaped.get("total"), Some(&json!(20)));
+        assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn fields_filter_keeps_only_requested_columns() {
+        let items = vec![
+            json!({ "id": 1, "name": "a", "secret": "x" }),
+            json!({ "id": 2, "name": "b", "secret": "y" }),
+        ];
+        let filter = InvokeResultFilter {
+            fields: Some(vec!["id".into(), "name".into()]),
+            ..Default::default()
+        };
+        let shaped = shape_json_value(Value::Array(items), &filter, false);
+        let kept = shaped.as_array().unwrap();
+        assert_eq!(kept[0], json!({ "id": 1, "name": "a" }));
+        assert_eq!(kept[1], json!({ "id": 2, "name": "b" }));
+    }
 }

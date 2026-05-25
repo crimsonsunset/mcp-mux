@@ -9,6 +9,10 @@ use mcpmux_core::{
     ServerFeatureRepository, SpaceRepository, WorkspaceBindingRepository,
 };
 use mcpmux_gateway::pool::{format_direct_call_redirect, FeatureService};
+use mcpmux_gateway::services::meta_tools::invoke::{
+    apply_invoke_result_filter, parse_invoke_filter, shape_json_value, InvokeResultFilter,
+    DEFAULT_MAX_ROWS,
+};
 use mcpmux_gateway::services::{
     meta_tools, ApprovalBroker, FeatureSetResolverService, MetaToolRegistry, PrefixCacheService,
     SessionOverrideRegistry, SessionRootsRegistry,
@@ -312,4 +316,64 @@ async fn registry_lists_new_meta_tools() {
     assert!(names.iter().any(|n| n == "mcpmux_search_tools"));
     assert!(names.iter().any(|n| n == "mcpmux_get_tool_schema"));
     assert!(names.iter().any(|n| n == "mcpmux_invoke_tool"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_input_schema_includes_filter() {
+    let f = Fixture::new().await;
+    let invoke = f
+        .registry
+        .list_as_tools()
+        .into_iter()
+        .find(|t| t.name.as_ref() == "mcpmux_invoke_tool")
+        .expect("invoke tool registered");
+    let schema = invoke.input_schema;
+    assert!(schema.get("properties").and_then(|p| p.get("filter")).is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_result_default_truncates_large_list() {
+    let items: Vec<Value> = (0..100).map(|i| json!({ "id": i })).collect();
+    let payload = json!({ "items": items });
+
+    let shaped = shape_json_value(payload, &InvokeResultFilter::default(), true);
+
+    assert_eq!(shaped.get("returned"), Some(&json!(DEFAULT_MAX_ROWS)));
+    assert_eq!(shaped.get("total"), Some(&json!(100)));
+    assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+    let truncated_items = shaped.get("items").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(truncated_items.len(), DEFAULT_MAX_ROWS);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_result_explicit_filter_limits_rows() {
+    let items: Vec<Value> = (0..30).map(|i| json!({ "id": i, "label": format!("row-{i}") })).collect();
+    let filter = parse_invoke_filter(Some(&json!({ "max_rows": 5, "fields": ["id"] }))).unwrap();
+
+    let shaped = shape_json_value(Value::Array(items), &filter, false);
+
+    assert_eq!(shaped.get("returned"), Some(&json!(5)));
+    assert_eq!(shaped.get("total"), Some(&json!(30)));
+    assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+    let sample = shaped.get("items").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sample.len(), 5);
+    assert_eq!(sample[0], json!({ "id": 0 }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_result_filter_shapes_text_content_blocks() {
+    let rows: Vec<Value> = (0..80).map(|i| json!({ "n": i })).collect();
+    let content = vec![json!({
+        "type": "text",
+        "text": json!({ "results": rows }).to_string(),
+    })];
+    let filter = parse_invoke_filter(Some(&json!({ "max_rows": 10 }))).unwrap();
+
+    let (shaped_content, _) = apply_invoke_result_filter(content, None, Some(&filter), false);
+    let text = shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap();
+    let parsed: Value = serde_json::from_str(text).unwrap();
+
+    assert_eq!(parsed.get("returned"), Some(&json!(10)));
+    assert_eq!(parsed.get("total"), Some(&json!(80)));
+    assert_eq!(parsed.get("truncated"), Some(&json!(true)));
 }
