@@ -1,7 +1,7 @@
 # Tool-Level Session Pin Meta Tool (`mcpmux_pin_this_session`)
 
 **Last Updated:** May 25, 2026
-**Status:** Planning
+**Status:** Deferred — superseded by [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) for token budget. May revive as Phase F (invoke ACL only) if search + invoke proves insufficient.
 **Branch:** TBD — branch off `main` once [`dynamic-mcp-toggle-meta-tools`](./dynamic-mcp-toggle-meta-tools.md) merges
 **Base branch:** `main` (depends on the meta-tools infrastructure shipped via the dynamic-toggle PR being live)
 **Issue:** TBD — file after planning review
