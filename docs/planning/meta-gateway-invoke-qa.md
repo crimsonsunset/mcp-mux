@@ -14,11 +14,12 @@ One-session checklist for validating Phases A–C (search → schema → invoke,
 - [x] Cursor → MCP → **Reload tools**
 - [x] Confirm McpMux endpoint: `http://localhost:45818/mcp`
 - [ ] Have at least one OAuth server (GitHub) **installed and connected** but **inactive** in session (for enable-flow tests) — github is `enabled_via_binding`; use session disable for test 2
+- [x] Workspace binding with GWorkspace (or target server) configured in UI — **not** via agent `mcpmux_bind_current_workspace`
 - [ ] Optional for Phase C tests: create a FeatureSet with 1–2 GitHub tools, bind to workspace; leave surfaced off until test 8
 
 **Tester:** Cursor agent (Composer)  
 **Date:** May 25, 2026  
-**McpMux version / commit:** `feat/meta-gateway-invoke` @ `993f378`
+**McpMux version / commit:** `feat/meta-gateway-invoke` @ `433e7bd` (PR [#155](https://github.com/mcpmux/mcp-mux/pull/155))
 
 ---
 
@@ -149,8 +150,8 @@ Paste rough char count.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Full backend response returned | ☐ | ☐ | |
-| No truncation metadata without filter | ☐ | ☐ | Design: opt-in filter only (May 25) |
+| Full backend response returned | ☑ | ☐ | GWorkspace `list_drive_items` `page_size: 100` → 100 items + `nextPageToken` |
+| No truncation metadata without filter | ☑ | ☐ | Plain text only; no `{ returned, total, truncated }` (opt-in filter @ `433e7bd`) |
 
 ---
 
@@ -293,8 +294,8 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 
 | Area | Result |
 | ---- | ------ |
-| Phase A — meta invoke core | ☐ Pass ☐ Fail |
-| Phase B — result shaping | ☐ Pass ☐ Fail |
+| Phase A — meta invoke core | ☑ Pass ☐ Fail |
+| Phase B — result shaping | ☐ Pass ☐ Fail (section 5 pass; section 6 pending) |
 | Phase C — ACL + surfaced | ☐ Pass ☐ Fail ☐ Skipped |
 | Overall | ☐ Ship ☐ Block |
 

@@ -4,7 +4,7 @@
 **Status:** Implemented on branch — manual QA in progress ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md))
 **Branch:** `feat/meta-gateway-invoke`
 **Base branch:** `main`
-**Issue:** TBD — file after planning review
+**Issue:** [#155](https://github.com/mcpmux/mcp-mux/pull/155)
 **Depends on:** [`dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) (session overrides + meta-tool registry); benefits from workspace bindings / FeatureSets from PR #151
 **Supersedes:** Token-budget approach in [`tool-level-session-pin.md`](./tool-level-session-pin.md) — pin filtered a bloated `tools/list`; this doc replaces that model with a fixed meta surface + invoke path. Session pin may return as an invoke ACL in Phase F (very optional, last).
 **Unblocks:** Agent-usable McpMux sessions at scale (240+ backend tools installed, ~12 tools in client context); homelab + multi-clone installs without context-window collapse
@@ -164,7 +164,7 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 | ---- | ------- | ------ |
 | `crates/mcpmux-gateway/src/services/tool_discovery.rs` | Index + search + schema lookup over Space tool features | ✅ Done |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke.rs` | `InvokeToolTool` impl — permission check, routing, error mapping, result shaping | ✅ Done |
-| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, permission deny, surfaced tools, direct backend call rejected | ✅ Done (13 tests) |
+| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, permission deny, surfaced tools, direct backend call rejected, filter shaping | ✅ Done (14 tests) |
 | `docs/planning/meta-gateway-invoke-qa.md` | Manual QA runbook for Phases A–C | ✅ Done |
 | `docs/planning/meta-gateway-invoke.md` | This doc | ✅ Done |
 
@@ -192,7 +192,7 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 ### Phase A — Meta invoke core
 
 **Effort:** ~3–4 days  
-**Status:** ✅ Implemented — manual QA sections 0–1 pass; sections 2–4 pending ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md))
+**Status:** ✅ Implemented — manual QA sections 0–4 pass; section 5 pass; section 6 pending ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md))
 
 - [x] `ToolDiscoveryService` — build index from Space features; search by query + optional `server_id`; return matches at `detail_level`
 - [x] `mcpmux_search_tools` meta tool — pagination (`limit`, `cursor`), `detail_level` enum
@@ -209,7 +209,7 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 ### Phase B — Result shaping on invoke
 
 **Effort:** ~2 days  
-**Status:** ✅ Implemented — manual QA sections 5–6 pending
+**Status:** ✅ Implemented — manual QA section 5 pass; section 6 pending
 
 - [x] Extend `mcpmux_invoke_tool` args with optional `filter: { max_rows?, max_bytes?, fields?, format? }`
 - [x] Post-process JSON/text results in gateway when `filter` is provided
@@ -316,6 +316,8 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 
 **Design revision (May 25, 2026):** Removed default smart truncation — `filter` is opt-in only. Rationale: plain-text MCP backends (GWorkspace) don't map cleanly to JSON row truncation; agents should explicitly bound payloads when needed.
 
+**QA ergonomics (May 25, 2026):** Bind FeatureSets in Workspaces UI before agent QA — session enable alone is insufficient without binding ACL. Do **not** call `mcpmux_bind_current_workspace` during routine QA (triggers Space-wide approval modal). Reload MCP tools after UI binding changes.
+
 **Manual QA progress (May 25, 2026):**
 
 | QA section | Result | Notes |
@@ -325,5 +327,6 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 | 2 — Fail-closed + recovery | ✅ Pass | Session disable → actionable error → enable → retry |
 | 3 — Search detail levels + compact schema | ✅ Pass | compact omits top-level description only |
 | 4 — Session toggle (list size unchanged) | ✅ Pass | search empty when disabled; 10 meta tools stable |
-| 5 — Pass-through without filter (Phase B) | ⬜ Pending | invoke without filter → full backend response, no metadata |
-| 6 — Explicit filter (Phase B) | ⬜ Pending | primary truncation test path |
+| 5 — Pass-through without filter (Phase B) | ✅ Pass | GWorkspace `list_drive_items` @ `433e7bd`: 100 items, ~45k chars, no metadata |
+| 6 — Explicit filter (Phase B) | ⬜ Pending | `max_rows` / `max_bytes` with metadata |
+| 7–11 | ⬜ Pending | |
