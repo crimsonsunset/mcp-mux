@@ -128,6 +128,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "feature_set_member_surfaced",
         sql: include_str!("migrations/019_feature_set_member_surfaced.sql"),
     },
+    Migration {
+        version: 20,
+        name: "workspace_icons",
+        sql: include_str!("migrations/020_workspace_icons.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

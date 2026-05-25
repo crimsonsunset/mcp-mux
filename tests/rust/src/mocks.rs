@@ -3,6 +3,7 @@
 //! In-memory implementations of all repository traits for fast, isolated tests.
 
 use async_trait::async_trait;
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use uuid::Uuid;
@@ -11,11 +12,12 @@ use mcpmux_core::{
     domain::{
         Client, Credential, CredentialType, FeatureSet, FeatureSetMember, FeatureSetType,
         InstalledServer, MemberMode, MemberType, OutboundOAuthRegistration, ServerFeature, Space,
+        WorkspaceAppearance,
     },
     repository::{
         AppSettingsRepository, CredentialRepository, FeatureSetRepository,
         InboundMcpClientRepository, InstalledServerRepository, OutboundOAuthRepository, RepoResult,
-        ServerFeatureRepository, SpaceRepository,
+        ServerFeatureRepository, SpaceRepository, WorkspaceAppearanceRepository,
     },
 };
 
@@ -75,6 +77,52 @@ impl SpaceRepository for MockSpaceRepository {
 
     async fn set_default(&self, id: &Uuid) -> RepoResult<()> {
         *self.default_id.write().unwrap() = Some(*id);
+        Ok(())
+    }
+}
+
+// ============================================================================
+// MockWorkspaceAppearanceRepository
+// ============================================================================
+
+#[derive(Default)]
+pub struct MockWorkspaceAppearanceRepository {
+    appearances: RwLock<HashMap<String, WorkspaceAppearance>>,
+}
+
+impl MockWorkspaceAppearanceRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl WorkspaceAppearanceRepository for MockWorkspaceAppearanceRepository {
+    async fn list(&self) -> RepoResult<Vec<WorkspaceAppearance>> {
+        Ok(self.appearances.read().unwrap().values().cloned().collect())
+    }
+
+    async fn get(&self, workspace_root: &str) -> RepoResult<Option<WorkspaceAppearance>> {
+        Ok(self
+            .appearances
+            .read()
+            .unwrap()
+            .get(workspace_root)
+            .cloned())
+    }
+
+    async fn upsert(&self, appearance: &WorkspaceAppearance) -> RepoResult<()> {
+        let mut updated = appearance.clone();
+        updated.updated_at = Utc::now();
+        self.appearances
+            .write()
+            .unwrap()
+            .insert(updated.workspace_root.clone(), updated);
+        Ok(())
+    }
+
+    async fn delete(&self, workspace_root: &str) -> RepoResult<()> {
+        self.appearances.write().unwrap().remove(workspace_root);
         Ok(())
     }
 }
@@ -787,6 +835,7 @@ use std::sync::Arc;
 /// Collection of all mock repositories for test setup
 pub struct MockRepositories {
     pub spaces: Arc<MockSpaceRepository>,
+    pub workspace_appearances: Arc<MockWorkspaceAppearanceRepository>,
     pub installed_servers: Arc<MockInstalledServerRepository>,
     pub features: Arc<MockServerFeatureRepository>,
     pub feature_sets: Arc<MockFeatureSetRepository>,
@@ -801,6 +850,7 @@ impl MockRepositories {
     pub fn new() -> Self {
         Self {
             spaces: Arc::new(MockSpaceRepository::new()),
+            workspace_appearances: Arc::new(MockWorkspaceAppearanceRepository::new()),
             installed_servers: Arc::new(MockInstalledServerRepository::new()),
             features: Arc::new(MockServerFeatureRepository::new()),
             feature_sets: Arc::new(MockFeatureSetRepository::new()),

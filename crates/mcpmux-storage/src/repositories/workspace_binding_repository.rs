@@ -24,6 +24,9 @@
 //! Longest-prefix matching (used by the resolver) is done in-memory against
 //! `list()` since a mcpmux DB is expected to hold O(tens) of bindings.
 
+#[path = "workspace_appearance_repository.rs"]
+pub mod workspace_appearance_repository;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -63,14 +66,16 @@ impl SqliteWorkspaceBindingRepository {
         let id_str: String = row.get(0)?;
         let workspace_root: String = row.get(1)?;
         let label: Option<String> = row.get(2)?;
-        let space_id_str: String = row.get(3)?;
-        let created_at: String = row.get(4)?;
-        let updated_at: String = row.get(5)?;
+        let icon: Option<String> = row.get(3)?;
+        let space_id_str: String = row.get(4)?;
+        let created_at: String = row.get(5)?;
+        let updated_at: String = row.get(6)?;
 
         Ok(WorkspaceBinding {
             id: id_str.parse().unwrap_or_else(|_| Uuid::new_v4()),
             workspace_root,
             label,
+            icon,
             space_id: space_id_str.parse().unwrap_or_else(|_| Uuid::nil()),
             feature_set_ids: Vec::new(), // filled in by caller
             created_at: Self::parse_datetime(&created_at),
@@ -140,7 +145,8 @@ impl SqliteWorkspaceBindingRepository {
         Ok(())
     }
 
-    const SELECT_COLS: &'static str = "id, workspace_root, label, space_id, created_at, updated_at";
+    const SELECT_COLS: &'static str =
+        "id, workspace_root, label, icon, space_id, created_at, updated_at";
 
     /// Fetch bindings + their FeatureSet lists in two queries.
     /// `where_clause` is appended to the binding SELECT (use `""` for none);
@@ -211,12 +217,13 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
 
         conn.execute(
             "INSERT INTO workspace_bindings
-                (id, workspace_root, label, space_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (id, workspace_root, label, icon, space_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
                 binding.label,
+                binding.icon,
                 binding.space_id.to_string(),
                 binding.created_at.to_rfc3339(),
                 binding.updated_at.to_rfc3339(),
@@ -239,12 +246,13 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
 
         let rows_affected = conn.execute(
             "UPDATE workspace_bindings
-             SET workspace_root = ?2, label = ?3, space_id = ?4, updated_at = ?5
+             SET workspace_root = ?2, label = ?3, icon = ?4, space_id = ?5, updated_at = ?6
              WHERE id = ?1",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
                 binding.label,
+                binding.icon,
                 binding.space_id.to_string(),
                 binding.updated_at.to_rfc3339(),
             ],
@@ -370,6 +378,7 @@ mod tests {
         assert_eq!(got.space_id, space_id);
         assert_eq!(got.feature_set_ids, vec![fs_id]);
         assert_eq!(got.label, None);
+        assert_eq!(got.icon, None);
     }
 
     #[tokio::test]
@@ -398,6 +407,37 @@ mod tests {
         repo.update(&relabeled).await.unwrap();
         let final_got = repo.get(&binding.id).await.unwrap().unwrap();
         assert_eq!(final_got.label.as_deref(), Some("Renamed"));
+    }
+
+    #[tokio::test]
+    async fn test_icon_round_trip() {
+        let (repo, space_id, fs_id) = fixture().await;
+        let root = if cfg!(windows) {
+            "d:\\iconic"
+        } else {
+            "/iconic"
+        };
+        let mut binding = WorkspaceBinding::new(root, space_id, fs_id);
+        binding.icon = Some("🧰".to_string());
+        repo.create(&binding).await.unwrap();
+
+        let got = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(got.icon.as_deref(), Some("🧰"));
+
+        let mut updated = got;
+        updated.icon = Some("https://example.com/icon.png".to_string());
+        repo.update(&updated).await.unwrap();
+        let updated_got = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(
+            updated_got.icon.as_deref(),
+            Some("https://example.com/icon.png")
+        );
+
+        let mut cleared = updated_got;
+        cleared.icon = None;
+        repo.update(&cleared).await.unwrap();
+        let cleared_got = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(cleared_got.icon, None);
     }
 
     #[tokio::test]

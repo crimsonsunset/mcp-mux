@@ -34,6 +34,8 @@ pub struct WorkspaceBinding {
     pub workspace_root: String,
     /// Optional friendly display name shown in the UI instead of the path.
     pub label: Option<String>,
+    /// Optional icon value (emoji text or URL/local ref).
+    pub icon: Option<String>,
     pub space_id: Uuid,
     /// Order matters for UI rendering only — the resolver treats them as
     /// a set. Stored in the `workspace_binding_feature_sets` junction
@@ -66,6 +68,7 @@ impl WorkspaceBinding {
             id: Uuid::new_v4(),
             workspace_root: workspace_root.into(),
             label: None,
+            icon: None,
             space_id,
             feature_set_ids,
             created_at: now,

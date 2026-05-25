@@ -6,6 +6,10 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+#[path = "../domain/workspace_appearance.rs"]
+mod workspace_appearance;
+pub use workspace_appearance::WorkspaceAppearance;
+
 use crate::domain::{
     Client, Credential, CredentialType, FeatureSet, FeatureSetMember, InstalledServer, MemberMode,
     OutboundOAuthRegistration, ServerFeature, Space, WorkspaceBinding,
@@ -256,6 +260,22 @@ pub trait WorkspaceBindingRepository: Send + Sync {
         space_id: &Uuid,
         candidate_roots: &[String],
     ) -> RepoResult<Option<WorkspaceBinding>>;
+}
+
+/// Workspace appearance repository trait
+#[async_trait]
+pub trait WorkspaceAppearanceRepository: Send + Sync {
+    /// List all stored workspace appearance overrides.
+    async fn list(&self) -> RepoResult<Vec<WorkspaceAppearance>>;
+
+    /// Get a stored appearance by normalized workspace root.
+    async fn get(&self, workspace_root: &str) -> RepoResult<Option<WorkspaceAppearance>>;
+
+    /// Insert or update an appearance for a normalized workspace root.
+    async fn upsert(&self, appearance: &WorkspaceAppearance) -> RepoResult<()>;
+
+    /// Delete a stored appearance by normalized workspace root.
+    async fn delete(&self, workspace_root: &str) -> RepoResult<()>;
 }
 
 /// Credential repository trait (local-only, never synced)
