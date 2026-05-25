@@ -212,6 +212,25 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
     });
   };
 
+  /** Whether every feature in the space is currently selected. */
+  const areAllFeaturesSelected =
+    allFeatures.length > 0 && allFeatures.every((f) => selectedFeatureIds.has(f.id));
+
+  /**
+   * Select or deselect every feature in the space.
+   */
+  const toggleAllFeatures = () => {
+    if (!isConfigurable || allFeatures.length === 0) return;
+
+    if (areAllFeaturesSelected) {
+      setSelectedFeatureIds(new Set());
+      setSurfacedFeatureIds(new Set());
+      return;
+    }
+
+    setSelectedFeatureIds(new Set(allFeatures.map((f) => f.id)));
+  };
+
   /**
    * Save name, description, and icon from the General Information section.
    */
@@ -538,7 +557,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
             {expandedSections.features && (
               <div className="border-t-2 border-[rgb(var(--border))] bg-white dark:bg-[rgb(var(--background))] flex flex-col h-[500px]">
                 {/* Search Bar inside panel */}
-                <div className="p-3 border-b border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
+                <div className="p-3 border-b border-[rgb(var(--border))] bg-[rgb(var(--surface))] space-y-2">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[rgb(var(--muted))]" />
                     <input
@@ -549,6 +568,18 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                       className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
+                  {isConfigurable && !isLoading && allFeatures.length > 0 && (
+                    <div className="flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={toggleAllFeatures}
+                        data-testid="featureset-select-all"
+                      >
+                        {areAllFeaturesSelected ? 'Deselect All' : 'Select All'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
