@@ -17,7 +17,7 @@ import {
   Radio,
   RefreshCw,
   Search,
-  Server as ServerIcon,
+  Server as ServerGlyph,
   Trash2,
   ToggleLeft,
   Wrench,
@@ -45,6 +45,13 @@ import {
   type WorkspaceEffectiveFeatures,
 } from '@/lib/api/workspaceBindings';
 import {
+  deleteWorkspaceAppearance,
+  listWorkspaceAppearances,
+  upsertWorkspaceAppearance,
+  uploadWorkspaceIcon,
+  type WorkspaceAppearance,
+} from '@/lib/api/workspaceAppearances';
+import {
   clearSessionOverrides,
   listSessionOverrides,
   overridesForWorkspace,
@@ -55,6 +62,7 @@ import {
   listFeatureSets,
   type FeatureSet,
 } from '@/lib/api/featureSets';
+import { ServerIcon } from '@/components/ServerIcon';
 import { useSpaces } from '@/stores';
 import type { Space } from '@/lib/api/spaces';
 
@@ -87,6 +95,7 @@ type Selected = { mode: 'new' } | { mode: 'entry'; id: string };
 export function WorkspacesPage() {
   const spaces = useSpaces();
   const [bindings, setBindings] = useState<WorkspaceBinding[]>([]);
+  const [appearances, setAppearances] = useState<WorkspaceAppearance[]>([]);
   const [reportedRoots, setReportedRoots] = useState<string[]>([]);
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -102,14 +111,16 @@ export function WorkspacesPage() {
   const loadData = useCallback(async () => {
     setError(null);
     try {
-      const [b, fs, roots] = await Promise.all([
+      const [b, fs, roots, ap] = await Promise.all([
         listWorkspaceBindings(),
         listFeatureSets(),
         listReportedWorkspaceRoots().catch(() => [] as string[]),
+        listWorkspaceAppearances().catch(() => [] as WorkspaceAppearance[]),
       ]);
       setBindings(b);
       setFeatureSets(fs);
       setReportedRoots(roots);
+      setAppearances(ap);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -132,9 +143,11 @@ export function WorkspacesPage() {
     };
     const unRoots = listen('session-roots-changed', reload);
     const unBinding = listen('workspace-binding-changed', reload);
+    const unAppearance = listen('workspace-appearance-changed', reload);
     return () => {
       unRoots.then((fn) => fn());
       unBinding.then((fn) => fn());
+      unAppearance.then((fn) => fn());
     };
   }, [loadData]);
 
@@ -152,6 +165,13 @@ export function WorkspacesPage() {
     for (const b of bindings) m.set(b.workspace_root.toLowerCase(), b);
     return m;
   }, [bindings]);
+  const appearancesByRoot = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const appearance of appearances) {
+      m.set(appearance.workspace_root.toLowerCase(), appearance.icon);
+    }
+    return m;
+  }, [appearances]);
   const fsById = useMemo(() => {
     const m = new Map<string, FeatureSet>();
     for (const f of featureSets) m.set(f.id, f);
@@ -256,6 +276,12 @@ export function WorkspacesPage() {
 
   const selectedEntry: Entry | null =
     selected?.mode === 'entry' ? entries.find((e) => e.id === selected.id) ?? null : null;
+  const resolveEntryIcon = useCallback(
+    (entry: Entry): string | null =>
+      entry.binding?.icon ?? appearancesByRoot.get(entry.root.toLowerCase()) ?? null,
+    [appearancesByRoot]
+  );
+
   const selectedIsNew = selected?.mode === 'new';
   const panelOpen = selected !== null;
 
@@ -401,6 +427,7 @@ export function WorkspacesPage() {
                   <EntryCard
                     key={entry.id}
                     entry={entry}
+                    icon={resolveEntryIcon(entry)}
                     spaceName={resolvedSpaceName}
                     fsName={resolvedFsName}
                     selected={isSelected}
@@ -437,6 +464,7 @@ export function WorkspacesPage() {
             onDelete={async () => {
               if (selectedEntry?.binding) await handleDelete(selectedEntry.binding);
             }}
+            resolvedIcon={selectedEntry ? resolveEntryIcon(selectedEntry) : null}
             onError={(msg) => showError('Could not save', msg)}
           />
         </>
@@ -476,6 +504,11 @@ function normalizeLabel(label: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function normalizeIcon(icon: string | null | undefined): string | null {
+  const trimmed = icon?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
  * Primary title for a workspace entry — label when set, otherwise the path.
  */
@@ -490,12 +523,14 @@ function sameBindingInput(
   b: {
     workspace_root: string;
     label?: string | null;
+    icon?: string | null;
     space_id: string;
     feature_set_ids: string[];
   }
 ): boolean {
   if (a.workspace_root.trim() !== b.workspace_root.trim()) return false;
   if (normalizeLabel(a.label) !== normalizeLabel(b.label)) return false;
+  if (normalizeIcon(a.icon) !== normalizeIcon(b.icon)) return false;
   if (a.space_id !== b.space_id) return false;
   if (a.feature_set_ids.length !== b.feature_set_ids.length) return false;
   return a.feature_set_ids.every((id, i) => id === b.feature_set_ids[i]);
@@ -551,12 +586,14 @@ function SegmentedFilter<T extends string>({
 
 function EntryCard({
   entry,
+  icon,
   spaceName,
   fsName,
   selected,
   onClick,
 }: {
   entry: Entry;
+  icon: string | null;
   spaceName: string | undefined;
   fsName: string | undefined;
   selected: boolean;
@@ -590,7 +627,11 @@ function EntryCard({
                     : 'bg-[rgb(var(--surface))] border-[rgb(var(--border-subtle))] text-[rgb(var(--muted))]',
               ].join(' ')}
             >
-              <FolderOpen className="h-6 w-6" />
+              {icon ? (
+                <ServerIcon icon={icon} className="h-8 w-8 object-contain" fallback="📁" />
+              ) : (
+                <FolderOpen className="h-6 w-6" />
+              )}
             </div>
             {entry.isLive && (
               <span
@@ -831,6 +872,7 @@ type SaveStatus =
 function InspectorPanel({
   entry,
   isNew,
+  resolvedIcon,
   spaces,
   featureSets,
   onClose,
@@ -840,6 +882,7 @@ function InspectorPanel({
 }: {
   entry: Entry | null;
   isNew: boolean;
+  resolvedIcon: string | null;
   spaces: Space[];
   featureSets: FeatureSet[];
   onClose: () => void;
@@ -882,7 +925,11 @@ function InspectorPanel({
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="w-11 h-11 flex items-center justify-center bg-[rgb(var(--background))] rounded-lg flex-shrink-0 border border-[rgb(var(--border-subtle))]">
-              <FolderOpen className="h-5 w-5 text-[rgb(var(--muted))]" />
+              {resolvedIcon ? (
+                <ServerIcon icon={resolvedIcon} className="h-6 w-6 object-contain" fallback="📁" />
+              ) : (
+                <FolderOpen className="h-5 w-5 text-[rgb(var(--muted))]" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -948,6 +995,7 @@ function InspectorPanel({
             featureSets={featureSets}
             initial={entry?.binding ?? null}
             prefillRoot={entry && !isMapped ? entry.root : undefined}
+            initialUnmappedIcon={!isMapped ? resolvedIcon : null}
             onCancel={onClose}
             onSubmit={onSubmit}
             onError={onError}
@@ -1532,7 +1580,7 @@ function ServerGroupRow({
           ) : (
             <ChevronRight className="h-4 w-4 text-[rgb(var(--muted))] flex-shrink-0" />
           )}
-          <ServerIcon className="h-4 w-4 text-blue-500 flex-shrink-0" />
+          <ServerGlyph className="h-4 w-4 text-blue-500 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               {prefix && (
@@ -1724,6 +1772,7 @@ function BindingForm({
   featureSets,
   initial,
   prefillRoot,
+  initialUnmappedIcon,
   onCancel,
   onSubmit,
   onError,
@@ -1734,6 +1783,7 @@ function BindingForm({
   featureSets: FeatureSet[];
   initial?: WorkspaceBinding | null;
   prefillRoot?: string;
+  initialUnmappedIcon?: string | null;
   onCancel: () => void;
   onSubmit: (input: WorkspaceBindingInput) => Promise<void>;
   onError: (message: string) => void;
@@ -1748,6 +1798,7 @@ function BindingForm({
   const rootRef = useRef<HTMLInputElement | null>(null);
   const [root, setRoot] = useState(initial?.workspace_root ?? prefillRoot ?? '');
   const [label, setLabel] = useState(initial?.label ?? '');
+  const [icon, setIcon] = useState(initial?.icon ?? initialUnmappedIcon ?? '');
   const [spaceId, setSpaceId] = useState<string>(initial?.space_id ?? defaultSpaceId);
   // Multi-FS: a binding may resolve to N FeatureSets (the resolver merges
   // their members into one allow set). Order is preserved so the operator
@@ -1877,6 +1928,7 @@ function BindingForm({
       await onSubmit({
         workspace_root: root.trim(),
         label: label.trim() || null,
+        icon: icon.trim() || null,
         space_id: spaceId,
         feature_set_ids: fsIds,
       });
@@ -1929,6 +1981,7 @@ function BindingForm({
     const candidate: WorkspaceBindingInput = {
       workspace_root: root.trim(),
       label: label.trim() || null,
+      icon: icon.trim() || null,
       space_id: spaceId,
       feature_set_ids: fsIds,
     };
@@ -1938,6 +1991,7 @@ function BindingForm({
     const baseline = lastSavedRef.current ?? {
       workspace_root: initial.workspace_root,
       label: initial.label,
+      icon: initial.icon,
       space_id: initial.space_id,
       feature_set_ids: initial.feature_set_ids,
     };
@@ -1978,6 +2032,7 @@ function BindingForm({
     initial,
     root,
     label,
+    icon,
     spaceId,
     fsIds,
     canSubmit,
@@ -2019,6 +2074,37 @@ function BindingForm({
   const submitLabel =
     mode === 'create-from-live' ? 'Save binding' : 'Create binding';
 
+  const lastSavedAppearanceRef = useRef<string | null>(
+    mode === 'create-from-live' ? normalizeIcon(initialUnmappedIcon) : null
+  );
+  useEffect(() => {
+    if (mode !== 'create-from-live') return;
+    const workspaceRoot = root.trim();
+    if (!workspaceRoot) return;
+    const normalizedIcon = normalizeIcon(icon);
+    const baseline = lastSavedAppearanceRef.current;
+    if (normalizedIcon === baseline) return;
+
+    const handle = setTimeout(() => {
+      void (async () => {
+        try {
+          if (normalizedIcon) {
+            await upsertWorkspaceAppearance({
+              workspace_root: workspaceRoot,
+              icon: normalizedIcon,
+            });
+          } else {
+            await deleteWorkspaceAppearance(workspaceRoot);
+          }
+          lastSavedAppearanceRef.current = normalizedIcon;
+        } catch (e) {
+          onError(e instanceof Error ? e.message : String(e));
+        }
+      })();
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [mode, root, icon, onError]);
+
   return (
     <div className="space-y-5">
       <FormField
@@ -2033,6 +2119,71 @@ function BindingForm({
           className="w-full px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
           data-testid="workspace-binding-label-input"
         />
+      </FormField>
+
+      <FormField
+        label="Icon"
+        hint="Set an emoji, or upload an image. Applies immediately for unmapped workspaces."
+      >
+        <div className="space-y-2.5">
+          <div className="flex items-start gap-3">
+            <div className="w-14 h-14 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))] flex items-center justify-center flex-shrink-0">
+              {icon.trim() ? (
+                <ServerIcon icon={icon.trim()} className="h-9 w-9 object-contain" fallback="📁" />
+              ) : (
+                <FolderOpen className="h-6 w-6 text-[rgb(var(--muted))]" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0 space-y-2">
+              <input
+                type="text"
+                value={icon}
+                onChange={(e) => setIcon(e.target.value)}
+                placeholder="Emoji, URL, or local: ref"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
+                data-testid="workspace-binding-icon-input"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const picked = await openDialog({
+                        directory: false,
+                        multiple: false,
+                        title: 'Pick an icon image',
+                        filters: [
+                          {
+                            name: 'Images',
+                            extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
+                          },
+                        ],
+                      });
+                      if (typeof picked !== 'string' || picked.length === 0) return;
+                      const localRef = await uploadWorkspaceIcon(picked);
+                      setIcon(localRef);
+                    } catch (e) {
+                      onError(e instanceof Error ? e.message : String(e));
+                    }
+                  }}
+                  data-testid="workspace-binding-icon-upload"
+                >
+                  Upload
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIcon('')}
+                  disabled={!icon.trim()}
+                  data-testid="workspace-binding-icon-clear"
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       </FormField>
 
       <FormField label="Workspace root">

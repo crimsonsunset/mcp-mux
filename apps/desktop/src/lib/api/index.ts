@@ -9,4 +9,5 @@ export * from './clients';
 export * from './gateway';
 export * from './serverManager';
 export * from './workspaceBindings';
+export * from './workspaceAppearances';
 export * from './metaTools';

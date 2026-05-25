@@ -12,6 +12,8 @@ export interface WorkspaceBinding {
   workspace_root: string;
   /** Friendly display name shown instead of the folder path when set. */
   label: string | null;
+  /** Optional icon: emoji, URL, or local:workspace-icons ref. */
+  icon: string | null;
   space_id: string;
   /**
    * Non-empty by construction. Order is the operator-chosen rendering
@@ -27,6 +29,7 @@ export interface WorkspaceBinding {
 export interface WorkspaceBindingInput {
   workspace_root: string;
   label?: string | null;
+  icon?: string | null;
   space_id: string;
   feature_set_ids: string[];
 }
@@ -95,6 +98,7 @@ export function toInput(b: WorkspaceBinding): WorkspaceBindingInput {
   return {
     workspace_root: b.workspace_root,
     label: b.label,
+    icon: b.icon,
     space_id: b.space_id,
     feature_set_ids: b.feature_set_ids,
   };
