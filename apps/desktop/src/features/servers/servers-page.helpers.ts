@@ -144,6 +144,76 @@ export function countActiveServerFilters(
 /**
  * Human-readable lines describing the currently applied server list filters.
  */
+/** Per-status counts for the My Servers header summary. */
+export type ServerCountSummary = {
+  installed: number;
+  connected: number;
+  disabled: number;
+  error: number;
+  needsSetup: number;
+};
+
+/**
+ * Aggregate installed-server counts by status bucket (same buckets as status filters).
+ */
+export function computeServerCountSummary(
+  servers: ServerViewModel[],
+  getAction: (server: ServerViewModel) => ServerActionKey
+): ServerCountSummary {
+  const summary: ServerCountSummary = {
+    installed: servers.length,
+    connected: 0,
+    disabled: 0,
+    error: 0,
+    needsSetup: 0,
+  };
+
+  for (const server of servers) {
+    switch (statusKeyFromAction(getAction(server))) {
+      case 'connected':
+        summary.connected += 1;
+        break;
+      case 'disabled':
+        summary.disabled += 1;
+        break;
+      case 'error':
+        summary.error += 1;
+        break;
+      case 'needs_setup':
+        summary.needsSetup += 1;
+        break;
+    }
+  }
+
+  return summary;
+}
+
+/** Compact inline summary next to the My Servers title. */
+export function formatServerCountSummary(summary: ServerCountSummary): string {
+  return [
+    `${summary.installed} installed`,
+    `${summary.connected} connected`,
+    `${summary.disabled} disabled`,
+    `${summary.error} error`,
+  ].join(', ');
+}
+
+/** Tooltip lines for the server count hover panel. */
+export function describeServerCountSummary(summary: ServerCountSummary): string[] {
+  const lines = [
+    `${summary.installed} installed`,
+    `${summary.connected} connected`,
+    `${summary.disabled} disabled`,
+    `${summary.error} error`,
+  ];
+
+  if (summary.needsSetup > 0) {
+    lines.push(`${summary.needsSetup} needs setup`);
+  }
+
+  return lines;
+}
+
 export function describeAppliedServerFilters(
   transportFilter: TransportFilter,
   activeStatusFilters: ReadonlySet<StatusFilterKey>

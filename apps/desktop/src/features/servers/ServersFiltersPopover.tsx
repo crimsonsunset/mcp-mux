@@ -49,34 +49,46 @@ export function ServersFiltersPopover({
       data-testid="servers-filters-tooltip"
       className="flex-shrink-0"
     >
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger data-testid="servers-filters-trigger">
+      <div className="inline-flex items-center gap-2">
+        {activeCount > 0 && (
           <Button
-            variant="secondary"
+            variant="ghost"
             size="md"
             type="button"
-            className={
-              activeCount > 0
-                ? 'bg-[rgb(var(--primary))]/10 text-[rgb(var(--primary))] border-[rgb(var(--primary))]/40'
-                : undefined
-            }
+            onClick={onClearAllFilters}
+            data-testid="servers-filters-clear-all"
           >
-            <SlidersHorizontal className="h-4 w-4" />
-            Filters
-            {activeCount > 0 && (
-              <span
-                className="min-w-[1.25rem] px-1.5 py-0.5 text-xs font-semibold rounded-full bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))]"
-                data-testid="servers-filters-count"
-              >
-                {activeCount}
-              </span>
-            )}
-            <ChevronDown
-              className={`h-4 w-4 text-[rgb(var(--muted))] transition-transform ${open ? 'rotate-180' : ''}`}
-            />
+            Clear all
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72 p-4 space-y-4" data-testid="servers-filters-popover">
+        )}
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger data-testid="servers-filters-trigger">
+            <Button
+              variant="secondary"
+              size="md"
+              type="button"
+              className={
+                activeCount > 0
+                  ? 'bg-[rgb(var(--primary))]/10 text-[rgb(var(--primary))] border-[rgb(var(--primary))]/40'
+                  : undefined
+              }
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {activeCount > 0 && (
+                <span
+                  className="min-w-[1.25rem] px-1.5 py-0.5 text-xs font-semibold rounded-full bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))]"
+                  data-testid="servers-filters-count"
+                >
+                  {activeCount}
+                </span>
+              )}
+              <ChevronDown
+                className={`h-4 w-4 text-[rgb(var(--muted))] transition-transform ${open ? 'rotate-180' : ''}`}
+              />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72 p-4 space-y-4" data-testid="servers-filters-popover">
           <div className="space-y-2">
             <p className="text-xs font-medium text-[rgb(var(--muted))]">Transport</p>
             <div className="flex flex-wrap gap-2">
@@ -121,24 +133,9 @@ export function ServersFiltersPopover({
               Combine status filters (e.g. Connected + Error). All = no status filter.
             </p>
           </div>
-
-          {activeCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              className="w-full"
-              onClick={() => {
-                onClearAllFilters();
-                setOpen(false);
-              }}
-              data-testid="servers-filters-clear-all"
-            >
-              Clear all filters
-            </Button>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </HoverTooltip>
   );
 }

@@ -31,7 +31,7 @@ export type {
   DropdownMenuItemProps,
 } from './components/common/DropdownMenu';
 export { HoverTooltip } from './components/common/HoverTooltip';
-export type { HoverTooltipProps } from './components/common/HoverTooltip';
+export type { HoverTooltipProps, HoverTooltipSide } from './components/common/HoverTooltip';
 export { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/common/Card';
 export { Switch } from './components/common/Switch';
 export { Toast, ToastContainer } from './components/common/Toast';

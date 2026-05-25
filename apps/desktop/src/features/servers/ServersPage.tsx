@@ -28,11 +28,13 @@ import { ServerActionMenu } from './ServerActionMenu';
 import { CloneAccountModal } from './CloneAccountModal';
 import { AddServerMenu } from './AddServerMenu';
 import { ServersFiltersPopover } from './ServersFiltersPopover';
+import { ServersCountSummary } from './ServersCountSummary';
 import { UninstallSourceWithClonesDialog } from './UninstallSourceWithClonesDialog';
 import type { ServerViewModel, ServerDefinition, InstalledServerState, InputDefinition } from '../../types/registry';
 import type { ServerFeature } from '@/lib/api/serverFeatures';
 import { listServerFeatures, listServerFeaturesByServer } from '@/lib/api/serverFeatures';
 import {
+  computeServerCountSummary,
   groupFeaturesByServerId,
   serverMatchesFilters,
   type ServerActionKey,
@@ -574,6 +576,9 @@ export function ServersPage() {
 
   const expandableServerCount = installedServers.filter(isServerExpandable).length;
   const hasExpandedServers = expandedServers.size > 0;
+  const serverCountSummary = computeServerCountSummary(installedServers, (server) =>
+    getServerAction(server)
+  );
 
   /** Installed servers matching transport, status, and search filters. */
   const filteredServers = installedServers.filter((server) =>
@@ -1112,8 +1117,13 @@ export function ServersPage() {
       {/* Header */}
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex-shrink-0">
-            <h1 className="text-2xl font-bold" data-testid="servers-title">My Servers</h1>
+          <div className="flex-shrink min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <h1 className="text-2xl font-bold" data-testid="servers-title">
+                My Servers
+              </h1>
+              <ServersCountSummary summary={serverCountSummary} />
+            </div>
             <p className="text-sm text-[rgb(var(--muted))]">
               Manage your installed MCP servers
             </p>
