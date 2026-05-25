@@ -1,8 +1,8 @@
 # Workspace Binding Icons
 
 **Last Updated:** May 25, 2026
-**Status:** Planned
-**Branch:** TBD
+**Status:** Complete — Phases 1–4 shipped
+**Branch:** `dev`
 **Base branch:** `main`
 **Depends on:** Workspace bindings + label field (migration 016, shipped)
 **Unblocks:** Visual scanning of the Workspaces page — distinguish projects at a glance without reading paths
@@ -11,9 +11,9 @@
 
 ## Problem
 
-Every workspace card on the Workspaces page renders the same Lucide `FolderOpen` glyph inside a tone-colored 56×56 box. Bindings already support a friendly `label`, but there is no way to set a visual identity — emoji or custom image — for a folder.
+Every workspace card on the Workspaces page rendered the same Lucide `FolderOpen` glyph inside a tone-colored 56×56 box. Bindings already support a friendly `label`, but there was no way to set a visual identity — emoji or custom image — for a folder.
 
-Users want to:
+Users wanted to:
 
 - Pick an emoji (freeform, not limited to a preset grid).
 - Upload a custom image (logo, screenshot, brand mark).
@@ -86,14 +86,14 @@ entry.binding?.icon ?? appearanceByRoot.get(normalize(entry.root)) ?? null → F
 
 ## Scope
 
-**In:**
+**In (shipped):**
 
 - Migration 020 — `workspace_bindings.icon` + `workspace_appearances` table
 - Domain entity, repository trait, SQLite repo, Tauri commands, TS API
 - Icon picker in binding side panel: freeform emoji, upload, clear, live preview
 - `EntryCard` + detail panel header render resolved icon
 - Load appearances on page mount; refresh on binding/appearance change events
-- Extend `ServerIcon` (or thin `WorkspaceIcon` wrapper) for `local:` refs
+- Extended `ServerIcon` for `local:` refs
 
 **Out:**
 
@@ -101,14 +101,14 @@ entry.binding?.icon ?? appearanceByRoot.get(normalize(entry.root)) ?? null → F
 - Auto-detect emoji from folder name or path
 - Changing tone-colored box styling when a custom icon is set
 - Meta-tool / gateway surfacing of workspace icons
-- E2E test additions — defer unless explicitly requested
+- E2E test additions — deferred unless explicitly requested
 - Paste-from-clipboard image input — upload via file picker only in v1
 
 ---
 
 ## File Inventory
 
-### Phase 1 — Storage and domain
+### Phase 1 — Storage and domain (✅)
 
 - `crates/mcpmux-storage/src/migrations/020_workspace_icons.sql` — `ALTER TABLE workspace_bindings ADD COLUMN icon TEXT`; `CREATE TABLE workspace_appearances (workspace_root TEXT PRIMARY KEY, icon TEXT NOT NULL, updated_at TEXT NOT NULL)`.
 - [`crates/mcpmux-storage/src/database.rs`](../../crates/mcpmux-storage/src/database.rs) — register migration 020.
@@ -119,57 +119,75 @@ entry.binding?.icon ?? appearanceByRoot.get(normalize(entry.root)) ?? null → F
 - [`crates/mcpmux-storage/src/repositories/workspace_binding_repository.rs`](../../crates/mcpmux-storage/src/repositories/workspace_binding_repository.rs) — read/write `icon` column on INSERT/UPDATE/SELECT.
 - `tests/rust/src/mocks.rs` — mock repo impl for appearance trait.
 
-### Phase 2 — Upload service and Tauri commands
+### Phase 2 — Upload service and Tauri commands (✅)
 
 - `apps/desktop/src-tauri/src/commands/workspace_appearance.rs` — `list_workspace_appearances`, `upsert_workspace_appearance`, `delete_workspace_appearance`, `upload_workspace_icon`, `resolve_workspace_icon_path`.
 - [`apps/desktop/src-tauri/src/commands/workspace_binding.rs`](../../apps/desktop/src-tauri/src/commands/workspace_binding.rs) — pass `icon` through create/update DTOs; migrate appearance → binding on create.
 - [`apps/desktop/src-tauri/src/lib.rs`](../../apps/desktop/src-tauri/src/lib.rs) — register new commands.
-- Domain event emission on appearance change (new event or extend existing binding-changed listener).
+- Domain event emission on appearance change (`WorkspaceAppearanceChanged`; reuses `workspace-binding-changed` UI channel).
 
-### Phase 3 — Frontend
+### Phase 3 — Frontend (✅)
 
 - [`apps/desktop/src/lib/api/workspaceBindings.ts`](../../apps/desktop/src/lib/api/workspaceBindings.ts) — extend `WorkspaceBinding`, `WorkspaceBindingInput` with `icon`.
 - `apps/desktop/src/lib/api/workspaceAppearances.ts` — new API module.
 - [`apps/desktop/src/components/ServerIcon.tsx`](../../apps/desktop/src/components/ServerIcon.tsx) — handle `local:` prefix via async resolve + `convertFileSrc`.
 - [`apps/desktop/src/features/workspaces/WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) — load appearances; `resolveEntryIcon` helper; icon picker in `BindingFormContent`; update `EntryCard` and detail panel header.
 
+### Phase 4 — Reconcile planning doc (✅)
+
+- [`docs/planning/workspace-binding-icons.md`](./workspace-binding-icons.md) — status, inventory checkmarks, shipped phase outcomes, autonomous decisions.
+
 ---
 
 ## Phasing
 
-### Phase 1 — Storage and domain (~0.5 day)
+### Phase 1 — Storage and domain (✅ shipped `acd48c0`)
 
-- Write and register migration 020.
-- Add `icon` to `WorkspaceBinding`; create `WorkspaceAppearance` entity and repository.
-- Wire repos into application services / `AppState`.
+- Wrote and registered migration 020.
+- Added `icon` to `WorkspaceBinding`; created `WorkspaceAppearance` entity and repository.
+- Wired repos into application services / `AppState`.
 - Rust unit tests: binding icon round-trip; appearance upsert/get/delete by normalized root.
 
-**Outcome:** `cargo nextest run -p mcpmux-core -p mcpmux-storage` passes with new icon/appearance coverage; bindings and appearances persist `icon` via repo methods.
+**Outcome:** `cargo nextest run -p mcpmux-core -p mcpmux-storage` passes with icon/appearance coverage; bindings and appearances persist `icon` via repo methods.
 
-### Phase 2 — Upload service and Tauri commands (~0.5 day)
+### Phase 2 — Upload service and Tauri commands (✅ shipped `6c94d1c`)
 
-- Implement `upload_workspace_icon` — copy, resize, return `local:` ref; reject oversize inputs (>2MB).
-- Implement `resolve_workspace_icon_path` for webview rendering.
-- Extend binding create/update commands with `icon`; on create, migrate appearance icon if binding icon empty and delete appearance row.
-- Orphan file cleanup when icon cleared or replaced.
-- Emit refresh event so Workspaces page reloads without navigation.
+- Implemented `upload_workspace_icon` — copy, resize, return `local:` ref; reject oversize inputs (>2MB).
+- Implemented `resolve_workspace_icon_path` for webview rendering.
+- Extended binding create/update commands with `icon`; on create, migrate appearance icon if binding icon empty and delete appearance row.
+- Orphan file cleanup when icon cleared or replaced (repository-wide ref check before delete).
+- Emitted `WorkspaceAppearanceChanged` on the existing `workspace-binding-changed` channel so the Workspaces page reloads without navigation.
 
 **Outcome:** Tauri invoke round-trip works — upload image, upsert appearance for unmapped root, create binding with icon — all persist correctly; orphaned PNG removed on replace.
 
-### Phase 3 — Frontend picker and rendering (~0.5 day)
+### Phase 3 — Frontend picker and rendering (✅ shipped `37dcc50`)
 
-- Add appearances API; extend bindings API types.
+- Added appearances API; extended bindings API types.
 - Icon section in binding form: freeform emoji input, Upload button (Tauri dialog), Clear, 56×56 preview.
 - Autosave: include `icon` in binding payload when mapped; call appearance upsert when unmapped.
-- Update `EntryCard` and detail panel header to render resolved icon; fallback remains `FolderOpen` inside tone box.
+- Updated `EntryCard` and detail panel header to render resolved icon; fallback remains `FolderOpen` inside tone box.
 
 **Outcome:** User sets emoji or uploads image on any workspace card from the side panel; cards and panel header reflect the choice immediately; unmapped folders retain icon before binding; creating a binding preserves the icon.
 
-### Phase 4 — Reconcile planning doc (required final step)
+### Phase 4 — Reconcile planning doc (✅)
 
-Run [`update-planning-md`](../../.cursor/commands/update-planning-md.md): update this file's status, file inventory checkmarks, phase outcomes, and notes to reflect what was actually built.
+- Updated this file's status, file inventory checkmarks, phase outcomes, and autonomous decisions to match shipped implementation on `dev`.
 
-**Outcome:** This doc matches shipped implementation; no stale "Planned" status after merge.
+**Outcome:** This doc matches shipped implementation; no stale "Planned" status.
+
+---
+
+## Autonomous decisions
+
+| Phase | Decision | Rationale |
+| ----- | -------- | --------- |
+| 1 | Dedicated SQLite repository file + nested module wiring for appearances | Enabled Phase 1 tests without expanding surface area beyond inventory |
+| 1 | Optional `icon` on bindings only; label and feature-set semantics unchanged | Minimized behavior risk for existing routing logic |
+| 2 | Reused `workspace-binding-changed` UI channel for `WorkspaceAppearanceChanged` | Keeps frontend listener compatibility without Phase 3 listener edits |
+| 2 | Repository-wide orphan cleanup before deleting local icon files | Prevents accidental removal when refs are shared across binding/appearance rows |
+| 2 | Normalize all uploads to PNG, max 256px | Deterministic render payload and upload-size constraints |
+| 3 | Single `ServerIcon` local-ref resolver path | Consistent emoji/URL/local rendering across cards, panel headers, and previews |
+| 3 | Autosave unmapped icons to `workspace_appearances` in-panel | Preserves icon identity before binding creation without manual save friction |
 
 ---
 
@@ -208,9 +226,9 @@ Run [`update-planning-md`](../../.cursor/commands/update-planning-md.md): update
 
 | File | Note |
 | ---- | ---- |
-| [`WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) | Entry union, `EntryCard`, binding form autosave |
-| [`workspace_binding.rs`](../../crates/mcpmux-core/src/domain/workspace_binding.rs) | Binding entity — add `icon` |
-| [`ServerIcon.tsx`](../../apps/desktop/src/components/ServerIcon.tsx) | Emoji/URL renderer to extend for `local:` refs |
+| [`WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) | Entry union, `EntryCard`, binding form autosave, `resolveEntryIcon` |
+| [`workspace_binding.rs`](../../crates/mcpmux-core/src/domain/workspace_binding.rs) | Binding entity — `icon` field |
+| [`ServerIcon.tsx`](../../apps/desktop/src/components/ServerIcon.tsx) | Emoji/URL/`local:` renderer |
 | [`FeatureSetPanel.tsx`](../../apps/desktop/src/features/featuresets/FeatureSetPanel.tsx) | Freeform emoji input pattern |
 | [`lib.rs`](../../apps/desktop/src-tauri/src/lib.rs) | `get_app_data_dir()` for icon file storage |
 | [`server-display-rename.md`](./server-display-rename.md) | Planning doc format reference |
