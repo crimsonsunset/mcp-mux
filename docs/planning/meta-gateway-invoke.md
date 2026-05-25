@@ -164,7 +164,9 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 | ---- | ------- | ------ |
 | `crates/mcpmux-gateway/src/services/tool_discovery.rs` | Index + search + schema lookup over Space tool features | ✅ Done |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke.rs` | `InvokeToolTool` impl — permission check, routing, error mapping, result shaping | ✅ Done |
-| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, permission deny, surfaced tools, direct backend call rejected, filter shaping | ✅ Done (14 tests) |
+| `crates/mcpmux-gateway/src/services/meta_tools/invoke_backend.rs` | `InvokeToolBackend` trait + `RoutingService` adapter for testable invoke routing | ✅ Done |
+| `tests/rust/src/canned_invoke_backend.rs` | Canned backend for filter e2e integration tests | ✅ Done |
+| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, permission deny, surfaced tools, filter shaping, e2e filter via canned backend | ✅ Done (17 tests) |
 | `docs/planning/meta-gateway-invoke-qa.md` | Manual QA runbook for Phases A–C | ✅ Done |
 | `docs/planning/meta-gateway-invoke.md` | This doc | ✅ Done |
 
@@ -174,8 +176,8 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 | ---- | ------ | ------ |
 | [`crates/mcpmux-gateway/src/services/mod.rs`](../../crates/mcpmux-gateway/src/services/mod.rs) | `pub mod tool_discovery;` | ✅ Done |
 | [`crates/mcpmux-gateway/src/services/meta_tools/tools.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/tools.rs) | `SearchToolsTool`, `GetToolSchemaTool`; extend `ListAllToolsTool` with optional `server_id` filter | ✅ Done |
-| [`crates/mcpmux-gateway/src/services/meta_tools/mod.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/mod.rs) | Register new tools; wire `ToolDiscoveryService` + `RoutingService` into `MetaToolContext` | ✅ Done |
-| [`crates/mcpmux-gateway/src/services/meta_tools/registry.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/registry.rs) | Extend `MetaToolContext` with discovery + routing handles | ✅ Done |
+| [`crates/mcpmux-gateway/src/services/meta_tools/mod.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/mod.rs) | Register new tools; wire `ToolDiscoveryService` + `InvokeToolBackend` into `MetaToolContext` | ✅ Done |
+| [`crates/mcpmux-gateway/src/services/meta_tools/registry.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/registry.rs) | Extend `MetaToolContext` with discovery + invoke backend handles | ✅ Done |
 | [`crates/mcpmux-gateway/src/pool/features/facade.rs`](../../crates/mcpmux-gateway/src/pool/features/facade.rs) | Split into `get_advertised_tools_for_grants` vs `get_invokable_tools_for_grants` | ✅ Done |
 | [`crates/mcpmux-gateway/src/pool/features/resolution.rs`](../../crates/mcpmux-gateway/src/pool/features/resolution.rs) | `resolve_surfaced_feature_ids` for surfaced promotion | ✅ Done |
 | [`crates/mcpmux-gateway/src/pool/routing.rs`](../../crates/mcpmux-gateway/src/pool/routing.rs) | `format_direct_call_redirect`; actionable invoke errors | ✅ Done |
@@ -209,14 +211,32 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 ### Phase B — Result shaping on invoke
 
 **Effort:** ~2 days  
-**Status:** ✅ Implemented — manual QA section 5 pass; section 6 pending
+**Status:** ✅ Implemented — manual QA section 6 pass (May 25)
 
 - [x] Extend `mcpmux_invoke_tool` args with optional `filter: { max_rows?, max_bytes?, fields?, format? }`
 - [x] Post-process JSON/text results in gateway when `filter` is provided
 - [x] Opt-in truncation only — omit `filter` to return backend response unchanged (May 25 design revision)
-- [x] Integration tests: explicit filter returns `{ returned, total, truncated: true }`; no filter pass-through
+- [x] Unit tests (13): top-level arrays, nested `issues`/`items` keys, JSON-in-text blocks, `structured_content`, `fields`, `format: summary` vs `full`, `parse_invoke_filter` edge cases
+- [x] Integration tests: pure-fn filter shaping + `invoke_tool_applies_filter_end_to_end` via `CannedInvokeBackend`
 
 **Outcome:** Agents pass `filter` on known-heavy tools (GWorkspace drive lists, GitHub issues, PostHog events). Plain-text and JSON backends both supported when filter is explicit.
+
+#### Filter behavior reference
+
+| Payload shape | Applicable filter keys | Behavior |
+| ------------- | ---------------------- | -------- |
+| Plain text (`content[].text` non-JSON) | `max_bytes` only | Returns `{ returned, total, truncated, text }` envelope when over limit. `max_rows` / `fields` / `format` ignored. |
+| Top-level JSON array | `max_rows`, `fields`, `format`, `max_bytes` | When `total > max_rows`: `{ returned, total, truncated, items: [...] }` |
+| JSON object with heavy array key (`issues`, `items`, `results`, …) | same | Metadata merged at object top-level; array under original key name |
+| JSON serialized inside text content block | same | Parsed then shaped; re-serialized into `text` |
+| `structured_content` on `CallToolResult` | same | Shaped independently via `apply_invoke_result_filter` |
+
+**`format` semantics (requires `max_rows`):**
+
+- `full` — sample size = `max_rows`
+- `summary` — sample size = `min(max_rows, 5)` (no effect when `max_rows ≤ 5`)
+
+**Envelope fields:** `returned` (rows or bytes after truncation), `total` (pre-truncation count/bytes), `truncated: true`, plus `items`/`issues`/… or `text`.
 
 ### Phase C — FeatureSet as invoke ACL + surfaced tools
 
@@ -290,7 +310,9 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 | ---- | --- |
 | [`crates/mcpmux-gateway/src/pool/features/facade.rs`](../../crates/mcpmux-gateway/src/pool/features/facade.rs) | Materialization chokepoint — must split advertised vs invokable |
 | [`crates/mcpmux-gateway/src/pool/routing.rs`](../../crates/mcpmux-gateway/src/pool/routing.rs) | Existing `call_tool` path invoke reuses |
-| [`crates/mcpmux-gateway/src/services/meta_tools/tools.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/tools.rs) | New meta tool impls land here |
+| [`crates/mcpmux-gateway/src/services/meta_tools/invoke.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/invoke.rs) | Invoke meta tool + result shaping |
+| [`crates/mcpmux-gateway/src/services/meta_tools/invoke_backend.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/invoke_backend.rs) | Pluggable invoke routing trait |
+| [`tests/rust/src/canned_invoke_backend.rs`](../../tests/rust/src/canned_invoke_backend.rs) | Test double for filter e2e |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | `tools/list` + `call_tool` handler — legacy direct call blocking |
 | [`docs/planning/dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) | Session enable/disable — kept, semantics updated |
 | [`docs/planning/tool-level-session-pin.md`](./tool-level-session-pin.md) | Superseded for token budget; Phase F very optional rework |
@@ -318,6 +340,8 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 
 **QA ergonomics (May 25, 2026):** Bind FeatureSets in Workspaces UI before agent QA — session enable alone is insufficient without binding ACL. Do **not** call `mcpmux_bind_current_workspace` during routine QA (triggers Space-wide approval modal). Reload MCP tools after UI binding changes.
 
+**Test coverage (May 25, 2026):** Phase B filter shaping — 13 unit tests in `invoke.rs`, 17 integration tests in `meta_gateway_invoke.rs`, manual QA section 6 pass on live `github_list_issues`.
+
 **Manual QA progress (May 25, 2026):**
 
 | QA section | Result | Notes |
@@ -328,5 +352,6 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 | 3 — Search detail levels + compact schema | ✅ Pass | compact omits top-level description only |
 | 4 — Session toggle (list size unchanged) | ✅ Pass | search empty when disabled; 10 meta tools stable |
 | 5 — Pass-through without filter (Phase B) | ✅ Pass | GWorkspace `list_drive_items` @ `433e7bd`: 100 items, ~45k chars, no metadata |
-| 6 — Explicit filter (Phase B) | ⬜ Pending | `max_rows` / `max_bytes` with metadata |
-| 7–11 | ⬜ Pending | |
+| 6 — Explicit filter (Phase B) | ✅ Pass | Plain-text `max_bytes` + live `github_list_issues` JSON filter (`max_rows`, `fields`, `summary`) |
+| 7 — Clone disambiguation | ✅ Pass | Personal vs S2H clone scoped correctly |
+| 10 — Diagnostic list vs search | ✅ Pass | 120 tools both paths for GWorkspace Personal |

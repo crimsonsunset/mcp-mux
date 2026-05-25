@@ -8,13 +8,13 @@ use mcpmux_core::{
     InboundMcpClientRepository, InstalledServerRepository, MemberMode, MemberType, ServerFeature,
     ServerFeatureRepository, SpaceRepository, WorkspaceBindingRepository,
 };
-use mcpmux_gateway::pool::{format_direct_call_redirect, FeatureService};
+use mcpmux_gateway::pool::{format_direct_call_redirect, FeatureService, ToolCallResult};
 use mcpmux_gateway::services::meta_tools::invoke::{
     apply_invoke_result_filter, parse_invoke_filter, shape_json_value, InvokeResultFilter,
 };
 use mcpmux_gateway::services::{
-    meta_tools, ApprovalBroker, FeatureSetResolverService, MetaToolRegistry, PrefixCacheService,
-    SessionOverrideRegistry, SessionRootsRegistry,
+    meta_tools, ApprovalBroker, FeatureSetResolverService, InvokeToolBackend, MetaToolRegistry,
+    PrefixCacheService, SessionOverrideRegistry, SessionRootsRegistry,
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
@@ -22,6 +22,7 @@ use mcpmux_storage::{
     SqliteServerFeatureRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
 };
 use serde_json::{json, Value};
+use tests::CannedInvokeBackend;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
@@ -45,6 +46,10 @@ fn test_encryptor() -> Arc<FieldEncryptor> {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_invoke_backend(None).await
+    }
+
+    async fn with_invoke_backend(invoke_backend: Option<Arc<dyn InvokeToolBackend>>) -> Self {
         let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
 
         let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db.clone()));
@@ -126,7 +131,7 @@ impl Fixture {
             installed_server_repo,
             resolver,
             feature_service.clone(),
-            None,
+            invoke_backend,
             session_roots.clone(),
             session_overrides.clone(),
             broker,
@@ -183,6 +188,79 @@ impl Fixture {
             Err(e) => e.into_call_tool_result(),
         }
     }
+    async fn grant_github_feature_set(&self) -> String {
+        let fs_id = self
+            .feature_set_repo
+            .list_by_space(&self.space_id.to_string())
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|fs| fs.name == "Grant GitHub")
+            .unwrap()
+            .id;
+        self.grant_feature_set(&fs_id).await;
+        fs_id
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_tool_applies_filter_end_to_end() {
+    let issues: Vec<Value> = (0..20)
+        .map(|i| {
+            json!({
+                "id": i,
+                "title": format!("issue-{i}"),
+                "body": format!("body-{i}")
+            })
+        })
+        .collect();
+    let payload = json!({ "issues": issues });
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": payload.to_string(),
+        })],
+        structured_content: Some(payload),
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("github_list_issues", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+    f.grant_github_feature_set().await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "list_issues",
+                "args": { "owner": "mcpmux", "repo": "mcp-mux" },
+                "filter": {
+                    "max_rows": 3,
+                    "fields": ["id", "title"],
+                    "format": "summary"
+                }
+            }),
+        )
+        .await;
+
+    assert!(!result.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("returned"), Some(&json!(3)));
+    assert_eq!(body.get("total"), Some(&json!(20)));
+    assert_eq!(body.get("truncated"), Some(&json!(true)));
+    let sample = body.get("issues").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sample.len(), 3);
+    assert_eq!(sample[0], json!({ "id": 0, "title": "issue-0" }));
+
+    let structured = result.structured_content.expect("structured content shaped");
+    assert_eq!(structured.get("returned"), Some(&json!(3)));
+    let structured_sample = structured.get("issues").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(structured_sample.len(), 3);
+    assert_eq!(structured_sample[0], json!({ "id": 0, "title": "issue-0" }));
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -48,7 +48,7 @@ pub struct RoutedResource {
 }
 
 /// Result of a tool call
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ToolCallResult {
     pub content: Vec<Value>,
     pub structured_content: Option<Value>,

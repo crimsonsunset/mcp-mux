@@ -131,7 +131,7 @@ impl MetaTool for InvokeToolTool {
                         "format": {
                             "type": "string",
                             "enum": ["summary", "full"],
-                            "description": "summary keeps metadata plus a bounded sample; full returns truncated rows"
+                            "description": "When max_rows is set: summary caps the sample at min(max_rows, 5); full returns up to max_rows rows. Ignored when max_rows is omitted."
                         }
                     }
                 }
@@ -246,12 +246,12 @@ impl MetaTool for InvokeToolTool {
             )));
         }
 
-        let routing = call
+        let backend = call
             .ctx
-            .routing_service
+            .invoke_backend
             .as_ref()
             .ok_or_else(|| MetaToolError::Internal("invoke routing not configured".into()))?;
-        match routing
+        match backend
             .call_tool(
                 space_id,
                 &resolved.feature_set_ids,
@@ -473,6 +473,18 @@ fn invoke_error(message: String) -> CallToolResult {
 mod tests {
     use super::*;
 
+    fn issue_rows(count: usize) -> Vec<Value> {
+        (0..count)
+            .map(|i| {
+                json!({
+                    "id": i,
+                    "title": format!("issue-{i}"),
+                    "body": format!("body-{i}")
+                })
+            })
+            .collect()
+    }
+
     #[test]
     fn no_filter_passes_through_large_array() {
         let items: Vec<Value> = (0..100).map(|i| json!({ "id": i, "name": format!("n{i}") })).collect();
@@ -481,8 +493,8 @@ mod tests {
     }
 
     #[test]
-    fn explicit_max_rows_truncates() {
-        let items: Vec<Value> = (0..20).map(|i| json!({ "id": i })).collect();
+    fn explicit_max_rows_truncates_top_level_array() {
+        let items: Vec<Value> = issue_rows(20);
         let filter = InvokeResultFilter {
             max_rows: Some(3),
             ..Default::default()
@@ -491,6 +503,70 @@ mod tests {
         assert_eq!(shaped.get("returned"), Some(&json!(3)));
         assert_eq!(shaped.get("total"), Some(&json!(20)));
         assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+        let sample = shaped.get("items").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(sample.len(), 3);
+    }
+
+    #[test]
+    fn explicit_max_rows_truncates_nested_issues_key() {
+        let issues = issue_rows(20);
+        let filter = InvokeResultFilter {
+            max_rows: Some(3),
+            ..Default::default()
+        };
+        let shaped = shape_json_value(json!({ "issues": issues }), &filter);
+        assert_eq!(shaped.get("returned"), Some(&json!(3)));
+        assert_eq!(shaped.get("total"), Some(&json!(20)));
+        assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+        let sample = shaped.get("issues").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(sample.len(), 3);
+    }
+
+    #[test]
+    fn json_in_text_block_truncates_with_metadata() {
+        let rows: Vec<Value> = (0..80).map(|i| json!({ "n": i })).collect();
+        let content = vec![json!({
+            "type": "text",
+            "text": json!({ "results": rows }).to_string(),
+        })];
+        let filter = parse_invoke_filter(Some(&json!({ "max_rows": 10 }))).unwrap();
+
+        let (shaped_content, _) = apply_invoke_result_filter(content, None, &filter);
+        let text = shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+
+        assert_eq!(parsed.get("returned"), Some(&json!(10)));
+        assert_eq!(parsed.get("total"), Some(&json!(80)));
+        assert_eq!(parsed.get("truncated"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn structured_content_and_text_both_shaped() {
+        let items = issue_rows(20);
+        let structured = json!({ "items": items });
+        let content = vec![json!({
+            "type": "text",
+            "text": structured.to_string(),
+        })];
+        let filter = InvokeResultFilter {
+            max_rows: Some(5),
+            fields: Some(vec!["id".into(), "title".into()]),
+            ..Default::default()
+        };
+
+        let (shaped_content, shaped_structured) =
+            apply_invoke_result_filter(content, Some(structured), &filter);
+
+        let parsed_text: Value =
+            serde_json::from_str(shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap())
+                .unwrap();
+        assert_eq!(parsed_text.get("returned"), Some(&json!(5)));
+        assert_eq!(parsed_text.get("total"), Some(&json!(20)));
+
+        let shaped = shaped_structured.unwrap();
+        let structured_sample = shaped.get("items").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(structured_sample.len(), 5);
+        assert_eq!(structured_sample[0], json!({ "id": 0, "title": "issue-0" }));
     }
 
     #[test]
@@ -507,6 +583,83 @@ mod tests {
         let kept = shaped.as_array().unwrap();
         assert_eq!(kept[0], json!({ "id": 1, "name": "a" }));
         assert_eq!(kept[1], json!({ "id": 2, "name": "b" }));
+    }
+
+    #[test]
+    fn max_rows_and_fields_together() {
+        let items: Vec<Value> = (0..30)
+            .map(|i| json!({ "id": i, "label": format!("row-{i}") }))
+            .collect();
+        let filter = parse_invoke_filter(Some(&json!({ "max_rows": 5, "fields": ["id"] }))).unwrap();
+        let shaped = shape_json_value(Value::Array(items), &filter);
+
+        assert_eq!(shaped.get("returned"), Some(&json!(5)));
+        assert_eq!(shaped.get("total"), Some(&json!(30)));
+        assert_eq!(shaped.get("truncated"), Some(&json!(true)));
+        let sample = shaped.get("items").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(sample.len(), 5);
+        assert_eq!(sample[0], json!({ "id": 0 }));
+    }
+
+    #[test]
+    fn summary_format_no_op_when_max_rows_at_most_five() {
+        let items = issue_rows(20);
+        let filter = InvokeResultFilter {
+            max_rows: Some(3),
+            format: Some("summary".into()),
+            ..Default::default()
+        };
+        let shaped = shape_json_value(Value::Array(items), &filter);
+        assert_eq!(shaped.get("returned"), Some(&json!(3)));
+    }
+
+    #[test]
+    fn summary_format_caps_sample_at_five() {
+        let items = issue_rows(20);
+        let filter = InvokeResultFilter {
+            max_rows: Some(10),
+            format: Some("summary".into()),
+            ..Default::default()
+        };
+        let shaped = shape_json_value(Value::Array(items), &filter);
+        assert_eq!(shaped.get("returned"), Some(&json!(5)));
+        assert_eq!(shaped.get("total"), Some(&json!(20)));
+    }
+
+    #[test]
+    fn full_format_returns_up_to_max_rows() {
+        let items = issue_rows(20);
+        let filter = InvokeResultFilter {
+            max_rows: Some(10),
+            format: Some("full".into()),
+            ..Default::default()
+        };
+        let shaped = shape_json_value(Value::Array(items), &filter);
+        assert_eq!(shaped.get("returned"), Some(&json!(10)));
+        let sample = shaped.get("items").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(sample.len(), 10);
+    }
+
+    #[test]
+    fn parse_invoke_filter_ignores_invalid_types() {
+        let filter = parse_invoke_filter(Some(&json!({
+            "max_rows": "not-a-number",
+            "max_bytes": true,
+            "fields": "id",
+            "format": 123
+        })))
+        .unwrap();
+        assert_eq!(filter.max_rows, None);
+        assert_eq!(filter.max_bytes, None);
+        assert_eq!(filter.fields, None);
+        assert_eq!(filter.format, None);
+    }
+
+    #[test]
+    fn parse_invoke_filter_accepts_partial_objects() {
+        let filter = parse_invoke_filter(Some(&json!({ "max_rows": 3 }))).unwrap();
+        assert_eq!(filter.max_rows, Some(3));
+        assert_eq!(filter.max_bytes, None);
     }
 
     #[test]

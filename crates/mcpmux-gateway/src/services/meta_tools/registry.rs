@@ -18,7 +18,8 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 
 use super::approval::ApprovalBroker;
-use crate::pool::{FeatureService, RoutingService};
+use super::invoke_backend::InvokeToolBackend;
+use crate::pool::FeatureService;
 use crate::services::{
     FeatureSetResolverService, SessionOverrideRegistry, SessionRootsRegistry, ToolDiscoveryService,
 };
@@ -47,7 +48,7 @@ pub struct MetaToolContext {
     pub resolver: Arc<FeatureSetResolverService>,
     pub feature_service: Arc<FeatureService>,
     /// Backend invoke path — required for `mcpmux_invoke_tool`.
-    pub routing_service: Option<Arc<RoutingService>>,
+    pub invoke_backend: Option<Arc<dyn InvokeToolBackend>>,
     pub tool_discovery: Arc<ToolDiscoveryService>,
     pub session_roots: Arc<SessionRootsRegistry>,
     pub session_overrides: Arc<SessionOverrideRegistry>,

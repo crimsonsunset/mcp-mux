@@ -70,13 +70,17 @@ pub use pool::{
     ServerState,
     ServiceFactory,
     TokenService,
+    ToolCallResult,
     TransportConnectResult,
     TransportFactory,
     TransportType,
 };
 
 // Services module
-pub use services::{EventEmitter, GrantService, PrefixCacheService, SessionOverrideRegistry};
+pub use services::{
+    EventEmitter, GrantService, InvokeToolBackend, PrefixCacheService, SessionOverrideRegistry,
+    routing_as_invoke_backend,
+};
 
 // MCP module (rmcp-based implementation)
 pub use mcp::McpMuxGatewayHandler;

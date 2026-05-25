@@ -23,6 +23,7 @@
 pub mod approval;
 pub mod diff;
 pub mod invoke;
+pub mod invoke_backend;
 mod registry;
 mod tools;
 mod workspace_server;
@@ -32,6 +33,7 @@ pub use approval::{
     ApprovalScope,
 };
 pub use diff::ToolDiff;
+pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
 pub use registry::{
     MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY,
     SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY,
@@ -62,7 +64,7 @@ pub fn build_default_registry(
     installed_server_repo: std::sync::Arc<dyn mcpmux_core::InstalledServerRepository>,
     resolver: std::sync::Arc<crate::services::FeatureSetResolverService>,
     feature_service: std::sync::Arc<crate::pool::FeatureService>,
-    routing_service: Option<std::sync::Arc<crate::pool::RoutingService>>,
+    invoke_backend: Option<std::sync::Arc<dyn invoke_backend::InvokeToolBackend>>,
     session_roots: std::sync::Arc<crate::services::SessionRootsRegistry>,
     session_overrides: std::sync::Arc<crate::services::SessionOverrideRegistry>,
     approval_broker: std::sync::Arc<ApprovalBroker>,
@@ -80,7 +82,7 @@ pub fn build_default_registry(
         installed_server_repo,
         resolver,
         feature_service,
-        routing_service,
+        invoke_backend,
         tool_discovery,
         session_roots,
         session_overrides,

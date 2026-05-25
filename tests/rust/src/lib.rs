@@ -8,7 +8,9 @@ pub use mcpmux_core::{
 };
 
 /// Mock repository implementations
+pub mod canned_invoke_backend;
 pub mod mocks;
+pub use canned_invoke_backend::CannedInvokeBackend;
 pub use mocks::MockRepositories;
 
 /// Service test helpers

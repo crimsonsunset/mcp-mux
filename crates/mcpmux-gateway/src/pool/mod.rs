@@ -44,7 +44,7 @@ pub use connection::{ConnectionResult, ConnectionService};
 pub use features::{CachedFeatures, FeatureService};
 pub use routing::{
     format_direct_call_redirect, format_invoke_permission_denied, format_server_inactive_error,
-    RoutedPrompt, RoutedResource, RoutedTool, RoutingService,
+    RoutedPrompt, RoutedResource, RoutedTool, RoutingService, ToolCallResult,
 };
 pub use service::{InstalledServerInfo, PoolService, PoolStats, ReconnectResult};
 pub use token::TokenService;

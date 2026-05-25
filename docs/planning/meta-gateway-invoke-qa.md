@@ -13,7 +13,7 @@ One-session checklist for validating Phases A–C (search → schema → invoke,
 - [x] Rebuild/restart gateway if you haven't since the branch (`pnpm dev` or run the built app)
 - [x] Cursor → MCP → **Reload tools**
 - [x] Confirm McpMux endpoint: `http://localhost:45818/mcp`
-- [ ] Have at least one OAuth server (GitHub) **installed and connected** but **inactive** in session (for enable-flow tests) — github is `enabled_via_binding`; use session disable for test 2
+- [x] Have at least one OAuth server (GitHub) **installed and connected** — `QA: meta-gateway invoke` FeatureSet bound in UI (May 25)
 - [x] Workspace binding with GWorkspace (or target server) configured in UI — **not** via agent `mcpmux_bind_current_workspace`
 - [ ] Optional for Phase C tests: create a FeatureSet with 1–2 GitHub tools, bind to workspace; leave surfaced off until test 8
 
@@ -171,10 +171,10 @@ Then fields projection if the tool returns JSON objects with id/name/title field
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `max_rows: 3` honored (JSON tools) | ☐ | ☐ | |
-| `max_bytes` honored with metadata (plain text) | ☐ | ☐ | |
-| `format: summary` applied | ☐ | ☐ | |
-| `fields` projection limits keys per row (if tested) | ☐ | ☐ | |
+| `max_rows: 3` honored (JSON tools) | ☑ | ☐ | Live `github_list_issues` → `{ returned: 3, total: 5, truncated: true, issues: [3 items] }` (5 open issues in repo) |
+| `max_bytes` honored with metadata (plain text) | ☑ | ☐ | GWorkspace `list_drive_items` `max_bytes: 4096` → `{ returned: 4110, total: 7660, truncated: true, text: "…[truncated]" }` |
+| `format: summary` applied | ☑ | ☐ | JSON: metadata envelope present; with 5 total issues and `max_rows: 3` → 3 returned (summary no-op when max_rows ≤ 5) |
+| `fields` projection limits keys per row (if tested) | ☑ | ☐ | `fields: ["id","title","number"]` → rows kept `title` + `number` only (`id` absent in GitHub payload) |
 
 ---
 
@@ -193,8 +193,8 @@ Confirm results are scoped to that server_id only.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `server_id` filter scopes search | ☐ | ☐ | |
-| Other clone's tools not in results | ☐ | ☐ | |
+| `server_id` filter scopes search | ☑ | ☐ | `server_id: taylorwilsdon.google-workspace-mcp-uvx` + query `"drive"` → 24 hits, all Personal prefix |
+| Other clone's tools not in results | ☑ | ☐ | S2H clone inactive; search with `server_id: …-s2h` → `total: 0` |
 
 ---
 
@@ -252,8 +252,8 @@ Explain why agents should prefer search.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `server_id` filter on list_all_tools works | ☐ | ☐ | |
-| Agent recommends search over full dump | ☐ | ☐ | |
+| `server_id` filter on list_all_tools works | ☑ | ☐ | GWorkspace Personal: 120 tools; all `server_id` matches filter |
+| Agent recommends search over full dump | ☑ | ☐ | Same count (120); search supports query/detail_level/pagination — list_all_tools dumps ~42 KB with full descriptions |
 
 ---
 
@@ -295,11 +295,13 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 | Area | Result |
 | ---- | ------ |
 | Phase A — meta invoke core | ☑ Pass ☐ Fail |
-| Phase B — result shaping | ☐ Pass ☐ Fail (section 5 pass; section 6 pending) |
+| Phase B — result shaping | ☑ Pass ☐ Fail |
 | Phase C — ACL + surfaced | ☐ Pass ☐ Fail ☐ Skipped |
 | Overall | ☐ Ship ☐ Block |
 
 **Blockers / issues filed:**
 
 ```
+- section 6 JSON rows: manual pass May 25 after binding QA FeatureSet — github_list_issues filter verified live
+- beeper 401 on get_accounts/search_chats — auth expired; not blocking meta-gateway QA
 ```
