@@ -2,7 +2,7 @@
 
 **Last Updated:** May 25, 2026
 **Status:** ✅ Phases A–C implemented and manually QA complete — ready to merge ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) **Ship**)
-**Branch:** `feat/meta-gateway-invoke` (personal fork **integration tip** — see [`fork-integration.md`](./fork-integration.md))
+**Branch:** `dev` on [crimsonsunset/mcp-mux](https://github.com/crimsonsunset/mcp-mux) (see [`fork-integration.md`](./fork-integration.md))
 **Base branch:** `feat/dynamic-mcp-toggle-meta-tools` on fork; upstream contribution is topic-stacked, not `main`
 **Issue:** Fork-only; upstream megapr [#155](https://github.com/mcpmux/mcp-mux/pull/155) closed — use #154 stack for meta-tools upstream
 **Depends on:** [`dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) (session overrides + meta-tool registry); benefits from workspace bindings / FeatureSets from PR #151

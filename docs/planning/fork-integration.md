@@ -5,24 +5,23 @@
 
 ---
 
-## Canonical branch
+## Canonical branch: `dev`
 
 | Branch | Role |
 |--------|------|
-| **`feat/meta-gateway-invoke`** | **Integration tip** — run `pnpm dev`, gateway QA, and all new work here |
-| `feat/dynamic-mcp-toggle-meta-tools` | Pointer kept in sync with tip (session meta-tools, bindings base) |
-| `feat/server-account-clones` | Pointer kept in sync with tip (account clones + meta-gateway invoke) |
-| `main` | Tracks upstream `mcpmux/mcp-mux` — **not** where fork features live |
+| **`dev`** | **Default fork branch** — all integrated work; run `pnpm dev` here |
+| `main` | Upstream mirror only — **not** where fork features land |
+| `feat/meta-gateway-invoke` | Legacy name (same commits as `dev`); safe to delete locally after switching |
+| `feat/dynamic-mcp-toggle-meta-tools` | Legacy alias; optional delete |
+| `feat/server-account-clones` | Legacy alias; optional delete |
 
-**Rule:** If it is not on `feat/meta-gateway-invoke`, you are not running your fork.
+**Rule:** If you are not on `dev`, you are not running your fork.
 
-### What is on the integration tip
-
-Linear stack (newest at top):
+### What is on `dev`
 
 1. Meta-gateway invoke (search → schema → invoke, surfaced tools, opt-in invoke filters)
 2. Server account clones
-3. Dynamic MCP toggle meta-tools + workspace/session routing (fork lineage ahead of upstream `main`)
+3. Dynamic MCP toggle meta-tools + workspace/session routing
 4. Planning docs and homelab QA sign-offs
 
 See [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`agent-mcp-session-readiness.md`](./agent-mcp-session-readiness.md), [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md).
@@ -32,21 +31,21 @@ See [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`agent-mcp-session-re
 ## Daily workflow
 
 ```bash
-git checkout feat/meta-gateway-invoke
-git pull origin feat/meta-gateway-invoke   # after pushes from other machines
+git checkout dev
+git pull origin dev
 pnpm dev                                   # gateway on localhost:45818
 ```
 
 New feature work:
 
 ```bash
-git checkout feat/meta-gateway-invoke
-git pull origin feat/meta-gateway-invoke
+git checkout dev
+git pull origin dev
 git checkout -b feat/my-topic
 # ... commits ...
-git checkout feat/meta-gateway-invoke
-git merge feat/my-topic                    # or rebase topic onto tip first
-git push origin feat/meta-gateway-invoke
+git checkout dev
+git merge feat/my-topic                    # or rebase topic onto dev first
+git push origin dev
 ```
 
 Homelab Cursor config: one `mcpmux` entry → `http://localhost:45818/mcp`. Migration tracker: [mcpmux-server-migration.md](../../../jsg-tech-check/docs/setup/mcpmux-server-migration.md).
@@ -59,34 +58,22 @@ Homelab Cursor config: one `mcpmux` entry → `http://localhost:45818/mcp`. Migr
 |----|--------|-----|
 | [#152](https://github.com/mcpmux/mcp-mux/pull/152) `fix/dcr-skip-invalid-redirect-uris` | **Keep open** | Small, standalone OAuth fix (~47 lines) → `main` |
 | [#154](https://github.com/mcpmux/mcp-mux/pull/154) `feat/dynamic-mcp-toggle-meta-tools` | **Keep open (draft)** | Proper stack: base `feat/workspace-root-routing`, not a megapr |
-| [#155](https://github.com/mcpmux/mcp-mux/pull/155) `feat/meta-gateway-invoke` | **Closed** | Wrong base (`main`); entire fork stack (~28k LOC). Work lives on fork integration branch only |
+| [#155](https://github.com/mcpmux/mcp-mux/pull/155) `feat/meta-gateway-invoke` | **Closed** | Wrong base (`main`); entire fork stack (~28k LOC). Work lives on fork `dev` only |
 
 **Not owned by this fork:** [#151](https://github.com/mcpmux/mcp-mux/pull/151) workspace-root-routing (upstream). #154 targets that branch when contributing meta-tools upstream.
 
-Future upstream contributions: branch off fresh `upstream/main` (or merged #151), cherry-pick or restack **one topic per PR** — do not reopen a megapr to `main`.
+Future upstream contributions: branch off fresh `upstream/main` (or merged upstream feature branches), cherry-pick or restack **one topic per PR** — do not reopen a megapr to `main`.
 
 ---
 
-## Branch pointer sync
-
-After the integration tip moves, fast-forward stale names (optional hygiene):
-
-```bash
-git checkout feat/dynamic-mcp-toggle-meta-tools && git merge --ff-only feat/meta-gateway-invoke
-git checkout feat/server-account-clones && git merge --ff-only feat/meta-gateway-invoke
-git push origin feat/meta-gateway-invoke feat/dynamic-mcp-toggle-meta-tools feat/server-account-clones
-```
-
----
-
-## Next implementation priorities (on integration branch)
+## Next implementation priorities (on `dev`)
 
 1. [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md) — cold start / `gateway_warming`
 2. Homelab `mcp.json` cutover (bindings + `bundle:core`)
-3. Replace stock `McpMux.app` with a build from this branch ([`run-from-source-macos.md`](../run-from-source-macos.md))
+3. Replace stock `McpMux.app` with a build from `dev` ([`run-from-source-macos.md`](../run-from-source-macos.md))
 
 ---
 
 ## Reconciliation
 
-When the integration tip gains a major milestone, update this file's **Last updated** and the **What is on the integration tip** list. Close new upstream megaprs to `main`; keep topic PRs stacked on the appropriate upstream feature branch.
+When `dev` gains a major milestone, update this file's **Last updated** and **What is on `dev`**. Do not use `feat/*` branch names for new integration work — merge into `dev` instead.
