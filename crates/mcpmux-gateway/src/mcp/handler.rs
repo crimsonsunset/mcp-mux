@@ -779,13 +779,21 @@ impl ServerHandler for McpMuxGatewayHandler {
             };
         }
 
+        self.ensure_roots_probed(
+            &context.peer,
+            session_id,
+            &oauth_ctx.client_id,
+        )
+        .await;
+
         // Resolve routing — the binding's target space is authoritative,
         // which may differ from oauth_ctx.space_id.
         let (space_id, feature_set_ids) = self
             .resolve_routing(session_id, &oauth_ctx.client_id)
             .await?;
 
-        // Hard cut: reject direct backend tool calls — agents must use mcpmux_invoke_tool.
+        // Hard cut: non-surfaced backend tools must use mcpmux_invoke_tool.
+        // Surfaced tools stay in tools/list for one-hop calls.
         let space_id_str = space_id.to_string();
         if let Ok(Some((server_id, actual_tool_name))) = self
             .services
@@ -794,18 +802,38 @@ impl ServerHandler for McpMuxGatewayHandler {
             .find_server_for_qualified_tool(&space_id_str, &params.name)
             .await
         {
-            let message = crate::pool::format_direct_call_redirect(
-                &params.name,
-                &server_id,
-                &actual_tool_name,
-            );
-            return Ok(CallToolResult::error(vec![Content::text(
-                serde_json::json!({
-                    "error": "use_invoke_tool",
-                    "message": message,
-                })
-                .to_string(),
-            )]));
+            let advertised = self
+                .services
+                .pool_services
+                .feature_service
+                .get_advertised_tools_for_grants(
+                    &space_id_str,
+                    &feature_set_ids,
+                    session_id,
+                )
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("Failed to get advertised tools: {}", e), None)
+                })?;
+
+            let is_surfaced = advertised
+                .iter()
+                .any(|feature| feature.qualified_name() == params.name.as_ref());
+
+            if !is_surfaced {
+                let message = crate::pool::format_direct_call_redirect(
+                    &params.name,
+                    &server_id,
+                    &actual_tool_name,
+                );
+                return Ok(CallToolResult::error(vec![Content::text(
+                    serde_json::json!({
+                        "error": "use_invoke_tool",
+                        "message": message,
+                    })
+                    .to_string(),
+                )]));
+            }
         }
 
         // Call tool via routing service (handles auth and routing)

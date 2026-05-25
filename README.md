@@ -109,7 +109,7 @@ Create isolated Spaces — each with their own servers, credentials, and permiss
 
 ### Control What Each Client Can Do
 
-Not every AI client should have the same power. Create Feature Sets — permission bundles that control exactly which tools a client can **invoke** (search + invoke ACL), plus optional per-tool **Surface in client** promotion for one-hop hot paths. Build a "Read Only" set for cautious workflows, a "React Development" set with just GitHub and Filesystem, or a "Full Stack Dev" set with everything. Assign them per-client so each tool only goes where you want it.
+Not every AI client should have the same power. Create Feature Sets — permission bundles that control exactly which tools a client can **invoke** (search + invoke ACL). In the editor, the **checkbox** includes a tool in that ACL; the **Surface** button (optional, per row) promotes an included tool into the client's `tools/list` for one-hop hot paths. Build a "Read Only" set for cautious workflows, a "React Development" set with just GitHub and Filesystem, or a "Full Stack Dev" set with everything. Assign them per-client so each tool only goes where you want it.
 
 ![Feature Sets — granular per-server tool selection](docs/screenshots/featureset-detail.png)
 

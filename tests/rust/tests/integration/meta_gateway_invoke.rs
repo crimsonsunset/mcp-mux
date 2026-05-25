@@ -581,3 +581,67 @@ async fn surfaced_tool_appears_in_advertised_set() {
     assert_eq!(advertised[0].feature_name, "list_issues");
     assert_eq!(advertised[0].qualified_name(), "github_list_issues");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn direct_backend_call_gate_allows_surfaced_only() {
+    let f = Fixture::new().await;
+
+    let features = f
+        .server_feature_repo
+        .list_for_space(&f.space_id.to_string())
+        .await
+        .unwrap();
+    let list_issues = features
+        .iter()
+        .find(|feat| feat.feature_name == "list_issues")
+        .unwrap();
+
+    let mut get_me = ServerFeature::tool(f.space_id, "github", "get_me");
+    get_me.description = Some("Get authenticated GitHub user".into());
+    f.server_feature_repo.upsert(&get_me).await.unwrap();
+
+    let mut mixed_fs = FeatureSet::new_custom("Mixed Surfaced GitHub", f.space_id.to_string());
+    mixed_fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: mixed_fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: list_issues.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: true,
+    });
+    mixed_fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: mixed_fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: get_me.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&mixed_fs).await.unwrap();
+    f.grant_feature_set(&mixed_fs.id).await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let fs_ids = vec![mixed_fs.id.clone()];
+    let invokable = f
+        .feature_service
+        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .await
+        .unwrap();
+    let advertised = f
+        .feature_service
+        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .await
+        .unwrap();
+
+    assert_eq!(invokable.len(), 2);
+    assert_eq!(advertised.len(), 1);
+    assert_eq!(advertised[0].qualified_name(), "github_list_issues");
+
+    let is_surfaced = |qualified_name: &str| {
+        advertised
+            .iter()
+            .any(|feature| feature.qualified_name() == qualified_name)
+    };
+    assert!(is_surfaced("github_list_issues"));
+    assert!(!is_surfaced("github_get_me"));
+}

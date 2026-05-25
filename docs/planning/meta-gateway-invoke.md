@@ -246,6 +246,9 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 - [x] FeatureSet member model: tools invokable by default when server in set; optional `surfaced: true` promotes into `tools/list`
 - [x] Search + invoke respect FeatureSet member filter (not just server-all)
 - [x] Workspaces UI: per-tool "Surface in client" toggle in FeatureSet editor (`FeatureSetPanel.tsx`)
+  - **Checkbox** = invoke ACL member (search + `mcpmux_invoke_tool`)
+  - **Surface button** = promote that included tool into client `tools/list` for direct one-hop calls
+  - User-facing explainer: [`docs/guide/feature-sets.mdx`](../guide/feature-sets.mdx#included-vs-surface-featureset-editor)
 - [ ] Update `mcpmux_create_feature_set` to accept optional `surfaced_tools[]` (UI path done; meta-tool arg deferred)
 - [x] Integration tests: binding with partial tool set → search only finds allowed tools; surfaced tool appears in `tools/list`
 

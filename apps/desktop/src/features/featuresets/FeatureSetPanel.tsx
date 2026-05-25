@@ -693,7 +693,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                                             ${isSurfaced
                                               ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                               : 'text-[rgb(var(--muted))] hover:bg-[rgb(var(--surface-hover))]'}`}
-                                          title="Surface in client tools/list"
+                                          title="Promote this included tool into the client tools/list for direct one-hop calls. The checkbox only grants invoke access via search + mcpmux_invoke_tool—it does not add the tool to tools/list. Use sparingly; each surfaced tool adds its schema to the client context."
                                           data-testid={`surface-toggle-${feature.id}`}
                                         >
                                           <Monitor className="h-3.5 w-3.5" />

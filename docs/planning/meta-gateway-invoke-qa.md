@@ -15,7 +15,17 @@ One-session checklist for validating Phases A–C (search → schema → invoke,
 - [x] Confirm McpMux endpoint: `http://localhost:45818/mcp`
 - [x] Have at least one OAuth server (GitHub) **installed and connected** — `QA: meta-gateway invoke` FeatureSet bound in UI (May 25)
 - [x] Workspace binding with GWorkspace (or target server) configured in UI — **not** via agent `mcpmux_bind_current_workspace`
-- [ ] Optional for Phase C tests: create a FeatureSet with 1–2 GitHub tools, bind to workspace; leave surfaced off until test 8
+- [x] Optional for Phase C tests: create a FeatureSet with 1–2 GitHub tools, bind to workspace; leave surfaced off until test 8 — `QA: meta-gateway invoke` (`list_issues` + `get_me`, surfaced off, bound May 25)
+
+**FeatureSet editor controls (tests 8–9):**
+
+| Control | Role in QA |
+| ------- | ---------- |
+| **Checkbox** | Include tool in invoke ACL → search + `mcpmux_invoke_tool` |
+| **Surface** button | Promote included tool into client `tools/list` → direct one-hop call (test 9 only) |
+| **Server header toggle** | Bulk include/exclude — not Surface |
+
+After any Surface change: **Cursor → MCP → Reload tools**.
 
 **Tester:** Cursor agent (Composer)  
 **Date:** May 25, 2026  
@@ -200,7 +210,7 @@ Confirm results are scoped to that server_id only.
 
 ## 8. FeatureSet ACL — partial tool set (Phase C)
 
-**Setup:** FeatureSet with 1–2 GitHub tools included, bound to workspace, surfaced **off**.
+**Setup:** FeatureSet with 1–2 GitHub tools **checked** (included), bound to workspace, **Surface off** on all rows.
 
 **Prompt:**
 
@@ -214,15 +224,15 @@ I bound a FeatureSet that only allows specific GitHub tools.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Search only finds allowed tools | ☐ | ☐ | |
-| Invoke denied for disallowed tool | ☐ | ☐ | |
-| Invoke succeeds for allowed tool | ☐ | ☐ | |
+| Search only finds allowed tools | ☑ | ☐ | `query: "github"` + empty query → 2 hits: `github_get_me`, `github_list_issues` only (not 41) |
+| Invoke denied for disallowed tool | ☑ | ☐ | `create_issue` → `tool 'github_create_issue' is not invokable with current grants` |
+| Invoke succeeds for allowed tool | ☑ | ☐ | `list_issues` (3 open issues) + `get_me` (`crimsonsunset`) both succeeded |
 
 ---
 
 ## 9. Surfaced tool promotion (Phase C)
 
-**Setup:** In FeatureSet editor, toggle **Surface in client** on one included tool. Reload MCP tools.
+**Setup:** In FeatureSet editor, leave **`list_issues` checked** and click **Surface** (blue) on that row only; leave other included tools checked but Surface off. Save, then **Cursor → MCP → Reload tools**.
 
 **Prompt:**
 
@@ -234,9 +244,9 @@ I bound a FeatureSet that only allows specific GitHub tools.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Surfaced tool appears in client tool list | ☐ | ☐ | |
-| Surfaced tool callable without invoke wrapper | ☐ | ☐ | |
-| Non-surfaced backend still requires invoke | ☐ | ☐ | |
+| Surfaced tool appears in client tool list | ☑ | ☐ | After Cursor MCP reload: 10 `mcpmux_*` + `github_list_issues` only; `github_get_me` not listed |
+| Surfaced tool callable without invoke wrapper | ☑ | ☐ | Direct `github_list_issues` → 2 open issues (no `use_invoke_tool` redirect) after handler fix + binding reload May 25 |
+| Non-surfaced backend still requires invoke | ☑ | ☐ | `get_me` absent from tools/list; `mcpmux_invoke_tool` → `crimsonsunset` OK |
 
 ---
 
@@ -296,7 +306,7 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 | ---- | ------ |
 | Phase A — meta invoke core | ☑ Pass ☐ Fail |
 | Phase B — result shaping | ☑ Pass ☐ Fail |
-| Phase C — ACL + surfaced | ☐ Pass ☐ Fail ☐ Skipped |
+| Phase C — ACL + surfaced | ☑ Pass ☐ Fail ☐ Skipped |
 | Overall | ☐ Ship ☐ Block |
 
 **Blockers / issues filed:**
@@ -304,4 +314,5 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 ```
 - section 6 JSON rows: manual pass May 25 after binding QA FeatureSet — github_list_issues filter verified live
 - beeper 401 on get_accounts/search_chats — auth expired; not blocking meta-gateway QA
+- test 9: surfaced direct one-hop + invoke-only non-surfaced — pass May 25 live (`github_list_issues` direct → 2 issues; `get_me` via invoke only)
 ```

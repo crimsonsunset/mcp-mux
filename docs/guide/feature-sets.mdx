@@ -1,9 +1,11 @@
 ---
 title: FeatureSets — Permission Control
-description: FeatureSets control which MCP tools, resources, and prompts each AI client can access in McpMux. Create role-based permissions, domain bundles, or read-only views.
+description: FeatureSets control which MCP tools AI clients can invoke and optionally promote into tools/list. Create role-based permissions, domain bundles, or read-only views.
 ---
 
-FeatureSets are permission bundles that control what MCP capabilities (tools, resources, and prompts) each AI client can access. They let you grant fine-grained permissions per client, per Space.
+FeatureSets are permission bundles that control what MCP capabilities each AI client can use in a Space. For **tools**, they act as an **invoke ACL**: they define what agents can reach through `mcpmux_search_tools` and `mcpmux_invoke_tool`. They do **not** dump every permitted tool into the client's tool list by default — that keeps context windows lean.
+
+Resources and prompts still follow the classic grant model (included members are exposed when the client lists them).
 
 ## Why FeatureSets
 
@@ -50,6 +52,26 @@ Exclude rules always win over include rules. This means you can create a permiss
 1. Include the **GitHub — All** ServerAll FeatureSet
 2. Exclude `delete_repository`, `delete_branch`, `delete_file`
 
+## Included vs Surface (FeatureSet editor)
+
+When you edit a custom FeatureSet, each tool row has two independent controls:
+
+| Control | What it does | Client effect |
+| ------- | ------------ | --------------- |
+| **Checkbox** (left) | **Include** the tool in this FeatureSet's invoke ACL | Tool is **invokable** via `mcpmux_search_tools` → `mcpmux_get_tool_schema` → `mcpmux_invoke_tool`. It does **not** appear in the client's `tools/list`. |
+| **Surface** button (right, monitor icon) | **Promote** an already-included tool into `tools/list` | Tool appears alongside the ~12 `mcpmux_*` meta tools. The agent can call it **directly** (one hop) instead of going through `mcpmux_invoke_tool`. |
+
+**Rules:**
+
+- **Surface only appears when the checkbox is on.** You cannot surface a tool you have not included.
+- **Default is checkbox on, Surface off.** Most backend tools stay off the client tool list; agents discover them through search + invoke.
+- **Use Surface sparingly.** Each promoted tool adds its full schema to the client context window. Reserve it for hot paths you call constantly (e.g. one GitHub read tool).
+- **The server header toggle** (Enable All / Disable All) bulk-selects checkboxes for that server — it is **not** the Surface control.
+
+**Example:** A "GitHub read-only" FeatureSet might include `list_issues` and `get_me` (both checked), with **Surface on** only for `list_issues`. Cursor shows `github_list_issues` in its tool list; `get_me` stays invoke-only.
+
+Connected clients always see the fixed `mcpmux_*` meta surface regardless of FeatureSet membership. See [Self-management meta tools](#self-management-meta-tools) below.
+
 ## Composition
 
 FeatureSets can **contain other FeatureSets**. This lets you build hierarchical permission structures:
@@ -95,14 +117,31 @@ FeatureSets can **contain other FeatureSets**. This lets you build hierarchical 
 1. Go to the **FeatureSets** page
 2. Click **Create FeatureSet**
 3. Give it a name and optional description
-4. Add members — select features or other FeatureSets
-5. Set each member to include or exclude mode
+4. Under **Included Features**, check the tools/resources/prompts to allow (invoke ACL for tools)
+5. Optionally click **Surface** on individual included tools you want promoted into client `tools/list`
+6. Save — if a connected MCP client is open, reload its tools after changing Surface toggles
+
+You can also nest FeatureSets (include another FeatureSet as a member) and set each member to include or exclude mode.
 
 ### Assigning to Clients
 
 FeatureSets are assigned to clients per Space. Go to the **Clients** page, select a client, and manage its FeatureSet grants for each Space.
 
 A client's effective permissions are the combination of all its granted FeatureSets, with exclude rules taking priority.
+
+Workspace **bindings** attach FeatureSets to folder roots so the invoke ACL follows the project you have open. Client grants stack additional FeatureSets on top.
+
+### Self-management meta tools
+
+McpMux exposes a built-in `mcpmux_*` namespace (~12 tools) for server toggles, search, schema load, and invoke. FeatureSets control the **backend** pool those meta tools can reach; they do not replace the meta tools themselves.
+
+Typical agent flow for a non-surfaced backend tool:
+
+1. `mcpmux_search_tools` — find tools allowed by the active FeatureSet
+2. `mcpmux_get_tool_schema` — read parameter names before calling
+3. `mcpmux_invoke_tool` — run the backend tool
+
+See the [Gateway](/docs/gateway/) doc for how bindings, session enable/disable, and FeatureSet members compose at request time.
 
 ## Next Steps
 
