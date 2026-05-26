@@ -108,6 +108,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             put(write::set_server_oauth_connected),
         )
         .route(
+            "/api/v1/servers/connections",
+            get(read::get_server_statuses),
+        )
+        .route(
             "/api/v1/servers/connections/enable",
             post(write::enable_server_v2),
         )

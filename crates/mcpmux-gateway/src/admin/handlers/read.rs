@@ -4,6 +4,7 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
+use tracing::warn;
 
 use crate::admin::command_bridge::read as bridge;
 use crate::admin::handlers::error::ApiError;
@@ -169,11 +170,32 @@ pub async fn get_pool_stats(State(state): State<AdminState>) -> Result<Json<Valu
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_server_statuses(
+    State(state): State<AdminState>,
+    Query(query): Query<SpaceQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let space_id = query
+        .space_id
+        .ok_or_else(|| ApiError::bad_request("spaceId query parameter is required"))?;
+    match bridge::get_server_statuses(&state.bridge, space_id.clone()).await {
+        Ok(value) => Ok(ok(value)),
+        Err(error) => {
+            warn!(
+                "[Admin] get_server_statuses failed for space {space_id}: {error:#}"
+            );
+            Err(ApiError::from_bridge(error))
+        }
+    }
+}
+
 pub async fn list_spaces(State(state): State<AdminState>) -> Result<Json<Value>, ApiError> {
-    bridge::list_spaces(&state.bridge)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
+    match bridge::list_spaces(&state.bridge).await {
+        Ok(value) => Ok(ok(value)),
+        Err(error) => {
+            warn!("[Admin] list_spaces failed: {error:#}");
+            Err(ApiError::from_bridge(error))
+        }
+    }
 }
 
 pub async fn get_space(

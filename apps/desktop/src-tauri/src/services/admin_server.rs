@@ -13,6 +13,7 @@ use mcpmux_gateway::admin::bridge_context::AdminBridgeCtx;
 use mcpmux_gateway::admin::event_hub::AdminEventHub;
 use mcpmux_gateway::admin::runtime::GatewayRuntime;
 use mcpmux_gateway::admin::ui_events::AdminUiEventBus;
+use mcpmux_gateway::pool::ConnectionStatus as GatewayConnectionStatus;
 use mcpmux_gateway::{AdminConfig, AdminServer, AdminServerHandle};
 use serde_json::json;
 use std::path::PathBuf;
@@ -307,6 +308,45 @@ impl GatewayRuntime for DesktopGatewayRuntime {
                 .get_grants_for_space(&client_id, &space_id)
                 .await?
         ))
+    }
+
+    async fn get_server_statuses(&self, space_id: String) -> anyhow::Result<serde_json::Value> {
+        let space_uuid = uuid::Uuid::parse_str(&space_id)
+            .map_err(|e| anyhow::anyhow!("Invalid space_id: {e}"))?;
+
+        let manager_state = self.server_manager_state.read().await;
+        let Some(ref manager) = manager_state.manager else {
+            return Err(anyhow::anyhow!("ServerManager not initialized"));
+        };
+
+        let statuses = manager.get_all_statuses(space_uuid).await;
+        let mut result = serde_json::Map::new();
+        for (server_id, (status, flow_id, has_connected_before, message)) in statuses {
+            result.insert(
+                server_id.clone(),
+                json!({
+                    "server_id": server_id,
+                    "status": gateway_status_to_ui(status),
+                    "flow_id": flow_id,
+                    "has_connected_before": has_connected_before,
+                    "message": message,
+                }),
+            );
+        }
+        Ok(json!(result))
+    }
+}
+
+/// Map gateway pool status to the UI-facing string (`oauth_required`, not `auth_required`).
+fn gateway_status_to_ui(status: GatewayConnectionStatus) -> &'static str {
+    match status {
+        GatewayConnectionStatus::Disconnected => "disconnected",
+        GatewayConnectionStatus::Connecting => "connecting",
+        GatewayConnectionStatus::Connected => "connected",
+        GatewayConnectionStatus::Refreshing => "refreshing",
+        GatewayConnectionStatus::AuthRequired => "oauth_required",
+        GatewayConnectionStatus::Authenticating => "authenticating",
+        GatewayConnectionStatus::Error => "error",
     }
 }
 

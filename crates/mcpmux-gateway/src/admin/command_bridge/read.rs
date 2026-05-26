@@ -195,6 +195,10 @@ pub async fn get_pool_stats(ctx: &AdminBridgeCtx) -> Result<Value> {
     ctx.gateway_runtime.get_pool_stats().await
 }
 
+pub async fn get_server_statuses(ctx: &AdminBridgeCtx, space_id: String) -> Result<Value> {
+    ctx.gateway_runtime.get_server_statuses(space_id).await
+}
+
 pub async fn list_installed_servers(ctx: &AdminBridgeCtx, space_id: Option<String>) -> Result<Value> {
     let servers = if let Some(space_id) = space_id {
         ctx.services.server().list_for_space(&space_id).await?

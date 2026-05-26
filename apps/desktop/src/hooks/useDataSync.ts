@@ -2,6 +2,9 @@ import { useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { listSpaces } from '@/lib/api/spaces';
 import { refreshOAuthTokensOnStartup } from '@/lib/api/gateway';
+import { waitForAdminReady } from '@/lib/api/fetch-api';
+import { isTauri } from '@/lib/api/transport';
+
 /**
  * Syncs data from Rust backend to Zustand store.
  * Run once at app startup.
@@ -12,26 +15,35 @@ export function useDataSync() {
 
   useEffect(() => {
     async function syncData() {
-      console.log('[useDataSync] Starting data sync...');
+      const transport = isTauri() ? 'tauri' : 'admin-http';
+      console.log(`[useDataSync] Starting data sync (transport=${transport})...`);
       setLoading('spaces', true);
       try {
-        console.log('[useDataSync] Refreshing OAuth tokens...');
-        try {
-          const refreshResult = await refreshOAuthTokensOnStartup();
-          console.log('[useDataSync] OAuth token refresh result:', refreshResult);
-        } catch (error) {
-          console.error('[useDataSync] OAuth token refresh failed (non-fatal):', error);
+        if (!isTauri()) {
+          console.log('[useDataSync] Waiting for admin API...');
+          await waitForAdminReady();
         }
 
         console.log('[useDataSync] Calling listSpaces...');
         const spaces = await listSpaces();
         console.log('[useDataSync] listSpaces returned:', spaces.length, 'spaces');
-
-        // setSpaces handles validating viewSpaceId and falling back to the
-        // is_default space when the persisted view space doesn't exist.
         setSpaces(spaces);
+
+        void refreshOAuthTokensOnStartup()
+          .then((refreshResult) => {
+            console.log('[useDataSync] OAuth token refresh result:', refreshResult);
+          })
+          .catch((error) => {
+            console.warn('[useDataSync] OAuth token refresh failed (non-fatal):', error);
+          });
       } catch (error) {
-        console.error('[useDataSync] Failed to sync:', error);
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[useDataSync] Failed to sync:', message, error);
+        if (!isTauri()) {
+          console.error(
+            '[useDataSync] Web admin hint: ensure the admin server is running on :45819 (or wait for Tauri hot-reload to finish).'
+          );
+        }
       } finally {
         setLoading('spaces', false);
         console.log('[useDataSync] Data sync complete');

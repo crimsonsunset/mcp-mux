@@ -92,6 +92,7 @@ export interface ServerStatusChangedPayload extends DomainEventPayload {
   space_id: string;
   server_id: string;
   status: 'connected' | 'disconnected' | 'connecting' | 'error' | 'oauth_required' | 'refreshing' | 'authenticating';
+  flow_id: number;
   has_connected_before: boolean;
   message?: string;
   features?: {
