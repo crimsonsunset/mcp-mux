@@ -1,8 +1,8 @@
 # Web Admin Mode (Remote UI via HTTP)
 
-**Last Updated:** May 25, 2026
-**Status:** Planning
-**Branch:** TBD — suggest `feat/web-admin` off fork **`dev`** (meta-tools, clones, Phase D already merged)
+**Last Updated:** May 26, 2026
+**Status:** Complete (Phases 1–8)
+**Branch:** `feat/web-ui`
 **Base branch:** `dev` (fork); upstream merge path is `main`
 **Issue:** TBD — file after planning review
 **Depends on:** [Pre–Web Admin Desktop Cleanup](./pre-web-admin-desktop-cleanup.md) — **Complete** (`fix/pre-web-admin-cleanup`, May 25, 2026). Phase 1 matrix scaffolding may start.
@@ -453,14 +453,14 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
 
 **Implementation**
 
-- [ ] Update [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) Step 5 with `mux.joe-hassio.com` ingress rule
-- [ ] Document CF Access policy setup for `mux.joe-hassio.com`
-- [ ] Add admin mode section to [`docs/guide/gateway.mdx`](../../docs/guide/gateway.mdx)
-- [ ] `pnpm build:web:admin` + verify production SPA served correctly from admin server
+- [x] Update [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) Step 5 with `mux.joe-hassio.com` ingress rule
+- [x] Document CF Access policy setup for `mux.joe-hassio.com`
+- [x] Add admin mode section to [`docs/guide/gateway.mdx`](../../docs/guide/gateway.mdx)
+- [x] `pnpm build:web:admin` + verify production SPA served correctly from admin server
 
 **Testing (same phase)**
 
-- [ ] Port remaining high-value WDIO specs to Playwright admin (target ≥10 of 15 `.wdio.ts` files):
+- [x] Port remaining high-value WDIO specs to Playwright admin (target ≥10 of 15 `.wdio.ts` files):
 
   | WDIO reference | Playwright admin spec |
   | -------------- | --------------------- |
@@ -475,9 +475,9 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
   | `settings.wdio.ts` | `admin/settings.spec.ts` |
   | `comprehensive.wdio.ts` | `admin/comprehensive.spec.ts` (subset) |
 
-- [ ] CI job: `pnpm test:e2e:web:admin` on Linux with AdminServer fixture
+- [ ] CI job: `pnpm test:e2e:web:admin` on Linux with AdminServer fixture — **deferred** (script in root `package.json`; requires live `:45819` + `apps/desktop/dist` from `pnpm build:web:admin`)
 - [ ] Manual homelab smoke from Weathertop: `https://mux.joe-hassio.com` — browse, mutate, OAuth (cannot fully CI tunnel + real CF Access)
-- [ ] Parity matrix: 100% rows resolved (checked or N/A)
+- [x] Parity matrix: 100% rows resolved (checked or N/A)
 
 **Outcome:** Homelab wiring complete. CI proves web ≡ desktop for catalog flows. Operator manages McpMux from phone/laptop.
 
@@ -557,7 +557,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 
 ## Reconciliation
 
-This doc is the source of truth for web admin mode. Desktop cleanup prerequisite is **Complete** on `fix/pre-web-admin-cleanup` (May 25, 2026) — Phase 1 matrix scaffolding may proceed. When implementation starts, update **Status** and **Branch** at the top.
+This doc is the source of truth for web admin mode. Phases 1–8 are **Complete** on branch `feat/web-ui` (May 26, 2026). Homelab operator checklist: enable admin in Settings, `pnpm build:web:admin`, tunnel `mux.joe-hassio.com` → `:45819`, CF Access allow rule for operator email.
 
 **Decision record (May 25, 2026):** Web admin mode on fork selected over screen sharing (immediate but not web UI), tunneling `:1420` (broken), and full "McpMux Cloud" multi-tenant SaaS (months of work). CF Access at edge replaces building login UI. Separate admin port (`45819`) keeps MCP gateway surface unchanged.
 

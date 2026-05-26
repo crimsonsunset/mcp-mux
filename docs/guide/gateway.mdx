@@ -89,6 +89,25 @@ The dashboard shows real-time gateway status:
 - **Connected Servers** — count of actively connected backend servers
 - **Registered Clients** — count of AI clients that have connected
 
+## Web admin mode (remote UI)
+
+For homelab operators who need the full McpMux UI from another device (phone, laptop) without screen sharing, enable **Web admin mode** in **Settings → Gateway**:
+
+- **Admin server** listens on `127.0.0.1:45819` by default (configurable port, never bind to `0.0.0.0`)
+- Serves the production React build at `/` and REST at `/api/v1/*`
+- **Cloudflare Access** (recommended): expose `mux.joe-hassio.com` via `cloudflared` to `localhost:45819` and enable **Trust Cloudflare Access JWT** so only authenticated tunnel traffic reaches the app
+- **Local dev**: disable CF JWT trust to hit `http://127.0.0.1:45819` directly
+
+Build the SPA for admin serving from the repo root:
+
+```bash
+pnpm build:web:admin
+```
+
+The Tauri app resolves `apps/desktop/dist` when the admin server starts. MCP clients should continue using `http://localhost:45818/mcp` (or `mcp.joe-hassio.com` through a separate tunnel hostname) — do not mix admin UI traffic onto the MCP gateway port.
+
+See [Web Admin Mode planning](/docs/planning/web-admin-remote-access) for architecture and security notes.
+
 ## Next Steps
 
 - [Set up Clients](/docs/clients/) to connect your AI applications

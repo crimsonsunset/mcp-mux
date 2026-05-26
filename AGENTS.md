@@ -35,6 +35,7 @@ Run everything from `mcp-mux/`:
 | `pnpm dev:stop` | Kill repo dev processes without starting. |
 | `pnpm dev:web` | Web UI only via Vite — no Rust, no Tauri shell. |
 | `pnpm build` | Production Tauri build for the current platform. |
+| `pnpm build:web:admin` | Production SPA build (`VITE_ADMIN_WEB`) for admin static serving. |
 | `pnpm validate` | Full correctness gate — runs the items below in sequence. |
 | `pnpm lint` | ESLint (recursive) + `cargo clippy --workspace -- -D warnings`. |
 | `pnpm lint:fix` | Auto-fix lint issues. |
@@ -58,7 +59,8 @@ Run everything from `mcp-mux/`:
 | `pnpm test:e2e` | Desktop E2E via WebDriver IO — requires `MCPMUX_REGISTRY_URL`. |
 | `pnpm test:e2e:file -- tests/e2e/specs/foo.ts` | One WDIO spec file. |
 | `pnpm test:e2e:grep -- "test name"` | WDIO tests matching a name. |
-| `pnpm test:e2e:web` | Playwright on the web UI. |
+| `pnpm test:e2e:web` | Playwright on the web UI (mocked Tauri). |
+| `pnpm test:e2e:web:admin` | Playwright admin catalog against real `:45819` (requires admin server running). |
 | `pnpm test:coverage` | `cargo llvm-cov` + Vitest coverage. |
 
 Prefer narrow commands over `pnpm test` while iterating — the full suite is slow.
@@ -101,6 +103,7 @@ Anything that spawns a child process (stdio MCP servers, installers, etc.) **mus
 - Credentials encrypt at rest via AES-256-GCM in SQLite plus DPAPI (Windows) / OS keychain (macOS, Linux). Don't add new code paths that persist secrets any other way.
 - Secrets should be wiped from memory after use via `zeroize`.
 - The gateway binds to `127.0.0.1`. Don't bind to `0.0.0.0` or expose it on the network.
+- The **web admin server** (default `:45819`) uses the same loopback-only posture. Remote access is via Cloudflare Tunnel + **Cloudflare Access** on a dedicated hostname (e.g. `mux.joe-hassio.com`), not by binding the admin port on the LAN. When `gateway.admin_trust_cf_access` is enabled, mutating routes require a valid `CF-Access-Jwt-Assertion` header.
 
 ## Frontend Notes
 

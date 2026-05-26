@@ -1458,9 +1458,7 @@ export function ServersPage() {
                           serverId={server.id}
                           enabled={server.enabled}
                           isLoading={enableLoading || disableLoading}
-                          disabled={
-                            serverAction === 'connecting' || serverAction === 'authenticating'
-                          }
+                          disabled={enableLoading || disableLoading}
                           onToggle={(checked) => {
                             if (checked) {
                               handleEnableClick(server);

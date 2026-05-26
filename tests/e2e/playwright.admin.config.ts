@@ -1,7 +1,12 @@
 /**
  * Playwright config for web admin parity E2E (real AdminServer on :45819).
  *
- * Phase 4+ enables specs under specs/admin/. Until then all tests are ignored.
+ * Prereqs: McpMux running with web admin enabled, `pnpm build:web:admin` (serves
+ * `apps/desktop/dist`), optional `MCPMUX_ADMIN_CF_JWT` when CF Access trust is on,
+ * optional `MCPMUX_ADMIN_TEST=1` for SSE/oauth publish helpers.
+ *
+ * CI: `test:e2e:web:admin` is wired in package.json; full Linux CI job deferred until
+ * an AdminServer fixture starts automatically in the workflow.
  */
 
 import { defineConfig, devices } from '@playwright/test';

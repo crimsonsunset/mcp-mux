@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "dev:web": "vite",
     "build:web": "tsc && vite build",
+    "build:web:admin": "VITE_ADMIN_WEB=true tsc && vite build",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",

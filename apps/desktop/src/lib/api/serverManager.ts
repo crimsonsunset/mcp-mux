@@ -113,7 +113,7 @@ export type ServerEvent =
 export async function getServerStatuses(
   spaceId: string
 ): Promise<Record<string, ServerStatusResponse>> {
-  return invoke<Record<string, ServerStatusResponse>>("get_server_statuses", {
+  return apiCall<Record<string, ServerStatusResponse>>('get_server_statuses', {
     spaceId,
   });
 }

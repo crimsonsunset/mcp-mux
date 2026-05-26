@@ -5,8 +5,6 @@
 import { apiCall } from './transport';
 import type { InstalledServerState } from '@/types/registry';
 
-import { apiCall } from './transport';
-
 /** Default suffix suggestions shown in the clone wizard */
 export const CLONE_SUFFIX_SUGGESTIONS = ['work', 'personal', 'prod', 'staging'] as const;
 
