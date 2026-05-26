@@ -36,6 +36,20 @@ git pull origin dev
 pnpm dev                                   # gateway on localhost:45818
 ```
 
+### Dev commands (gateway / UI work)
+
+| Command | When |
+| ------- | ---- |
+| `pnpm dev` | Normal iteration — runs `predev` (free `:1420` / `:45818`, quit installed app) then Tauri + Vite |
+| `pnpm dev:restart` | After **gateway crate** changes — stop orphans, **rebuild** `mcpmux-gateway` + `mcpmux`, start dev |
+| `pnpm dev:restart:fast` | Clean restart without cargo rebuild (UI-only or binary already fresh) |
+| `pnpm dev:stop` | Kill repo dev processes only; does not start dev |
+| `pnpm dev:rebuild` | Rebuild gateway binary only (no start) |
+
+**Do not** run `./target/debug/mcpmux` alone — skips Vite and leaves stale/orphan processes. If `Finished dev profile in 0.20s` at startup after a gateway edit, use `pnpm dev:restart`.
+
+Implementation: `scripts/dev-env.mjs` (cross-platform port cleanup + optional rebuild).
+
 New feature work:
 
 ```bash

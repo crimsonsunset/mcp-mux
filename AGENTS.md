@@ -30,7 +30,9 @@ Run everything from `mcp-mux/`:
 | Command | What it does |
 |---------|--------------|
 | `pnpm setup` | First-time dev environment setup (PowerShell on Windows). |
-| `pnpm dev` | Tauri desktop dev mode (Rust + React hot-reload). |
+| `pnpm dev` | Tauri desktop dev mode (Rust + React hot-reload). Runs `predev` to free `:1420` / `:45818`. |
+| `pnpm dev:restart` | After gateway crate edits — stop orphans, rebuild, start dev. |
+| `pnpm dev:stop` | Kill repo dev processes without starting. |
 | `pnpm dev:web` | Web UI only via Vite — no Rust, no Tauri shell. |
 | `pnpm build` | Production Tauri build for the current platform. |
 | `pnpm validate` | Full correctness gate — runs the items below in sequence. |

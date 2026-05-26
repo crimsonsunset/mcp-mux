@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/dev-env.mjs prep",
     "dev": "tauri dev",
     "build": "tauri build",
     "preview": "vite preview",

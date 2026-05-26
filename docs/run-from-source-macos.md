@@ -61,10 +61,15 @@ Live-reload while you code. Best for tight iteration on UI or Rust.
 ### Run it
 
 ```bash
-# Quit the installed app first so the dev gateway can bind 127.0.0.1:45818
-osascript -e 'tell application "McpMux" to quit' 2>/dev/null; sleep 2
-
 pnpm dev
+```
+
+`predev` runs automatically: quits `/Applications/McpMux.app` if running, stops orphaned Vite/Tauri processes from this repo, and waits until `:1420` and `:45818` are free.
+
+After **gateway Rust changes**, prefer a clean rebuild:
+
+```bash
+pnpm dev:restart
 ```
 
 A Tauri window opens. Edit `.tsx` files for instant HMR; edit Rust and the window will relaunch on its own after recompile.
@@ -84,7 +89,9 @@ This runs Vite alone in a browser tab — no Rust, no Tauri shell. Tauri `invoke
 | Symptom | Why | Fix |
 | ------- | --- | --- |
 | Keychain prompts on first launch of the dev binary | Different signer than `/Applications/McpMux.app` | Click **Always Allow** once — sticks for that built artifact. See `Keychain prompts` below for detail |
-| `Address already in use: 45818` | Installed `.app` still running | `osascript -e 'tell application "McpMux" to quit'` then retry |
+| `Address already in use: 45818` | Installed `.app` or stale dev process | `pnpm dev:stop` then `pnpm dev` (or `pnpm dev:restart`) |
+| `Port 1420 is already in use` | Orphan Vite from a crashed `pnpm dev` | `pnpm dev:stop` then retry |
+| Gateway code changed but filter/behavior unchanged | Stale binary (`Finished in 0.20s`, no `Compiling mcpmux-gateway`) | `pnpm dev:restart` |
 | Cursor's MCP server "disconnected" mid-session | You stopped `pnpm dev` | Cursor reconnects when the gateway is back on `localhost:45818` (either flow) |
 | Rust recompile feels slow | Big edits in `mcpmux-gateway` / `mcpmux-storage` | Expected — keep edits scoped or use `pnpm dev:web` for UI |
 | `pnpm dev` keeps crashing with "Master key not found" | DB/keychain mismatch from manual deletion | Don't manually delete keychain entries — see `Keychain prompts` below |
