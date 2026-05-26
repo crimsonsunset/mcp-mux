@@ -8,6 +8,7 @@
 //! - Dependency Injection for clean architecture
 //! - Event-driven architecture via DomainEvent consumers
 
+pub mod admin;
 pub mod auth;
 pub mod consumers;
 pub mod logging;
