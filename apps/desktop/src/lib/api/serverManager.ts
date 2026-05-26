@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 /**
  * Server Manager API — event-driven connection lifecycle (ServerManager path).
  *

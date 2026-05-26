@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 // API layer for communicating with Tauri backend
 
 export * from './app';

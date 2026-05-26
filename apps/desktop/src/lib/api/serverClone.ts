@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 /**
  * Server clone API — Tauri wrappers for multi-account cloning.
  */

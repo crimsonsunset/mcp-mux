@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { apiCall } from './transport';
 
 /** Session-scoped server enable/disable overrides from meta tools. */

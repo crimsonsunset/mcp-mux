@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { listSpaces } from '@/lib/api/spaces';
-import { refreshOAuthTokensOnStartup } from '@/lib/api/gateway';
-import { waitForAdminReady } from '@/lib/api/fetch-api';
-import { isTauri } from '@/lib/api/transport';
+import {
+  isTauri,
+  listSpaces,
+  refreshOAuthTokensOnStartup,
+  waitForAdminReady,
+} from '@/lib/backend';
 
 /**
  * Syncs data from Rust backend to Zustand store.

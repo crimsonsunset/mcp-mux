@@ -40,7 +40,7 @@ Screen sharing / VNC behind CF Access works today but is not a web UI. This doc 
 | 3 | Admin server placement | **Separate Axum router on configurable port** (default `45819`), not mixed into MCP gateway routes | Keeps MCP protocol surface unchanged. Admin and MCP can be tunneled independently (`mux.joe-hassio.com` vs `mcp.joe-hassio.com`). Easier to disable admin without stopping the gateway. |
 | 4 | Static UI | **Serve `frontendDist` from the Tauri build** at `/` with SPA fallback | Reuses the existing React app. No separate web bundle. |
 | 5 | API shape | **REST JSON at `/api/v1/*`** mirroring Tauri command names (kebab → snake mapping) | Predictable mapping: `get_gateway_status` → `GET /api/v1/gateway/status`. One handler module per Tauri command group. |
-| 6 | Frontend transport | **Transport abstraction in `lib/api/`** — `invoke()` in Tauri, `fetch()` in web mode | Detect via `window.__TAURI__` or build-time `import.meta.env.VITE_ADMIN_WEB`. Same function signatures, different backend. |
+| 6 | Frontend transport | **Unified backend facade (`@/lib/backend`)** — `apiCall()` in `backend/data/transport.ts`; Tauri `invoke()` vs admin `fetch()` | Detect via `window.__TAURI__` or build-time `import.meta.env.VITE_ADMIN_WEB`. Same function signatures, different backend. `@/lib/api/*` remains as deprecated shims. |
 | 7 | OAuth consent | **Re-enable guarded HTTP consent endpoint** for web admin only — `POST /api/v1/oauth/consent/approve` behind CF Access + CSRF token | Production desktop keeps Tauri-IPC-only consent (existing security model). Web mode needs an HTTP path because there is no Tauri shell on Weathertop. |
 | 8 | Bind address | **Default `127.0.0.1:45819`** — same loopback-first posture as MCP gateway | CF tunnel reaches localhost; no need to bind `0.0.0.0`. `AGENTS.md` loopback rule preserved. |
 | 9 | Event streaming | **SSE at `/api/v1/events`** bridging existing `EventBus` | Replaces Tauri event listeners (`useDomainEvents`) in web mode. Desktop keeps Tauri events. |
@@ -135,8 +135,10 @@ Weathertop / Rohan browser
 
 **Frontend transport switch:**
 
+Import from `@/lib/backend` (preferred) or deprecated `@/lib/api/*` shims. Commands flow through `backend/data/transport.ts`:
+
 ```typescript
-// lib/api/transport.ts (new)
+// lib/backend/data/transport.ts
 export async function apiCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (isTauri()) {
     return invoke(command, args);
@@ -145,7 +147,7 @@ export async function apiCall<T>(command: string, args?: Record<string, unknown>
 }
 ```
 
-Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no signature changes.
+Domain modules (`spaces`, `gateway`, etc.) call `apiCall(...)` with no signature changes. Live updates use `backend/events`; OS integrations use `backend/shell`. See [`unified-backend-facade.md`](./unified-backend-facade.md).
 
 ---
 
@@ -154,7 +156,7 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 Web admin reuses the **same React SPA** and **same `ApplicationServices`**. Parity risk lives in two thin layers only:
 
 1. **Backend wire** — HTTP route → `command_bridge` fn → services (must not duplicate Tauri command bodies)
-2. **Frontend wire** — `apiCall()` → `fetchApi()` command-name → HTTP path mapping
+2. **Frontend wire** — `@/lib/backend` (data + events + shell) → `apiCall()` / SSE / shell helpers
 
 Everything below React hooks/stores is already covered by `pnpm test:rust`. The goal of admin testing is to prove **IPC ≡ HTTP ≡ bridge** for every exposed command, not to re-prove domain logic.
 
@@ -204,13 +206,13 @@ expect(routeFor('get_gateway_status', { spaceId })).toEqual({
 
 ### Module-by-module wiring rule
 
-Never refactor all 16 `lib/api/*.ts` modules in one PR. Per command group:
+Never refactor all domain modules in one PR. Per command group:
 
 1. Extract `command_bridge` fns for that group
 2. Add read (then write) HTTP handlers calling bridge only
 3. Add dual-entry integration tests
 4. Add transport vitest rows for that group
-5. Swap `invoke` → `apiCall` in that TS module only
+5. Ensure commands use `apiCall` via `@/lib/backend` (legacy `@/lib/api/*` shims re-export the same surface)
 6. Update parity matrix
 
 Suggested first spike module: **`spaces`** (9 invokes, bounded CRUD, good template).
@@ -529,7 +531,11 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 
 | File | Why |
 | ---- | --- |
-| [`apps/desktop/src/lib/api/gateway.ts`](../../apps/desktop/src/lib/api/gateway.ts) | Largest API module (~20 invokes) — template for transport refactor |
+| [`apps/desktop/src/lib/backend/index.ts`](../../apps/desktop/src/lib/backend/index.ts) | Unified facade — data, events, shell (preferred import) |
+| [`apps/desktop/src/lib/backend/data/transport.ts`](../../apps/desktop/src/lib/backend/data/transport.ts) | Tauri vs fetch transport abstraction |
+| [`apps/desktop/src/lib/backend/data/fetch-api.ts`](../../apps/desktop/src/lib/backend/data/fetch-api.ts) | REST client mapping command names → HTTP paths |
+| [`apps/desktop/src/lib/backend/events/`](../../apps/desktop/src/lib/backend/events/) | SSE + Tauri event adapters (`useDomainEvents`, etc.) |
+| [`apps/desktop/src/lib/api/`](../../apps/desktop/src/lib/api/) | Deprecated shims — re-export domain modules; prefer `@/lib/backend` |
 | [`apps/desktop/src-tauri/src/commands/mod.rs`](../../apps/desktop/src-tauri/src/commands/mod.rs) | Command module registry — each module gets a corresponding admin handler |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | Existing Axum gateway — pattern reference for admin router |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) (lines 340–365) | OAuth consent removed from HTTP for security — web admin re-adds guarded version |
@@ -574,3 +580,5 @@ This doc is the source of truth for web admin mode. Phases 1–8 are **Complete*
 **Decision record (May 25, 2026):** Web admin mode on fork selected over screen sharing (immediate but not web UI), tunneling `:1420` (broken), and full "McpMux Cloud" multi-tenant SaaS (months of work). CF Access at edge replaces building login UI. Separate admin port (`45819`) keeps MCP gateway surface unchanged.
 
 **Decision record (May 25, 2026 — testing):** Expanded from five implementation phases to **eight phases** with tests baked into each phase. Added parity matrix artifact, `command_bridge` pilot before HTTP reads, dedicated SSE phase, and WDIO→Playwright admin catalog in Phase 8. No HTTP handler ships without dual-entry test; no transport refactor without vitest row.
+
+**May 26, 2026 (facade):** Unified backend facade (Phases 1–5) landed on `feat/web-ui`. Frontend imports should use `@/lib/backend`; `@/lib/api/*` shims are deprecated. See [`unified-backend-facade.md`](./unified-backend-facade.md).

@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { flushPendingDeepLink } from '@/lib/backend/shell';
 
 import { apiCall } from './transport';

@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 /**
  * Registry API functions for Tauri IPC.
  */

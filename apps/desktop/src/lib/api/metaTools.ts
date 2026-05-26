@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { apiCall } from './transport';
 
 /** An "always allow from (client, tool)" entry kept in the gateway's broker. */

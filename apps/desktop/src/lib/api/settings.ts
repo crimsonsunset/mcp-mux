@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import {
   getAdminWebSettings as shellGetAdminWebSettings,
   openLogsFolder as shellOpenLogsFolder,

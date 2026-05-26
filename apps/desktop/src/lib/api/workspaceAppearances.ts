@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { apiCall } from './transport';
 
 /** Persisted per-root icon used before a binding exists. */

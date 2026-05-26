@@ -1,8 +1,8 @@
 # Unified Backend Facade (Option 4A)
 
 **Last Updated:** May 26, 2026  
-**Status:** Planning — **partial prep on `feat/web-ui`** (facade tree not started; route split + shell behaviors landed pre-merge)  
-**Branch:** TBD — suggest `feat/backend-facade` off **`dev`** (after [`feat/web-ui`](./web-admin-remote-access.md) merges or rebases)
+**Status:** Complete — Phases 1–5 on `feat/web-ui`  
+**Branch:** `feat/web-ui`
 **Base branch:** `dev`
 **Issue:** TBD
 **Depends on:** [Web Admin Mode](./web-admin-remote-access.md) — transport + `command_bridge` + admin server landed on `feat/web-ui`; this doc hardens the **frontend boundary** so web/desktop regressions stop
@@ -33,8 +33,8 @@ Post-review commits did **not** create `lib/backend/` yet, but they reduce Phase
 | `open_url` parity | ✅ Done | REST endpoint removed; `gateway.ts` branches on `isTauri()` |
 | Admin settings web UX | ✅ Partial | `SettingsPage` hides admin card when `!isTauri()` — still invoke-only |
 | Live gateway integration test | ✅ Done | `LiveGatewayRuntime` + `admin_api_live_gateway.rs` |
-| ESLint `@tauri-apps` boundary | ⬜ Not started | Phase 1 deliverable |
-| `lib/backend/` scaffold | ⬜ Not started | Phase 1 deliverable |
+| ESLint `@tauri-apps` boundary | ✅ Done | Phase 1 deliverable |
+| `lib/backend/` scaffold | ✅ Done | Phase 1 deliverable |
 
 **Estimated remaining effort after merge:** ~2–2.5 days (down from ~3 days).
 
@@ -163,11 +163,11 @@ features/, components/, hooks/ (non-backend)
 
 **Work**
 
-- [ ] Create `lib/backend/` tree and `index.ts` re-exporting existing `lib/api` modules
-- [x] Split `fetch-api` route map into per-resource modules — **done on `feat/web-ui`; still at `lib/api/` until move**
-- [ ] Move `transport.ts` + `fetch-api.ts` + `fetch-api.routes/` into `backend/`; shim `lib/api/transport.ts` re-exports
-- [ ] Add ESLint `no-restricted-imports` for `@tauri-apps/*` outside `lib/backend/**`
-- [ ] Document the three-channel model in this doc’s Architecture section (link from `AGENTS.md` one line)
+- [x] Create `lib/backend/` tree and `index.ts` re-exporting existing `lib/api` modules
+- [x] Split `fetch-api` route map into per-resource modules — **done on `feat/web-ui`; moved to `backend/data/`**
+- [x] Move `transport.ts` + `fetch-api.ts` + `fetch-api.routes/` into `backend/`; shim `lib/api/transport.ts` re-exports
+- [x] Add ESLint `no-restricted-imports` for `@tauri-apps/*` outside `lib/backend/**`
+- [x] Document the three-channel model in this doc’s Architecture section (link from `AGENTS.md` one line)
 
 **Outcome:** `pnpm lint` fails if a new component imports `@tauri-apps` directly. Existing app behavior unchanged.
 
@@ -177,10 +177,10 @@ features/, components/, hooks/ (non-backend)
 
 **Work**
 
-- [ ] Add `backend/events/index.ts` — single hook used by app (`useDomainEvents` re-exported for compat)
-- [ ] Merge `useDomainEventsWeb` / `useWorkspaceEventsWeb` / etc. as internal adapters only
-- [ ] Remove duplicate `listen()` from `ClientsPage`, `WorkspaceBindingSheet`, `MetaToolApprovalDialog` (use facade)
-- [ ] Delete or internalize `lib/tauri-events.ts` under `backend/events/`
+- [x] Add `backend/events/index.ts` — single hook used by app (`useDomainEvents` re-exported for compat)
+- [x] Merge `useDomainEventsWeb` / `useWorkspaceEventsWeb` / etc. as internal adapters only
+- [x] Remove duplicate `listen()` from `ClientsPage`, `WorkspaceBindingSheet`, `MetaToolApprovalDialog` (use facade)
+- [x] Delete or internalize `lib/tauri-events.ts` under `backend/events/`
 
 **Outcome:** Open `localhost:1420` with admin enabled — **no** `transformCallback` errors; SSE subscriptions work via one code path.
 
@@ -190,11 +190,11 @@ features/, components/, hooks/ (non-backend)
 
 **Work**
 
-- [ ] Implement `backend.shell` modules (dialogs, updater, icons, client-install, admin-settings)
-- [ ] Migrate `App.tsx`, `UpdateChecker`, `ServersPage`, `WorkspacesPage`, `ServerIcon`, `ServerInstallModal`
+- [x] Implement `backend.shell` modules (dialogs, updater, icons, client-install, admin-settings)
+- [x] Migrate `App.tsx`, `UpdateChecker`, `ServersPage`, `WorkspacesPage`, `ServerIcon`, `ServerInstallModal`
 - [x] Web: hide admin settings card when `!isTauri()` — **done on `feat/web-ui`**
-- [ ] Web: hide or disable remaining shell-only UI (Connect IDE install, open logs folder, updater banner)
-- [ ] Move `openUrl` (`gateway.ts`) into `backend.shell`
+- [x] Web: hide or disable remaining shell-only UI (Connect IDE install, open logs folder, updater banner)
+- [x] Move `openUrl` (`gateway.ts`) into `backend.shell`
 
 **Outcome:** Grep `apps/desktop/src` for `@tauri-apps` — hits only under `lib/backend/**`.
 
@@ -204,10 +204,10 @@ features/, components/, hooks/ (non-backend)
 
 **Work**
 
-- [ ] `configExport.ts` — `apiCall` for HTTP-backed ops; shell for native save path
-- [ ] `registry.ts` — remove dead `set_server_enabled` invoke
-- [ ] `oauth.ts` — single path per command via `apiCall`; shell for `flush_pending_deep_link`
-- [ ] `settings.ts` — admin settings via shell only
+- [x] `configExport.ts` — `apiCall` for HTTP-backed ops; shell for native save path
+- [x] `registry.ts` — remove dead `set_server_enabled` invoke
+- [x] `oauth.ts` — single path per command via `apiCall`; shell for `flush_pending_deep_link`
+- [x] `settings.ts` — admin settings via shell only
 - [x] Remove fake `open_url` REST route — **done on `feat/web-ui`**
 
 **Outcome:** Every command in parity matrix that is “REST” uses `apiCall` only; desktop-only rows call `shell` only.
@@ -218,9 +218,9 @@ features/, components/, hooks/ (non-backend)
 
 **Work**
 
-- [ ] Deprecation comments on `@/lib/api/*` → prefer `@/lib/backend`
-- [ ] Update [`web-admin-remote-access.md`](./web-admin-remote-access.md) frontend section to reference facade
-- [ ] Narrow `useDataSync` / `AutoStartConflictResolver` imports to `backend.data`
+- [x] Deprecation comments on `@/lib/api/*` → prefer `@/lib/backend`
+- [x] Update [`web-admin-remote-access.md`](./web-admin-remote-access.md) frontend section to reference facade
+- [x] Narrow `useDataSync` / `AutoStartConflictResolver` imports to `backend.data`
 
 **Outcome:** New code defaults to `backend` import; planning docs aligned with implementation.
 
@@ -275,4 +275,6 @@ features/, components/, hooks/ (non-backend)
 
 Update **Status** and **Branch** when work starts. Do not start until `feat/web-ui` merge path is clear — this doc is frontend-only and should rebase on the branch that contains `apiCall` + admin server.
 
-**May 26, 2026:** `feat/web-ui` post-review commits (`0c1a017`, `cc7bf54`, `558a319`) completed fetch-api route split, `open_url` shell parity, admin settings web hide, and live gateway tests. Facade Phase 1 ESLint + `lib/backend/` tree remain the first tasks on `feat/backend-facade`.
+**May 26, 2026:** `feat/web-ui` post-review commits (`0c1a017`, `cc7bf54`, `558a319`) completed fetch-api route split, `open_url` shell parity, admin settings web hide, and live gateway tests.
+
+**May 26, 2026 (Phase 5):** Unified backend facade Phases 1–5 complete on `feat/web-ui`. `@/lib/backend` is the preferred import; `@/lib/api/*` shims carry deprecation comments. See [`web-admin-remote-access.md`](./web-admin-remote-access.md) for the parent web-admin feature.
