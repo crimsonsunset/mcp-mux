@@ -274,7 +274,7 @@ Workspace: `/Users/joe/Desktop/Repos/Contracts/generAIt`
 | Item | Severity | Owner | Notes |
 | ---- | -------- | ----- | ----- |
 | ~~Run 5 §2 step 4 live QA~~ | ~~Required before ship~~ | QA | **Done** — filter envelope confirmed (Run 5) |
-| Resource list bloat (~124 PostHog skill URIs) | Medium | **Phase D** | [`meta-gateway-invoke.md` Phase D](./meta-gateway-invoke.md#phase-d--advanced-optimizations-defer) — progressive disclosure for `resources/list`; interim: trim skills from `bundle:gait` |
+| Resource list bloat (~124 PostHog skill URIs) | Medium | **Resolved Phase D** | Hard cut + `mcpmux_search_resources`; re-run GAIT §0 expecting 0 resources |
 | Supabase hard project isolation | Optional | Config | Needs 4 clones with `--project-ref` or accept unscoped |
 | Rename PostHog project 433907 | Cosmetic | PostHog UI | Still "Default project" |
 | PR #155 merge + CHANGELOG | Process | Eng | Unblocked — Issue #2 v3 + Run 5 **SHIP** |

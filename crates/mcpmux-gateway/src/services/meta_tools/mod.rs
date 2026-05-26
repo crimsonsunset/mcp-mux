@@ -22,6 +22,8 @@
 
 pub mod approval;
 pub mod diff;
+pub mod disclosure;
+pub mod disclosure_backend;
 pub mod invoke;
 pub mod invoke_backend;
 mod registry;
@@ -33,6 +35,7 @@ pub use approval::{
     ApprovalScope,
 };
 pub use diff::ToolDiff;
+pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};
 pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
 pub use registry::{
     MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY,
@@ -65,6 +68,7 @@ pub fn build_default_registry(
     resolver: std::sync::Arc<crate::services::FeatureSetResolverService>,
     feature_service: std::sync::Arc<crate::pool::FeatureService>,
     invoke_backend: Option<std::sync::Arc<dyn invoke_backend::InvokeToolBackend>>,
+    disclosure_backend: Option<std::sync::Arc<dyn disclosure_backend::DisclosureBackend>>,
     session_roots: std::sync::Arc<crate::services::SessionRootsRegistry>,
     session_overrides: std::sync::Arc<crate::services::SessionOverrideRegistry>,
     approval_broker: std::sync::Arc<ApprovalBroker>,
@@ -73,6 +77,12 @@ pub fn build_default_registry(
 ) -> std::sync::Arc<MetaToolRegistry> {
     let tool_discovery =
         std::sync::Arc::new(ToolDiscoveryService::new(server_feature_repo.clone()));
+    let resource_discovery = std::sync::Arc::new(crate::services::ResourceDiscoveryService::new(
+        server_feature_repo.clone(),
+    ));
+    let prompt_discovery = std::sync::Arc::new(crate::services::PromptDiscoveryService::new(
+        server_feature_repo.clone(),
+    ));
     let ctx = MetaToolContext {
         client_repo,
         space_repo,
@@ -84,6 +94,9 @@ pub fn build_default_registry(
         feature_service,
         invoke_backend,
         tool_discovery,
+        resource_discovery,
+        prompt_discovery,
+        disclosure_backend,
         session_roots,
         session_overrides,
         approval_broker,
@@ -99,6 +112,10 @@ pub fn build_default_registry(
     registry.register(Box::new(tools::SearchToolsTool));
     registry.register(Box::new(tools::GetToolSchemaTool));
     registry.register(Box::new(invoke::InvokeToolTool));
+    registry.register(Box::new(disclosure::SearchResourcesTool));
+    registry.register(Box::new(disclosure::ReadResourceTool));
+    registry.register(Box::new(disclosure::SearchPromptsTool));
+    registry.register(Box::new(disclosure::FetchPromptTool));
     // Writes — gated by ApprovalBroker (or auto-allowed for session overrides).
     registry.register(Box::new(tools::EnableServerTool));
     registry.register(Box::new(tools::DisableServerTool));

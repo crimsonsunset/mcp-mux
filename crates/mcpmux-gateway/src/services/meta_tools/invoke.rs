@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::tools::{caller_resolution, caller_space_id};
 use crate::pool::{format_invoke_permission_denied, format_server_inactive_error};
-use crate::services::tool_discovery::ToolDiscoveryService;
+use crate::services::levenshtein_suggestions;
 use mcpmux_core::FeatureType;
 
 /// Object keys that commonly hold large list payloads from backend tools.
@@ -196,8 +196,7 @@ fn extract_markdown_json_fence(text: &str) -> Option<String> {
 fn extract_json_object_substring(text: &str) -> Option<String> {
     let start = text.find(['{', '['])?;
     let slice = &text[start..];
-    let end = slice
-        .rfind(if slice.starts_with('{') { '}' } else { ']' })?;
+    let end = slice.rfind(if slice.starts_with('{') { '}' } else { ']' })?;
     Some(slice[..=end].to_string())
 }
 
@@ -367,27 +366,12 @@ impl MetaTool for InvokeToolTool {
         });
 
         if !is_invokable {
-            let index = call
-                .ctx
-                .tool_discovery
-                .build_index(&space_id.to_string(), &invokable)
-                .await
-                .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-            let suggestions: Vec<String> = ToolDiscoveryService::search(
-                &index,
-                Some(&tool_name),
-                Some(&server_id),
-                crate::services::tool_discovery::DetailLevel::Name,
-                5,
-                None,
-            )
-            .tools
-            .iter()
-            .filter_map(|v| {
-                v.get("qualified_name")
-                    .and_then(|n| n.as_str().map(String::from))
-            })
-            .collect();
+            let candidates: Vec<String> = invokable
+                .iter()
+                .filter(|f| f.server_id == server_id)
+                .map(|f| f.qualified_name())
+                .collect();
+            let suggestions = levenshtein_suggestions(&tool_name, &candidates, 5);
             return Ok(invoke_error(format_invoke_permission_denied(
                 &qualified_name,
                 &server_id,
@@ -423,15 +407,15 @@ impl MetaTool for InvokeToolTool {
                     return Ok(mcp_result);
                 }
 
-                let (content, structured_content) =
-                    match filter.as_ref().filter(|f| f.has_effect()) {
-                        Some(active_filter) => apply_invoke_result_filter(
-                            result.content,
-                            result.structured_content,
-                            active_filter,
-                        ),
-                        None => (result.content, result.structured_content),
-                    };
+                let (content, structured_content) = match filter.as_ref().filter(|f| f.has_effect())
+                {
+                    Some(active_filter) => apply_invoke_result_filter(
+                        result.content,
+                        result.structured_content,
+                        active_filter,
+                    ),
+                    None => (result.content, result.structured_content),
+                };
                 let parsed_content: Vec<Content> = content
                     .into_iter()
                     .filter_map(|v| serde_json::from_value(v).ok())
@@ -476,9 +460,7 @@ fn shape_content_blocks(blocks: Vec<Value>, filter: &InvokeResultFilter) -> Vec<
 fn collect_parsed_json_blocks(blocks: &[Value]) -> Vec<Value> {
     blocks
         .iter()
-        .filter_map(|block| {
-            content_block_text(block).and_then(parse_structured_payload_from_text)
-        })
+        .filter_map(|block| content_block_text(block).and_then(parse_structured_payload_from_text))
         .collect()
 }
 
@@ -948,9 +930,15 @@ mod tests {
         assert_eq!(structured.get("returned"), Some(&json!(3)));
         assert_eq!(structured.get("total"), Some(&json!(16)));
         assert_eq!(structured.get("truncated"), Some(&json!(true)));
-        let sample = structured.get("results").and_then(|v| v.as_array()).unwrap();
+        let sample = structured
+            .get("results")
+            .and_then(|v| v.as_array())
+            .unwrap();
         assert_eq!(sample.len(), 3);
-        assert_eq!(sample[0], json!({ "name": "Insight 0", "short_id": "ins-0" }));
+        assert_eq!(
+            sample[0],
+            json!({ "name": "Insight 0", "short_id": "ins-0" })
+        );
 
         let text = shaped_content[0]
             .get("text")
@@ -962,16 +950,17 @@ mod tests {
 
     #[test]
     fn yaml_payload_parses_posthog_insights_list_shape() {
-        let mut yaml = String::from(
-            "count: 16\nnext: null\nprevious: null\nresults[16]:\n",
-        );
+        let mut yaml = String::from("count: 16\nnext: null\nprevious: null\nresults[16]:\n");
         for i in 0..16 {
             yaml.push_str(&format!(
                 "  - id: {i}\n    short_id: ins-{i}\n    name: Insight {i}\n    description: noise\n"
             ));
         }
         let parsed = parse_structured_payload_from_text(&yaml).expect("yaml parses");
-        let results = parsed.get("results").and_then(|v| v.as_array()).expect("results array");
+        let results = parsed
+            .get("results")
+            .and_then(|v| v.as_array())
+            .expect("results array");
         assert_eq!(results.len(), 16);
 
         let filter = parse_invoke_filter(Some(&json!({
@@ -985,9 +974,7 @@ mod tests {
 
     #[test]
     fn posthog_paginated_results_truncates_from_content_yaml() {
-        let mut yaml = String::from(
-            "count: 16\nnext: null\nprevious: null\nresults[16]:\n",
-        );
+        let mut yaml = String::from("count: 16\nnext: null\nprevious: null\nresults[16]:\n");
         for i in 0..16 {
             yaml.push_str(&format!(
                 "  - id: {i}\n    short_id: ins-{i}\n    name: Insight {i}\n    description: noise\n"
@@ -1010,9 +997,15 @@ mod tests {
         assert_eq!(structured.get("returned"), Some(&json!(3)));
         assert_eq!(structured.get("total"), Some(&json!(16)));
         assert_eq!(structured.get("truncated"), Some(&json!(true)));
-        let sample = structured.get("results").and_then(|v| v.as_array()).unwrap();
+        let sample = structured
+            .get("results")
+            .and_then(|v| v.as_array())
+            .unwrap();
         assert_eq!(sample.len(), 3);
-        assert_eq!(sample[0], json!({ "name": "Insight 0", "short_id": "ins-0" }));
+        assert_eq!(
+            sample[0],
+            json!({ "name": "Insight 0", "short_id": "ins-0" })
+        );
 
         let text = shaped_content[0]
             .get("text")

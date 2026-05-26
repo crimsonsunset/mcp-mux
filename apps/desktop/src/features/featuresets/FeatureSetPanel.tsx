@@ -674,10 +674,22 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                               <div className="bg-[rgb(var(--background))] border-t border-[rgb(var(--border))]">
                                 {group.features.map((feature) => {
                                   const isSelected = isFeatureSelected(feature.id, feature);
-                                  const isSurfaced = surfacedFeatureIds.has(feature.id);
-                                  const isTool = feature.feature_type === 'tool';
+                                      const isSurfaced = surfacedFeatureIds.has(feature.id);
+                                      const canSurface =
+                                        isConfigurable &&
+                                        isSelected &&
+                                        (feature.feature_type === 'tool' ||
+                                          feature.feature_type === 'resource' ||
+                                          feature.feature_type === 'prompt');
 
-                                  return (
+                                      const surfaceTitle =
+                                        feature.feature_type === 'tool'
+                                          ? 'Promote this included tool into the client tools/list for direct one-hop calls. The checkbox only grants invoke access via search + mcpmux_invoke_tool—it does not add the tool to tools/list.'
+                                          : feature.feature_type === 'resource'
+                                            ? 'Promote this included resource into the client resources/list for direct one-hop reads. The checkbox only grants read access via search + mcpmux_read_resource—it does not add the resource to resources/list.'
+                                            : 'Promote this included prompt into the client prompts/list for direct one-hop fetches. The checkbox only grants fetch access via search + mcpmux_fetch_prompt—it does not add the prompt to prompts/list.';
+
+                                      return (
                                     <div
                                       key={feature.id}
                                       className={`flex items-center gap-2 border-b border-[rgb(var(--border))] last:border-b-0 transition-colors
@@ -716,7 +728,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                                         </div>
                                       </button>
 
-                                      {isConfigurable && isTool && isSelected && (
+                                      {canSurface && (
                                         <button
                                           type="button"
                                           onClick={(event) => toggleSurfaced(feature.id, event)}
@@ -724,7 +736,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                                             ${isSurfaced
                                               ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                               : 'text-[rgb(var(--muted))] hover:bg-[rgb(var(--surface-hover))]'}`}
-                                          title="Promote this included tool into the client tools/list for direct one-hop calls. The checkbox only grants invoke access via search + mcpmux_invoke_tool—it does not add the tool to tools/list. Use sparingly; each surfaced tool adds its schema to the client context."
+                                          title={surfaceTitle}
                                           data-testid={`surface-toggle-${feature.id}`}
                                         >
                                           <Monitor className="h-3.5 w-3.5" />

@@ -8,7 +8,10 @@ use mcpmux_core::{
     InboundMcpClientRepository, InstalledServerRepository, MemberMode, MemberType, ServerFeature,
     ServerFeatureRepository, SpaceRepository, WorkspaceBindingRepository,
 };
-use mcpmux_gateway::pool::{format_direct_call_redirect, FeatureService, ToolCallResult};
+use mcpmux_gateway::pool::{
+    format_direct_call_redirect, format_direct_fetch_prompt_redirect, format_direct_read_redirect,
+    FeatureService, ToolCallResult,
+};
 use mcpmux_gateway::services::meta_tools::invoke::{
     apply_invoke_result_filter, parse_invoke_filter, shape_json_value, InvokeResultFilter,
 };
@@ -133,6 +136,7 @@ impl Fixture {
             resolver,
             feature_service.clone(),
             invoke_backend,
+            None,
             session_roots.clone(),
             session_overrides.clone(),
             broker,
@@ -412,6 +416,11 @@ async fn registry_lists_new_meta_tools() {
     assert!(names.iter().any(|n| n == "mcpmux_search_tools"));
     assert!(names.iter().any(|n| n == "mcpmux_get_tool_schema"));
     assert!(names.iter().any(|n| n == "mcpmux_invoke_tool"));
+    assert!(names.iter().any(|n| n == "mcpmux_search_resources"));
+    assert!(names.iter().any(|n| n == "mcpmux_read_resource"));
+    assert!(names.iter().any(|n| n == "mcpmux_search_prompts"));
+    assert!(names.iter().any(|n| n == "mcpmux_fetch_prompt"));
+    assert_eq!(names.len(), 14);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -953,7 +962,10 @@ async fn invoke_filter_shapes_structured_insights_payload() {
     assert_eq!(body.get("truncated"), Some(&json!(true)));
     let sample = body.get("insights").and_then(|v| v.as_array()).unwrap();
     assert_eq!(sample.len(), 3);
-    assert_eq!(sample[0], json!({ "name": "Insight 0", "short_id": "ins-0" }));
+    assert_eq!(
+        sample[0],
+        json!({ "name": "Insight 0", "short_id": "ins-0" })
+    );
 
     let structured = result.structured_content.expect("structured shaped");
     assert_eq!(structured.get("returned"), Some(&json!(3)));
@@ -1032,9 +1044,7 @@ async fn invoke_filter_shapes_posthog_paginated_results_in_content_json() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn invoke_filter_shapes_posthog_paginated_results_in_content_yaml() {
-    let mut yaml = String::from(
-        "count: 16\nnext: null\nprevious: null\nresults[16]:\n",
-    );
+    let mut yaml = String::from("count: 16\nnext: null\nprevious: null\nresults[16]:\n");
     for i in 0..16 {
         yaml.push_str(&format!(
             "  - name: Insight {i}\n    short_id: ins-{i}\n    description: noise\n"
@@ -1136,4 +1146,265 @@ async fn invoke_filter_aggregates_multi_block_content() {
     let sample = body.get("items").and_then(|v| v.as_array()).unwrap();
     assert_eq!(sample.len(), 3);
     assert_eq!(sample[0], json!({ "name": "row-0" }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn advertised_resources_empty_without_surfaced_members() {
+    let f = Fixture::new().await;
+
+    let mut resource = ServerFeature::resource(f.space_id, "github", "github://docs/readme");
+    resource.description = Some("GitHub readme resource".into());
+    f.server_feature_repo.upsert(&resource).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Grant GitHub resource", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: resource.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let fs_ids = vec![fs.id.clone()];
+    let advertised = f
+        .feature_service
+        .get_advertised_resources_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .await
+        .unwrap();
+    assert!(advertised.is_empty());
+
+    let readable = f
+        .feature_service
+        .get_readable_resources_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .await
+        .unwrap();
+    assert_eq!(readable.len(), 1);
+    assert_eq!(readable[0].feature_name, "github://docs/readme");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn surfaced_resource_appears_in_advertised_set() {
+    let f = Fixture::new().await;
+
+    let mut resource = ServerFeature::resource(f.space_id, "github", "github://docs/readme");
+    f.server_feature_repo.upsert(&resource).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Surfaced resource", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: resource.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: true,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+
+    let fs_ids = vec![fs.id.clone()];
+    let advertised = f
+        .feature_service
+        .get_advertised_resources_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .await
+        .unwrap();
+    assert_eq!(advertised.len(), 1);
+    assert_eq!(advertised[0].feature_name, "github://docs/readme");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn surfaced_prompt_appears_in_advertised_set() {
+    let f = Fixture::new().await;
+
+    let mut prompt = ServerFeature::prompt(f.space_id, "github", "summarize_issue");
+    prompt.description = Some("Summarize a GitHub issue".into());
+    f.server_feature_repo.upsert(&prompt).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Surfaced prompt", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: prompt.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: true,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+
+    let fs_ids = vec![fs.id.clone()];
+    let advertised = f
+        .feature_service
+        .get_advertised_prompts_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .await
+        .unwrap();
+    assert_eq!(advertised.len(), 1);
+    assert_eq!(advertised[0].feature_name, "summarize_issue");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_resources_returns_readable_matches() {
+    let f = Fixture::new().await;
+
+    let mut resource = ServerFeature::resource(f.space_id, "github", "github://docs/readme");
+    resource.description = Some("Project readme".into());
+    f.server_feature_repo.upsert(&resource).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Resource search", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: resource.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let search = f
+        .call(
+            "mcpmux_search_resources",
+            json!({
+                "query": "readme",
+                "server_id": "github",
+                "detail_level": "description"
+            }),
+        )
+        .await;
+    let body = Fixture::result_json(&search);
+    let resources = body.get("resources").unwrap().as_array().unwrap();
+    assert_eq!(resources.len(), 1);
+    assert_eq!(
+        resources[0].get("uri"),
+        Some(&json!("github://docs/readme"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_prompts_returns_fetchable_matches() {
+    let f = Fixture::new().await;
+
+    let mut prompt = ServerFeature::prompt(f.space_id, "github", "summarize_issue");
+    prompt.description = Some("Summarize issue text".into());
+    f.server_feature_repo.upsert(&prompt).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Prompt search", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: prompt.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let search = f
+        .call(
+            "mcpmux_search_prompts",
+            json!({
+                "query": "summarize",
+                "server_id": "github",
+                "detail_level": "description"
+            }),
+        )
+        .await;
+    let body = Fixture::result_json(&search);
+    let prompts = body.get("prompts").unwrap().as_array().unwrap();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].get("prompt"), Some(&json!("summarize_issue")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_levenshtein_suggests_near_tool_name() {
+    let f = Fixture::new().await;
+    f.grant_github_feature_set().await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "list_isses",
+                "args": {}
+            }),
+        )
+        .await;
+
+    assert!(result.is_error.unwrap_or(false));
+    let body = Fixture::result_json(&result);
+    let message = body.get("message").and_then(|v| v.as_str()).unwrap();
+    assert!(message.contains("did you mean"));
+    assert!(message.contains("github_list_issues"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_tf_idf_ranks_list_issues_first() {
+    let f = Fixture::new().await;
+
+    let mut list_pulls = ServerFeature::tool(f.space_id, "github", "list_pulls");
+    list_pulls.description = Some("List pull requests for issues backlog".into());
+    f.server_feature_repo.upsert(&list_pulls).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("GitHub both tools", f.space_id.to_string());
+    for feature in [
+        f.server_feature_repo
+            .list_for_space(&f.space_id.to_string())
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|feat| feat.feature_name == "list_issues")
+            .unwrap(),
+        list_pulls,
+    ] {
+        fs.members.push(FeatureSetMember {
+            id: Uuid::new_v4().to_string(),
+            feature_set_id: fs.id.clone(),
+            member_type: MemberType::Feature,
+            member_id: feature.id.to_string(),
+            mode: MemberMode::Include,
+            surfaced: false,
+        });
+    }
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let search = f
+        .call(
+            "mcpmux_search_tools",
+            json!({
+                "query": "issues",
+                "server_id": "github",
+                "detail_level": "name"
+            }),
+        )
+        .await;
+    let body = Fixture::result_json(&search);
+    let tools = body.get("tools").unwrap().as_array().unwrap();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(
+        tools[0].get("qualified_name"),
+        Some(&json!("github_list_issues"))
+    );
+}
+
+#[test]
+fn direct_read_and_fetch_redirect_messages() {
+    let read = format_direct_read_redirect("posthog://skills/foo");
+    assert!(read.contains("mcpmux_read_resource"));
+    assert!(read.contains("posthog://skills/foo"));
+
+    let fetch =
+        format_direct_fetch_prompt_redirect("github_summarize_issue", "github", "summarize_issue");
+    assert!(fetch.contains("mcpmux_fetch_prompt"));
+    assert!(fetch.contains("summarize_issue"));
 }

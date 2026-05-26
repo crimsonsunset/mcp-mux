@@ -137,6 +137,9 @@ impl ServiceContainer {
             Some(meta_tools::routing_as_invoke_backend(
                 pool_services.routing_service.clone(),
             )),
+            Some(meta_tools::pool_as_disclosure_backend(
+                pool_services.pool_service.clone(),
+            )),
             session_roots.clone(),
             session_overrides.clone(),
             approval_broker.clone(),

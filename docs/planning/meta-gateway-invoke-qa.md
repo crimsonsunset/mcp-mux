@@ -288,9 +288,68 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 
 ---
 
+## 12. Resources hard cut (Phase D)
+
+**Prompt:**
+
+```
+1. Reload MCP tools. Report how many resources Cursor shows for McpMux (expect 0 unless you surfaced one).
+2. Call mcpmux_search_resources with query matching a known resource URI prefix from your binding (e.g. posthog skill or docs URI).
+3. Pick one URI from results and call mcpmux_read_resource({ "uri": "<uri>" }).
+4. Attempt a direct resources/read on a non-surfaced URI if your client exposes it — expect redirect to mcpmux_read_resource.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Cursor shows **0 resources** by default | ☐ | ☐ | Down from ~124 in GAIT QA |
+| `mcpmux_search_resources` returns grant-filtered matches | ☐ | ☐ | |
+| `mcpmux_read_resource` returns content | ☐ | ☐ | |
+| Non-surfaced direct read rejected with meta redirect | ☐ | ☐ | |
+
+---
+
+## 13. Prompts hard cut (Phase D)
+
+**Prompt:**
+
+```
+1. Report how many prompts Cursor shows for McpMux (expect 0 unless surfaced).
+2. Call mcpmux_search_prompts with a query matching a bound prompt.
+3. Call mcpmux_fetch_prompt with server_id + prompt from search results.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Cursor shows **0 prompts** by default | ☐ | ☐ | |
+| `mcpmux_search_prompts` returns fetchable matches | ☐ | ☐ | |
+| `mcpmux_fetch_prompt` returns prompt content | ☐ | ☐ | |
+
+---
+
+## 14. Surfaced resource/prompt one-hop (Phase D)
+
+**Prep:** In FeatureSet editor, include + **Surface** one resource URI and one prompt.
+
+**Prompt:**
+
+```
+1. Reload MCP tools. Confirm surfaced resource appears in resources/list and surfaced prompt in prompts/list.
+2. Read/fetch both via direct client APIs (one hop).
+3. Confirm a non-surfaced resource on the same server still requires mcpmux_read_resource.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Surfaced resource in client list | ☐ | ☐ | |
+| Surfaced prompt in client list | ☐ | ☐ | |
+| Direct one-hop works for surfaced items | ☐ | ☐ | |
+| Non-surfaced still meta-only | ☐ | ☐ | |
+
+---
+
 ## Red flags (stop and file a bug)
 
-- [ ] Backend tools (`github_*`, etc.) appear in `tools/list` without surfacing
+- [ ] Full resource/prompt catalogs in client lists without surfacing (Phase D regression)
 - [ ] Non-surfaced backend tools callable directly (bypassing `mcpmux_invoke_tool`) — surfaced one-hop is expected
 - [ ] Enable server expands `tools/list` beyond meta + surfaced
 - [ ] Search returns tools from inactive or unbound servers
@@ -306,7 +365,7 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 | ---- | ------ |
 | Phase A — meta invoke core | ☑ Pass ☐ Fail |
 | Phase B — result shaping | ☑ Pass ☐ Fail |
-| Phase C — ACL + surfaced | ☑ Pass ☐ Fail ☐ Skipped |
+| Phase D — resource/prompt hard cut | ☐ Pass ☐ Fail ☐ Skipped |
 | Overall | ☑ Ship ☐ Block |
 
 **Blockers / issues filed:**

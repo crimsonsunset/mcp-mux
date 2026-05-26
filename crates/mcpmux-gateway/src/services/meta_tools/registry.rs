@@ -18,10 +18,12 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 
 use super::approval::ApprovalBroker;
+use super::disclosure_backend::DisclosureBackend;
 use super::invoke_backend::InvokeToolBackend;
 use crate::pool::FeatureService;
 use crate::services::{
-    FeatureSetResolverService, SessionOverrideRegistry, SessionRootsRegistry, ToolDiscoveryService,
+    FeatureSetResolverService, PromptDiscoveryService, ResourceDiscoveryService,
+    SessionOverrideRegistry, SessionRootsRegistry, ToolDiscoveryService,
 };
 
 /// App-settings key that toggles the entire `mcpmux_*` namespace.
@@ -50,6 +52,10 @@ pub struct MetaToolContext {
     /// Backend invoke path — required for `mcpmux_invoke_tool`.
     pub invoke_backend: Option<Arc<dyn InvokeToolBackend>>,
     pub tool_discovery: Arc<ToolDiscoveryService>,
+    pub resource_discovery: Arc<ResourceDiscoveryService>,
+    pub prompt_discovery: Arc<PromptDiscoveryService>,
+    /// Backend read/fetch path — required for `mcpmux_read_resource` / `mcpmux_fetch_prompt`.
+    pub disclosure_backend: Option<Arc<dyn DisclosureBackend>>,
     pub session_roots: Arc<SessionRootsRegistry>,
     pub session_overrides: Arc<SessionOverrideRegistry>,
     pub approval_broker: Arc<ApprovalBroker>,

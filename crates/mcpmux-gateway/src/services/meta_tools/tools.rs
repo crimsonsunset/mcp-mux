@@ -452,11 +452,20 @@ impl MetaTool for SearchToolsTool {
             call.args.get("cursor").and_then(|v| v.as_str()),
         );
 
-        Ok(text_result(json!({
+        let mut payload = json!({
             "tools": result.tools,
             "next_cursor": result.next_cursor,
             "total": result.total,
-        })))
+        });
+
+        if result.total == 0 {
+            payload["hint"] = json!(
+                "No invokable tools matched. Verify FeatureSet grants include tool members, \
+                 or use mcpmux_enable_server when the server is inactive."
+            );
+        }
+
+        Ok(text_result(payload))
     }
 }
 

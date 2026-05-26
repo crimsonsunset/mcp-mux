@@ -37,6 +37,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # Utilities
+strsim = "0.11"
 uuid.workspace = true
 chrono.workspace = true
 dashmap = "6.1"

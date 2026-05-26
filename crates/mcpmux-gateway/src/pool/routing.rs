@@ -84,6 +84,35 @@ pub fn format_invoke_permission_denied(
     }
 }
 
+/// Redirect message for direct backend `read_resource` attempts.
+pub fn format_direct_read_redirect(uri: &str) -> String {
+    format!(
+        "Direct backend resource reads are not supported. Use mcpmux_read_resource instead: \
+         mcpmux_read_resource({{ \"uri\": \"{uri}\" }})"
+    )
+}
+
+/// Redirect message for direct backend `get_prompt` attempts.
+pub fn format_direct_fetch_prompt_redirect(
+    qualified_name: &str,
+    server_id: &str,
+    prompt_name: &str,
+) -> String {
+    format!(
+        "Direct backend prompt fetches are not supported. Use mcpmux_fetch_prompt instead: \
+         mcpmux_fetch_prompt({{ \"server_id\": \"{server_id}\", \"prompt\": \"{prompt_name}\", \"args\": {{}} }}) \
+         (qualified name was '{qualified_name}')"
+    )
+}
+
+/// Actionable error when a server is not in the binding FeatureSet ACL.
+pub fn format_server_not_in_binding_error(server_id: &str) -> String {
+    format!(
+        "server '{server_id}' has no readable/fetchable features with current FeatureSet grants — \
+         add via Workspaces UI or mcpmux_create_feature_set"
+    )
+}
+
 /// Redirect message for direct backend `call_tool` attempts.
 pub fn format_direct_call_redirect(
     qualified_name: &str,

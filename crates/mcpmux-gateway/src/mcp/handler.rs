@@ -928,7 +928,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_prompts_for_grants(
+            .get_advertised_prompts_for_grants(
                 &space_id.to_string(),
                 &feature_set_ids,
                 session_id_owned.as_deref(),
@@ -981,11 +981,45 @@ impl ServerHandler for McpMuxGatewayHandler {
             .await
             .map_err(|e| McpError::invalid_params(format!("Invalid prompt name: {}", e), None))?;
 
+        let advertised_prompts = self
+            .services
+            .pool_services
+            .feature_service
+            .get_advertised_prompts_for_grants(
+                &space_id.to_string(),
+                &feature_set_ids,
+                session_id_owned.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to get advertised prompts: {}", e), None)
+            })?;
+
+        let is_surfaced = advertised_prompts
+            .iter()
+            .any(|p| p.server_id == server_id && p.feature_name == prompt_name);
+
+        if !is_surfaced {
+            let message = crate::pool::format_direct_fetch_prompt_redirect(
+                &params.name,
+                &server_id,
+                &prompt_name,
+            );
+            return Err(McpError::invalid_params(
+                serde_json::json!({
+                    "error": "use_fetch_prompt",
+                    "message": message,
+                })
+                .to_string(),
+                None,
+            ));
+        }
+
         let authorized_prompts = self
             .services
             .pool_services
             .feature_service
-            .get_prompts_for_grants(
+            .get_fetchable_prompts_for_grants(
                 &space_id.to_string(),
                 &feature_set_ids,
                 session_id_owned.as_deref(),
@@ -1045,7 +1079,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_resources_for_grants(
+            .get_advertised_resources_for_grants(
                 &space_id.to_string(),
                 &feature_set_ids,
                 session_id_owned.as_deref(),
@@ -1101,11 +1135,41 @@ impl ServerHandler for McpMuxGatewayHandler {
                 McpError::invalid_params(format!("Resource '{}' not found", params.uri), None)
             })?;
 
+        let advertised_resources = self
+            .services
+            .pool_services
+            .feature_service
+            .get_advertised_resources_for_grants(
+                &space_id.to_string(),
+                &feature_set_ids,
+                session_id_owned.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to get advertised resources: {}", e), None)
+            })?;
+
+        let is_surfaced = advertised_resources
+            .iter()
+            .any(|r| r.server_id == server_id && r.feature_name == params.uri);
+
+        if !is_surfaced {
+            let message = crate::pool::format_direct_read_redirect(&params.uri);
+            return Err(McpError::invalid_params(
+                serde_json::json!({
+                    "error": "use_read_resource",
+                    "message": message,
+                })
+                .to_string(),
+                None,
+            ));
+        }
+
         let authorized_resources = self
             .services
             .pool_services
             .feature_service
-            .get_resources_for_grants(
+            .get_readable_resources_for_grants(
                 &space_id.to_string(),
                 &feature_set_ids,
                 session_id_owned.as_deref(),

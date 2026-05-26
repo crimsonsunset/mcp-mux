@@ -1,7 +1,4 @@
-//! In-memory tool index for meta-gateway search and schema lookup.
-//!
-//! Built from Space [`ServerFeature`] rows and filtered to the caller's
-//! invokable tool set before search/schema operations run.
+//! In-memory prompt index for meta-gateway search and fetch lookup.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -12,51 +9,51 @@ use serde_json::{json, Value};
 
 use super::discovery_rank::filter_and_rank;
 
-/// How much detail search results include per matched tool.
+/// How much detail search results include per matched prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DetailLevel {
+pub enum PromptDetailLevel {
     Name,
     Description,
-    Schema,
+    Full,
 }
 
-impl DetailLevel {
+impl PromptDetailLevel {
     /// Parse a wire-level detail level string.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "name" => Some(Self::Name),
             "description" => Some(Self::Description),
-            "schema" => Some(Self::Schema),
+            "full" => Some(Self::Full),
             _ => None,
         }
     }
 }
 
-/// One searchable tool entry in the Space index.
+/// One searchable prompt entry in the Space index.
 #[derive(Debug, Clone)]
-pub struct ToolIndexEntry {
+pub struct PromptIndexEntry {
     pub server_id: String,
     pub feature_name: String,
     pub qualified_name: String,
     pub description: Option<String>,
-    pub input_schema: Option<Value>,
+    pub arguments: Option<Value>,
     pub is_available: bool,
 }
 
-/// Paginated search output.
+/// Paginated prompt search output.
 #[derive(Debug, Clone)]
-pub struct SearchToolsResult {
-    pub tools: Vec<Value>,
+pub struct SearchPromptsResult {
+    pub prompts: Vec<Value>,
     pub next_cursor: Option<String>,
     pub total: usize,
 }
 
-/// Service that builds and queries a tool index for a Space.
-pub struct ToolDiscoveryService {
+/// Service that builds and queries a prompt index for a Space.
+pub struct PromptDiscoveryService {
     server_feature_repo: Arc<dyn ServerFeatureRepository>,
 }
 
-impl ToolDiscoveryService {
+impl PromptDiscoveryService {
     /// Create a discovery service backed by the Space feature repository.
     pub fn new(server_feature_repo: Arc<dyn ServerFeatureRepository>) -> Self {
         Self {
@@ -64,31 +61,31 @@ impl ToolDiscoveryService {
         }
     }
 
-    /// Build an index for `space_id`, retaining only tools present in `invokable`.
+    /// Build an index for `space_id`, retaining only prompts present in `fetchable`.
     pub async fn build_index(
         &self,
         space_id: &str,
-        invokable: &[ServerFeature],
-    ) -> Result<Vec<ToolIndexEntry>> {
-        let invokable_keys: HashSet<(String, String)> = invokable
+        fetchable: &[ServerFeature],
+    ) -> Result<Vec<PromptIndexEntry>> {
+        let fetchable_keys: HashSet<(String, String)> = fetchable
             .iter()
-            .filter(|f| f.feature_type == FeatureType::Tool)
+            .filter(|f| f.feature_type == FeatureType::Prompt)
             .map(|f| (f.server_id.clone(), f.feature_name.clone()))
             .collect();
 
         let features = self.server_feature_repo.list_for_space(space_id).await?;
-        let mut index: Vec<ToolIndexEntry> = features
+        let mut index: Vec<PromptIndexEntry> = features
             .into_iter()
             .filter(|f| {
-                f.feature_type == FeatureType::Tool
-                    && invokable_keys.contains(&(f.server_id.clone(), f.feature_name.clone()))
+                f.feature_type == FeatureType::Prompt
+                    && fetchable_keys.contains(&(f.server_id.clone(), f.feature_name.clone()))
             })
-            .map(|f| ToolIndexEntry {
+            .map(|f| PromptIndexEntry {
                 server_id: f.server_id.clone(),
                 feature_name: f.feature_name.clone(),
                 qualified_name: f.qualified_name(),
                 description: f.description.clone(),
-                input_schema: extract_input_schema(f.raw_json.as_ref()),
+                arguments: extract_prompt_arguments(f.raw_json.as_ref()),
                 is_available: f.is_available,
             })
             .collect();
@@ -99,13 +96,13 @@ impl ToolDiscoveryService {
 
     /// Search the index with optional query, server filter, and pagination.
     pub fn search(
-        index: &[ToolIndexEntry],
+        index: &[PromptIndexEntry],
         query: Option<&str>,
         server_id: Option<&str>,
-        detail_level: DetailLevel,
+        detail_level: PromptDetailLevel,
         limit: usize,
         cursor: Option<&str>,
-    ) -> SearchToolsResult {
+    ) -> SearchPromptsResult {
         let limit = limit.clamp(1, 100);
         let offset = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
 
@@ -139,75 +136,37 @@ impl ToolDiscoveryService {
             None
         };
 
-        SearchToolsResult {
-            tools: page,
+        SearchPromptsResult {
+            prompts: page,
             next_cursor,
             total,
         }
     }
-
-    /// Resolve schemas for one or more qualified tool names.
-    pub fn get_schemas(
-        index: &[ToolIndexEntry],
-        tool_names: &[String],
-        compact: bool,
-    ) -> Vec<Value> {
-        tool_names
-            .iter()
-            .filter_map(|name| {
-                let entry = index.iter().find(|e| e.qualified_name == *name)?;
-                Some(schema_entry_to_json(entry, compact))
-            })
-            .collect()
-    }
 }
 
-/// Extract MCP `inputSchema` from a cached tool JSON blob.
-fn extract_input_schema(raw_json: Option<&Value>) -> Option<Value> {
-    raw_json.and_then(|json| {
-        json.get("inputSchema")
-            .or_else(|| json.get("input_schema"))
-            .cloned()
-    })
+fn extract_prompt_arguments(raw_json: Option<&Value>) -> Option<Value> {
+    raw_json.and_then(|json| json.get("arguments").or_else(|| json.get("args")).cloned())
 }
 
-fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
+fn entry_to_json(entry: &PromptIndexEntry, detail_level: PromptDetailLevel) -> Value {
     let mut obj = json!({
         "server_id": entry.server_id,
         "qualified_name": entry.qualified_name,
+        "prompt": entry.feature_name,
         "available": entry.is_available,
     });
     match detail_level {
-        DetailLevel::Name => {}
-        DetailLevel::Description | DetailLevel::Schema => {
+        PromptDetailLevel::Name => {}
+        PromptDetailLevel::Description | PromptDetailLevel::Full => {
             if let Some(desc) = &entry.description {
                 obj["description"] = json!(desc);
             }
         }
     }
-    if detail_level == DetailLevel::Schema {
-        if let Some(schema) = &entry.input_schema {
-            obj["input_schema"] = schema.clone();
+    if detail_level == PromptDetailLevel::Full {
+        if let Some(args) = &entry.arguments {
+            obj["arguments"] = args.clone();
         }
-    }
-    obj
-}
-
-fn schema_entry_to_json(entry: &ToolIndexEntry, compact: bool) -> Value {
-    let mut obj = json!({
-        "qualified_name": entry.qualified_name,
-        "server_id": entry.server_id,
-        "feature_name": entry.feature_name,
-    });
-    if !compact {
-        if let Some(desc) = &entry.description {
-            obj["description"] = json!(desc);
-        }
-    }
-    if let Some(schema) = &entry.input_schema {
-        obj["input_schema"] = schema.clone();
-    } else {
-        obj["input_schema"] = json!({"type": "object", "properties": {}});
     }
     obj
 }

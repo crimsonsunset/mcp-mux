@@ -54,21 +54,23 @@ Exclude rules always win over include rules. This means you can create a permiss
 
 ## Included vs Surface (FeatureSet editor)
 
-When you edit a custom FeatureSet, each tool row has two independent controls:
+When you edit a custom FeatureSet, each **tool, resource, or prompt** row has two independent controls:
 
 | Control | What it does | Client effect |
 | ------- | ------------ | --------------- |
-| **Checkbox** (left) | **Include** the tool in this FeatureSet's invoke ACL | Tool is **invokable** via `mcpmux_search_tools` → `mcpmux_get_tool_schema` → `mcpmux_invoke_tool`. It does **not** appear in the client's `tools/list`. |
-| **Surface** button (right, monitor icon) | **Promote** an already-included tool into `tools/list` | Tool appears alongside the ~12 `mcpmux_*` meta tools. The agent can call it **directly** (one hop) instead of going through `mcpmux_invoke_tool`. |
+| **Checkbox** (left) | **Include** the feature in this FeatureSet's ACL | **Tools:** invokable via search + `mcpmux_invoke_tool`. **Resources:** readable via search + `mcpmux_read_resource`. **Prompts:** fetchable via search + `mcpmux_fetch_prompt`. Does **not** add the item to client `tools/list`, `resources/list`, or `prompts/list`. |
+| **Surface** button (right, monitor icon) | **Promote** an already-included feature into the matching client list | **Tools** → `tools/list`. **Resources** → `resources/list`. **Prompts** → `prompts/list`. One-hop direct access instead of the meta search path. |
 
 **Rules:**
 
-- **Surface only appears when the checkbox is on.** You cannot surface a tool you have not included.
-- **Default is checkbox on, Surface off.** Most backend tools stay off the client tool list; agents discover them through search + invoke.
-- **Use Surface sparingly.** Each promoted tool adds its full schema to the client context window. Reserve it for hot paths you call constantly (e.g. one GitHub read tool).
+- **Surface only appears when the checkbox is on.** You cannot surface a feature you have not included.
+- **Default is checkbox on, Surface off.** Most backend capabilities stay off client lists; agents discover them through search meta tools.
+- **Use Surface sparingly.** Each promoted tool adds its full schema to context; resources and prompts add URI/metadata.
 - **The server header toggle** (Enable All / Disable All) bulk-selects checkboxes for that server — it is **not** the Surface control.
 
-**Example:** A "GitHub read-only" FeatureSet might include `list_issues` and `get_me` (both checked), with **Surface on** only for `list_issues`. Cursor shows `github_list_issues` in its tool list; `get_me` stays invoke-only.
+**Example (tools):** A "GitHub read-only" FeatureSet might include `list_issues` and `get_me` (both checked), with **Surface on** only for `list_issues`. Cursor shows `github_list_issues` in its tool list; `get_me` stays invoke-only.
+
+**Example (resources):** Include a PostHog skill URI but leave Surface off — Cursor shows **0 resources**; agents find it via `mcpmux_search_resources` → `mcpmux_read_resource`.
 
 Connected clients always see the fixed `mcpmux_*` meta surface regardless of FeatureSet membership. See [Self-management meta tools](#self-management-meta-tools) below.
 

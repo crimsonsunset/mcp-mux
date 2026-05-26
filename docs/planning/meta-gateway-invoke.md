@@ -1,7 +1,7 @@
 # Meta-Gateway Invoke (Search → Schema → Invoke)
 
 **Last Updated:** May 25, 2026
-**Status:** ✅ Phases A–C implemented and manually QA complete — ready to merge ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) **Ship**)
+**Status:** ✅ Phases A–D implemented — Phase D pending manual QA ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) §12–14)
 **Branch:** `dev` on [crimsonsunset/mcp-mux](https://github.com/crimsonsunset/mcp-mux) (see [`fork-integration.md`](./fork-integration.md))
 **Base branch:** `feat/dynamic-mcp-toggle-meta-tools` on fork; upstream contribution is topic-stacked, not `main`
 **Issue:** Fork-only; upstream megapr [#155](https://github.com/mcpmux/mcp-mux/pull/155) closed — use #154 stack for meta-tools upstream
@@ -63,15 +63,22 @@ This doc defines that model for McpMux while preserving its product strengths: O
 ### What the agent sees
 
 ```text
-tools/list (fixed ~10–15 tools)
+tools/list (fixed ~14 meta tools)
 ├── mcpmux_list_servers
 ├── mcpmux_enable_server / mcpmux_disable_server
 ├── mcpmux_search_tools
 ├── mcpmux_get_tool_schema
 ├── mcpmux_invoke_tool
+├── mcpmux_search_resources
+├── mcpmux_read_resource
+├── mcpmux_search_prompts
+├── mcpmux_fetch_prompt
 ├── mcpmux_list_feature_sets / mcpmux_create_feature_set / mcpmux_bind_current_workspace
 ├── mcpmux_list_all_tools          (diagnostic — not primary discovery)
 └── [0–N surfaced backend tools]   (optional, from FeatureSet)
+
+resources/list → surfaced backend resources only (default zero)
+prompts/list   → surfaced backend prompts only (default zero)
 ```
 
 ### Agent workflow (GitHub read example)
@@ -106,7 +113,7 @@ Three to four meta calls before the backend call — predictable schemas, bounde
 7. search_tools / invoke    ← scoped to invokable_tools only
 ```
 
-Prompts and resources: unchanged in Phases A–C — still materialized per grants. Invoke model is tool-specific. **Resource list bloat** (e.g. ~124 PostHog skill URIs in GAIT QA) tracked in **Phase D**.
+Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts/list` show surfaced backend items only (default zero). Agents use `mcpmux_search_resources` → `mcpmux_read_resource` and `mcpmux_search_prompts` → `mcpmux_fetch_prompt`.
 
 ### What this is NOT
 
@@ -166,9 +173,14 @@ Prompts and resources: unchanged in Phases A–C — still materialized per gran
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke.rs` | `InvokeToolTool` impl — permission check, routing, error mapping, result shaping | ✅ Done |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke_backend.rs` | `InvokeToolBackend` trait + `RoutingService` adapter for testable invoke routing | ✅ Done |
 | `tests/rust/src/canned_invoke_backend.rs` | Canned backend for filter e2e integration tests | ✅ Done |
-| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, permission deny, surfaced tools, filter shaping, e2e filter via canned backend | ✅ Done (16 tests) |
-| `docs/planning/meta-gateway-invoke-qa.md` | Manual QA runbook for Phases A–C | ✅ Done |
+| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, disclosure, polish | ✅ Done (35 tests) |
+| `docs/planning/meta-gateway-invoke-qa.md` | Manual QA runbook (Phases A–D) | ✅ Done |
 | `docs/planning/meta-gateway-invoke.md` | This doc | ✅ Done |
+| `crates/mcpmux-gateway/src/services/resource_discovery.rs` | Resource index + search | ✅ Done |
+| `crates/mcpmux-gateway/src/services/prompt_discovery.rs` | Prompt index + search | ✅ Done |
+| `crates/mcpmux-gateway/src/services/discovery_rank.rs` | TF-IDF rank + Levenshtein helpers | ✅ Done |
+| `crates/mcpmux-gateway/src/services/meta_tools/disclosure.rs` | Search/read/fetch meta tools | ✅ Done |
+| `crates/mcpmux-gateway/src/services/meta_tools/disclosure_backend.rs` | Pool adapter for read/fetch | ✅ Done |
 
 ## Files to modify
 
@@ -181,9 +193,9 @@ Prompts and resources: unchanged in Phases A–C — still materialized per gran
 | [`crates/mcpmux-gateway/src/pool/features/facade.rs`](../../crates/mcpmux-gateway/src/pool/features/facade.rs) | Split into `get_advertised_tools_for_grants` vs `get_invokable_tools_for_grants` | ✅ Done |
 | [`crates/mcpmux-gateway/src/pool/features/resolution.rs`](../../crates/mcpmux-gateway/src/pool/features/resolution.rs) | `resolve_surfaced_feature_ids` for surfaced promotion | ✅ Done |
 | [`crates/mcpmux-gateway/src/pool/routing.rs`](../../crates/mcpmux-gateway/src/pool/routing.rs) | `format_direct_call_redirect`; actionable invoke errors | ✅ Done |
-| [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | `tools/list` uses advertised set only; non-surfaced direct `call_tool` rejected with invoke redirect; surfaced tools allowed one-hop; `ensure_roots_probed` before routing in `call_tool` | ✅ Done |
+| [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Advertised-only `tools/list`, `resources/list`, `prompts/list`; invoke/read/fetch redirect gates | ✅ Done |
 | [`crates/mcpmux-core/src/domain/feature_set.rs`](../../crates/mcpmux-core/src/domain/feature_set.rs) | `surfaced: bool` on `FeatureSetMember` | ✅ Done |
-| [`apps/desktop/src/features/featuresets/FeatureSetPanel.tsx`](../../apps/desktop/src/features/featuresets/FeatureSetPanel.tsx) | Per-tool "Surface in client" toggle + explainer tooltip | ✅ Done |
+| [`apps/desktop/src/features/featuresets/FeatureSetPanel.tsx`](../../apps/desktop/src/features/featuresets/FeatureSetPanel.tsx) | Per-feature "Surface in client" toggle (tools, resources, prompts) + explainer tooltip | ✅ Done |
 | [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx) | Meta-tools copy for search → schema → invoke workflow | ✅ Done |
 | [`README.md`](../../README.md) | Agent-facing search → schema → invoke flow; checkbox vs Surface in Feature Sets | ✅ Done |
 | [`docs/guide/feature-sets.mdx`](../guide/feature-sets.mdx) | Included vs Surface editor explainer; invoke ACL semantics | ✅ Done |
@@ -254,26 +266,33 @@ Prompts and resources: unchanged in Phases A–C — still materialized per gran
 - [x] `mcpmux_create_feature_set` accepts optional `surfaced_tools[]` (subset of `tool_qualified_names`; UI path also available)
 - [x] Integration tests: partial FeatureSet binding limits search; surfaced vs invokable gate; advertised set promotion
 
-### Phase D — Advanced optimizations (defer)
+### Phase D — Resource/prompt hard cut + invoke polish
+
+**Effort:** ~4 days  
+**Status:** ✅ Implemented — manual QA §12–14 pending
+
+- [x] **Resource progressive disclosure** — slim `resources/list` to surfaced only; `mcpmux_search_resources` / `mcpmux_read_resource`
+- [x] **Prompt progressive disclosure** — slim `prompts/list` to surfaced only; `mcpmux_search_prompts` / `mcpmux_fetch_prompt`
+- [x] `ResourceDiscoveryService` + `PromptDiscoveryService` (grant-filtered indexes)
+- [x] Facade: `get_advertised_*` vs `get_readable_*` / `get_fetchable_*` for resources and prompts
+- [x] Handler gates: direct `read_resource` / `get_prompt` redirect to meta path when not surfaced
+- [x] FeatureSet UI: **Surface** toggle for resources and prompts (same semantics as tools)
+- [x] Levenshtein "did you mean?" on invoke / read / fetch errors (`strsim`)
+- [x] TF-IDF ranking in search (tools, resources, prompts) when query present
+- [x] Better empty-search / ACL errors (inactive server, not-in-binding hints)
+- [x] Integration tests: 35 in `meta_gateway_invoke.rs`
+- [ ] Bundle hygiene: trim PostHog skill resources from `bundle:gait` (operator config interim)
+- [ ] Delta responses, auto-summarize, parallel invoke batching — deferred
+- [ ] Sandboxed code execution (`gateway_execute_code`) — deferred
+
+**Outcome:** GAIT workspace Cursor mux line drops from ~124 resources to **0** (unless surfaced). Meta surface grows to **14** tools.
+
+### Phase D (deferred items)
 
 **Effort:** TBD
 
-- [ ] **Resource progressive disclosure** — extend invoke model to `resources/list` context bloat
-  - **Problem:** Phases A–C fixed tool definition bloat (`tools/list` → ~10 meta tools) but `resources/list` still materializes every granted resource URI + metadata to the client. GAIT workspace QA (May 25) surfaced **~124 resources** — mostly PostHog `posthog://skills/...` from `bundle:gait`. Lighter per entry than tool schemas, but still UI noise and potential client context tax if the host injects resource catalogs into agent prompts.
-  - **Not an ACL bug:** `get_resources_for_grants` already respects FeatureSets; the gap is **full list materialization**, same class of problem tools had pre–Phase A.
-  - **Proposed direction (pick subset to ship):**
-    - Slim client `resources/list` to meta-only (or empty) + `mcpmux_search_resources` / `mcpmux_read_resource` meta path — mirror search → read workflow
-    - Grant-filtered search index (reuse `ToolDiscoveryService` patterns or sibling `ResourceDiscoveryService`)
-    - Optional **surfaced resources** escape hatch (parallel to surfaced tools) for hot URIs
-    - Bundle hygiene: exclude PostHog skill resources from default `bundle:gait` until search path exists
-  - **Evidence:** [`meta-gateway-invoke-gait-qa.md`](./meta-gateway-invoke-gait-qa.md) — Run 1 §0, Resources note; not a ship blocker
-  - **Files:** [`handler.rs` `list_resources`](../../crates/mcpmux-gateway/src/mcp/handler.rs), [`facade.rs` `get_resources_for_grants`](../../crates/mcpmux-gateway/src/pool/features/facade.rs)
-- [ ] Levenshtein "did you mean?" on invoke errors
-- [ ] TF-IDF / semantic rank in search
 - [ ] Delta responses, auto-summarize, parallel invoke batching
 - [ ] Sandboxed code execution (abdullah-style `gateway_execute_code`)
-
-**Outcome:** Incremental token/latency wins for power users. Resource disclosure is the highest-priority Phase D item after GAIT QA context feedback. Each item is independently shippable.
 
 ### Phase E — REST capabilities (separate initiative)
 
@@ -357,7 +376,9 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 
 **QA ergonomics (May 25, 2026):** Bind FeatureSets in Workspaces UI before agent QA — session enable alone is insufficient without binding ACL. Do **not** call `mcpmux_bind_current_workspace` during routine QA (triggers Space-wide approval modal). Reload MCP tools after UI binding or Surface changes.
 
-**Test coverage (May 25, 2026):** Phase B filter shaping — 13 unit tests in `invoke.rs`, 16 integration tests in `meta_gateway_invoke.rs`, manual QA sections 0–11 pass on live gateway.
+**Test coverage (May 25, 2026):** Phase B filter shaping — 13 unit tests in `invoke.rs`, 35 integration tests in `meta_gateway_invoke.rs`, manual QA sections 0–11 pass on live gateway.
+
+**Phase D (May 25, 2026):** Resource/prompt hard cut shipped — `resources/list` and `prompts/list` advertised-only (surfaced escape hatch); 4 new meta tools (`mcpmux_search_resources`, `mcpmux_read_resource`, `mcpmux_search_prompts`, `mcpmux_fetch_prompt`); TF-IDF search rank; Levenshtein invoke suggestions; FeatureSet Surface toggle for resources/prompts. Meta tool count **14**. Manual QA §12–14 pending.
 
 **Manual QA progress (May 25, 2026):** Overall **Ship**. Full section results in [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md). Highlights:
 
