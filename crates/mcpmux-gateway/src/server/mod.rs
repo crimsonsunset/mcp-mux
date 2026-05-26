@@ -15,7 +15,7 @@ mod state;
 use handlers::AppState; // Import AppState
 
 pub use dependencies::{DependenciesBuilder, GatewayDependencies};
-pub use handlers::PendingAuthorization;
+pub use handlers::{oauth_token, PendingAuthorization};
 pub use service_container::ServiceContainer;
 pub use startup::{AutoConnectResult, StartupOrchestrator, TokenRefreshResult};
 pub use state::{ClientSession, GatewayState};

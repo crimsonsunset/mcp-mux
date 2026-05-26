@@ -577,7 +577,7 @@ pub async fn start_gateway(
     state.running = true;
     state.url = Some(url.clone());
     state.handle = Some(handle);
-    state.gateway_state = Some(gw_state);
+    state.gateway_state = Some(gw_state.clone());
     state.pool_service = Some(pool_service);
     state.feature_service = Some(feature_service);
     state.event_emitter = Some(event_emitter);
@@ -596,6 +596,9 @@ pub async fn start_gateway(
     } else {
         None
     };
+    if let (Some(ref gw), Some(ref bus)) = (&state.gateway_state, &ui_bus) {
+        gw.write().await.set_consent_ui_bus(bus.clone());
+    }
     info!(
         "[Gateway] Started — url={}, event_emitter={}, grant_service={}",
         url,

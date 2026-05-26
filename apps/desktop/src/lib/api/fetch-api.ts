@@ -511,6 +511,36 @@ export function routeFor(command: string, args: Record<string, unknown> = {}): A
         path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}/grants/revoke`,
         body: { space_id: args.spaceId, feature_set_id: args.featureSetId },
       };
+    case 'get_pending_consent':
+      return {
+        method: 'GET',
+        path: `/api/v1/oauth/consent/pending${buildQuery({ requestId: args.requestId })}`,
+      };
+    case 'approve_oauth_consent': {
+      const request = args.request as
+        | { request_id?: string; consent_token?: string; client_alias?: string | null }
+        | undefined;
+      return {
+        method: 'POST',
+        path: '/api/v1/oauth/consent/approve',
+        body: {
+          request_id: request?.request_id,
+          consent_token: request?.consent_token,
+          client_alias: request?.client_alias ?? null,
+        },
+      };
+    }
+    case 'reject_oauth_consent': {
+      const request = args.request as { request_id?: string; consent_token?: string } | undefined;
+      return {
+        method: 'POST',
+        path: '/api/v1/oauth/consent/reject',
+        body: {
+          request_id: request?.request_id,
+          consent_token: request?.consent_token,
+        },
+      };
+    }
     default:
       throw new Error(`Unknown command: ${command}`);
   }

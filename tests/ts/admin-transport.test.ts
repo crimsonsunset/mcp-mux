@@ -251,6 +251,26 @@ const P6_WRITE_ROUTES: Array<{
   { command: 'delete_oauth_client', args: { clientId: CLIENT_ID }, method: 'DELETE', path: `/api/v1/oauth/clients/${CLIENT_ID}` },
   { command: 'grant_oauth_client_feature_set', args: { clientId: CLIENT_ID, spaceId: SPACE_ID, featureSetId: FEATURE_SET_ID }, method: 'POST', path: `/api/v1/oauth/clients/${CLIENT_ID}/grants` },
   { command: 'revoke_oauth_client_feature_set', args: { clientId: CLIENT_ID, spaceId: SPACE_ID, featureSetId: FEATURE_SET_ID }, method: 'POST', path: `/api/v1/oauth/clients/${CLIENT_ID}/grants/revoke` },
+  {
+    command: 'get_pending_consent',
+    args: { requestId: 'req-1' },
+    method: 'GET',
+    path: '/api/v1/oauth/consent/pending?requestId=req-1',
+  },
+  {
+    command: 'approve_oauth_consent',
+    args: {
+      request: { request_id: 'req-1', consent_token: 'tok', client_alias: null, approved: true },
+    },
+    method: 'POST',
+    path: '/api/v1/oauth/consent/approve',
+  },
+  {
+    command: 'reject_oauth_consent',
+    args: { request: { request_id: 'req-1', consent_token: 'tok', approved: false } },
+    method: 'POST',
+    path: '/api/v1/oauth/consent/reject',
+  },
 ];
 
 describe('admin transport mapping', () => {

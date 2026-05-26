@@ -310,6 +310,7 @@ pub async fn oauth_authorize(
                 consent_token: Some(consent_token),
             },
         );
+        gateway_state.notify_consent_request(&request_id);
     }
 
     // Build deep link URL for the Tauri app (only request_id - app fetches details from backend)

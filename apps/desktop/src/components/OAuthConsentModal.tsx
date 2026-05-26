@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from '@mcpmux/ui';
 import { resolveKnownClientKey } from '@/lib/clientIcons';
+import { isTauri } from '@/lib/api/transport';
 import {
   approveOAuthConsent,
   flushPendingDeepLink,
@@ -48,6 +49,27 @@ function getClientLogo(clientName: string): string | null {
 
 interface OAuthDeepLinkPayload {
   requestId: string;
+}
+
+/**
+ * Load consent details for a request id and transition modal state.
+ */
+async function loadConsentRequest(
+  requestId: string,
+  setModalState: (state: ModalState) => void,
+  setProcessError: (error: string | null) => void
+): Promise<void> {
+  setModalState({ type: 'loading', requestId });
+  setProcessError(null);
+
+  try {
+    const details = await getPendingConsent(requestId);
+    setModalState({ type: 'consent', details });
+  } catch (err) {
+    console.error('[OAuth] Validation failed:', err);
+    const error = err as ConsentError;
+    setModalState({ type: 'error', requestId, error });
+  }
 }
 
 type ModalState =
@@ -104,35 +126,43 @@ export function OAuthConsentModal() {
   }, [modalState.type]);
 
   useEffect(() => {
-    const unlistenPromise = listen<OAuthDeepLinkPayload>(
-      'oauth-consent-request',
-      async (event) => {
-        const requestId = event.payload.requestId;
-        setModalState({ type: 'loading', requestId });
-        setProcessError(null);
-
-        try {
-          const details = await getPendingConsent(requestId);
-          setModalState({ type: 'consent', details });
-        } catch (err) {
-          console.error('[OAuth] Validation failed:', err);
-          const error = err as ConsentError;
-          setModalState({ type: 'error', requestId, error });
+    if (isTauri()) {
+      const unlistenPromise = listen<OAuthDeepLinkPayload>(
+        'oauth-consent-request',
+        async (event) => {
+          await loadConsentRequest(event.payload.requestId, setModalState, setProcessError);
         }
-      }
-    );
+      );
 
-    // Once the listener is subscribed, flush any cold-start URL buffered on
-    // the Rust side (see PendingInitialDeepLink). Rust will re-fire
-    // `oauth-consent-request` which the listener above then catches.
-    unlistenPromise.then(() => {
-      flushPendingDeepLink().catch((err) => {
-        console.warn('[OAuth] flush_pending_deep_link failed:', err);
+      unlistenPromise.then(() => {
+        flushPendingDeepLink().catch((err) => {
+          console.warn('[OAuth] flush_pending_deep_link failed:', err);
+        });
       });
-    });
+
+      return () => {
+        unlistenPromise.then((fn) => fn());
+      };
+    }
+
+    const source = new EventSource('/api/v1/events');
+
+    const onConsentRequest = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as OAuthDeepLinkPayload;
+        if (payload.requestId) {
+          void loadConsentRequest(payload.requestId, setModalState, setProcessError);
+        }
+      } catch {
+        // ignore malformed SSE frames
+      }
+    };
+
+    source.addEventListener('oauth-consent-request', onConsentRequest);
 
     return () => {
-      unlistenPromise.then((fn) => fn());
+      source.removeEventListener('oauth-consent-request', onConsentRequest);
+      source.close();
     };
   }, []);
 

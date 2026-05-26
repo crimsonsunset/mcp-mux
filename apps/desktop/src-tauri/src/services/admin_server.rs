@@ -372,7 +372,10 @@ pub async fn start_admin_server_if_enabled(
         gateway_state.clone(),
         server_manager_state.clone(),
     ));
-    let gateway_writes = Arc::new(DesktopGatewayWriteRuntime::new(app.clone()));
+    let gateway_writes = Arc::new(DesktopGatewayWriteRuntime::new(
+        app.clone(),
+        gateway_state.clone(),
+    ));
     let bridge = Arc::new(AdminBridgeCtx {
         services: services.clone(),
         spaces_dir: app_state.spaces_dir().to_path_buf(),

@@ -102,24 +102,6 @@ pub struct ServerInstallDeepLinkPayload {
     pub server_id: String,
 }
 
-/// Full consent request details returned by get_pending_consent
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConsentRequestDetails {
-    pub request_id: String,
-    pub client_id: String,
-    pub client_name: String,
-    pub redirect_uri: String,
-    pub scope: String,
-    pub state: Option<String>,
-    /// When this request expires (Unix timestamp)
-    pub expires_at: i64,
-    /// Cryptographic consent token (shared only via this IPC call, never over HTTP).
-    /// Must be returned in the approval request to prove the caller is the
-    /// legitimate desktop app UI—not an external script or bot.
-    pub consent_token: String,
-}
-
 /// Handle an incoming deep link URL
 ///
 /// Routes based on the URL path:
@@ -311,49 +293,16 @@ fn handle_oauth_callback_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>,
 // ============================================================================
 
 /// Error type for consent operations
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConsentError {
-    pub code: String,
-    pub message: String,
-}
+pub use mcpmux_gateway::oauth::ConsentError;
 
-impl ConsentError {
-    fn not_found(request_id: &str) -> Self {
-        Self {
-            code: "NOT_FOUND".to_string(),
-            message: format!(
-                "Authorization request '{}' not found or expired",
-                request_id
-            ),
-        }
-    }
+/// Full consent request details returned by get_pending_consent
+pub use mcpmux_gateway::oauth::ConsentRequestDetails;
 
-    fn expired(request_id: &str) -> Self {
-        Self {
-            code: "EXPIRED".to_string(),
-            message: format!("Authorization request '{}' has expired", request_id),
-        }
-    }
+/// Request to approve or deny OAuth consent
+pub use mcpmux_gateway::oauth::ConsentApprovalRequest;
 
-    #[allow(dead_code)]
-    fn already_processed(request_id: &str) -> Self {
-        Self {
-            code: "ALREADY_PROCESSED".to_string(),
-            message: format!(
-                "Authorization request '{}' has already been processed",
-                request_id
-            ),
-        }
-    }
-
-    fn gateway_unavailable() -> Self {
-        Self {
-            code: "GATEWAY_UNAVAILABLE".to_string(),
-            message: "Gateway is not running".to_string(),
-        }
-    }
-}
+/// Response from consent approval
+pub use mcpmux_gateway::oauth::ConsentApprovalResponse;
 
 /// Get pending consent request details from backend
 ///
@@ -369,98 +318,12 @@ pub async fn get_pending_consent(
     request_id: String,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<ConsentRequestDetails, ConsentError> {
-    info!(
-        "[OAuth] Fetching pending consent: request_id='{}'",
-        request_id
-    );
-
     let app_state = gateway_state.read().await;
-
-    // Get gateway state
     let gw_state = app_state
         .gateway_state
         .as_ref()
         .ok_or_else(ConsentError::gateway_unavailable)?;
-
-    // Look up the pending authorization
-    let auth = {
-        let state = gw_state.read().await;
-        state.pending_authorizations.get(&request_id).cloned()
-    };
-
-    let auth = auth.ok_or_else(|| ConsentError::not_found(&request_id))?;
-
-    // Check if expired
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    if auth.expires_at < now {
-        warn!("[OAuth] Request '{}' has expired", request_id);
-        // Remove expired entry
-        let mut state = gw_state.write().await;
-        state.pending_authorizations.remove(&request_id);
-        return Err(ConsentError::expired(&request_id));
-    }
-
-    // Extract consent_token (required for security—ensures only the desktop
-    // app that retrieved this token via IPC can approve the request)
-    let consent_token = auth.consent_token.clone().ok_or_else(|| {
-        error!("[OAuth] Pending authorization missing consent_token");
-        ConsentError {
-            code: "NOT_FOUND".to_string(),
-            message: "Authorization request is missing consent token — it may have been created before this security update. Please retry.".to_string(),
-        }
-    })?;
-
-    // Build response with authoritative data from backend
-    // The client_name here comes from our database lookup in handlers.rs
-    let details = ConsentRequestDetails {
-        request_id: request_id.clone(),
-        client_id: auth.client_id.clone(),
-        client_name: auth
-            .client_name
-            .clone()
-            .unwrap_or_else(|| auth.client_id.clone()),
-        redirect_uri: auth.redirect_uri.clone(),
-        scope: auth.scope.clone().unwrap_or_default(),
-        state: auth.state.clone(),
-        expires_at: auth.expires_at,
-        consent_token,
-    };
-
-    info!(
-        "[OAuth] Consent details validated: client='{}' scopes='{}'",
-        details.client_name, details.scope
-    );
-
-    Ok(details)
-}
-
-/// Request to approve or deny OAuth consent
-#[derive(Debug, Deserialize)]
-pub struct ConsentApprovalRequest {
-    /// The request_id from the pending authorization
-    pub request_id: String,
-    /// Whether the user approved the request
-    pub approved: bool,
-    /// Cryptographic consent token (must match the one issued via get_pending_consent).
-    /// This proves the caller obtained the token through Tauri IPC, not HTTP scraping.
-    pub consent_token: String,
-    /// Optional alias name for the client (set during approval).
-    pub client_alias: Option<String>,
-}
-
-/// Response from consent approval
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ConsentApprovalResponse {
-    /// Whether the approval was successful
-    pub success: bool,
-    /// The redirect URL for the client (with code or error)
-    pub redirect_url: String,
-    /// Optional error message
-    pub error: Option<String>,
+    mcpmux_gateway::oauth::get_pending_consent(gw_state, request_id).await
 }
 
 /// Approve or deny an OAuth consent request (direct state access)
@@ -472,173 +335,11 @@ pub async fn approve_oauth_consent(
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
     request: ConsentApprovalRequest,
 ) -> Result<ConsentApprovalResponse, String> {
-    info!(
-        "[OAuth] Frontend consent {} for request_id: {}",
-        if request.approved {
-            "approved"
-        } else {
-            "denied"
-        },
-        request.request_id
-    );
-
     let app_state = gateway_state.read().await;
-
-    // Get gateway state
     let Some(ref gw_state) = app_state.gateway_state else {
         return Err("Gateway not running".to_string());
     };
-
-    // Look up the pending authorization
-    let pending = {
-        let state = gw_state.read().await;
-        state
-            .pending_authorizations
-            .get(&request.request_id)
-            .cloned()
-    };
-
-    let Some(pending) = pending else {
-        error!("[OAuth] Consent approval failed: request_id not found");
-        return Ok(ConsentApprovalResponse {
-            success: false,
-            redirect_url: String::new(),
-            error: Some("Authorization request not found or expired".to_string()),
-        });
-    };
-
-    // Validate consent_token: proves the caller obtained this token via Tauri
-    // IPC (get_pending_consent), not by scraping the HTTP authorization page.
-    match &pending.consent_token {
-        Some(expected_token) => {
-            if request.consent_token != *expected_token {
-                error!(
-                    "[OAuth] Consent token mismatch for request_id: {} — possible unauthorized approval attempt",
-                    request.request_id
-                );
-                return Err("Invalid consent token".to_string());
-            }
-        }
-        None => {
-            error!(
-                "[OAuth] Pending authorization missing consent_token for request_id: {}",
-                request.request_id
-            );
-            return Err("Consent token not available".to_string());
-        }
-    }
-
-    // Remove the pending authorization (it's been processed)
-    {
-        let mut state = gw_state.write().await;
-        state.pending_authorizations.remove(&request.request_id);
-    }
-
-    if !request.approved {
-        // User denied - redirect with error
-        // Client registration remains (unapproved) so they can try again later
-        let mut redirect_url = pending.redirect_uri.clone();
-        redirect_url.push_str(if redirect_url.contains('?') { "&" } else { "?" });
-        redirect_url.push_str("error=access_denied&error_description=User+denied+the+request");
-        if let Some(ref state_param) = pending.state {
-            redirect_url.push_str(&format!("&state={}", urlencoding::encode(state_param)));
-        }
-
-        info!(
-            "[OAuth] User denied consent for client: {}",
-            pending.client_id
-        );
-        return Ok(ConsentApprovalResponse {
-            success: true,
-            redirect_url,
-            error: None,
-        });
-    }
-
-    // User approved - generate authorization code
-    use uuid::Uuid;
-    let code = format!("mc_{}", Uuid::new_v4().to_string().replace("-", ""));
-
-    // Auth codes expire in 10 minutes (standard OAuth)
-    let code_expires_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64 + 600) // 10 minutes
-        .unwrap_or(i64::MAX);
-
-    // Store the authorization with the new code and update client alias if provided
-    {
-        let mut state = gw_state.write().await;
-
-        // Clone pending fields for new authorization
-        let new_pending = mcpmux_gateway::PendingAuthorization {
-            client_id: pending.client_id.clone(),
-            client_name: pending.client_name.clone(),
-            redirect_uri: pending.redirect_uri.clone(),
-            scope: pending.scope.clone(),
-            state: pending.state.clone(),
-            code_challenge: pending.code_challenge.clone(),
-            code_challenge_method: pending.code_challenge_method.clone(),
-            expires_at: code_expires_at,
-            consent_token: None, // Auth code entries don't need consent tokens
-        };
-
-        state.store_pending_authorization(&code, new_pending);
-
-        // Mark client as approved and store any alias override.
-        if let Some(repo) = state.inbound_client_repository() {
-            if let Err(e) = repo.approve_client(&pending.client_id).await {
-                error!("[OAuth] Failed to approve client: {}", e);
-            } else {
-                info!("[OAuth] Client approved: {}", pending.client_id);
-            }
-
-            if let Some(alias) = request
-                .client_alias
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .map(String::from)
-            {
-                if let Err(e) = repo
-                    .update_client_alias(&pending.client_id, Some(alias.clone()))
-                    .await
-                {
-                    error!("[OAuth] Failed to save client alias: {}", e);
-                } else {
-                    info!(
-                        "[OAuth] Set client alias '{}' for: {}",
-                        alias, pending.client_id
-                    );
-                }
-            }
-        }
-
-        // Emit domain event for client registration
-        state.emit_domain_event(mcpmux_core::DomainEvent::ClientRegistered {
-            client_id: pending.client_id.clone(),
-            client_name: pending.client_id.clone(), // Use client_name field
-            registration_type: Some("unknown".to_string()), // Will be updated when client metadata is fetched
-        });
-    }
-
-    // Build redirect URL with authorization code
-    let mut redirect_url = pending.redirect_uri.clone();
-    redirect_url.push_str(if redirect_url.contains('?') { "&" } else { "?" });
-    redirect_url.push_str(&format!("code={}", code));
-    if let Some(ref state_param) = pending.state {
-        redirect_url.push_str(&format!("&state={}", urlencoding::encode(state_param)));
-    }
-
-    info!(
-        "[OAuth] Authorization approved for client: {}, issuing code",
-        pending.client_id
-    );
-    info!("[OAuth] Redirect URL: {}", redirect_url);
-
-    Ok(ConsentApprovalResponse {
-        success: true,
-        redirect_url,
-        error: None,
-    })
+    mcpmux_gateway::oauth::approve_oauth_consent(gw_state, request).await
 }
 
 /// Get list of connected OAuth clients (direct service access)

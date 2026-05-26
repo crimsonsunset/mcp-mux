@@ -14,7 +14,7 @@ use tracing::warn;
 
 use super::config::AdminConfig;
 use super::event_hub::AdminEventHub;
-use super::handlers::{events, health, read, write};
+use super::handlers::{events, health, oauth, read, write};
 use super::middleware::{cf_access_middleware, csrf_middleware, get_csrf_token, CfAccessValidator};
 use crate::admin::bridge_context::AdminBridgeCtx;
 
@@ -265,6 +265,18 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::get_oauth_client_grants),
         )
         .route("/api/v1/oauth/open-url", get(read::open_url))
+        .route(
+            "/api/v1/oauth/consent/pending",
+            get(oauth::get_pending_consent),
+        )
+        .route(
+            "/api/v1/oauth/consent/approve",
+            post(oauth::approve_oauth_consent),
+        )
+        .route(
+            "/api/v1/oauth/consent/reject",
+            post(oauth::reject_oauth_consent),
+        )
         .route("/api/v1/meta-tools/grants", get(read::list_meta_tool_grants))
         .route(
             "/api/v1/meta-tools/approval",

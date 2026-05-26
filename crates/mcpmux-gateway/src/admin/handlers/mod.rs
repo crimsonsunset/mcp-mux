@@ -3,6 +3,7 @@
 pub mod health;
 pub mod error;
 pub mod events;
+pub mod oauth;
 pub mod read;
 pub mod write;
 

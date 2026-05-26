@@ -3,6 +3,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::GatewayState;
 
 /// Async runtime adapter for writes that depend on live gateway / desktop state.
 #[async_trait]
@@ -60,6 +64,8 @@ pub trait GatewayWriteRuntime: Send + Sync {
         space_id: String,
         feature_set_id: String,
     ) -> Result<Value>;
+    /// Live gateway state for inbound OAuth consent (web admin).
+    async fn gateway_state(&self) -> Option<Arc<RwLock<GatewayState>>>;
 }
 
 fn gateway_not_running() -> anyhow::Error {
@@ -67,16 +73,10 @@ fn gateway_not_running() -> anyhow::Error {
 }
 
 /// Test/default write runtime — gateway ops fail; port persist succeeds as no-op.
+#[derive(Default)]
 pub struct StubGatewayWriteRuntime {
     pub gateway_port_service: Option<std::sync::Arc<mcpmux_core::GatewayPortService>>,
-}
-
-impl Default for StubGatewayWriteRuntime {
-    fn default() -> Self {
-        Self {
-            gateway_port_service: None,
-        }
-    }
+    pub gateway_state: Option<Arc<RwLock<GatewayState>>>,
 }
 
 #[async_trait]
@@ -208,5 +208,9 @@ impl GatewayWriteRuntime for StubGatewayWriteRuntime {
         _feature_set_id: String,
     ) -> Result<Value> {
         Err(gateway_not_running())
+    }
+
+    async fn gateway_state(&self) -> Option<Arc<RwLock<GatewayState>>> {
+        self.gateway_state.clone()
     }
 }

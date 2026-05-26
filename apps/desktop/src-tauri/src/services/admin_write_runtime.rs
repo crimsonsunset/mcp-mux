@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use mcpmux_gateway::admin::write_runtime::GatewayWriteRuntime;
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::sync::RwLock;
 
@@ -24,12 +25,16 @@ use crate::commands::session_overrides::clear_session_overrides;
 /// Delegates admin write operations to existing Tauri command handlers.
 pub struct DesktopGatewayWriteRuntime {
     app_handle: AppHandle,
+    app_gateway_state: Arc<RwLock<GatewayAppState>>,
 }
 
 impl DesktopGatewayWriteRuntime {
     /// Create a write runtime bound to the running Tauri app handle.
-    pub fn new(app_handle: AppHandle) -> Self {
-        Self { app_handle }
+    pub fn new(app_handle: AppHandle, app_gateway_state: Arc<RwLock<GatewayAppState>>) -> Self {
+        Self {
+            app_handle,
+            app_gateway_state,
+        }
     }
 }
 
@@ -295,5 +300,10 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
         Ok(json!({ "ok": true }))
+    }
+
+    async fn gateway_state(&self) -> Option<Arc<RwLock<mcpmux_gateway::GatewayState>>> {
+        let app_state = self.app_gateway_state.read().await;
+        app_state.gateway_state.clone()
     }
 }

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import { apiCall } from './transport';
+import { apiCall, isTauri } from './transport';
 
 /** Inbound client registration type (per MCP spec 2025-11-25). */
 export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';
@@ -71,7 +71,10 @@ export interface ConsentApprovalResponse {
  * Validate a pending OAuth consent request and load authoritative details.
  */
 export async function getPendingConsent(requestId: string): Promise<ConsentRequestDetails> {
-  return invoke('get_pending_consent', { requestId });
+  if (isTauri()) {
+    return invoke('get_pending_consent', { requestId });
+  }
+  return apiCall('get_pending_consent', { requestId });
 }
 
 /**
@@ -80,7 +83,11 @@ export async function getPendingConsent(requestId: string): Promise<ConsentReque
 export async function approveOAuthConsent(
   request: ConsentApprovalRequest
 ): Promise<ConsentApprovalResponse> {
-  return invoke('approve_oauth_consent', { request });
+  if (isTauri()) {
+    return invoke('approve_oauth_consent', { request });
+  }
+  const command = request.approved ? 'approve_oauth_consent' : 'reject_oauth_consent';
+  return apiCall(command, { request });
 }
 
 /**

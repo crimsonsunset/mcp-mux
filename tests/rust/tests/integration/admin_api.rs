@@ -84,6 +84,7 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
         gateway_runtime: Arc::new(StubGatewayRuntime),
         gateway_writes: Arc::new(StubGatewayWriteRuntime {
             gateway_port_service: Some(gateway_port_service),
+            gateway_state: None,
         }),
         feature_set_repository: feature_set_repo,
         auto_launch_enabled: Some(false),
@@ -92,6 +93,74 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
     });
 
     (services, bridge)
+}
+
+/// Start admin harness with a live gateway state wired for OAuth consent tests.
+pub async fn start_with_gateway_state(
+    config: AdminConfig,
+    gateway_state: Arc<RwLock<mcpmux_gateway::GatewayState>>,
+) -> AdminHarness {
+    let (services, bridge) = in_memory_services().await;
+    let gateway_port_service = bridge.gateway_port_service.clone();
+    let bridge = Arc::new(AdminBridgeCtx {
+        gateway_writes: Arc::new(StubGatewayWriteRuntime {
+            gateway_port_service: Some(gateway_port_service),
+            gateway_state: Some(gateway_state),
+        }),
+        ..(*bridge).clone()
+    });
+
+    let gateway_flag = Arc::new(AtomicBool::new(true));
+    let cf_validator = if config.trust_cf_access {
+        config
+            .cf_validator_override
+            .clone()
+            .or_else(|| Some(test_validator()))
+    } else {
+        None
+    };
+
+    let ui_event_bus = Arc::new(AdminUiEventBus::new());
+    let event_hub = Arc::new(AdminEventHub::new(ui_event_bus));
+
+    let state = AdminState {
+        services: services.clone(),
+        config: config.clone(),
+        gateway_running: gateway_flag,
+        frontend_dist: std::path::PathBuf::from("/nonexistent"),
+        cf_validator,
+        bridge: bridge.clone(),
+        event_hub: event_hub.clone(),
+        csrf_token: new_csrf_token_store(),
+    };
+    let router = build_admin_router(state);
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind admin harness");
+    let port = listener.local_addr().expect("local addr").port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let cancel = CancellationToken::new();
+    let shutdown = cancel.clone();
+
+    tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                shutdown.cancelled().await;
+            })
+            .await
+            .expect("serve admin harness");
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    AdminHarness {
+        base_url,
+        services,
+        bridge,
+        event_hub,
+        cancel,
+    }
 }
 
 /// Running admin server on an ephemeral loopback port.

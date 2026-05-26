@@ -64,6 +64,7 @@ os_pipe = { workspace = true }
 
 # Error types for mocks
 anyhow = "1"
+zeroize.workspace = true
 
 [lib]
 path = "src/lib.rs"

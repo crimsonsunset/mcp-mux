@@ -19,6 +19,20 @@ impl ApiError {
         }
     }
 
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: message.into(),
+        }
+    }
+
     /// Converts bridge errors to HTTP JSON while preserving sentinel strings
     /// like `PORT_IN_USE:<port>:<source>` in the message field.
     pub fn from_bridge(error: anyhow::Error) -> Self {

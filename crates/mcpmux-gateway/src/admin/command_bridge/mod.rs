@@ -6,3 +6,4 @@
 pub mod space;
 pub mod read;
 pub mod write;
+pub mod oauth;

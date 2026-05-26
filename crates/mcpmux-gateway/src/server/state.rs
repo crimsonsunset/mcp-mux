@@ -14,6 +14,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use super::handlers::PendingAuthorization;
+use crate::admin::ui_events::AdminUiEventBus;
 use crate::services::ClientMetadataService;
 use mcpmux_core::DomainEvent;
 use mcpmux_storage::{Database, InboundClientRepository, JWT_SECRET_SIZE};
@@ -61,6 +62,8 @@ pub struct GatewayState {
     client_metadata_service: Option<Arc<ClientMetadataService>>,
     /// Unified event broadcaster (UI subscribes to receive all domain events)
     domain_event_tx: broadcast::Sender<DomainEvent>,
+    /// Optional admin SSE bus for OAuth consent prompts in web admin mode.
+    consent_ui_bus: Option<Arc<AdminUiEventBus>>,
 }
 
 impl GatewayState {
@@ -77,6 +80,7 @@ impl GatewayState {
             inbound_client_repository: None,
             client_metadata_service: None,
             domain_event_tx,
+            consent_ui_bus: None,
         }
     }
 
@@ -100,6 +104,19 @@ impl GatewayState {
     pub fn emit_domain_event(&self, event: DomainEvent) {
         if let Err(e) = self.domain_event_tx.send(event) {
             debug!("[State] No domain event subscribers: {}", e);
+        }
+    }
+
+    /// Wire admin SSE bus so inbound OAuth authorize can notify web UI.
+    pub fn set_consent_ui_bus(&mut self, bus: Arc<AdminUiEventBus>) {
+        info!("[State] Consent UI event bus configured for web admin SSE");
+        self.consent_ui_bus = Some(bus);
+    }
+
+    /// Publish a consent request to web admin SSE subscribers when configured.
+    pub fn notify_consent_request(&self, request_id: &str) {
+        if let Some(ref bus) = self.consent_ui_bus {
+            crate::oauth::inbound_consent::emit_consent_request(bus, request_id);
         }
     }
 
