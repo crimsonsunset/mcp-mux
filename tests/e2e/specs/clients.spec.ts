@@ -19,9 +19,9 @@ test.describe('Connections Page', () => {
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
 
-    // Routing is configured in Workspaces, not per-client.
+    // Routing is configured in Workspaces, not per-client (inline link in page copy).
     await expect(
-      page.getByRole('button', { name: /^Workspaces$/ })
+      page.getByTestId('clients-page').getByRole('button', { name: 'Workspaces' })
     ).toBeVisible();
   });
 

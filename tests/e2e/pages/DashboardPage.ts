@@ -23,7 +23,7 @@ export class DashboardPage extends BasePage {
     this.serverCountCard = page.locator('text=Servers').first();
     this.featureSetsCard = page.locator('text=FeatureSets').first();
     this.clientsCard = page.locator('text=Clients').first();
-    this.activeSpaceCard = page.locator('text=Active Space').first();
+    this.activeSpaceCard = page.getByTestId('stat-active-space');
     this.connectIDEsSection = page.locator('text=Connect Your IDEs');
     this.clientGrid = page.locator('[data-testid="client-grid"]');
   }
