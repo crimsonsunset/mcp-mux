@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { pickPath } from '@/lib/desktop-shell';
 import {
   ChevronDown,
   ChevronRight,
@@ -1805,8 +1805,8 @@ export function ServersPage() {
                             type="button"
                             className="btn btn-secondary shrink-0 px-2"
                             onClick={async () => {
-                              const selected = await open({ multiple: false });
-                              if (selected) handleChange(selected);
+                              const selected = await pickPath({ multiple: false });
+                              if (typeof selected === 'string') handleChange(selected);
                             }}
                           >
                             <FolderOpen className="w-4 h-4" />
@@ -1828,8 +1828,8 @@ export function ServersPage() {
                             type="button"
                             className="btn btn-secondary shrink-0 px-2"
                             onClick={async () => {
-                              const selected = await open({ directory: true });
-                              if (selected) handleChange(selected);
+                              const selected = await pickPath({ directory: true });
+                              if (typeof selected === 'string') handleChange(selected);
                             }}
                           >
                             <FolderOpen className="w-4 h-4" />

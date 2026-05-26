@@ -5,7 +5,12 @@ use tauri::State;
 use tauri_plugin_autostart::AutoLaunchManager;
 use tracing::{debug, info};
 
+use crate::services::admin_server::reload_admin_server;
 use crate::state::AppState;
+use crate::{commands::gateway::GatewayAppState, commands::server_manager::ServerManagerState};
+use mcpmux_core::{AppSettingsService, ApplicationServices};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Startup and system tray settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +205,79 @@ pub async fn set_session_overrides_require_approval(
         "[Settings] session_overrides_require_approval = {}",
         require_approval
     );
+    Ok(())
+}
+
+/// Web admin HTTP server settings (loopback-only remote UI).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminWebSettings {
+    pub enabled: bool,
+    pub port: u16,
+    pub trust_cf_access: bool,
+    pub cf_team_domain: String,
+}
+
+/// Load web admin settings from the app settings store.
+#[tauri::command]
+pub async fn get_admin_web_settings(app_state: State<'_, AppState>) -> Result<AdminWebSettings, String> {
+    let settings = AppSettingsService::new(app_state.settings_repository.clone());
+    Ok(AdminWebSettings {
+        enabled: settings.get_admin_enabled().await,
+        port: settings.get_admin_port().await,
+        trust_cf_access: settings.get_admin_trust_cf_access().await,
+        cf_team_domain: settings
+            .get_admin_cf_team_domain()
+            .await
+            .unwrap_or_default(),
+    })
+}
+
+/// Persist web admin settings and restart the admin server to apply.
+#[tauri::command]
+pub async fn update_admin_web_settings(
+    settings: AdminWebSettings,
+    app: tauri::AppHandle,
+    app_state: State<'_, AppState>,
+    admin_state: State<'_, Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>,
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+    server_manager_state: State<'_, Arc<RwLock<ServerManagerState>>>,
+    application_services: State<'_, Arc<ApplicationServices>>,
+) -> Result<(), String> {
+    if settings.port < 1024 {
+        return Err("Admin port must be between 1024 and 65535".to_string());
+    }
+    if settings.trust_cf_access && settings.cf_team_domain.trim().is_empty() {
+        return Err("Cloudflare team domain is required when Trust CF Access is enabled".to_string());
+    }
+
+    let store = AppSettingsService::new(app_state.settings_repository.clone());
+    store
+        .set_admin_enabled(settings.enabled)
+        .await
+        .map_err(|e| format!("Failed to save admin_enabled: {}", e))?;
+    store
+        .set_admin_port(settings.port)
+        .await
+        .map_err(|e| format!("Failed to save admin_port: {}", e))?;
+    store
+        .set_admin_trust_cf_access(settings.trust_cf_access)
+        .await
+        .map_err(|e| format!("Failed to save admin_trust_cf_access: {}", e))?;
+    store
+        .set_admin_cf_team_domain(Some(settings.cf_team_domain.trim()))
+        .await
+        .map_err(|e| format!("Failed to save admin_cf_team_domain: {}", e))?;
+
+    reload_admin_server(
+        app,
+        admin_state.inner().clone(),
+        gateway_state.inner().clone(),
+        server_manager_state.inner().clone(),
+        application_services.event_bus.clone(),
+    )
+    .await;
+
     Ok(())
 }
 

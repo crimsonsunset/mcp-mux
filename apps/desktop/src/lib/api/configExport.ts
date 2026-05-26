@@ -1,4 +1,10 @@
-import { invoke } from '@tauri-apps/api/core';
+import {
+  backupExistingConfig as shellBackupExistingConfig,
+  checkConfigExists as shellCheckConfigExists,
+  exportConfigToFile as shellExportConfigToFile,
+  getConfigPaths as shellGetConfigPaths,
+  previewConfigExport as shellPreviewConfigExport,
+} from '@/lib/desktop-shell';
 
 /** Supported MCP client config export targets. */
 export type ExportClientType = 'cursor' | 'vscode' | 'claude';
@@ -23,7 +29,7 @@ export interface ExportConfigResponse {
 export async function previewConfigExport(
   request: ExportConfigRequest
 ): Promise<ExportConfigResponse> {
-  return invoke('preview_config_export', { request });
+  return shellPreviewConfigExport(request);
 }
 
 /**
@@ -35,21 +41,21 @@ export async function exportConfigToFile(
   request: ExportConfigRequest,
   path: string
 ): Promise<string> {
-  return invoke('export_config_to_file', { request, path });
+  return shellExportConfigToFile(request, path);
 }
 
 /**
  * Default config file paths per client type (`cursor`, `vscode`, `claude`).
  */
 export async function getConfigPaths(): Promise<Record<string, string | null>> {
-  return invoke('get_config_paths');
+  return shellGetConfigPaths();
 }
 
 /**
  * Whether a config file already exists at the default path for a client type.
  */
 export async function checkConfigExists(clientType: ExportClientType): Promise<boolean> {
-  return invoke('check_config_exists', { clientType });
+  return shellCheckConfigExists(clientType);
 }
 
 /**
@@ -60,5 +66,5 @@ export async function checkConfigExists(clientType: ExportClientType): Promise<b
 export async function backupExistingConfig(
   clientType: ExportClientType
 ): Promise<string | null> {
-  return invoke('backup_existing_config', { clientType });
+  return shellBackupExistingConfig(clientType);
 }

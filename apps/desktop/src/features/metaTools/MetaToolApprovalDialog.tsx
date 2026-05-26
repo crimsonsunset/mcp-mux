@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { listenWhenTauri } from '@/lib/desktop-shell';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
 import { respondToMetaToolApproval } from '@/lib/api/metaTools';
@@ -41,14 +41,20 @@ export function MetaToolApprovalDialog() {
   const current = queue[0];
 
   useEffect(() => {
-    const unlistenPromise = listen<ApprovalRequest>(
-      'meta-tool-approval-request',
-      (event) => {
-        setQueue((prev) => [...prev, event.payload]);
+    let disposed = false;
+    let unlistenFn: (() => void) | undefined;
+    void listenWhenTauri<ApprovalRequest>('meta-tool-approval-request', (event) => {
+      setQueue((prev) => [...prev, event.payload]);
+    }).then((fn) => {
+      if (disposed) {
+        fn?.();
+      } else {
+        unlistenFn = fn;
       }
-    );
+    });
     return () => {
-      unlistenPromise.then((fn) => fn()).catch(() => {});
+      disposed = true;
+      unlistenFn?.();
     };
   }, []);
 

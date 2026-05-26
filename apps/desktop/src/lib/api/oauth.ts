@@ -1,6 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-
-import { apiCall, isTauri } from './transport';
+import { apiCall } from './transport';
 
 /** Inbound client registration type (per MCP spec 2025-11-25). */
 export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';
@@ -71,9 +69,6 @@ export interface ConsentApprovalResponse {
  * Validate a pending OAuth consent request and load authoritative details.
  */
 export async function getPendingConsent(requestId: string): Promise<ConsentRequestDetails> {
-  if (isTauri()) {
-    return invoke('get_pending_consent', { requestId });
-  }
   return apiCall('get_pending_consent', { requestId });
 }
 
@@ -83,19 +78,8 @@ export async function getPendingConsent(requestId: string): Promise<ConsentReque
 export async function approveOAuthConsent(
   request: ConsentApprovalRequest
 ): Promise<ConsentApprovalResponse> {
-  if (isTauri()) {
-    return invoke('approve_oauth_consent', { request });
-  }
   const command = request.approved ? 'approve_oauth_consent' : 'reject_oauth_consent';
   return apiCall(command, { request });
-}
-
-/**
- * Flush a cold-start deep link buffered on the Rust side after the consent
- * listener is subscribed.
- */
-export async function flushPendingDeepLink(): Promise<void> {
-  return invoke('flush_pending_deep_link');
 }
 
 /**

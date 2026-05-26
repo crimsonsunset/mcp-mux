@@ -16,8 +16,9 @@ declare global {
   }
 }
 
-// Always expose for now - can be gated by env var if needed
-window.__TAURI_TEST_API__ = { invoke, emit };
+if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+  window.__TAURI_TEST_API__ = { invoke, emit };
+}
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

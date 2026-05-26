@@ -82,6 +82,9 @@ function useWorkspaceEventsTauri() {
       channel: T,
       callback: WorkspaceChannelCallback<T>
     ): (() => void) => {
+      if (!isTauri()) {
+        return () => {};
+      }
       let unlistenFn: UnlistenFn | null = null;
 
       listen(channel, (event: Event<WorkspacePayloadTypeMap[T]>) => {

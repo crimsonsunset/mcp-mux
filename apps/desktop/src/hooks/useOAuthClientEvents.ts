@@ -36,6 +36,9 @@ function useOAuthClientEventsTauri() {
    */
   const subscribe = useCallback(
     (callback: (payload: OAuthClientChangedPayload) => void): (() => void) => {
+      if (!isTauri()) {
+        return () => {};
+      }
       let unlistenFn: UnlistenFn | null = null;
 
       listen('oauth-client-changed', (event: Event<OAuthClientChangedPayload>) => {

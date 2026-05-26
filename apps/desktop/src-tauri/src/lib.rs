@@ -1030,6 +1030,8 @@ pub fn run() {
             // Startup settings commands
             commands::get_startup_settings,
             commands::update_startup_settings,
+            commands::get_admin_web_settings,
+            commands::update_admin_web_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building McpMux application")

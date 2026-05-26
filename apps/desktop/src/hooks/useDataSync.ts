@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { listSpaces } from '@/lib/api/spaces';
 import { refreshOAuthTokensOnStartup } from '@/lib/api/gateway';
-
 /**
  * Syncs data from Rust backend to Zustand store.
  * Run once at app startup.
@@ -16,7 +15,6 @@ export function useDataSync() {
       console.log('[useDataSync] Starting data sync...');
       setLoading('spaces', true);
       try {
-        // Refresh OAuth tokens first (before connecting servers)
         console.log('[useDataSync] Refreshing OAuth tokens...');
         try {
           const refreshResult = await refreshOAuthTokensOnStartup();

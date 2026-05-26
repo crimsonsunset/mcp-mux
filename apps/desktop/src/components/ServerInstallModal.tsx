@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { listenWhenTauri } from '@/lib/desktop-shell';
 import { Download, Check, X, AlertCircle, Loader2, Info } from 'lucide-react';
 import {
   Button,
@@ -53,11 +53,11 @@ export function ServerInstallModal() {
 
   const viewSpace = useViewSpace();
 
-  // Listen for deep link events
+  // Listen for deep link events (desktop only)
   useEffect(() => {
-    const unlisten = listen<ServerInstallDeepLinkPayload>(
-      'server-install-request',
-      async (event) => {
+    let disposed = false;
+    let unlistenFn: (() => void) | undefined;
+    void listenWhenTauri<ServerInstallDeepLinkPayload>('server-install-request', async (event) => {
         const { serverId } = event.payload;
         console.log('[Install] Deep link received for server:', serverId);
 
@@ -103,10 +103,17 @@ export function ServerInstallModal() {
           });
         }
       }
-    );
+    ).then((fn) => {
+      if (disposed) {
+        fn?.();
+      } else {
+        unlistenFn = fn;
+      }
+    });
 
     return () => {
-      unlisten.then((fn) => fn());
+      disposed = true;
+      unlistenFn?.();
     };
   }, [viewSpace?.id]);
 

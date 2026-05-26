@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { check, Update } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import type { Update } from '@tauri-apps/plugin-updater';
+import { checkAppUpdate, relaunchApp } from '@/lib/desktop-shell';
 import {
   Button,
   Card,
@@ -60,7 +60,7 @@ export function UpdateChecker() {
 
     try {
       console.log('[Updater] Checking for updates...');
-      const update = await check();
+      const update = await checkAppUpdate();
 
       if (update) {
         console.log(
@@ -122,7 +122,7 @@ export function UpdateChecker() {
 
       console.log('[Updater] Update installed successfully, relaunching app...');
       // Note: On Windows, the app will exit automatically before this point
-      await relaunch();
+      await relaunchApp();
     } catch (error) {
       console.error('[Updater] Installation failed:', error);
       setMessage({
@@ -181,7 +181,7 @@ export function UpdateChecker() {
                 </p>
               </div>
               <Button
-                onClick={() => relaunch()}
+                onClick={() => void relaunchApp()}
                 variant="primary"
                 data-testid="restart-now-btn"
               >

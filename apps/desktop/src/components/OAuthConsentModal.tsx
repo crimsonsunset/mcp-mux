@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import {
   Button,
@@ -18,14 +17,13 @@ import {
   CardTitle,
 } from '@mcpmux/ui';
 import { resolveKnownClientKey } from '@/lib/clientIcons';
-import { isTauri } from '@/lib/api/transport';
 import {
   approveOAuthConsent,
-  flushPendingDeepLink,
   getPendingConsent,
   type ConsentError,
   type ConsentRequestDetails,
 } from '@/lib/api/oauth';
+import { subscribeOAuthConsentEvents } from '@/lib/desktop-shell';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';
@@ -126,44 +124,9 @@ export function OAuthConsentModal() {
   }, [modalState.type]);
 
   useEffect(() => {
-    if (isTauri()) {
-      const unlistenPromise = listen<OAuthDeepLinkPayload>(
-        'oauth-consent-request',
-        async (event) => {
-          await loadConsentRequest(event.payload.requestId, setModalState, setProcessError);
-        }
-      );
-
-      unlistenPromise.then(() => {
-        flushPendingDeepLink().catch((err) => {
-          console.warn('[OAuth] flush_pending_deep_link failed:', err);
-        });
-      });
-
-      return () => {
-        unlistenPromise.then((fn) => fn());
-      };
-    }
-
-    const source = new EventSource('/api/v1/events');
-
-    const onConsentRequest = (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as OAuthDeepLinkPayload;
-        if (payload.requestId) {
-          void loadConsentRequest(payload.requestId, setModalState, setProcessError);
-        }
-      } catch {
-        // ignore malformed SSE frames
-      }
-    };
-
-    source.addEventListener('oauth-consent-request', onConsentRequest);
-
-    return () => {
-      source.removeEventListener('oauth-consent-request', onConsentRequest);
-      source.close();
-    };
+    return subscribeOAuthConsentEvents((payload) => {
+      void loadConsentRequest(payload.requestId, setModalState, setProcessError);
+    });
   }, []);
 
   const handleApprove = async () => {

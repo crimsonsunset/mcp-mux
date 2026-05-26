@@ -7,8 +7,8 @@
  * - null/undefined
  */
 
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useState } from 'react';
+import { fileSrcFromAbsolutePath } from '@/lib/desktop-shell';
 import { resolveWorkspaceIconPath } from '@/lib/api/workspaceAppearances';
 
 interface ServerIconProps {
@@ -51,7 +51,7 @@ export function ServerIcon({ icon, className = 'w-9 h-9 object-contain', fallbac
     void resolveWorkspaceIconPath(icon)
       .then((absolutePath) => {
         if (cancelled) return;
-        setResolvedSrc(absolutePath ? convertFileSrc(absolutePath) : null);
+        setResolvedSrc(fileSrcFromAbsolutePath(absolutePath));
       })
       .catch(() => {
         if (cancelled) return;

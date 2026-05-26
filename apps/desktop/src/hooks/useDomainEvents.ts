@@ -227,6 +227,9 @@ function useDomainEventsTauri() {
    */
   const subscribe = useCallback(
     <T extends DomainEventChannel>(channel: T, callback: ChannelCallback<T>): (() => void) => {
+      if (!isTauri()) {
+        return () => {};
+      }
       let unlistenFn: UnlistenFn | null = null;
 
       listen(channel, (event: Event<PayloadTypeMap[T]>) => {

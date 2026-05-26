@@ -5,7 +5,7 @@ import {
   type WorkspaceEventChannel,
 } from '@/hooks';
 import { useMetaToolEventListener } from '@/hooks/useMetaToolEvents';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { pickPath } from '@/lib/desktop-shell';
 import {
   AlertCircle,
   Check,
@@ -2241,7 +2241,7 @@ function BindingForm({
                   size="sm"
                   onClick={async () => {
                     try {
-                      const picked = await openDialog({
+                      const picked = await pickPath({
                         directory: false,
                         multiple: false,
                         title: 'Pick an icon image',
@@ -2314,7 +2314,7 @@ function BindingForm({
                 // Linux). The selected path is absolute already, so we
                 // just hand it off and let the live validator normalize.
                 try {
-                  const picked = await openDialog({
+                  const picked = await pickPath({
                     directory: true,
                     multiple: false,
                     title: 'Pick a workspace folder',

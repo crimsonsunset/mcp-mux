@@ -250,6 +250,26 @@ impl AppSettingsService {
             .filter(|s| !s.is_empty())
     }
 
+    /// Set whether admin routes require a valid CF Access JWT.
+    pub async fn set_admin_trust_cf_access(&self, enabled: bool) -> anyhow::Result<()> {
+        info!("[Settings] Setting admin_trust_cf_access to {}", enabled);
+        self.repository
+            .set(
+                keys::gateway::ADMIN_TRUST_CF_ACCESS,
+                if enabled { "true" } else { "false" },
+            )
+            .await
+    }
+
+    /// Persist Cloudflare team domain for Access JWT validation (empty clears).
+    pub async fn set_admin_cf_team_domain(&self, domain: Option<&str>) -> anyhow::Result<()> {
+        let value = domain.unwrap_or("").trim();
+        info!("[Settings] Setting admin_cf_team_domain");
+        self.repository
+            .set(keys::gateway::ADMIN_CF_TEAM_DOMAIN, value)
+            .await
+    }
+
     // =========================================================================
     // OAuth settings
     // =========================================================================

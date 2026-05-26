@@ -310,6 +310,40 @@ impl GatewayRuntime for DesktopGatewayRuntime {
     }
 }
 
+/// Stop the web admin server if it is running.
+pub async fn stop_admin_server(admin_state: &Arc<tokio::sync::RwLock<AdminServerState>>) {
+    let handle = {
+        let mut guard = admin_state.write().await;
+        guard.handle.take()
+    };
+    if let Some(handle) = handle {
+        handle.shutdown();
+        if let Err(e) = handle.task.await {
+            warn!("[Admin] Admin server task join error: {:?}", e);
+        }
+        info!("[Admin] Stopped");
+    }
+}
+
+/// Apply current settings: stop any running admin server, then start if enabled.
+pub async fn reload_admin_server(
+    app: AppHandle,
+    admin_state: Arc<tokio::sync::RwLock<AdminServerState>>,
+    gateway_state: Arc<RwLock<GatewayAppState>>,
+    server_manager_state: Arc<RwLock<ServerManagerState>>,
+    event_bus: Arc<EventBus>,
+) {
+    stop_admin_server(&admin_state).await;
+    start_admin_server_if_enabled(
+        app,
+        admin_state,
+        gateway_state,
+        server_manager_state,
+        event_bus,
+    )
+    .await;
+}
+
 /// Start the admin server when `gateway.admin_enabled` is true.
 pub async fn start_admin_server_if_enabled(
     app: AppHandle,

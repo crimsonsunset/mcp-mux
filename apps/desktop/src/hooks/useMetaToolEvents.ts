@@ -30,6 +30,9 @@ function useMetaToolEventsTauri() {
    */
   const subscribe = useCallback(
     (callback: (event: MetaToolAuditEvent) => void): (() => void) => {
+      if (!isTauri()) {
+        return () => {};
+      }
       let unlistenFn: UnlistenFn | null = null;
 
       listen('meta-tool-invoked', (event: Event<MetaToolAuditEvent>) => {

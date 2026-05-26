@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useWorkspaceEvents } from '@/hooks/useWorkspaceEvents';
 import { Check, ChevronDown, FolderOpen, Loader2, Sparkles, X } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import { createWorkspaceBinding } from '@/lib/api/workspaceBindings';
@@ -68,26 +68,17 @@ export function WorkspaceBindingSheet() {
   const currentSessionRef = useRef<string | null>(null);
   currentSessionRef.current = payload?.session_id ?? null;
 
+  const { subscribe } = useWorkspaceEvents();
+
   useEffect(() => {
-    const un = listen<WorkspaceNeedsBindingPayload>(
-      'workspace-needs-binding',
-      (event) => {
-        // Swallow only while a sheet is already showing — the user is
-        // mid-decision, a second emit would stack a new sheet on top. Once
-        // the current sheet closes (Save or Not now), the next emit from
-        // any fresh session on an unbound root opens the sheet again.
-        if (currentSessionRef.current !== null) return;
-        const p = event.payload;
-        setPayload(p);
-        setSelectedSpaceId(p.space_id);
-        setSelectedFsId('');
-        setError(null);
-      }
-    );
-    return () => {
-      un.then((fn) => fn());
-    };
-  }, []);
+    return subscribe('workspace-needs-binding', (p) => {
+      if (currentSessionRef.current !== null) return;
+      setPayload(p as WorkspaceNeedsBindingPayload);
+      setSelectedSpaceId((p as WorkspaceNeedsBindingPayload).space_id);
+      setSelectedFsId('');
+      setError(null);
+    });
+  }, [subscribe]);
 
   // Load every Space once the sheet is visible so the user can pin the
   // binding to a different Space than the caller happened to land in.

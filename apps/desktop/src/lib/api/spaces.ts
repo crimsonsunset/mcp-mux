@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { openSpaceConfigFile as shellOpenSpaceConfigFile } from '@/lib/desktop-shell';
 
 import { apiCall } from './transport';
 
@@ -67,5 +67,5 @@ export async function removeServerFromConfig(spaceId: string, serverId: string):
 }
 
 export async function openSpaceConfigFile(spaceId: string): Promise<void> {
-  return invoke('open_space_config_file', { spaceId });
+  return shellOpenSpaceConfigFile(spaceId);
 }

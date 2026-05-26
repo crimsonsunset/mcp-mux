@@ -18,7 +18,9 @@
  * wrapper unless a dedicated UI action needs ServerManager pause semantics.
  */
 
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+
+import { listenWhenTauri } from "@/lib/desktop-shell";
 
 import { apiCall } from "./transport";
 
@@ -204,7 +206,7 @@ export async function logoutServer(
 export async function onServerStatus(
   callback: (event: ServerStatusEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<{
+  const unlisten = await listenWhenTauri<{
     space_id: string;
     server_id: string;
     status: ConnectionStatus;
@@ -217,6 +219,7 @@ export async function onServerStatus(
       ...event.payload,
     });
   });
+  return unlisten ?? (() => {});
 }
 
 /**
@@ -228,7 +231,7 @@ export async function onServerStatus(
 export async function onAuthProgress(
   callback: (event: AuthProgressEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<{
+  const unlisten = await listenWhenTauri<{
     space_id: string;
     server_id: string;
     remaining_seconds: number;
@@ -239,6 +242,7 @@ export async function onAuthProgress(
       ...event.payload,
     });
   });
+  return unlisten ?? (() => {});
 }
 
 /**
@@ -250,7 +254,7 @@ export async function onAuthProgress(
 export async function onFeaturesUpdated(
   callback: (event: FeaturesUpdatedEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<{
+  const unlisten = await listenWhenTauri<{
     space_id: string;
     server_id: string;
     added: string[];
@@ -272,6 +276,7 @@ export async function onFeaturesUpdated(
       removed,
     });
   });
+  return unlisten ?? (() => {});
 }
 
 // ============================================================================

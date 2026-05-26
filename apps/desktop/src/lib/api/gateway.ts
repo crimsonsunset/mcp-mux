@@ -1,6 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-
-import { apiCall, isTauri } from './transport';
+import { apiCall } from './transport';
 
 /**
  * Gateway lifecycle and pool disconnect API.
@@ -216,11 +214,10 @@ export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
  * the webview's opener plugin may not be allowed to open directly.
  */
 export async function openUrl(url: string): Promise<void> {
-  if (isTauri()) {
-    return invoke('open_url', { url });
+  const result = await apiCall<void | { url: string }>('open_url', { url });
+  if (result && typeof result === 'object' && 'url' in result) {
+    window.open(result.url, '_blank', 'noopener,noreferrer');
   }
-  const result = await apiCall<{ url: string }>('open_url', { url });
-  window.open(result.url, '_blank', 'noopener,noreferrer');
 }
 
 // OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.

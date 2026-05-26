@@ -1,4 +1,8 @@
-import { invoke } from '@tauri-apps/api/core';
+import {
+  getAdminWebSettings as shellGetAdminWebSettings,
+  openLogsFolder as shellOpenLogsFolder,
+  updateAdminWebSettings as shellUpdateAdminWebSettings,
+} from '@/lib/desktop-shell';
 
 import { apiCall } from './transport';
 
@@ -14,6 +18,14 @@ export interface GatewayPortSettings {
   configuredPort: number | null;
   defaultPort: number;
   activePort: number | null;
+}
+
+/** Web admin HTTP server settings (loopback remote UI). */
+export interface AdminWebSettings {
+  enabled: boolean;
+  port: number;
+  trustCfAccess: boolean;
+  cfTeamDomain: string;
 }
 
 /**
@@ -62,5 +74,19 @@ export async function getLogsPath(): Promise<string> {
  * Open the application logs folder in the system file manager.
  */
 export async function openLogsFolder(): Promise<void> {
-  return invoke('open_logs_folder');
+  return shellOpenLogsFolder();
+}
+
+/**
+ * Load web admin mode settings (desktop only — controls :45819 server).
+ */
+export async function getAdminWebSettings(): Promise<AdminWebSettings> {
+  return shellGetAdminWebSettings();
+}
+
+/**
+ * Persist web admin settings and restart the admin HTTP server.
+ */
+export async function updateAdminWebSettings(settings: AdminWebSettings): Promise<void> {
+  return shellUpdateAdminWebSettings(settings);
 }

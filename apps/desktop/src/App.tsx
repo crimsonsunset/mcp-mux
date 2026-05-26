@@ -23,6 +23,7 @@ import {
   CardContent,
 } from '@mcpmux/ui';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { checkForAvailableUpdate } from '@/lib/desktop-shell';
 import { OAuthConsentModal } from '@/components/OAuthConsentModal';
 import { ServerInstallModal } from '@/components/ServerInstallModal';
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';
@@ -88,12 +89,11 @@ function AppContent() {
   const navigateTo = useNavigateTo();
   const [availableUpdate, setAvailableUpdate] = useState<{ version: string } | null>(null);
 
-  // Auto-check for updates on startup (silent check after 5 seconds)
+  // Auto-check for updates on startup (Tauri desktop only)
   useEffect(() => {
     const checkForUpdates = async () => {
       try {
-        const { check } = await import('@tauri-apps/plugin-updater');
-        const update = await check();
+        const update = await checkForAvailableUpdate();
         if (update) {
           console.log(`[Auto-Update] Update available: ${update.version}`);
           setAvailableUpdate({ version: update.version });

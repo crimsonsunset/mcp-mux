@@ -31,6 +31,7 @@ import {
   Network,
   RotateCcw,
   AlertCircle,
+  Globe,
 } from 'lucide-react';
 import { useAppStore, useTheme, useAnalyticsEnabled } from '@/stores';
 import { UpdateChecker } from './UpdateChecker';
@@ -40,13 +41,16 @@ import {
   setSessionOverridesRequireApproval,
 } from '@/lib/api/sessionOverrides';
 import {
+  getAdminWebSettings,
   getGatewayPortSettings,
   getLogsPath,
   getStartupSettings,
   openLogsFolder,
   resetGatewayPort,
   setGatewayPort,
+  updateAdminWebSettings,
   updateStartupSettings,
+  type AdminWebSettings,
   type GatewayPortSettings,
   type StartupSettings,
 } from '@/lib/api/settings';
@@ -95,6 +99,12 @@ export function SettingsPage() {
   const [savingPort, setSavingPort] = useState(false);
   const [resettingPort, setResettingPort] = useState(false);
 
+  const [adminWeb, setAdminWeb] = useState<AdminWebSettings | null>(null);
+  const [adminPortDraft, setAdminPortDraft] = useState('45819');
+  const [adminCfDomainDraft, setAdminCfDomainDraft] = useState('');
+  const [loadingAdminWeb, setLoadingAdminWeb] = useState(true);
+  const [savingAdminWeb, setSavingAdminWeb] = useState(false);
+
   const loadPortSettings = async () => {
     try {
       const s = await getGatewayPortSettings();
@@ -109,6 +119,53 @@ export function SettingsPage() {
   useEffect(() => {
     loadPortSettings();
   }, []);
+
+  const loadAdminWebSettings = async () => {
+    try {
+      const s = await getAdminWebSettings();
+      setAdminWeb(s);
+      setAdminPortDraft(String(s.port));
+      setAdminCfDomainDraft(s.cfTeamDomain);
+    } catch (err) {
+      console.error('Failed to load web admin settings:', err);
+    } finally {
+      setLoadingAdminWeb(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAdminWebSettings();
+  }, []);
+
+  const persistAdminWeb = async (next: AdminWebSettings) => {
+    setSavingAdminWeb(true);
+    try {
+      await updateAdminWebSettings(next);
+      setAdminWeb(next);
+      setAdminPortDraft(String(next.port));
+      setAdminCfDomainDraft(next.cfTeamDomain);
+      success(
+        'Web admin updated',
+        next.enabled
+          ? `Browse http://127.0.0.1:${next.port} (run pnpm build:web:admin if the page is blank).`
+          : 'Web admin server stopped.'
+      );
+    } catch (err) {
+      error('Failed to save web admin settings', String(err));
+    } finally {
+      setSavingAdminWeb(false);
+    }
+  };
+
+  const handleSaveAdminPort = async () => {
+    if (!adminWeb) return;
+    const parsed = validatePort(adminPortDraft);
+    if ('error' in parsed) {
+      error('Invalid admin port', parsed.error);
+      return;
+    }
+    await persistAdminWeb({ ...adminWeb, port: parsed.port });
+  };
 
   const validatePort = (raw: string): { port: number } | { error: string } => {
     const trimmed = raw.trim();
@@ -580,6 +637,145 @@ export function SettingsPage() {
                   </Button>
                 </div>
               ) : null}
+
+              <div
+                className="border-t border-[rgb(var(--border))] pt-4 mt-2"
+                data-testid="settings-web-admin-section"
+              >
+                <div className="flex items-start gap-3">
+                  <Globe className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-4">
+                    <div>
+                      <p className="text-sm font-medium">Web admin mode</p>
+                      <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                        Serves the UI + REST API on loopback for remote access (e.g. Cloudflare
+                        Tunnel). Use{' '}
+                        <span className="font-mono">http://127.0.0.1:{adminPortDraft}</span> — not
+                        the Vite dev URL on :1420 unless admin is enabled and proxied.
+                      </p>
+                    </div>
+
+                    {loadingAdminWeb || adminWeb === null ? (
+                      <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading…
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Enable web admin</p>
+                            <p className="text-xs text-[rgb(var(--muted))]">
+                              Starts HTTP server on this Mac (default port 45819).
+                            </p>
+                          </div>
+                          <Switch
+                            checked={adminWeb.enabled}
+                            disabled={savingAdminWeb}
+                            onCheckedChange={(enabled) =>
+                              persistAdminWeb({ ...adminWeb, enabled })
+                            }
+                            data-testid="settings-admin-enabled-switch"
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="admin-port-input"
+                            className="text-sm font-medium"
+                          >
+                            Admin port
+                          </label>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <input
+                              id="admin-port-input"
+                              type="number"
+                              inputMode="numeric"
+                              min={1024}
+                              max={65535}
+                              value={adminPortDraft}
+                              onChange={(e) => setAdminPortDraft(e.target.value)}
+                              disabled={savingAdminWeb || !adminWeb.enabled}
+                              className="w-28 px-3 py-1.5 text-sm font-mono border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))]"
+                              data-testid="settings-admin-port-input"
+                            />
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={handleSaveAdminPort}
+                              disabled={
+                                savingAdminWeb ||
+                                !adminWeb.enabled ||
+                                adminPortDraft.trim() === String(adminWeb.port)
+                              }
+                              data-testid="settings-admin-port-save-btn"
+                            >
+                              Save port
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Trust Cloudflare Access JWT</p>
+                            <p className="text-xs text-[rgb(var(--muted))]">
+                              Required for tunnel exposure; disable for local-only testing.
+                            </p>
+                          </div>
+                          <Switch
+                            checked={adminWeb.trustCfAccess}
+                            disabled={savingAdminWeb || !adminWeb.enabled}
+                            onCheckedChange={(trustCfAccess) =>
+                              persistAdminWeb({ ...adminWeb, trustCfAccess })
+                            }
+                            data-testid="settings-admin-cf-access-switch"
+                          />
+                        </div>
+
+                        {adminWeb.trustCfAccess ? (
+                          <div>
+                            <label
+                              htmlFor="admin-cf-domain-input"
+                              className="text-sm font-medium"
+                            >
+                              Cloudflare team domain
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <input
+                                id="admin-cf-domain-input"
+                                type="text"
+                                placeholder="your-team.cloudflareaccess.com"
+                                value={adminCfDomainDraft}
+                                onChange={(e) => setAdminCfDomainDraft(e.target.value)}
+                                disabled={savingAdminWeb || !adminWeb.enabled}
+                                className="flex-1 min-w-[12rem] px-3 py-1.5 text-sm border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))]"
+                                data-testid="settings-admin-cf-domain-input"
+                              />
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() =>
+                                  persistAdminWeb({
+                                    ...adminWeb,
+                                    cfTeamDomain: adminCfDomainDraft.trim(),
+                                  })
+                                }
+                                disabled={
+                                  savingAdminWeb ||
+                                  !adminWeb.enabled ||
+                                  adminCfDomainDraft.trim() === adminWeb.cfTeamDomain
+                                }
+                              >
+                                Save domain
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>

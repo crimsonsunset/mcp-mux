@@ -2,7 +2,6 @@
  * Registry API functions for Tauri IPC.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import type {
   ServerDefinition,
   InstalledServerState,
@@ -70,7 +69,8 @@ export async function setServerEnabled(
   enabled: boolean,
   spaceId: string
 ): Promise<void> {
-  return invoke<void>('set_server_enabled', { id, enabled, spaceId });
+  const command = enabled ? 'enable_server_v2' : 'disable_server_v2';
+  return apiCall<void>(command, { serverId: id, spaceId });
 }
 
 /** Set OAuth connected status */
