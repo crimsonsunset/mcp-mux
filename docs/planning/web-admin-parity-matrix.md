@@ -43,7 +43,7 @@ rg --no-filename -o "invoke(?:<[^>]*>)?\\(\\s*['\"]([a-z0-9_]+)['\"]" apps/deskt
 - ~~**`list_registry_categories`** — FE invokes but no Tauri handler~~ — **Fixed** (Phase 1: removed from `registry.ts`)
 - ~~**`grants-changed`** — hook listened; backend emits `client-grant-changed`~~ — **Fixed** (Phase 4: `useDomainEvents`)
 - ~~**`workspace-appearance-changed` / `server-status`** — dead WorkspacesPage listeners~~ — **Fixed** (Phase 4: `useWorkspaceEvents` + `server-status-changed`)
-- **Dual Rust emit paths** — EventBus bridge vs direct `app.emit` — **Documented** (Phase 4); SSE fan-in deferred to web-admin Phase 5
+- **Dual Rust emit paths** — EventBus bridge vs direct `app.emit` — **Documented** (Phase 4); SSE fan-in in web-admin Phase 5
 
 ## Pilot module (Phase 3)
 
@@ -57,22 +57,22 @@ Start with **`spaces`** — 9 commands, bounded CRUD, template for bridge extrac
 
 | Channel | Rust source | Desktop hook | SSE test | Playwright |
 | ------- | ----------- | ------------ | -------- | ---------- |
-| `space-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
-| `server-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
-| `server-status-changed` | EventBus bridge | `useDomainEvents` / `useServerManager` | [ ] | [ ] |
-| `server-auth-progress` | EventBus bridge | `useDomainEvents` / `useServerManager` | [ ] | [ ] |
-| `server-features-refreshed` | EventBus bridge | `useDomainEvents` / `useServerManager` | [ ] | [ ] |
-| `feature-set-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
-| `client-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
-| `client-grant-changed` | EventBus bridge | `useDomainEvents` (`useClientEvents`) | [ ] | [ ] |
-| `gateway-changed` | EventBus bridge | `useGatewayEvents` | [ ] | [ ] |
-| `mcp-notification` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
-| `session-roots-changed` | EventBus bridge | `useWorkspaceEvents` | [ ] | [ ] |
-| `workspace-binding-changed` | EventBus bridge | `useWorkspaceEvents` | [ ] | [ ] |
-| `workspace-needs-binding` | EventBus bridge | `useWorkspaceEvents` | [ ] | [ ] |
-| `meta-tool-invoked` | EventBus bridge | `useMetaToolEvents` | [ ] | [ ] |
-| `oauth-client-changed` | Direct emit (`oauth.rs`) | `useOAuthClientEvents` | [ ] | [ ] |
-| `session-overrides-changed` | Direct emit (`session_overrides.rs`) | `useWorkspaceEvents` | [ ] | [ ] |
+| `space-changed` | EventBus bridge | `useDomainEvents` | [x] | [ ] |
+| `server-changed` | EventBus bridge | `useDomainEvents` | [x] | [ ] |
+| `server-status-changed` | EventBus bridge | `useDomainEvents` / `useServerManager` | [x] | [ ] |
+| `server-auth-progress` | EventBus bridge | `useDomainEvents` / `useServerManager` | [x] | [ ] |
+| `server-features-refreshed` | EventBus bridge | `useDomainEvents` / `useServerManager` | [x] | [ ] |
+| `feature-set-changed` | EventBus bridge | `useDomainEvents` | [x] | [ ] |
+| `client-changed` | EventBus bridge | `useDomainEvents` | [x] | [ ] |
+| `client-grant-changed` | EventBus bridge | `useDomainEvents` (`useClientEvents`) | [x] | [ ] |
+| `gateway-changed` | EventBus bridge | `useGatewayEvents` | [x] | [x] |
+| `mcp-notification` | EventBus bridge | `useDomainEvents` | [x] | [ ] |
+| `session-roots-changed` | EventBus bridge | `useWorkspaceEvents` | [x] | [ ] |
+| `workspace-binding-changed` | EventBus bridge | `useWorkspaceEvents` | [x] | [ ] |
+| `workspace-needs-binding` | EventBus bridge | `useWorkspaceEvents` | [x] | [ ] |
+| `meta-tool-invoked` | EventBus bridge | `useMetaToolEvents` | [x] | [ ] |
+| `oauth-client-changed` | Direct emit (`oauth.rs`) | `useOAuthClientEvents` | [x] | [ ] |
+| `session-overrides-changed` | Direct emit (`session_overrides.rs`) | `useWorkspaceEvents` | [x] | [ ] |
 
 **Removed (never emitted):** `grants-changed` (use `client-grant-changed`), `workspace-appearance-changed` (reuse `workspace-binding-changed`), `server-status` (use `server-status-changed`).
 

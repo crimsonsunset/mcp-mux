@@ -1051,15 +1051,23 @@ pub async fn grant_oauth_client_feature_set(
         .await
         .map_err(|e| format!("Failed to grant feature set: {}", e))?;
 
-    if let Err(e) = app_handle.emit(
+    let payload = serde_json::json!({
+        "action": "grants_updated",
+        "client_id": client_id,
+    });
+    let ui_bus = if let Some(admin) =
+        app_handle.try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
+    {
+        Some(admin.read().await.ui_event_bus.clone())
+    } else {
+        None
+    };
+    crate::services::ui_events::emit_ui_channel(
+        &app_handle,
+        ui_bus.as_deref(),
         "oauth-client-changed",
-        serde_json::json!({
-            "action": "grants_updated",
-            "client_id": client_id,
-        }),
-    ) {
-        error!("[OAuth] Failed to emit oauth-client-changed event: {}", e);
-    }
+        payload,
+    );
 
     Ok(())
 }
@@ -1083,15 +1091,23 @@ pub async fn revoke_oauth_client_feature_set(
         .await
         .map_err(|e| format!("Failed to revoke feature set: {}", e))?;
 
-    if let Err(e) = app_handle.emit(
+    let payload = serde_json::json!({
+        "action": "grants_updated",
+        "client_id": client_id,
+    });
+    let ui_bus = if let Some(admin) =
+        app_handle.try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
+    {
+        Some(admin.read().await.ui_event_bus.clone())
+    } else {
+        None
+    };
+    crate::services::ui_events::emit_ui_channel(
+        &app_handle,
+        ui_bus.as_deref(),
         "oauth-client-changed",
-        serde_json::json!({
-            "action": "grants_updated",
-            "client_id": client_id,
-        }),
-    ) {
-        error!("[OAuth] Failed to emit oauth-client-changed event: {}", e);
-    }
+        payload,
+    );
 
     Ok(())
 }

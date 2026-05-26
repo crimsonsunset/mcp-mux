@@ -8,11 +8,13 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { listen, UnlistenFn, Event } from '@tauri-apps/api/event';
 import type { MetaToolAuditEvent } from '@/lib/api/metaTools';
+import { isTauri } from '@/lib/api/transport';
+import { useMetaToolEventsWeb } from './useMetaToolEventsWeb';
 
 /**
- * Hook for subscribing to meta-tool invocation events.
+ * Hook for subscribing to meta-tool invocation events (Tauri).
  */
-export function useMetaToolEvents() {
+function useMetaToolEventsTauri() {
   const activeListeners = useRef<UnlistenFn[]>([]);
 
   useEffect(() => {
@@ -48,6 +50,15 @@ export function useMetaToolEvents() {
   );
 
   return { subscribe };
+}
+
+/**
+ * Hook for meta-tool events — Tauri on desktop, SSE on web admin.
+ */
+export function useMetaToolEvents() {
+  const tauri = useMetaToolEventsTauri();
+  const web = useMetaToolEventsWeb();
+  return isTauri() ? tauri : web;
 }
 
 /**

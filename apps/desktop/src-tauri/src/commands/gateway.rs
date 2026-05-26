@@ -18,10 +18,12 @@
 //! emitters in Rust is deferred; this module documents the contract only.
 
 use crate::commands::server_manager::ServerManagerState;
-use crate::services::admin_server::{set_gateway_running, AdminServerState};
+use crate::services::admin_server::{set_gateway_running, AdminServerState, register_gateway_sse, clear_gateway_sse};
+use crate::services::ui_events::emit_ui_channel;
 use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
 use mcpmux_core::DomainEvent;
+use mcpmux_gateway::admin::ui_events::map_domain_event_to_ui;
 use mcpmux_gateway::{
     ConnectionContext, ConnectionResult, FeatureService, InstalledServerInfo, OAuthCompleteEvent,
     PoolService, ResolvedTransport, ServerKey, ServerManager,
@@ -347,387 +349,6 @@ pub fn start_domain_event_bridge(
     });
 }
 
-/// Map a DomainEvent to UI channel and payload
-fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, serde_json::Value) {
-    match event {
-        // Space events
-        DomainEvent::SpaceCreated {
-            space_id,
-            name,
-            icon,
-        } => (
-            "space-changed",
-            serde_json::json!({
-                "action": "created",
-                "space_id": space_id,
-                "name": name,
-                "icon": icon,
-            }),
-        ),
-        DomainEvent::SpaceUpdated { space_id, name } => (
-            "space-changed",
-            serde_json::json!({
-                "action": "updated",
-                "space_id": space_id,
-                "name": name,
-            }),
-        ),
-        DomainEvent::SpaceDeleted { space_id } => (
-            "space-changed",
-            serde_json::json!({
-                "action": "deleted",
-                "space_id": space_id,
-            }),
-        ),
-        // Server lifecycle events
-        DomainEvent::ServerInstalled {
-            space_id,
-            server_id,
-            server_name,
-        } => (
-            "server-changed",
-            serde_json::json!({
-                "action": "installed",
-                "space_id": space_id,
-                "server_id": server_id,
-                "server_name": server_name,
-            }),
-        ),
-        DomainEvent::ServerUninstalled {
-            space_id,
-            server_id,
-        } => (
-            "server-changed",
-            serde_json::json!({
-                "action": "uninstalled",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-        DomainEvent::ServerConfigUpdated {
-            space_id,
-            server_id,
-        } => (
-            "server-changed",
-            serde_json::json!({
-                "action": "config_updated",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-        DomainEvent::ServerEnabled {
-            space_id,
-            server_id,
-        } => (
-            "server-changed",
-            serde_json::json!({
-                "action": "enabled",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-        DomainEvent::ServerDisabled {
-            space_id,
-            server_id,
-        } => (
-            "server-changed",
-            serde_json::json!({
-                "action": "disabled",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-
-        // Server status events
-        DomainEvent::ServerStatusChanged {
-            space_id,
-            server_id,
-            status,
-            flow_id,
-            has_connected_before,
-            message,
-            features,
-        } => (
-            "server-status-changed",
-            serde_json::json!({
-                "space_id": space_id,
-                "server_id": server_id,
-                "status": status.as_str(),
-                "flow_id": flow_id,
-                "has_connected_before": has_connected_before,
-                "message": message,
-                "features": features.as_ref().map(|f| serde_json::json!({
-                    "tools_count": f.tools.len(),
-                    "prompts_count": f.prompts.len(),
-                    "resources_count": f.resources.len(),
-                })),
-            }),
-        ),
-        DomainEvent::ServerAuthProgress {
-            space_id,
-            server_id,
-            remaining_seconds,
-            flow_id,
-        } => (
-            "server-auth-progress",
-            serde_json::json!({
-                "space_id": space_id,
-                "server_id": server_id,
-                "remaining_seconds": remaining_seconds,
-                "flow_id": flow_id,
-            }),
-        ),
-        DomainEvent::ServerFeaturesRefreshed {
-            space_id,
-            server_id,
-            features,
-            added,
-            removed,
-        } => (
-            "server-features-refreshed",
-            serde_json::json!({
-                "space_id": space_id,
-                "server_id": server_id,
-                "tools_count": features.tools.len(),
-                "prompts_count": features.prompts.len(),
-                "resources_count": features.resources.len(),
-                "added": added,
-                "removed": removed,
-            }),
-        ),
-
-        // Feature set events
-        DomainEvent::FeatureSetCreated {
-            space_id,
-            feature_set_id,
-            name,
-            feature_set_type,
-        } => (
-            "feature-set-changed",
-            serde_json::json!({
-                "action": "created",
-                "space_id": space_id,
-                "feature_set_id": feature_set_id,
-                "name": name,
-                "feature_set_type": feature_set_type,
-            }),
-        ),
-        DomainEvent::FeatureSetUpdated {
-            space_id,
-            feature_set_id,
-            name,
-        } => (
-            "feature-set-changed",
-            serde_json::json!({
-                "action": "updated",
-                "space_id": space_id,
-                "feature_set_id": feature_set_id,
-                "name": name,
-            }),
-        ),
-        DomainEvent::FeatureSetDeleted {
-            space_id,
-            feature_set_id,
-        } => (
-            "feature-set-changed",
-            serde_json::json!({
-                "action": "deleted",
-                "space_id": space_id,
-                "feature_set_id": feature_set_id,
-            }),
-        ),
-        DomainEvent::FeatureSetMembersChanged {
-            space_id,
-            feature_set_id,
-            added_count,
-            removed_count,
-        } => (
-            "feature-set-changed",
-            serde_json::json!({
-                "action": "members_changed",
-                "space_id": space_id,
-                "feature_set_id": feature_set_id,
-                "added_count": added_count,
-                "removed_count": removed_count,
-            }),
-        ),
-
-        // Client events
-        DomainEvent::ClientRegistered {
-            client_id,
-            client_name,
-            registration_type,
-        } => (
-            "client-changed",
-            serde_json::json!({
-                "action": "registered",
-                "client_id": client_id,
-                "client_name": client_name,
-                "registration_type": registration_type,
-            }),
-        ),
-        DomainEvent::ClientReconnected {
-            client_id,
-            client_name,
-        } => (
-            "client-changed",
-            serde_json::json!({
-                "action": "reconnected",
-                "client_id": client_id,
-                "client_name": client_name,
-            }),
-        ),
-        DomainEvent::ClientUpdated { client_id } => (
-            "client-changed",
-            serde_json::json!({
-                "action": "updated",
-                "client_id": client_id,
-            }),
-        ),
-        DomainEvent::ClientDeleted { client_id } => (
-            "client-changed",
-            serde_json::json!({
-                "action": "deleted",
-                "client_id": client_id,
-            }),
-        ),
-        DomainEvent::ClientTokenIssued { client_id } => (
-            "client-changed",
-            serde_json::json!({
-                "action": "token_issued",
-                "client_id": client_id,
-            }),
-        ),
-
-        // Gateway events
-        DomainEvent::GatewayStarted { url, port } => (
-            "gateway-changed",
-            serde_json::json!({
-                "action": "started",
-                "url": url,
-                "port": port,
-            }),
-        ),
-        DomainEvent::GatewayStopped => (
-            "gateway-changed",
-            serde_json::json!({
-                "action": "stopped",
-            }),
-        ),
-
-        // MCP capability notifications (informational)
-        DomainEvent::ToolsChanged {
-            space_id,
-            server_id,
-        } => (
-            "mcp-notification",
-            serde_json::json!({
-                "type": "tools_changed",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-        DomainEvent::PromptsChanged {
-            space_id,
-            server_id,
-        } => (
-            "mcp-notification",
-            serde_json::json!({
-                "type": "prompts_changed",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-        DomainEvent::ResourcesChanged {
-            space_id,
-            server_id,
-        } => (
-            "mcp-notification",
-            serde_json::json!({
-                "type": "resources_changed",
-                "space_id": space_id,
-                "server_id": server_id,
-            }),
-        ),
-        DomainEvent::MetaToolInvoked {
-            client_id,
-            session_id,
-            tool_name,
-            decision,
-            resolved_feature_set_id,
-            summary,
-        } => (
-            // New channel so the Connection Log can render a dedicated row
-            // type without interleaving with regular backend events.
-            "meta-tool-invoked",
-            serde_json::json!({
-                "client_id": client_id,
-                "session_id": session_id,
-                "tool_name": tool_name,
-                "decision": decision,
-                "resolved_feature_set_id": resolved_feature_set_id,
-                "summary": summary,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }),
-        ),
-
-        // Workspace binding write → tell the UI to re-load the bindings
-        // table. The MCP `list_changed` notifications are handled separately
-        // by MCPNotifier subscribing to the same event.
-        DomainEvent::WorkspaceBindingChanged {
-            space_id,
-            workspace_root,
-        } => (
-            "workspace-binding-changed",
-            serde_json::json!({
-                "space_id": space_id,
-                "workspace_root": workspace_root,
-            }),
-        ),
-        DomainEvent::WorkspaceAppearanceChanged { workspace_root } => (
-            "workspace-binding-changed",
-            serde_json::json!({
-                "workspace_root": workspace_root,
-            }),
-        ),
-
-        // The set of live reported session roots changed — the Workspaces
-        // tab re-fetches so unbound folders stay visible.
-        DomainEvent::SessionRootsChanged => ("session-roots-changed", serde_json::json!({})),
-
-        // A session resolved via `source=Default` and no binding exists for
-        // any of its reported roots. Front-end shows the binding sheet.
-        DomainEvent::WorkspaceNeedsBinding {
-            client_id,
-            session_id,
-            space_id,
-            workspace_root,
-        } => (
-            "workspace-needs-binding",
-            serde_json::json!({
-                "client_id": client_id,
-                "session_id": session_id,
-                "space_id": space_id,
-                "workspace_root": workspace_root,
-            }),
-        ),
-
-        // Per-client grant edited — Clients page re-fetches the toggles for
-        // the affected client. MCPNotifier handles the corresponding
-        // `list_changed` push to the client's open peers separately.
-        DomainEvent::ClientGrantChanged {
-            client_id,
-            space_id,
-        } => (
-            "client-grant-changed",
-            serde_json::json!({
-                "client_id": client_id,
-                "space_id": space_id,
-            }),
-        ),
-    }
-}
-
 /// Create Gateway dependencies from app state using DI builder pattern
 ///
 /// Centralizes dependency construction following Dependency Injection principles.
@@ -965,9 +586,16 @@ pub async fn start_gateway(
     state.session_roots = Some(session_roots);
     state.session_overrides = Some(session_overrides);
     state.mcp_notifier = Some(mcp_notifier);
-    if let Some(admin) = app_handle.try_state::<Arc<tokio::sync::RwLock<AdminServerState>>>() {
-        set_gateway_running(&*admin.read().await, true);
-    }
+    let ui_bus = if let Some(admin) = app_handle.try_state::<Arc<tokio::sync::RwLock<AdminServerState>>>() {
+        let admin_guard = admin.read().await;
+        set_gateway_running(&admin_guard, true);
+        if let Some(ref gw) = state.gateway_state {
+            register_gateway_sse(&admin_guard, gw).await;
+        }
+        Some(admin_guard.ui_event_bus.clone())
+    } else {
+        None
+    };
     info!(
         "[Gateway] Started — url={}, event_emitter={}, grant_service={}",
         url,
@@ -975,20 +603,16 @@ pub async fn start_gateway(
         state.grant_service.is_some()
     );
 
-    // Notify every frontend subscriber (status-bar footer, Dashboard,
-    // Servers page, Settings). Without this, only the caller sees the new
-    // URL; the footer would stay on "Gateway: Stopped" until the user
-    // changes Space and retriggers a manual reload.
-    if let Err(e) = app_handle.emit(
+    emit_ui_channel(
+        &app_handle,
+        ui_bus.as_deref(),
         "gateway-changed",
         serde_json::json!({
             "action": "started",
             "url": url,
             "port": final_port,
         }),
-    ) {
-        warn!("[Gateway] Failed to emit gateway-changed(started): {}", e);
-    }
+    );
 
     Ok(url)
 }
@@ -1019,11 +643,18 @@ pub async fn stop_gateway(
         shutdown_gateway_handle(h).await;
     }
 
-    set_gateway_running(&*admin_state.read().await, false);
+    let admin_guard = admin_state.read().await;
+    set_gateway_running(&admin_guard, false);
+    clear_gateway_sse(&admin_guard).await;
+    let ui_bus = admin_guard.ui_event_bus.clone();
+    drop(admin_guard);
 
-    if let Err(e) = app_handle.emit("gateway-changed", serde_json::json!({"action": "stopped"})) {
-        warn!("[Gateway] Failed to emit gateway-changed(stopped): {}", e);
-    }
+    emit_ui_channel(
+        &app_handle,
+        Some(ui_bus.as_ref()),
+        "gateway-changed",
+        serde_json::json!({"action": "stopped"}),
+    );
 
     Ok(())
 }

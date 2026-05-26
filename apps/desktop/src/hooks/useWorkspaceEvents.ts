@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { listen, UnlistenFn, Event } from '@tauri-apps/api/event';
+import { isTauri } from '@/lib/api/transport';
+import { useWorkspaceEventsWeb } from './useWorkspaceEventsWeb';
 
 /** Workspace-related Tauri event channels. */
 export type WorkspaceEventChannel =
@@ -61,7 +63,7 @@ const ALL_WORKSPACE_CHANNELS: WorkspaceEventChannel[] = [
 /**
  * Hook for subscribing to workspace-related Tauri event channels.
  */
-export function useWorkspaceEvents() {
+function useWorkspaceEventsTauri() {
   const activeListeners = useRef<UnlistenFn[]>([]);
 
   useEffect(() => {
@@ -126,6 +128,15 @@ export function useWorkspaceEvents() {
     subscribeMany,
     channels: ALL_WORKSPACE_CHANNELS,
   };
+}
+
+/**
+ * Hook for workspace events — Tauri on desktop, SSE on web admin.
+ */
+export function useWorkspaceEvents() {
+  const tauri = useWorkspaceEventsTauri();
+  const web = useWorkspaceEventsWeb();
+  return isTauri() ? tauri : web;
 }
 
 /**

@@ -1,6 +1,6 @@
 //! Admin Axum router — health, static SPA, API routes.
 
-use axum::{middleware, routing::get, Router};
+use axum::{middleware, routing::{get, post}, Router};
 use mcpmux_core::ApplicationServices;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -9,7 +9,8 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing::warn;
 
 use super::config::AdminConfig;
-use super::handlers::{health, read};
+use super::event_hub::AdminEventHub;
+use super::handlers::{events, health, read};
 use super::middleware::{cf_access_middleware, CfAccessValidator};
 use crate::admin::bridge_context::AdminBridgeCtx;
 
@@ -28,12 +29,21 @@ pub struct AdminState {
     pub cf_validator: Option<Arc<CfAccessValidator>>,
     /// Shared read bridge context used by REST handlers.
     pub bridge: Arc<AdminBridgeCtx>,
+    /// Merged EventBus + direct UI event fan-in for SSE.
+    pub event_hub: Arc<AdminEventHub>,
 }
 
 /// Build the admin router with health, API stubs, and SPA static fallback.
 pub fn build_admin_router(state: AdminState) -> Router {
+    state.event_hub.start(state.services.clone());
+
     let mut router = Router::new()
         .route("/api/v1/health", get(health))
+        .route("/api/v1/events", get(events::sse_events))
+        .route(
+            "/api/v1/test/events/publish",
+            post(events::publish_test_event),
+        )
         .route("/api/v1/gateway/status", get(read::get_gateway_status))
         .route("/api/v1/gateway/probe-start", get(read::probe_gateway_start))
         .route(

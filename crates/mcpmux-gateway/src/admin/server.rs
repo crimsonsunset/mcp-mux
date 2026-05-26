@@ -12,6 +12,7 @@ use tracing::info;
 
 use super::config::AdminConfig;
 use super::bridge_context::AdminBridgeCtx;
+use super::event_hub::AdminEventHub;
 use super::middleware::CfAccessValidator;
 use super::router::{build_admin_router, AdminState};
 
@@ -41,6 +42,7 @@ impl AdminServer {
         config: AdminConfig,
         services: Arc<ApplicationServices>,
         bridge: Arc<AdminBridgeCtx>,
+        event_hub: Arc<AdminEventHub>,
         gateway_running: Arc<AtomicBool>,
         frontend_dist: PathBuf,
         cf_validator: Option<Arc<CfAccessValidator>>,
@@ -57,6 +59,7 @@ impl AdminServer {
             frontend_dist,
             cf_validator,
             bridge,
+            event_hub,
         });
 
         Ok(Self {

@@ -536,7 +536,30 @@ pub fn run() {
                 if let Some(admin) =
                     app_handle_for_sm.try_state::<Arc<RwLock<services::AdminServerState>>>()
                 {
-                    services::admin_server::set_gateway_running(&*admin.read().await, true);
+                    let admin_guard = admin.read().await;
+                    services::admin_server::set_gateway_running(&admin_guard, true);
+                    if let Some(ref gw) = state.gateway_state {
+                        services::admin_server::register_gateway_sse(&admin_guard, gw).await;
+                    }
+                    services::ui_events::emit_ui_channel(
+                        &app_handle_for_sm,
+                        Some(admin_guard.ui_event_bus.as_ref()),
+                        "gateway-changed",
+                        serde_json::json!({
+                            "action": "started",
+                            "url": url,
+                            "port": final_port,
+                        }),
+                    );
+                } else {
+                    let _ = app_handle_for_sm.emit(
+                        "gateway-changed",
+                        serde_json::json!({
+                            "action": "started",
+                            "url": url,
+                            "port": final_port,
+                        }),
+                    );
                 }
 
                 info!(
@@ -544,20 +567,6 @@ pub fn run() {
                     url,
                     state.grant_service.is_some()
                 );
-
-                // Broadcast the started event to the webview. Must happen
-                // even on auto-start so the status-bar footer and every
-                // other subscriber reflect the running gateway.
-                if let Err(e) = app_handle_for_sm.emit(
-                    "gateway-changed",
-                    serde_json::json!({
-                        "action": "started",
-                        "url": url,
-                        "port": final_port,
-                    }),
-                ) {
-                    warn!("[Gateway] Failed to emit gateway-changed(started): {}", e);
-                }
             });
 
             app.manage(gateway_state.clone());

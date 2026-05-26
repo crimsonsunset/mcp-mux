@@ -7,6 +7,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { listen, UnlistenFn, Event } from '@tauri-apps/api/event';
+import { isTauri } from '@/lib/api/transport';
+import { useOAuthClientEventsWeb } from './useOAuthClientEventsWeb';
 
 /** Payload for `oauth-client-changed`. */
 export interface OAuthClientChangedPayload {
@@ -16,9 +18,9 @@ export interface OAuthClientChangedPayload {
 }
 
 /**
- * Hook for subscribing to OAuth client change events.
+ * Hook for subscribing to OAuth client change events (Tauri).
  */
-export function useOAuthClientEvents() {
+function useOAuthClientEventsTauri() {
   const activeListeners = useRef<UnlistenFn[]>([]);
 
   useEffect(() => {
@@ -54,6 +56,15 @@ export function useOAuthClientEvents() {
   );
 
   return { subscribe };
+}
+
+/**
+ * Hook for OAuth client events — Tauri on desktop, SSE on web admin.
+ */
+export function useOAuthClientEvents() {
+  const tauri = useOAuthClientEventsTauri();
+  const web = useOAuthClientEventsWeb();
+  return isTauri() ? tauri : web;
 }
 
 /**

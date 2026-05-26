@@ -42,6 +42,8 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { listen, UnlistenFn, Event } from '@tauri-apps/api/event';
+import { isTauri } from '@/lib/api/transport';
+import { useDomainEventsWeb } from './useDomainEventsWeb';
 
 // ============================================================================
 // TYPES
@@ -201,9 +203,9 @@ const ALL_CHANNELS: DomainEventChannel[] = [
 ];
 
 /**
- * Hook for subscribing to domain events from the backend
+ * Hook for subscribing to domain events from the backend (Tauri IPC).
  */
-export function useDomainEvents() {
+function useDomainEventsTauri() {
   // Track active listeners for cleanup
   const activeListeners = useRef<UnlistenFn[]>([]);
   const [lastEvent, setLastEvent] = useState<{
@@ -300,6 +302,16 @@ export function useDomainEvents() {
     /** Available channels */
     channels: ALL_CHANNELS,
   };
+}
+
+/**
+ * Hook for subscribing to domain events from the backend.
+ * Uses Tauri events on desktop and SSE on web admin.
+ */
+export function useDomainEvents() {
+  const tauri = useDomainEventsTauri();
+  const web = useDomainEventsWeb();
+  return isTauri() ? tauri : web;
 }
 
 // ============================================================================

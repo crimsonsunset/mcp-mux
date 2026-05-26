@@ -12,7 +12,7 @@ use mcpmux_gateway::admin::{
     command_bridge::read as bridge_read,
     build_admin_router, format_bridge_error_message, test_valid_jwt, test_validator, AdminConfig,
     AdminState,
-    AdminBridgeCtx, CF_ACCESS_JWT_HEADER, StubGatewayRuntime,
+    AdminBridgeCtx, CF_ACCESS_JWT_HEADER, StubGatewayRuntime, AdminEventHub, AdminUiEventBus,
 };
 use mcpmux_storage::{
     Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
@@ -89,16 +89,17 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
 }
 
 /// Running admin server on an ephemeral loopback port.
-struct AdminHarness {
-    base_url: String,
-    _services: Arc<ApplicationServices>,
-    bridge: Arc<AdminBridgeCtx>,
+pub struct AdminHarness {
+    pub base_url: String,
+    pub services: Arc<ApplicationServices>,
+    pub bridge: Arc<AdminBridgeCtx>,
+    pub event_hub: Arc<AdminEventHub>,
     cancel: CancellationToken,
 }
 
 impl AdminHarness {
     /// Mount the admin router and bind to `127.0.0.1:0`.
-    async fn start(config: AdminConfig, gateway_running: bool) -> Self {
+    pub async fn start(config: AdminConfig, gateway_running: bool) -> Self {
         let (services, bridge) = in_memory_services().await;
         let gateway_flag = Arc::new(AtomicBool::new(gateway_running));
         let cf_validator = if config.trust_cf_access {
@@ -110,6 +111,9 @@ impl AdminHarness {
             None
         };
 
+        let ui_event_bus = Arc::new(AdminUiEventBus::new());
+        let event_hub = Arc::new(AdminEventHub::new(ui_event_bus));
+
         let state = AdminState {
             services: services.clone(),
             config: config.clone(),
@@ -117,6 +121,7 @@ impl AdminHarness {
             frontend_dist: std::path::PathBuf::from("/nonexistent"),
             cf_validator,
             bridge: bridge.clone(),
+            event_hub: event_hub.clone(),
         };
         let router = build_admin_router(state);
 
@@ -141,13 +146,14 @@ impl AdminHarness {
 
         Self {
             base_url,
-            _services: services,
+            services,
             bridge,
+            event_hub,
             cancel,
         }
     }
 
-    fn shutdown(self) {
+    pub fn shutdown(self) {
         self.cancel.cancel();
     }
 }

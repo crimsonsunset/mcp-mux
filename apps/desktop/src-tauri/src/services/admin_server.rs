@@ -9,23 +9,48 @@ use async_trait::async_trait;
 use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
 use mcpmux_core::service::is_port_available;
 use mcpmux_gateway::admin::bridge_context::AdminBridgeCtx;
+use mcpmux_gateway::admin::event_hub::AdminEventHub;
 use mcpmux_gateway::admin::runtime::GatewayRuntime;
+use mcpmux_gateway::admin::ui_events::AdminUiEventBus;
 use mcpmux_gateway::{AdminConfig, AdminServer, AdminServerHandle};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 use tokio::sync::RwLock;
+use tauri::{AppHandle, Manager};
 use tracing::{info, warn};
 
 /// Tracks the running admin server and shared gateway liveness flag.
-#[derive(Default)]
 pub struct AdminServerState {
     /// Background task handle for graceful shutdown.
     pub handle: Option<AdminServerHandle>,
     /// Updated when the MCP gateway starts or stops (admin `/api/v1/health`).
     pub gateway_running: Arc<AtomicBool>,
+    /// Direct UI events from Tauri `app.emit` paths (oauth, session overrides).
+    pub ui_event_bus: Arc<AdminUiEventBus>,
+    /// Merged SSE fan-in hub (EventBus + gateway domain + direct emits).
+    pub event_hub: Arc<AdminEventHub>,
+}
+
+impl AdminServerState {
+    /// Create admin server state with shared event buses for SSE fan-in.
+    pub fn new() -> Self {
+        let ui_event_bus = Arc::new(AdminUiEventBus::new());
+        let event_hub = Arc::new(AdminEventHub::new(ui_event_bus.clone()));
+        Self {
+            handle: None,
+            gateway_running: Arc::new(AtomicBool::new(false)),
+            ui_event_bus,
+            event_hub,
+        }
+    }
+}
+
+impl Default for AdminServerState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Resolve the built frontend directory for static SPA serving.
@@ -316,6 +341,10 @@ pub async fn start_admin_server_if_enabled(
         let guard = admin_state.read().await;
         guard.gateway_running.clone()
     };
+    let event_hub = {
+        let guard = admin_state.read().await;
+        guard.event_hub.clone()
+    };
 
     let services = match build_application_services(&app_state, event_bus) {
         Ok(s) => s,
@@ -363,6 +392,7 @@ pub async fn start_admin_server_if_enabled(
         config.clone(),
         services,
         bridge,
+        event_hub,
         gateway_running,
         frontend_dist,
         cf_validator,
@@ -391,4 +421,21 @@ pub fn set_gateway_running(admin_state: &AdminServerState, running: bool) {
     admin_state
         .gateway_running
         .store(running, Ordering::Relaxed);
+}
+
+/// Register gateway domain events with the admin SSE hub.
+pub async fn register_gateway_sse(
+    admin_state: &AdminServerState,
+    gateway_state: &Arc<RwLock<mcpmux_gateway::GatewayState>>,
+) {
+    let tx = gateway_state.read().await.domain_event_sender();
+    admin_state
+        .event_hub
+        .register_gateway_events(tx)
+        .await;
+}
+
+/// Clear gateway domain event fan-in when the MCP gateway stops.
+pub async fn clear_gateway_sse(admin_state: &AdminServerState) {
+    admin_state.event_hub.clear_gateway_events().await;
 }

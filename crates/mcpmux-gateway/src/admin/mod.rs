@@ -7,14 +7,18 @@
 mod config;
 pub mod bridge_context;
 pub mod command_bridge;
+pub mod event_hub;
 mod handlers;
 mod middleware;
 mod router;
 pub mod runtime;
 mod server;
+pub mod ui_events;
 
 pub use config::{AdminConfig, CF_ACCESS_JWT_HEADER, DEFAULT_ADMIN_PORT};
 pub use bridge_context::AdminBridgeCtx;
+pub use event_hub::AdminEventHub;
+pub use ui_events::{map_domain_event_to_ui, AdminUiEventBus, UiEvent};
 pub use middleware::{CfAccessError, CfAccessValidator};
 pub use handlers::error::format_bridge_error_message;
 pub use runtime::{GatewayRuntime, StubGatewayRuntime};
