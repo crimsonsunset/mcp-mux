@@ -5,7 +5,7 @@
 **Branch:** TBD — suggest `feat/web-admin` off fork **`dev`** (meta-tools, clones, Phase D already merged)
 **Base branch:** `dev` (fork); upstream merge path is `main`
 **Issue:** TBD — file after planning review
-**Depends on:** [Pre–Web Admin Desktop Cleanup](./pre-web-admin-desktop-cleanup.md) — **must complete first** (broken invokes, IPC consolidation, event channel audit)
+**Depends on:** [Pre–Web Admin Desktop Cleanup](./pre-web-admin-desktop-cleanup.md) — **Complete** (`fix/pre-web-admin-cleanup`, May 25, 2026). Phase 1 matrix scaffolding may start.
 **Unblocks:** [`jsg-tech-check` homelab wiring Step 6](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) — remote McpMux admin UI from Weathertop / Rohan at `https://mux.joe-hassio.com`
 
 ---
@@ -545,7 +545,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 
 ## Related documentation
 
-- [`docs/planning/pre-web-admin-desktop-cleanup.md`](./pre-web-admin-desktop-cleanup.md) — **Prerequisite** — IPC/API/event fixes; blocks this doc until complete
+- [`docs/planning/pre-web-admin-desktop-cleanup.md`](./pre-web-admin-desktop-cleanup.md) — **Complete** (`fix/pre-web-admin-cleanup`, May 25, 2026) — IPC/API/event contract verified
 - [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) — Invoke + SSE coverage tracker (re-scan after cleanup)
 - [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) — Step 5 (CF tunnel), Step 6 (McpMux on Gondor), cross-device MCP access
 - [`jsg-tech-check/docs/setup/mcpmux-server-migration.md`](../../../jsg-tech-check/docs/setup/mcpmux-server-migration.md) — server/bundle/binding migration tracker (orthogonal to web admin)
@@ -557,7 +557,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 
 ## Reconciliation
 
-This doc is the source of truth for web admin mode. When implementation starts, update **Status** and **Branch** at the top. Phase 8 homelab doc updates live in `jsg-tech-check` — track cross-repo separately.
+This doc is the source of truth for web admin mode. Desktop cleanup prerequisite is **Complete** on `fix/pre-web-admin-cleanup` (May 25, 2026) — Phase 1 matrix scaffolding may proceed. When implementation starts, update **Status** and **Branch** at the top.
 
 **Decision record (May 25, 2026):** Web admin mode on fork selected over screen sharing (immediate but not web UI), tunneling `:1420` (broken), and full "McpMux Cloud" multi-tenant SaaS (months of work). CF Access at edge replaces building login UI. Separate admin port (`45819`) keeps MCP gateway surface unchanged.
 

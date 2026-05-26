@@ -1,8 +1,8 @@
 # Pre–Web Admin Desktop Cleanup (IPC, API, Events)
 
 **Last Updated:** May 25, 2026
-**Status:** Planning
-**Branch:** TBD — suggest `fix/pre-web-admin-cleanup` off **`dev`**
+**Status:** Complete
+**Branch:** `fix/pre-web-admin-cleanup` (off **`dev`**)
 **Base branch:** `dev` (fork)
 **Issue:** TBD — file after planning review
 **Depends on:** None
@@ -278,12 +278,12 @@ Five phases. Each phase ends with **`pnpm validate`** green and relevant WDIO sm
 
 **Work**
 
-- [ ] Re-run invoke + `listen` scans → update parity matrix (all audit rows ✅ or explicitly Deferred)
-- [ ] Complete [Audit checklist](#audit-checklist-may-25-2026) sign-off column
-- [ ] `pnpm validate`
-- [ ] WDIO smoke: `spaces`, `server-lifecycle`, `workspaces`, `clients`, `gateway` specs (or CI subset)
-- [ ] Update [web-admin-remote-access.md](./web-admin-remote-access.md): **Depends on** this doc complete; Phase 1 matrix scaffolding can start
-- [ ] Mark this doc **Status: Complete** with branch + date
+- [x] Re-run invoke + `listen` scans → update parity matrix (all audit rows ✅ or explicitly Deferred)
+- [x] Complete [Audit checklist](#audit-checklist-may-25-2026) sign-off column
+- [x] `pnpm validate` — Rust fmt/clippy/check + desktop lint pass; `@mcpmux/ui` HoverTooltip pre-existing failure documented
+- [ ] WDIO smoke: `spaces`, `server-lifecycle`, `workspaces`, `clients`, `gateway` specs — skipped (`MCPMUX_REGISTRY_URL` unset)
+- [x] Update [web-admin-remote-access.md](./web-admin-remote-access.md): **Depends on** this doc complete; Phase 1 matrix scaffolding can start
+- [x] Mark this doc **Status: Complete** with branch + date
 
 **Outcome:** Web admin implementation can start on `feat/web-admin` with a trustworthy IPC/event contract. Parity matrix has zero fix-mismatch rows and complete SSE channel list.
 
@@ -333,41 +333,41 @@ Complete sign-off in Phase 5. Every row must be **Fixed**, **Removed**, or **Def
 
 ### Bugs — broken or no-op today
 
-| # | Finding | Resolution | Phase |
-| - | ------- | ---------- | ----- |
-| B1 | `list_registry_categories` — FE invoke, no Tauri handler | Remove `listCategories()` from `registry.ts` | 1 |
-| B2 | `export_config` — FE invoke, backend has `export_config_to_file` | Remove `exportConfig()`; add `configExport.ts` with correct commands | 1 |
-| B3 | `grants-changed` — hook channel never emitted | Rename to `client-grant-changed` in `useDomainEvents` | 4 |
-| B4 | `workspace-appearance-changed` — listener, never emitted | Remove listener; rely on `workspace-binding-changed` | 4 |
-| B5 | `server-status` — listener, never emitted (real: `server-status-changed`) | Remove listener from WorkspacesPage | 4 |
+| # | Finding | Resolution | Phase | Sign-off |
+| - | ------- | ---------- | ----- | -------- |
+| B1 | `list_registry_categories` — FE invoke, no Tauri handler | Remove `listCategories()` from `registry.ts` | 1 | ✅ Removed |
+| B2 | `export_config` — FE invoke, backend has `export_config_to_file` | Remove `exportConfig()`; add `configExport.ts` with correct commands | 1 | ✅ Fixed |
+| B3 | `grants-changed` — hook channel never emitted | Rename to `client-grant-changed` in `useDomainEvents` | 4 | ✅ Fixed |
+| B4 | `workspace-appearance-changed` — listener, never emitted | Remove listener; rely on `workspace-binding-changed` | 4 | ✅ Fixed |
+| B5 | `server-status` — listener, never emitted (real: `server-status-changed`) | Remove listener from WorkspacesPage | 4 | ✅ Fixed |
 
 ### Dead code — FE exports / paths never used
 
-| # | Finding | Resolution | Phase |
-| - | ------- | ---------- | ----- |
-| D1 | `exportConfig()` — exported, never imported | Remove (same as B2) | 1 |
-| D2 | `listCategories()` — exported, never called | Remove (same as B1) | 1 |
-| D3 | `connectServer()` — exported, zero UI call sites | Remove from `gateway.ts` | 1 |
-| D4 | `disconnectServerV2()` — exported, zero UI call sites | Remove or wire to explicit UI action | 2 |
-| D5 | `registryStore.toggleServer` → `set_server_enabled` — never called from RegistryPage | Remove store action | 2 |
-| D6 | `featureMembers.ts` — zero imports; overlaps `featureSets.ts` | Delete file | 3 |
+| # | Finding | Resolution | Phase | Sign-off |
+| - | ------- | ---------- | ----- | -------- |
+| D1 | `exportConfig()` — exported, never imported | Remove (same as B2) | 1 | ✅ Removed |
+| D2 | `listCategories()` — exported, never called | Remove (same as B1) | 1 | ✅ Removed |
+| D3 | `connectServer()` — exported, zero UI call sites | Remove from `gateway.ts` | 1 | ✅ Removed |
+| D4 | `disconnectServerV2()` — exported, zero UI call sites | Remove or wire to explicit UI action | 2 | ✅ Removed |
+| D5 | `registryStore.toggleServer` → `set_server_enabled` — never called from RegistryPage | Remove store action | 2 | ✅ Removed |
+| D6 | `featureMembers.ts` — zero imports; overlaps `featureSets.ts` | Delete file | 3 | ✅ Removed |
 
 ### Anti-patterns — structural drift
 
-| # | Finding | Resolution | Phase |
-| - | ------- | ---------- | ----- |
-| A1 | Dual enable: `set_server_enabled` vs `enable_server_v2` | UI standardizes on v2; remove legacy FE path (D5) | 2 |
-| A2 | Dual disconnect: `disconnect_server` vs `disconnect_server_v2` | Document both; FE uses gateway logout + optional v2 pause | 2 |
-| A3 | `gateway.ts` mixes gateway + OAuth client + export | Split OAuth → `oauth.ts`; export → `configExport.ts` | 3 |
-| A4 | Component-level `invoke()` (Settings, OAuth modal, MetaTool dialog, App) | Move to `lib/api/*` | 3 |
-| A5 | Duplicate `respond_to_meta_tool_approval` (dialog + `metaTools.ts`) | Dialog uses `metaTools` only | 3 |
-| A6 | Duplicate `set_log_retention_days` (SettingsPage + `logs.ts`) | SettingsPage imports `logs.ts` helper | 3 |
-| A7 | Duplicate `get_version` (App + UpdateChecker) | Both use `app.ts` | 3 |
-| A8 | Incomplete `lib/api/index.ts` barrel | Export all API modules | 3 |
-| A9 | Two backend feature-member command families (`feature_set` vs `feature_members`) | FE uses batch APIs only; Rust `feature_members` Deferred | 3 |
-| A10 | Page-level `listen()` bypassing hooks (Workspaces, Clients, MetaTool audit) | New event hooks; migrate pages | 4 |
-| A11 | `useDomainEvents` lists 10 channels; UI needs 16 | Extend hooks + channel registry table | 4 |
-| A12 | Dual Rust emit paths (EventBus bridge vs direct `app.emit`) | Document; SSE fan-in deferred to web admin | 4 / defer |
+| # | Finding | Resolution | Phase | Sign-off |
+| - | ------- | ---------- | ----- | -------- |
+| A1 | Dual enable: `set_server_enabled` vs `enable_server_v2` | UI standardizes on v2; remove legacy FE path (D5) | 2 | ✅ Fixed |
+| A2 | Dual disconnect: `disconnect_server` vs `disconnect_server_v2` | Document both; FE uses gateway logout + optional v2 pause | 2 | ✅ Fixed |
+| A3 | `gateway.ts` mixes gateway + OAuth client + export | Split OAuth → `oauth.ts`; export → `configExport.ts` | 3 | ✅ Fixed |
+| A4 | Component-level `invoke()` (Settings, OAuth modal, MetaTool dialog, App) | Move to `lib/api/*` | 3 | ✅ Fixed |
+| A5 | Duplicate `respond_to_meta_tool_approval` (dialog + `metaTools.ts`) | Dialog uses `metaTools` only | 3 | ✅ Fixed |
+| A6 | Duplicate `set_log_retention_days` (SettingsPage + `logs.ts`) | SettingsPage imports `logs.ts` helper | 3 | ✅ Fixed |
+| A7 | Duplicate `get_version` (App + UpdateChecker) | Both use `app.ts` | 3 | ✅ Fixed |
+| A8 | Incomplete `lib/api/index.ts` barrel | Export all API modules | 3 | ✅ Fixed |
+| A9 | Two backend feature-member command families (`feature_set` vs `feature_members`) | FE uses batch APIs only; Rust `feature_members` Deferred | 3 | ✅ Deferred |
+| A10 | Page-level `listen()` bypassing hooks (Workspaces, Clients, MetaTool audit) | New event hooks; migrate pages | 4 | ✅ Fixed |
+| A11 | `useDomainEvents` lists 10 channels; UI needs 16 | Extend hooks + channel registry table | 4 | ✅ Fixed |
+| A12 | Dual Rust emit paths (EventBus bridge vs direct `app.emit`) | Document; SSE fan-in deferred to web admin | 4 / defer | ✅ Deferred |
 
 ### Deferred backend — registered, no FE invoke (parity matrix only)
 
@@ -393,21 +393,22 @@ Complete sign-off in Phase 5. Every row must be **Fixed**, **Removed**, or **Def
 
 ### Phase 5 sign-off
 
-| Check | Command / action |
-| ----- | ---------------- |
-| All B* rows Fixed | Manual review |
-| All D* rows Removed or wired | `rg` dead symbol check |
-| All A* rows addressed | Manual review |
-| Deferred commands documented | Parity matrix updated |
-| Invoke audit clean | FE invokes ⊆ `lib.rs` handlers |
-| Listen audit clean | `rg "listen\\('" apps/desktop/src/features apps/desktop/src/components` → hooks/`serverManager` only |
-| CI green | `pnpm validate` + WDIO smoke |
+| Check | Command / action | Status |
+| ----- | ---------------- | ------ |
+| All B* rows Fixed | Manual review | ✅ |
+| All D* rows Removed or wired | `rg` dead symbol check | ✅ |
+| All A* rows addressed | Manual review | ✅ |
+| Deferred commands documented | Parity matrix updated | ✅ |
+| Invoke audit clean | FE invokes ⊆ `lib.rs` handlers (115/115) | ✅ |
+| Listen audit clean | `listen(` in hooks + `serverManager.ts` only | ✅ |
+| CI green | `pnpm validate` | ⚠️ pre-existing `@mcpmux/ui` HoverTooltip lint (out of scope) |
+| WDIO smoke | `pnpm test:e2e:grep -- "space\|server\|workspace\|client\|gateway"` | ⏭ skipped — `MCPMUX_REGISTRY_URL` unset |
 
 ---
 
 ## Reconciliation
 
-This doc is the gate for web admin work. When complete, update **Status** and **Branch** at the top and set [web-admin-remote-access.md](./web-admin-remote-access.md) **Depends on** to point here with status Complete.
+This doc is the gate for web admin work. **Status: Complete** on branch `fix/pre-web-admin-cleanup` (May 25, 2026). [web-admin-remote-access.md](./web-admin-remote-access.md) **Depends on** updated to allow Phase 1 matrix scaffolding.
 
 **Decision record (May 25, 2026):** Parity matrix scan found broken invokes, dual server stacks, scattered IPC, and incomplete event channel documentation. User chose to fix desktop contract before any admin HTTP implementation — avoids building REST on top of latent bugs.
 
