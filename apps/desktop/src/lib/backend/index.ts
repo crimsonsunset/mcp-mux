@@ -6,4 +6,5 @@
 export * from '../api';
 export * from './data/transport';
 export * from './data/fetch-api';
+export * from './events';
 export * as shell from './shell';

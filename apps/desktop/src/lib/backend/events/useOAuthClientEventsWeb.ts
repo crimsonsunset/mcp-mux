@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 
-import { isTauri } from '@/lib/api/transport';
+import { isTauri } from '../data/transport';
 
 import type { OAuthClientChangedPayload } from './useOAuthClientEvents';
 
@@ -47,5 +47,3 @@ export function useOAuthClientEventsWeb() {
 
   return { subscribe };
 }
-
-export default useOAuthClientEventsWeb;

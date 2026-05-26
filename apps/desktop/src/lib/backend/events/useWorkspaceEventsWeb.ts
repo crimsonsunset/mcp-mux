@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 
-import { isTauri } from '@/lib/api/transport';
+import { isTauri } from '../data/transport';
 
 import type {
   WorkspaceChannelCallback,
@@ -93,5 +93,3 @@ export function useWorkspaceEventsWeb() {
     channels: ALL_WORKSPACE_CHANNELS,
   };
 }
-
-export default useWorkspaceEventsWeb;

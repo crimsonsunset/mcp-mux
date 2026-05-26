@@ -34,10 +34,6 @@ export default tseslint.config(
       'src/components/OAuthConsentModal.tsx',
       'src/features/settings/UpdateChecker.tsx',
       'src/lib/contribute.ts',
-      'src/hooks/useDomainEvents.ts',
-      'src/hooks/useWorkspaceEvents.ts',
-      'src/hooks/useOAuthClientEvents.ts',
-      'src/hooks/useMetaToolEvents.ts',
       'src/lib/api/serverManager.ts',
     ],
     rules: {

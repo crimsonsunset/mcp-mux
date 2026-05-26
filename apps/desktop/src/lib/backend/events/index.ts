@@ -1,11 +1,8 @@
 /**
- * Hooks - React hooks for the McpMux desktop application
+ * Backend events facade — Tauri IPC on desktop, admin SSE on web.
+ * @see docs/planning/unified-backend-facade.md
  */
 
-// Data synchronization
-export { useDataSync } from './useDataSync';
-
-// Domain events (event-driven architecture)
 export {
   useDomainEvents,
   useSpaceEvents,
@@ -13,7 +10,7 @@ export {
   useServerAuthProgress,
   useClientEvents,
   useGatewayEvents,
-} from '@/lib/backend/events';
+} from './useDomainEvents';
 
 export type {
   DomainEventChannel,
@@ -28,33 +25,38 @@ export type {
   ClientGrantChangedPayload,
   GatewayChangedPayload,
   MCPNotificationPayload,
-} from '@/lib/backend/events';
+  ChannelCallback,
+  AllEventsCallback,
+  PayloadTypeMap,
+} from './useDomainEvents';
 
 export {
   useWorkspaceEvents,
   useWorkspaceEventListener,
-} from '@/lib/backend/events';
+} from './useWorkspaceEvents';
 
 export type {
   WorkspaceEventChannel,
   WorkspaceBindingChangedPayload,
   WorkspaceNeedsBindingPayload,
-} from '@/lib/backend/events';
+  WorkspaceChannelCallback,
+  WorkspaceEventsCallback,
+  WorkspacePayloadTypeMap,
+} from './useWorkspaceEvents';
 
 export {
   useOAuthClientEvents,
   useOAuthClientEventListener,
-} from '@/lib/backend/events';
+} from './useOAuthClientEvents';
 
-export type { OAuthClientChangedPayload } from '@/lib/backend/events';
+export type { OAuthClientChangedPayload } from './useOAuthClientEvents';
 
 export {
   useMetaToolEvents,
   useMetaToolEventListener,
-} from '@/lib/backend/events';
+} from './useMetaToolEvents';
 
-// Server management
-export { useServerManager } from './useServerManager';
-
-// Space management
-export { useSpaces } from './useSpaces';
+export {
+  useBackendEventSubscription,
+  type BackendEventSubscriptionOptions,
+} from './use-backend-event-subscription';

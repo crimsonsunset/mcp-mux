@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import type { MetaToolAuditEvent } from '@/lib/api/metaTools';
-import { isTauri } from '@/lib/api/transport';
+
+import { isTauri } from '../data/transport';
 
 /**
  * Subscribe to `meta-tool-invoked` over SSE in web admin mode.
@@ -43,5 +44,3 @@ export function useMetaToolEventsWeb() {
 
   return { subscribe };
 }
-
-export default useMetaToolEventsWeb;

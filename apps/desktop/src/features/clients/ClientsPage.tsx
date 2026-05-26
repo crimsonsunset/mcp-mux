@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useClientEvents } from '@/hooks/useDomainEvents';
-import { useOAuthClientEventListener } from '@/hooks/useOAuthClientEvents';
+import { useClientEvents, useOAuthClientEventListener } from '@/lib/backend/events';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';

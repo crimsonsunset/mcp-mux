@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { isTauri } from '@/lib/api/transport';
+import { isTauri } from '../data/transport';
 
 import type {
   AllEventsCallback,
@@ -127,5 +127,3 @@ export function useDomainEventsWeb() {
     channels: ALL_CHANNELS,
   };
 }
-
-export default useDomainEventsWeb;

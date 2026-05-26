@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useWorkspaceEvents } from '@/hooks/useWorkspaceEvents';
+import { useWorkspaceEvents } from '@/lib/backend/events';
 import { Check, ChevronDown, FolderOpen, Loader2, Sparkles, X } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import { createWorkspaceBinding } from '@/lib/api/workspaceBindings';
