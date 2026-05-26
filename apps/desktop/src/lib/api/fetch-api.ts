@@ -112,7 +112,11 @@ function buildQuery(args: Record<string, unknown>): string {
 }
 
 /**
- * Map a Tauri command name and args to an admin REST route.
+ * Map a Tauri IPC command name and its argument object to an admin REST route.
+ *
+ * @param command - Tauri command identifier (e.g. `list_spaces`, `start_gateway`).
+ * @param args - Command-specific payload; keys use camelCase matching the TS API layer.
+ * @returns HTTP method, path, and optional JSON body for `fetchApi`.
  */
 export function routeFor(command: string, args: Record<string, unknown> = {}): ApiRoute {
   switch (command) {

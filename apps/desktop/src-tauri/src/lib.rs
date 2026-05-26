@@ -501,8 +501,8 @@ pub fn run() {
                 let oauth_completion_rx = pool_service.oauth_manager().subscribe();
 
                 info!(
-                    "[Gateway] Auto-start services resolved — port={}, server_manager={:p}",
-                    final_port, &*server_manager_arc
+                    "[Gateway] Auto-start services resolved — port={}",
+                    final_port
                 );
 
                 // Wire ServerManager into state + spawn OAuth handler +

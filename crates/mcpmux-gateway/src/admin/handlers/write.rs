@@ -9,9 +9,9 @@ use crate::admin::command_bridge::write as bridge;
 use crate::admin::command_bridge::write::{
     AddMemberBody, CloneServerBody, CreateClientBody, CreateFeatureSetBody, CreateSpaceBody,
     DisconnectServerBody, GatewayPortBody, GatewayStartBody, InstallServerBody, LogRetentionBody,
-    MetaToolApprovalBody, MetaToolRevokeBody, OAuthClientUpdateBody, OAuthGrantBody,
-    SaveServerInputsBody, SaveSpaceConfigBody, ServerConnectionBody, SessionOverridesBody,
-    SetMembersBody, SetServerDisplayNameBody, SetServerOAuthConnectedBody, StartupSettingsBody,
+    MetaToolApprovalBody, MetaToolRevokeBody, MetaToolsEnabledBody, OAuthClientUpdateBody,
+    OAuthGrantBody, SaveServerInputsBody, SaveSpaceConfigBody, ServerConnectionBody,
+    SessionOverridesBody, SessionOverridesRequireApprovalBody, SetMembersBody, SetServerDisplayNameBody, SetServerOAuthConnectedBody, StartupSettingsBody,
     UninstallServerBody, UpdateFeatureSetBody, UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
 };
 use crate::admin::handlers::error::ApiError;
@@ -425,13 +425,9 @@ pub async fn update_startup_settings(
 
 pub async fn set_meta_tools_enabled(
     State(state): State<AdminState>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<MetaToolsEnabledBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled = body
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    bridge::set_meta_tools_enabled(&state.bridge, enabled)
+    bridge::set_meta_tools_enabled(&state.bridge, body.enabled)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
@@ -439,14 +435,9 @@ pub async fn set_meta_tools_enabled(
 
 pub async fn set_session_overrides_require_approval(
     State(state): State<AdminState>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<SessionOverridesRequireApprovalBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let require_approval = body
-        .get("requireApproval")
-        .or_else(|| body.get("require_approval"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    bridge::set_session_overrides_require_approval(&state.bridge, require_approval)
+    bridge::set_session_overrides_require_approval(&state.bridge, body.require_approval)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

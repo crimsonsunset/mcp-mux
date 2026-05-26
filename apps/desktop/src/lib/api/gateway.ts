@@ -1,4 +1,4 @@
-import { apiCall } from './transport';
+import { apiCall, isTauri } from './transport';
 
 /**
  * Gateway lifecycle and pool disconnect API.
@@ -209,15 +209,16 @@ export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
 
 /**
  * Open a URL using the system's default handler.
- * 
- * This is needed for custom protocol URLs (like `cursor://`) that
- * the webview's opener plugin may not be allowed to open directly.
+ *
+ * In web admin mode the browser opens the URL directly. Desktop uses Tauri
+ * so custom protocol handlers (e.g. `cursor://`) reach the OS.
  */
 export async function openUrl(url: string): Promise<void> {
-  const result = await apiCall<void | { url: string }>('open_url', { url });
-  if (result && typeof result === 'object' && 'url' in result) {
-    window.open(result.url, '_blank', 'noopener,noreferrer');
+  if (!isTauri()) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
   }
+  await apiCall('open_url', { url });
 }
 
 // OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.

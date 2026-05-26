@@ -41,6 +41,7 @@ impl ApiError {
 }
 
 /// Shared formatter used by tests to assert sentinel message preservation.
+#[cfg(any(test, feature = "test-utils"))]
 pub fn format_bridge_error_message(error: anyhow::Error) -> String {
     ApiError::from_bridge(error).message
 }

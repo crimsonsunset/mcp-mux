@@ -12,18 +12,22 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
-use std::sync::Arc;
 use thiserror::Error;
 use tracing::debug;
+
+#[cfg(any(test, feature = "test-utils"))]
+use std::sync::Arc;
 
 use super::super::config::CF_ACCESS_JWT_HEADER;
 use super::super::router::AdminState;
 
-/// PEM-encoded RSA public key used only by hidden test helpers.
+#[cfg(any(test, feature = "test-utils"))]
+/// PEM-encoded RSA public key used only by test helpers.
 const TEST_RSA_PUBLIC_PEM: &str =
     include_str!("../../../../../tests/fixtures/cf_access_test_pubkey.pem");
 
-/// PEM-encoded RSA private key used only by hidden test helpers.
+#[cfg(any(test, feature = "test-utils"))]
+/// PEM-encoded RSA private key used only by test helpers.
 const TEST_RSA_PRIVATE_PEM: &str =
     include_str!("../../../../../tests/fixtures/cf_access_test_private.pem");
 
@@ -130,11 +134,21 @@ impl CfAccessValidator {
             validation.set_audience(&[aud.as_str()]);
         }
 
+        let mut last_err: Option<CfAccessError> = None;
         for key in &self.keys {
-            if let Ok(token_data) = decode::<CfAccessClaims>(token, key, &validation) {
-                debug!(sub = %token_data.claims.sub, "CF Access JWT validated");
-                return Ok(token_data.claims);
+            match decode::<CfAccessClaims>(token, key, &validation) {
+                Ok(token_data) => {
+                    debug!(sub = %token_data.claims.sub, "CF Access JWT validated");
+                    return Ok(token_data.claims);
+                }
+                Err(e) => {
+                    last_err = Some(CfAccessError::InvalidJwt(e.to_string()));
+                }
             }
+        }
+
+        if let Some(err) = last_err {
+            return Err(err);
         }
 
         let kid = header.kid.unwrap_or_else(|| "unknown".into());
@@ -190,6 +204,7 @@ fn cf_access_unauthorized(message: &str) -> Response {
 }
 
 /// Test-only validator backed by the repo fixture key pair.
+#[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub fn test_validator() -> Arc<CfAccessValidator> {
     Arc::new(
@@ -203,6 +218,7 @@ pub fn test_validator() -> Arc<CfAccessValidator> {
 }
 
 /// Test-only signed JWT accepted by [`test_validator`].
+#[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub fn test_valid_jwt() -> String {
     use jsonwebtoken::{encode, EncodingKey, Header};
@@ -245,7 +261,7 @@ mod tests {
         .unwrap();
         let jwt = test_valid_jwt();
         let err = validator.validate(&jwt).unwrap_err();
-        assert!(matches!(err, CfAccessError::UnknownKeyId(_)));
+        assert!(matches!(err, CfAccessError::InvalidJwt(_)));
     }
 
     #[test]

@@ -6,6 +6,10 @@ license.workspace = true
 publish = false
 description = "McpMux Gateway - MCP proxy server with OAuth and aggregation"
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 # Async runtime
 tokio.workspace = true
@@ -49,6 +53,7 @@ base64 = "0.22"
 sha2 = "0.10"
 hmac = "0.12"
 rand = "0.8"
+subtle = "2.6"
 url = "2.5"
 urlencoding = "2.1"
 zeroize = "1.8"

@@ -6,9 +6,10 @@ use axum::{
     Router,
 };
 use mcpmux_core::ApplicationServices;
+use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::warn;
 
@@ -47,10 +48,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/api/v1/health", get(health))
         .route("/api/v1/csrf-token", get(get_csrf_token))
         .route("/api/v1/events", get(events::sse_events))
-        .route(
-            "/api/v1/test/events/publish",
-            post(events::publish_test_event),
-        )
         .route("/api/v1/gateway/status", get(read::get_gateway_status))
         .route("/api/v1/gateway/probe-start", get(read::probe_gateway_start))
         .route(
@@ -312,6 +309,14 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/servers/clones/dependents",
             get(read::list_clone_dependents),
         );
+
+    #[cfg(any(test, feature = "test-utils"))]
+    {
+        router = router.route(
+            "/api/v1/test/events/publish",
+            post(events::publish_test_event),
+        );
+    }
 
     if state.frontend_dist.join("index.html").is_file() {
         let index = state.frontend_dist.join("index.html");

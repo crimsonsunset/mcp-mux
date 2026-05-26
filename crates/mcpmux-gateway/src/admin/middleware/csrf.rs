@@ -7,8 +7,10 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use parking_lot::Mutex;
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -24,7 +26,7 @@ pub fn generate_csrf_token() -> String {
 
 /// Return the current CSRF token for SPA bootstrap.
 pub async fn get_csrf_token(State(state): State<AdminState>) -> Json<serde_json::Value> {
-    let token = state.csrf_token.lock().expect("csrf lock").clone();
+    let token = state.csrf_token.lock().clone();
     Json(json!({ "token": token }))
 }
 
@@ -58,14 +60,14 @@ pub async fn csrf_middleware(
         return next.run(request).await;
     }
 
-    let expected = state.csrf_token.lock().expect("csrf lock").clone();
+    let expected = state.csrf_token.lock().clone();
     let provided = request
         .headers()
         .get(CSRF_HEADER)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
 
-    if provided != expected {
+    if provided.as_bytes().ct_ne(expected.as_bytes()).into() {
         debug!(path = %path, "[Admin] CSRF token mismatch");
         return (
             StatusCode::FORBIDDEN,

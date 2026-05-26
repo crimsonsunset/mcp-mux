@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+#[cfg(any(test, feature = "test-utils"))]
 use serde_json::json;
 use serde_json::Value;
 
@@ -24,8 +25,10 @@ pub trait GatewayRuntime: Send + Sync {
 }
 
 /// Test/default runtime that returns empty or safe defaults.
+#[cfg(any(test, feature = "test-utils"))]
 pub struct StubGatewayRuntime;
 
+#[cfg(any(test, feature = "test-utils"))]
 #[async_trait]
 impl GatewayRuntime for StubGatewayRuntime {
     async fn get_gateway_status(&self, _space_id: Option<String>) -> Result<Value> {

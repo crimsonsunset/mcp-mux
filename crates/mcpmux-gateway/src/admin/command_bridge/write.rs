@@ -201,6 +201,17 @@ pub struct LogRetentionBody {
     pub days: u32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MetaToolsEnabledBody {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOverridesRequireApprovalBody {
+    pub require_approval: bool,
+}
+
 fn normalize_label(label: &Option<String>) -> Option<String> {
     label
         .as_ref()

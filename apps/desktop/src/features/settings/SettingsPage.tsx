@@ -58,6 +58,7 @@ import { getLogRetentionDays, setLogRetentionDays as saveLogRetentionDays } from
 import { MetaToolAuditLog, MetaToolGrantsPanel } from '@/features/metaTools';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { CONTRIBUTE, openExternal } from '@/lib/contribute';
+import { isTauri } from '@/lib/api/transport';
 
 export function SettingsPage() {
   const theme = useTheme();
@@ -134,6 +135,10 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
+    if (!isTauri()) {
+      setLoadingAdminWeb(false);
+      return;
+    }
     loadAdminWebSettings();
   }, []);
 
@@ -638,6 +643,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
+              {isTauri() ? (
               <div
                 className="border-t border-[rgb(var(--border))] pt-4 mt-2"
                 data-testid="settings-web-admin-section"
@@ -776,6 +782,7 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
+              ) : null}
             </div>
           )}
         </CardContent>

@@ -6,13 +6,10 @@ use std::time::Duration;
 use async_stream::stream;
 use axum::{
     extract::State,
-    http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
-    Json,
 };
 use futures::Stream;
-use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::super::router::AdminState;
 
@@ -30,10 +27,13 @@ pub async fn sse_events(
                         channel = %ui_event.channel,
                         "[Admin] SSE forwarding UI event"
                     );
-                    yield Ok(Event::default()
+                    match Event::default()
                         .event(ui_event.channel)
                         .json_data(ui_event.payload)
-                        .expect("UI event payload serializes"));
+                    {
+                        Ok(event) => yield Ok(event),
+                        Err(e) => warn!("[Admin] dropped non-serializable SSE event: {e}"),
+                    }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                     debug!("[Admin] SSE client lagged, skipped {skipped} events");
@@ -51,23 +51,33 @@ pub async fn sse_events(
     )
 }
 
-/// Request body for test-only SSE publish endpoint.
-#[derive(Debug, Deserialize)]
-pub struct TestPublishEventRequest {
-    pub channel: String,
-    pub payload: serde_json::Value,
+#[cfg(any(test, feature = "test-utils"))]
+mod test_publish {
+    use super::*;
+    use axum::{http::StatusCode, Json};
+    use serde::Deserialize;
+
+    /// Request body for test-only SSE publish endpoint.
+    #[derive(Debug, Deserialize)]
+    pub struct TestPublishEventRequest {
+        pub channel: String,
+        pub payload: serde_json::Value,
+    }
+
+    /// Test-only endpoint to publish UI events for Playwright SSE smoke tests.
+    pub async fn publish_test_event(
+        State(state): State<AdminState>,
+        Json(body): Json<TestPublishEventRequest>,
+    ) -> StatusCode {
+        if std::env::var("MCPMUX_ADMIN_TEST").is_err() {
+            return StatusCode::NOT_FOUND;
+        }
+        state
+            .event_hub
+            .publish_test_event(&body.channel, body.payload);
+        StatusCode::NO_CONTENT
+    }
 }
 
-/// Test-only endpoint to publish UI events for Playwright SSE smoke tests.
-pub async fn publish_test_event(
-    State(state): State<AdminState>,
-    Json(body): Json<TestPublishEventRequest>,
-) -> StatusCode {
-    if std::env::var("MCPMUX_ADMIN_TEST").is_err() {
-        return StatusCode::NOT_FOUND;
-    }
-    state
-        .event_hub
-        .publish_test_event(&body.channel, body.payload);
-    StatusCode::NO_CONTENT
-}
+#[cfg(any(test, feature = "test-utils"))]
+pub use test_publish::publish_test_event;

@@ -68,17 +68,20 @@ pub trait GatewayWriteRuntime: Send + Sync {
     async fn gateway_state(&self) -> Option<Arc<RwLock<GatewayState>>>;
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 fn gateway_not_running() -> anyhow::Error {
     anyhow::anyhow!("Gateway not running")
 }
 
 /// Test/default write runtime — gateway ops fail; port persist succeeds as no-op.
+#[cfg(any(test, feature = "test-utils"))]
 #[derive(Default)]
 pub struct StubGatewayWriteRuntime {
     pub gateway_port_service: Option<std::sync::Arc<mcpmux_core::GatewayPortService>>,
     pub gateway_state: Option<Arc<RwLock<GatewayState>>>,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 #[async_trait]
 impl GatewayWriteRuntime for StubGatewayWriteRuntime {
     async fn start_gateway(

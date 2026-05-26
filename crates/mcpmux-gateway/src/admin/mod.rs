@@ -21,11 +21,17 @@ pub use bridge_context::AdminBridgeCtx;
 pub use event_hub::AdminEventHub;
 pub use ui_events::{map_domain_event_to_ui, AdminUiEventBus, UiEvent};
 pub use middleware::{CfAccessError, CfAccessValidator, CSRF_HEADER, new_csrf_token_store};
+#[cfg(any(test, feature = "test-utils"))]
 pub use handlers::error::format_bridge_error_message;
-pub use runtime::{GatewayRuntime, StubGatewayRuntime};
-pub use write_runtime::{GatewayWriteRuntime, StubGatewayWriteRuntime};
+pub use runtime::GatewayRuntime;
+#[cfg(any(test, feature = "test-utils"))]
+pub use runtime::StubGatewayRuntime;
+pub use write_runtime::GatewayWriteRuntime;
+#[cfg(any(test, feature = "test-utils"))]
+pub use write_runtime::StubGatewayWriteRuntime;
 pub use router::{build_admin_router, AdminState};
 pub use server::{AdminServer, AdminServerHandle};
 
+#[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
 pub use middleware::{test_valid_jwt, test_validator};

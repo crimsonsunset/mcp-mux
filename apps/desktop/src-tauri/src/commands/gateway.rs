@@ -542,8 +542,8 @@ pub async fn start_gateway(
     // events emitted during initial auto-connect.
     let oauth_completion_rx = pool_service.oauth_manager().subscribe();
     info!(
-        "[Gateway] Services resolved — port={}, server_manager={:p}",
-        final_port, &*server_manager
+        "[Gateway] Services resolved — port={}",
+        final_port
     );
 
     // Meta-tool approval broker — attach a Tauri-event publisher so

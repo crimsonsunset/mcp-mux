@@ -90,6 +90,8 @@ fn now_unix_secs() -> i64 {
 }
 
 /// Validate a pending authorization and return authoritative consent details.
+///
+/// Removes expired entries from the pending-authorizations map when encountered.
 pub async fn get_pending_consent(
     gateway_state: &Arc<RwLock<GatewayState>>,
     request_id: String,
@@ -273,7 +275,6 @@ pub async fn approve_oauth_consent(
         "[OAuth] Authorization approved for client: {}, issuing code",
         pending.client_id
     );
-    info!("[OAuth] Redirect URL: {}", redirect_url);
 
     Ok(ConsentApprovalResponse {
         success: true,

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use mcpmux_core::{ApplicationServices, DomainEvent, EventReceiver};
+use parking_lot::Mutex;
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
@@ -14,6 +15,8 @@ use super::ui_events::{map_domain_event_to_ui, AdminUiEventBus, UiEvent};
 pub struct AdminEventHub {
     outbound: broadcast::Sender<UiEvent>,
     ui_event_bus: Arc<AdminUiEventBus>,
+    services_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    direct_ui_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     gateway_task: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
@@ -24,6 +27,8 @@ impl AdminEventHub {
         Self {
             outbound,
             ui_event_bus,
+            services_task: Arc::new(Mutex::new(None)),
+            direct_ui_task: Arc::new(Mutex::new(None)),
             gateway_task: Arc::new(RwLock::new(None)),
         }
     }
@@ -47,10 +52,22 @@ impl AdminEventHub {
         });
     }
 
+    /// Abort a fan-in task if it is still running.
+    fn abort_task(slot: &mut Option<JoinHandle<()>>) {
+        if let Some(handle) = slot.take() {
+            handle.abort();
+        }
+    }
+
     /// Start background fan-in from ApplicationServices EventBus and direct UI bus.
     pub fn start(&self, services: Arc<ApplicationServices>) {
+        {
+            let mut slot = self.services_task.lock();
+            Self::abort_task(&mut slot);
+        }
+
         let hub = self.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut rx: EventReceiver = services.subscribe();
             info!("[AdminEventHub] ApplicationServices EventBus fan-in started");
             while let Some(event) = rx.recv().await {
@@ -58,10 +75,16 @@ impl AdminEventHub {
             }
             debug!("[AdminEventHub] ApplicationServices EventBus fan-in stopped");
         });
+        *self.services_task.lock() = Some(handle);
+
+        {
+            let mut slot = self.direct_ui_task.lock();
+            Self::abort_task(&mut slot);
+        }
 
         let hub = self.clone();
         let mut direct_rx = self.ui_event_bus.subscribe();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             info!("[AdminEventHub] Direct UI event fan-in started");
             loop {
                 match direct_rx.recv().await {
@@ -74,6 +97,7 @@ impl AdminEventHub {
             }
             debug!("[AdminEventHub] Direct UI event fan-in stopped");
         });
+        *self.direct_ui_task.lock() = Some(handle);
     }
 
     /// Subscribe to gateway runtime domain events when the MCP gateway starts.
@@ -107,6 +131,7 @@ impl AdminEventHub {
     }
 
     /// Test-only publish of a direct channel event (integration tests / Playwright).
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn publish_test_event(&self, channel: &str, payload: serde_json::Value) {
         self.ui_event_bus.publish(channel, payload);
     }
