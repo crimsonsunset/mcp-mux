@@ -18,6 +18,11 @@ pub struct AdminConfig {
     /// Port to listen on.
     pub port: u16,
     /// Require and validate `CF-Access-Jwt-Assertion` when true.
+    ///
+    /// When enabled, **all** routes including `/api/v1/health` require a valid JWT.
+    /// Cloudflare Tunnel origin health probes do not send `CF-Access-Jwt-Assertion`;
+    /// do not rely on tunnel health checks against the admin origin — use an external
+    /// monitor or a separate unauthenticated probe path if needed.
     pub trust_cf_access: bool,
     /// Cloudflare team domain for JWT cert validation (e.g. `myteam`).
     pub cf_team_domain: Option<String>,

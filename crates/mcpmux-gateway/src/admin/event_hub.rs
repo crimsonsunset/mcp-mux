@@ -135,6 +135,14 @@ impl AdminEventHub {
     pub fn publish_test_event(&self, channel: &str, payload: serde_json::Value) {
         self.ui_event_bus.publish(channel, payload);
     }
+
+    /// Count active EventBus fan-in tasks (integration tests for router rebuild idempotency).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn active_fan_in_task_count(&self) -> usize {
+        let services = self.services_task.lock().is_some() as usize;
+        let direct = self.direct_ui_task.lock().is_some() as usize;
+        services + direct
+    }
 }
 
 impl Default for AdminEventHub {

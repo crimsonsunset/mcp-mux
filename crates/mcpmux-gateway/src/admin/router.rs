@@ -15,7 +15,7 @@ use tracing::warn;
 
 use super::config::AdminConfig;
 use super::event_hub::AdminEventHub;
-use super::handlers::{events, health, oauth, read, write};
+use super::handlers::{events, health, oauth, read, spa, write};
 use super::middleware::{cf_access_middleware, csrf_middleware, get_csrf_token, CfAccessValidator};
 use crate::admin::bridge_context::AdminBridgeCtx;
 
@@ -325,9 +325,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         router = router.fallback_service(static_files);
     } else {
         warn!(
-            "[Admin] frontend dist missing index.html at {:?} — static UI disabled",
+            "[Admin] frontend dist missing index.html at {:?} — serving build hint page",
             state.frontend_dist
         );
+        router = router.fallback(get(spa::missing_spa_build));
     }
 
     router

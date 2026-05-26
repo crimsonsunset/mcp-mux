@@ -97,6 +97,8 @@ For homelab operators who need the full McpMux UI from another device (phone, la
 - Serves the production React build at `/` and REST at `/api/v1/*`
 - **Cloudflare Access** (recommended): expose `mux.joe-hassio.com` via `cloudflared` to `localhost:45819` and enable **Trust Cloudflare Access JWT** so only authenticated tunnel traffic reaches the app
 - **Local dev**: disable CF JWT trust to hit `http://127.0.0.1:45819` directly
+- **Health checks**: when CF Access trust is enabled, `/api/v1/health` also requires a valid `CF-Access-Jwt-Assertion` header. Cloudflare Tunnel origin probes do not send that header — use an external monitor or keep trust disabled on a dev-only admin instance rather than relying on tunnel health checks against `:45819`.
+- **Missing SPA build**: if `pnpm build:web:admin` has not been run, visiting `/` returns a 503 HTML page with build instructions instead of a blank 404.
 
 Build the SPA for admin serving from the repo root:
 

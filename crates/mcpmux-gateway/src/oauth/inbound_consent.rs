@@ -310,3 +310,59 @@ pub fn emit_consent_request(ui_bus: &AdminUiEventBus, request_id: &str) {
         serde_json::json!({ "requestId": request_id }),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::broadcast;
+    use tracing_test::traced_test;
+
+    async fn seed_pending(
+        gateway_state: &Arc<RwLock<GatewayState>>,
+        request_id: &str,
+        consent_token: &str,
+    ) {
+        let expires_at = now_unix_secs() + 300;
+        let pending = PendingAuthorization {
+            client_id: "test-client".to_string(),
+            client_name: Some("Test Client".to_string()),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scope: Some("mcp".to_string()),
+            state: Some("state-1".to_string()),
+            code_challenge: None,
+            code_challenge_method: None,
+            expires_at,
+            consent_token: Some(consent_token.to_string()),
+        };
+        gateway_state
+            .write()
+            .await
+            .store_pending_authorization(request_id, pending);
+    }
+
+    #[traced_test]
+    #[tokio::test]
+    async fn approve_oauth_consent_does_not_log_authorization_code() {
+        let (tx, _) = broadcast::channel(4);
+        let gateway_state = Arc::new(RwLock::new(GatewayState::new(tx)));
+
+        seed_pending(&gateway_state, "req-log-test", "consent-secret").await;
+
+        let response = approve_oauth_consent(
+            &gateway_state,
+            ConsentApprovalRequest {
+                request_id: "req-log-test".to_string(),
+                approved: true,
+                consent_token: "consent-secret".to_string(),
+                client_alias: None,
+            },
+        )
+        .await
+        .expect("approve consent");
+
+        assert!(response.success);
+        assert!(response.redirect_url.contains("code=mc_"));
+        assert!(!logs_contain("code=mc_"));
+        assert!(!logs_contain("Redirect URL"));
+    }
+}

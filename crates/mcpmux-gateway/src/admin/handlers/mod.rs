@@ -5,6 +5,7 @@ pub mod error;
 pub mod events;
 pub mod oauth;
 pub mod read;
+pub mod spa;
 pub mod write;
 
 pub use health::health;

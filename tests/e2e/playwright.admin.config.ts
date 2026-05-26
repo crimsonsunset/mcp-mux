@@ -5,6 +5,12 @@
  * `apps/desktop/dist`), optional `MCPMUX_ADMIN_CF_JWT` when CF Access trust is on,
  * optional `MCPMUX_ADMIN_TEST=1` for SSE/oauth publish helpers.
  *
+ * Negative CF Access spec (`security-negative.spec.ts`): set
+ * `MCPMUX_ADMIN_CF_TRUST_ENABLED=1` with trust on and omit `MCPMUX_ADMIN_CF_JWT`.
+ *
+ * Note: `/api/v1/health` requires a valid CF Access JWT when trust is enabled —
+ * Cloudflare Tunnel origin health probes cannot authenticate to the admin server.
+ *
  * CI: `test:e2e:web:admin` is wired in package.json; full Linux CI job deferred until
  * an AdminServer fixture starts automatically in the workflow.
  */

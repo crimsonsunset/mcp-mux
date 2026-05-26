@@ -27,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 /// In-memory `ApplicationServices` for admin integration tests.
-async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>) {
+pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>) {
     let temp_dir = tempfile::TempDir::new().expect("tempdir");
     let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
     let event_bus = Arc::new(EventBus::new());

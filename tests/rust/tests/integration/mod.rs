@@ -10,6 +10,7 @@
 
 mod admin_api;
 mod admin_api_oauth;
+mod admin_api_regression;
 mod admin_api_write;
 mod admin_sse_events;
 mod command_bridge_space;
