@@ -18,6 +18,7 @@ use commands::oauth::{route_or_buffer_deep_link, PendingInitialDeepLink};
 
 use commands::gateway::{GatewayAppState, PendingPortConflict};
 use commands::server_manager::ServerManagerState;
+use services::admin_server::{start_admin_server_if_enabled, AdminServerState};
 use state::AppState;
 
 /// Application identifier - read from tauri.conf.json at build time
@@ -336,6 +337,8 @@ pub fn run() {
             let managed_app_service = Arc::new(RwLock::new(Some(server_app_service)));
             app.manage(managed_app_service);
 
+            let admin_server_state = Arc::new(RwLock::new(AdminServerState::default()));
+
             // Create gateway state and auto-start gateway
             let gateway_state = Arc::new(RwLock::new(GatewayAppState::default()));
 
@@ -523,6 +526,12 @@ pub fn run() {
                 state.approval_broker = Some(approval_broker);
                 state.session_roots = Some(session_roots);
 
+                if let Some(admin) =
+                    app_handle_for_sm.try_state::<Arc<RwLock<services::AdminServerState>>>()
+                {
+                    services::admin_server::set_gateway_running(&*admin.read().await, true);
+                }
+
                 info!(
                     "Gateway auto-started successfully on {} - GrantService initialized: {}",
                     url,
@@ -546,6 +555,22 @@ pub fn run() {
 
             app.manage(gateway_state);
             app.manage(server_manager_state);
+            app.manage(admin_server_state.clone());
+
+            // Web admin HTTP server (optional, settings-gated)
+            {
+                let app_handle_admin = app.handle().clone();
+                let event_bus_admin = event_bus.clone();
+                let admin_state_spawn = admin_server_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    start_admin_server_if_enabled(
+                        app_handle_admin,
+                        admin_state_spawn,
+                        event_bus_admin,
+                    )
+                    .await;
+                });
+            }
 
             // Start file watcher for user space config files (hot-reload)
             {

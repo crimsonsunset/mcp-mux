@@ -33,6 +33,11 @@ impl SpaceService {
         }
     }
 
+    /// Clone handle to the underlying repository (for admin `ApplicationServices`).
+    pub fn repository(&self) -> Arc<dyn SpaceRepository> {
+        self.repository.clone()
+    }
+
     /// List all spaces
     pub async fn list(&self) -> anyhow::Result<Vec<Space>> {
         self.repository.list().await

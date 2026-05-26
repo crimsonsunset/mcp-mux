@@ -18,6 +18,7 @@
 //! emitters in Rust is deferred; this module documents the contract only.
 
 use crate::commands::server_manager::ServerManagerState;
+use crate::services::admin_server::{set_gateway_running, AdminServerState};
 use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
 use mcpmux_core::DomainEvent;
@@ -27,7 +28,7 @@ use mcpmux_gateway::{
 };
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::RwLock;
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
@@ -964,6 +965,9 @@ pub async fn start_gateway(
     state.session_roots = Some(session_roots);
     state.session_overrides = Some(session_overrides);
     state.mcp_notifier = Some(mcp_notifier);
+    if let Some(admin) = app_handle.try_state::<Arc<tokio::sync::RwLock<AdminServerState>>>() {
+        set_gateway_running(&*admin.read().await, true);
+    }
     info!(
         "[Gateway] Started — url={}, event_emitter={}, grant_service={}",
         url,
@@ -994,6 +998,7 @@ pub async fn start_gateway(
 pub async fn stop_gateway(
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
     app_handle: tauri::AppHandle,
+    admin_state: State<'_, Arc<tokio::sync::RwLock<AdminServerState>>>,
 ) -> Result<(), String> {
     // Take the handle out under the lock, then drop the guard BEFORE
     // awaiting the shutdown — otherwise the lock is held for up to 2s
@@ -1013,6 +1018,8 @@ pub async fn stop_gateway(
         info!("[Gateway] Stop requested — shutting down gracefully");
         shutdown_gateway_handle(h).await;
     }
+
+    set_gateway_running(&*admin_state.read().await, false);
 
     if let Err(e) = app_handle.emit("gateway-changed", serde_json::json!({"action": "stopped"})) {
         warn!("[Gateway] Failed to emit gateway-changed(stopped): {}", e);

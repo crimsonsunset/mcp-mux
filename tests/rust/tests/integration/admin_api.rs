@@ -1,12 +1,14 @@
-//! Admin HTTP integration test harness.
-//!
-//! Phase 2+ adds dual-entry tests (bridge JSON ≡ HTTP JSON) per parity matrix row.
+//! Admin HTTP integration tests.
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
 use mcpmux_core::{ApplicationServices, ApplicationServicesBuilder, EventBus, SpaceRepository};
-use mcpmux_gateway::admin::{build_admin_router, AdminConfig, CF_ACCESS_JWT_HEADER};
+use mcpmux_gateway::admin::{
+    build_admin_router, test_valid_jwt, test_validator, AdminConfig, AdminState,
+    CF_ACCESS_JWT_HEADER,
+};
 use mcpmux_storage::{Database, SqliteSpaceRepository};
 use reqwest::{Client, RequestBuilder, Response};
 use tokio::net::TcpListener;
@@ -37,8 +39,27 @@ struct AdminHarness {
 
 impl AdminHarness {
     /// Mount the admin router and bind to `127.0.0.1:0`.
-    async fn start(services: Arc<ApplicationServices>, config: AdminConfig) -> Self {
-        let router = build_admin_router(services.clone(), config);
+    async fn start(config: AdminConfig, gateway_running: bool) -> Self {
+        let services = in_memory_services().await;
+        let gateway_flag = Arc::new(AtomicBool::new(gateway_running));
+        let cf_validator = if config.trust_cf_access {
+            config
+                .cf_validator_override
+                .clone()
+                .or_else(|| Some(test_validator()))
+        } else {
+            None
+        };
+
+        let state = AdminState {
+            services: services.clone(),
+            config: config.clone(),
+            gateway_running: gateway_flag,
+            frontend_dist: std::path::PathBuf::from("/nonexistent"),
+            cf_validator,
+        };
+        let router = build_admin_router(state);
+
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind admin harness");
@@ -102,32 +123,55 @@ impl AdminClient {
     }
 }
 
-/// Helper: admin HTTP client with optional CF JWT header.
-fn admin_client(base_url: &str, cf_jwt: Option<&str>) -> AdminClient {
-    AdminClient::new(base_url, cf_jwt)
-}
-
 #[tokio::test(flavor = "multi_thread")]
-async fn admin_harness_starts_on_ephemeral_port() {
-    let services = in_memory_services().await;
-    let harness = AdminHarness::start(services, AdminConfig::default()).await;
-    let client = admin_client(&harness.base_url, None);
+async fn health_returns_200_with_valid_jwt_stub() {
+    let mut config = AdminConfig {
+        trust_cf_access: true,
+        ..AdminConfig::default()
+    };
+    config.cf_validator_override = Some(test_validator());
 
-    let resp = client.get_response("/").await;
-    assert_eq!(resp.status(), 404);
+    let harness = AdminHarness::start(config, true).await;
+    let client = AdminClient::new(&harness.base_url, Some(&test_valid_jwt()));
+
+    let resp = client.get_response("/api/v1/health").await;
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.expect("health json");
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["gateway_running"], true);
 
     harness.shutdown();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn admin_client_attaches_cf_jwt_header_when_provided() {
-    let services = in_memory_services().await;
-    let harness = AdminHarness::start(services, AdminConfig::default()).await;
-    let jwt = "test-cf-access-jwt-stub";
-    let client = admin_client(&harness.base_url, Some(jwt));
+async fn health_returns_401_when_cf_access_enabled_and_no_jwt() {
+    let mut config = AdminConfig {
+        trust_cf_access: true,
+        ..AdminConfig::default()
+    };
+    config.cf_validator_override = Some(test_validator());
 
-    let resp = client.get_response("/").await;
-    assert_eq!(resp.status(), 404);
+    let harness = AdminHarness::start(config, false).await;
+    let client = AdminClient::new(&harness.base_url, None);
+
+    let resp = client.get_response("/api/v1/health").await;
+    assert_eq!(resp.status(), 401);
+
+    harness.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn health_returns_200_when_cf_access_disabled() {
+    let harness = AdminHarness::start(AdminConfig::default(), false).await;
+    let client = AdminClient::new(&harness.base_url, None);
+
+    let resp = client.get_response("/api/v1/health").await;
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.expect("health json");
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["gateway_running"], false);
 
     harness.shutdown();
 }

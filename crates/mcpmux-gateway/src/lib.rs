@@ -19,6 +19,7 @@ pub mod pool;
 pub mod server;
 pub mod services;
 
+pub use admin::{AdminConfig, AdminServer, AdminServerHandle, DEFAULT_ADMIN_PORT};
 pub use auth::AccessKeyAuth;
 pub use oauth::{OAuthConfig, OAuthManager, OAuthToken};
 pub use permissions::{PermissionFilter, PermissionSet};

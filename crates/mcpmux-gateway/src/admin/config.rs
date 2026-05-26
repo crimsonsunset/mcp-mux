@@ -1,5 +1,9 @@
 //! Admin server configuration.
 
+use std::sync::Arc;
+
+use super::middleware::CfAccessValidator;
+
 /// Default admin listen port (loopback + CF tunnel).
 pub const DEFAULT_ADMIN_PORT: u16 = 45819;
 
@@ -7,7 +11,7 @@ pub const DEFAULT_ADMIN_PORT: u16 = 45819;
 pub const CF_ACCESS_JWT_HEADER: &str = "CF-Access-Jwt-Assertion";
 
 /// Admin HTTP server configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AdminConfig {
     /// Host to bind to (default loopback).
     pub host: String,
@@ -15,8 +19,28 @@ pub struct AdminConfig {
     pub port: u16,
     /// Require and validate `CF-Access-Jwt-Assertion` when true.
     pub trust_cf_access: bool,
-    /// Cloudflare team domain for JWT cert validation (Phase 2).
+    /// Cloudflare team domain for JWT cert validation (e.g. `myteam`).
     pub cf_team_domain: Option<String>,
+    /// Optional CF Access application AUD tag.
+    pub cf_access_audience: Option<String>,
+    /// Inject a validator (integration tests); skips cert fetch when set.
+    pub cf_validator_override: Option<Arc<CfAccessValidator>>,
+}
+
+impl std::fmt::Debug for AdminConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("trust_cf_access", &self.trust_cf_access)
+            .field("cf_team_domain", &self.cf_team_domain)
+            .field("cf_access_audience", &self.cf_access_audience)
+            .field(
+                "cf_validator_override",
+                &self.cf_validator_override.is_some(),
+            )
+            .finish()
+    }
 }
 
 impl Default for AdminConfig {
@@ -26,6 +50,8 @@ impl Default for AdminConfig {
             port: DEFAULT_ADMIN_PORT,
             trust_cf_access: false,
             cf_team_domain: None,
+            cf_access_audience: None,
+            cf_validator_override: None,
         }
     }
 }
