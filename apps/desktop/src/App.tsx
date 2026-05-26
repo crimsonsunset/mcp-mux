@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import {
   Home,
   Server,
@@ -43,6 +42,7 @@ import { AutoStartConflictResolver } from '@/features/gateway/AutoStartConflictR
 import { WorkspaceBindingSheet } from '@/features/workspaces';
 import { MetaToolApprovalDialog } from '@/features/metaTools';
 import { useGatewayEvents, useServerStatusEvents } from '@/hooks/useDomainEvents';
+import { getVersion } from '@/lib/api/app';
 
 /** McpMux title-bar icon — miniature cat icon */
 function McpMuxGlyph({ className }: { className?: string }) {
@@ -116,7 +116,7 @@ function AppContent() {
   // App version from Rust backend
   const [appVersion, setAppVersion] = useState('');
   useEffect(() => {
-    invoke<string>('get_version')
+    getVersion()
       .then(setAppVersion)
       .catch((err) => console.error('Failed to get version:', err));
   }, []);

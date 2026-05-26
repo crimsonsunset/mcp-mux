@@ -156,154 +156,6 @@ export async function listConnectedServers(): Promise<BackendStatus[]> {
 }
 
 /**
- * Inbound client registration type (per MCP spec 2025-11-25)
- */
-export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';
-
-/**
- * Inbound client (unified OAuth + MCP model)
- * 
- * Represents apps connecting TO McpMux (e.g., Cursor, VS Code, Claude Desktop).
- * Supports three MCP registration approaches:
- * - CIMD: Client ID Metadata Documents (client_id is a URL)
- * - DCR: Dynamic Client Registration (server generates client_id)
- * - Preregistered: Server pre-configures client_id
- * 
- * Per RFC 7591, clients self-identify via metadata they provide.
- * Use `logo_uri`, `software_id`, and `client_name` for client identification.
- */
-export interface OAuthClient {
-  client_id: string;
-  registration_type: RegistrationType;
-  client_name: string;
-  client_alias: string | null;
-  redirect_uris: string[];
-  scope: string | null;
-  
-  // Approval status - true if user has explicitly approved this client
-  approved: boolean;
-  
-  // RFC 7591 Client Metadata (use these for client identification)
-  logo_uri?: string | null;  // URL for client's logo
-  client_uri?: string | null;  // URL of client's homepage
-  software_id?: string | null;  // Unique identifier (e.g., "com.cursor.app")
-  software_version?: string | null;  // Client software version
-  
-  // CIMD-specific fields (only used when registration_type='cimd')
-  metadata_url?: string | null;  // URL where metadata was fetched
-  metadata_cached_at?: string | null;  // When we last fetched
-  metadata_cache_ttl?: number | null;  // Cache duration in seconds
-
-  last_seen: string | null;
-  created_at: string;
-
-  /**
-   * Sticky-positive bit: `true` once any session of this client declared
-   * the MCP `roots` capability. **Only meaningful when
-   * `roots_capability_known` is `true`** — for clients we haven't observed
-   * yet, this defaults to `false` and the UI must NOT render "Rootless"
-   * based on it alone.
-   */
-  reports_roots: boolean;
-
-  /**
-   * `true` once we've processed `notifications/initialized` for at least
-   * one session of this client. Until then the capability is **unknown**
-   * and the UI hides the badge entirely. Once known the badge resolves
-   * to either "Reports workspace" or "Rootless".
-   */
-  roots_capability_known: boolean;
-}
-
-/**
- * Update client settings request. Only the display alias is editable.
- */
-export interface UpdateClientRequest {
-  client_alias?: string;
-}
-
-/**
- * List all registered OAuth clients (Cursor, Claude, etc.)
- */
-export async function listOAuthClients(): Promise<OAuthClient[]> {
-  return invoke('get_oauth_clients');
-}
-
-/**
- * Update an OAuth client's settings.
- */
-export async function updateOAuthClient(
-  clientId: string,
-  settings: UpdateClientRequest
-): Promise<OAuthClient> {
-  return invoke('update_oauth_client', { clientId, settings });
-}
-
-/**
- * Delete an OAuth client.
- */
-export async function deleteOAuthClient(clientId: string): Promise<void> {
-  return invoke('delete_oauth_client', { clientId });
-}
-
-// =============================================================================
-// Per-client FeatureSet grants (rootless fallback path)
-// =============================================================================
-//
-// These grants only apply to clients that did NOT declare the MCP `roots`
-// capability — Claude.ai web, ChatGPT, and similar rootless connectors.
-// Roots-capable desktop clients (Cursor, VS Code, Claude Desktop) route via
-// `WorkspaceBinding` and ignore these grants.
-//
-// Backed by the `client_grants` table (restored in migration 009). Writes
-// emit a `ClientGrantChanged` domain event so MCPNotifier pushes
-// `notifications/{tools,prompts,resources}/list_changed` to the client's
-// connected peers without requiring a reconnect.
-
-/**
- * Read the FeatureSet ids granted to a (client, space) pair. Empty array
- * means the rootless fallback would deny — consumer should render the
- * "no defaults configured" empty state.
- */
-export async function getOAuthClientGrants(
-  clientId: string,
-  spaceId: string
-): Promise<string[]> {
-  return invoke('get_oauth_client_grants', { clientId, spaceId });
-}
-
-/**
- * Grant a FeatureSet to an OAuth client in a space. Idempotent at the DB
- * layer; always emits the change event so peers re-fetch.
- */
-export async function grantOAuthClientFeatureSet(
-  clientId: string,
-  spaceId: string,
-  featureSetId: string
-): Promise<void> {
-  return invoke('grant_oauth_client_feature_set', {
-    clientId,
-    spaceId,
-    featureSetId,
-  });
-}
-
-/**
- * Revoke a FeatureSet from an OAuth client in a space.
- */
-export async function revokeOAuthClientFeatureSet(
-  clientId: string,
-  spaceId: string,
-  featureSetId: string
-): Promise<void> {
-  return invoke('revoke_oauth_client_feature_set', {
-    clientId,
-    spaceId,
-    featureSetId,
-  });
-}
-
-/**
  * Result of bulk server connection.
  */
 export interface BulkConnectResult {
@@ -364,3 +216,18 @@ export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
 export async function openUrl(url: string): Promise<void> {
   return invoke('open_url', { url });
 }
+
+// OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.
+export type {
+  OAuthClient,
+  RegistrationType,
+  UpdateClientRequest,
+} from './oauth';
+export {
+  deleteOAuthClient,
+  getOAuthClientGrants,
+  grantOAuthClientFeatureSet,
+  listOAuthClients,
+  revokeOAuthClientFeatureSet,
+  updateOAuthClient,
+} from './oauth';

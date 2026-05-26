@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
+import { respondToMetaToolApproval } from '@/lib/api/metaTools';
 
 /**
  * Incoming approval request emitted by the gateway's ApprovalBroker.
@@ -56,12 +56,12 @@ export function MetaToolApprovalDialog() {
     async (decision: Decision) => {
       if (!current) return;
       try {
-        await invoke('respond_to_meta_tool_approval', {
-          requestId: current.request_id,
-          clientId: current.client_id,
-          toolName: current.payload.tool_name,
-          decision,
-        });
+        await respondToMetaToolApproval(
+          current.request_id,
+          current.client_id,
+          current.payload.tool_name,
+          decision
+        );
       } catch (e) {
         // Log but don't block UI — broker will time out and surface
         // `approval_timed_out` to the tool caller.

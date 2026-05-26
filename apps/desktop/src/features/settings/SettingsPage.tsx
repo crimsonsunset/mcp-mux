@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import {
   Card,
   CardHeader,
@@ -40,21 +39,21 @@ import {
   getSessionOverridesRequireApproval,
   setSessionOverridesRequireApproval,
 } from '@/lib/api/sessionOverrides';
+import {
+  getGatewayPortSettings,
+  getLogsPath,
+  getStartupSettings,
+  openLogsFolder,
+  resetGatewayPort,
+  setGatewayPort,
+  updateStartupSettings,
+  type GatewayPortSettings,
+  type StartupSettings,
+} from '@/lib/api/settings';
+import { getLogRetentionDays, setLogRetentionDays as saveLogRetentionDays } from '@/lib/api/logs';
 import { MetaToolAuditLog, MetaToolGrantsPanel } from '@/features/metaTools';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { CONTRIBUTE, openExternal } from '@/lib/contribute';
-
-interface StartupSettings {
-  autoLaunch: boolean;
-  startMinimized: boolean;
-  closeToTray: boolean;
-}
-
-interface GatewayPortSettings {
-  configuredPort: number | null;
-  defaultPort: number;
-  activePort: number | null;
-}
 
 export function SettingsPage() {
   const theme = useTheme();
@@ -98,7 +97,7 @@ export function SettingsPage() {
 
   const loadPortSettings = async () => {
     try {
-      const s = await invoke<GatewayPortSettings>('get_gateway_port_settings');
+      const s = await getGatewayPortSettings();
       setPortSettings(s);
       setPortDraft(String(s.configuredPort ?? s.defaultPort));
       setPortError(null);
@@ -131,7 +130,7 @@ export function SettingsPage() {
     setPortError(null);
     setSavingPort(true);
     try {
-      await invoke('set_gateway_port', { port: parsed.port });
+      await setGatewayPort(parsed.port);
       await loadPortSettings();
       success(
         'Gateway port saved',
@@ -151,7 +150,7 @@ export function SettingsPage() {
   const handleResetPort = async () => {
     setResettingPort(true);
     try {
-      await invoke('reset_gateway_port');
+      await resetGatewayPort();
       await loadPortSettings();
       success(
         'Reset to default',
@@ -235,7 +234,7 @@ export function SettingsPage() {
   useEffect(() => {
     const loadLogsPath = async () => {
       try {
-        const path = await invoke<string>('get_logs_path');
+        const path = await getLogsPath();
         setLogsPath(path);
       } catch (error) {
         console.error('Failed to get logs path:', error);
@@ -248,7 +247,7 @@ export function SettingsPage() {
   useEffect(() => {
     const loadRetention = async () => {
       try {
-        const days = await invoke<number>('get_log_retention_days');
+        const days = await getLogRetentionDays();
         setLogRetentionDays(days);
       } catch (err) {
         console.error('Failed to load log retention setting:', err);
@@ -261,7 +260,7 @@ export function SettingsPage() {
   useEffect(() => {
     const loadStartupSettings = async () => {
       try {
-        const settings = await invoke<StartupSettings>('get_startup_settings');
+        const settings = await getStartupSettings();
         setStartupSettings(settings);
       } catch (error) {
         console.error('Failed to load startup settings:', error);
@@ -289,7 +288,7 @@ export function SettingsPage() {
     
     try {
       console.log('[Settings] Invoking update_startup_settings:', newSettings);
-      await invoke('update_startup_settings', { settings: newSettings });
+      await updateStartupSettings(newSettings);
       console.log('[Settings] Successfully saved:', newSettings);
       
       // Show success toast
@@ -311,7 +310,7 @@ export function SettingsPage() {
     setLogRetentionDays(days);
     setSavingRetention(true);
     try {
-      await invoke('set_log_retention_days', { days });
+      await saveLogRetentionDays(days);
       success('Settings saved', `Log retention set to ${days === 0 ? 'keep forever' : `${days} days`}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -325,7 +324,7 @@ export function SettingsPage() {
   const handleOpenLogs = async () => {
     setOpeningLogs(true);
     try {
-      await invoke('open_logs_folder');
+      await openLogsFolder();
     } catch (error) {
       console.error('Failed to open logs folder:', error);
     } finally {
