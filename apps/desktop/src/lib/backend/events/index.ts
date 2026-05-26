@@ -1,6 +1,6 @@
 /**
  * Backend events facade — Tauri IPC on desktop, admin SSE on web.
- * @see docs/planning/unified-backend-facade.md
+ * @see AGENTS.md Frontend Notes (`@/lib/backend` facade)
  */
 
 export {

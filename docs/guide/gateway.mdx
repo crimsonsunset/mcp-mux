@@ -91,7 +91,7 @@ The dashboard shows real-time gateway status:
 
 ## Web admin mode (remote UI)
 
-For homelab operators who need the full McpMux UI from another device (phone, laptop) without screen sharing, enable **Web admin mode** in **Settings → Gateway**:
+For operators who need the full McpMux UI from another device (phone, laptop) without screen sharing, enable **Web admin mode** in **Settings → Gateway**:
 
 - **Admin server** listens on `127.0.0.1:45819` by default (configurable port, never bind to `0.0.0.0`)
 - Serves the production React build at `/` and REST at `/api/v1/*`
@@ -107,8 +107,6 @@ pnpm build:web:admin
 ```
 
 The Tauri app resolves `apps/desktop/dist` when the admin server starts. MCP clients should continue using `http://localhost:45818/mcp` (or a separate MCP tunnel hostname such as `mcp.example.com`) — do not mix admin UI traffic onto the MCP gateway port.
-
-See [Web Admin Mode planning](/docs/planning/web-admin-remote-access) for architecture and security notes.
 
 ## Next Steps
 

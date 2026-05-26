@@ -228,7 +228,7 @@ pnpm build    # Production build
 pnpm test     # Run all tests
 ```
 
-**Web admin (browser UI over HTTP):** `pnpm dev:admin` or `pnpm dev:web:admin` — see [`docs/run-from-source-macos.md`](docs/run-from-source-macos.md).
+**Web admin (browser UI over HTTP):** `pnpm dev:admin` or `pnpm dev:web:admin` — see [`AGENTS.md`](AGENTS.md) for dev commands and port layout (`:1420` / `:45818` / `:45819`).
 
 **Prerequisites:** Rust 1.75+, Node.js 18+, pnpm 9+. Linux also needs `gnome-keyring libsecret-1-dev librsvg2-dev pkg-config`.
 

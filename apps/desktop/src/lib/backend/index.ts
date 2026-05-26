@@ -1,6 +1,6 @@
 /**
  * Unified backend facade — three channels: data (commands), events (Phase 2), shell (desktop-only).
- * @see docs/planning/unified-backend-facade.md
+ * @see AGENTS.md Frontend Notes (`@/lib/backend` facade)
  */
 
 export * from '../api';

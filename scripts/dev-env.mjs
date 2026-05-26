@@ -59,7 +59,7 @@ async function prep() {
       `[dev-env] Ports still in use after ${PORT_WAIT_TIMEOUT_MS}ms: ${busy.join(', ')}`,
     );
     console.error(
-      '[dev-env] Run `pnpm dev:stop` again or see docs/run-from-source-macos.md (Stopping dev).',
+      '[dev-env] Run `pnpm dev:stop` again or see AGENTS.md (Build & Dev Commands).',
     );
     process.exit(1);
   }

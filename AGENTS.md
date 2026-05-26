@@ -109,7 +109,7 @@ Anything that spawns a child process (stdio MCP servers, installers, etc.) **mus
 
 ## Frontend Notes
 
-- **Backend facade:** UI code imports `@/lib/backend` (data commands, events, desktop shell) — not `@tauri-apps/*` directly. See [unified-backend-facade.md](docs/planning/unified-backend-facade.md).
+- **Backend facade:** UI code imports `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. Channels: `backend/data` (`apiCall` — Tauri invoke vs admin fetch), `backend/events` (Tauri listeners + SSE), `backend/shell` (dialogs, updater, OS integrations). ESLint blocks `@tauri-apps/*` outside `lib/backend/**`.
 - Entry point: `apps/desktop/src/main.tsx` → `App.tsx`.
 - Global state: a single Zustand store at `src/stores/appStore.ts`.
 - Key hooks: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (Rust-side EventBus listener), `useDataSync`.

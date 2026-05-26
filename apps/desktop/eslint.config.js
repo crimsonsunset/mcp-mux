@@ -35,7 +35,7 @@ export default tseslint.config(
             {
               group: ['@tauri-apps/*'],
               message:
-                'Import Tauri APIs only from @/lib/backend — see docs/planning/unified-backend-facade.md',
+                'Import Tauri APIs only from @/lib/backend — see AGENTS.md Frontend Notes',
             },
           ],
         },

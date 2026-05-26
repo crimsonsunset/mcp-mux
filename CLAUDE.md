@@ -84,12 +84,12 @@ Key patterns: event-driven architecture (EventBus), repository pattern (trait-ba
 ### Frontend Architecture
 
 - **Entry**: `apps/desktop/src/main.tsx` -> `App.tsx`
-- **Backend facade**: import `@/lib/backend` (data commands, events, desktop shell) — not `@tauri-apps/*` directly. See [`docs/planning/unified-backend-facade.md`](docs/planning/unified-backend-facade.md). Deprecated `@/lib/api/*` shims re-export the same surface.
+- **Backend facade**: import `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. See `AGENTS.md` Frontend Notes. Deprecated `@/lib/api/*` shims re-export the same surface.
 - **State**: Zustand store (`stores/appStore.ts`)
 - **Hooks**: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (via `backend/events`), `useDataSync` (data synchronization)
 - **UI**: React 19 + Tailwind CSS + Lucide icons + Monaco Editor (config editing)
 - **Path aliases**: `@/` -> `src/`, `@mcpmux/ui` -> shared UI package
-- **Web admin dev**: [`docs/run-from-source-macos.md`](docs/run-from-source-macos.md) — `pnpm dev:admin`, ports `:1420` / `:45818` / `:45819`
+- **Web admin dev**: `pnpm dev:admin` / `pnpm dev:web:admin` — admin API on `:45819`; `pnpm dev:stop` frees ports. See `AGENTS.md` Build & Dev Commands.
 
 ### Data Flow
 
