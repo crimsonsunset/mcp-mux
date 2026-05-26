@@ -1,10 +1,10 @@
 # Meta-Gateway Invoke — Manual QA Runbook
 
-**Last Updated:** May 25, 2026  
-**Branch:** `feat/meta-gateway-invoke`  
-**Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md)
+**Last Updated:** May 26, 2026  
+**Branch:** `dev`  
+**Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md)
 
-One-session checklist for validating Phases A–C (search → schema → invoke, result shaping, FeatureSet ACL + surfaced tools).
+One-session checklist for validating Phases A–D (search → schema → invoke, result shaping, FeatureSet ACL + surfaced tools, resource/prompt hard cut).
 
 ---
 
@@ -301,10 +301,10 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Cursor shows **0 resources** by default | ☐ | ☐ | Down from ~124 in GAIT QA |
-| `mcpmux_search_resources` returns grant-filtered matches | ☐ | ☐ | |
-| `mcpmux_read_resource` returns content | ☐ | ☐ | |
-| Non-surfaced direct read rejected with meta redirect | ☐ | ☐ | |
+| Cursor shows **0 resources** by default | ☑ | ☐ | GAIT v2 Run 2 — **14 / 0 / 0** mux line |
+| `mcpmux_search_resources` returns grant-filtered matches | ☑ | ☐ | GAIT v2 — 91 skill URIs on `posthog-personal-gait` |
+| `mcpmux_read_resource` returns content | ☑ | ☐ | GAIT v2 Run 2 after Issue #4 fix (`a4a212a`) |
+| Non-surfaced direct read rejected with meta redirect | ☐ | ☐ | Not re-run in GAIT v2; covered by integration tests |
 
 ---
 
@@ -320,9 +320,9 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Cursor shows **0 prompts** by default | ☐ | ☐ | |
-| `mcpmux_search_prompts` returns fetchable matches | ☐ | ☐ | |
-| `mcpmux_fetch_prompt` returns prompt content | ☐ | ☐ | |
+| Cursor shows **0 prompts** by default | ☑ | ☐ | GAIT v2 — 0 prompts in mux line |
+| `mcpmux_search_prompts` returns fetchable matches | ⏭ | ☐ | GAIT binding has no prompt members (§8 SKIP) |
+| `mcpmux_fetch_prompt` returns prompt content | ⏭ | ☐ | N/A — no fetchable prompts in GAIT ACL |
 
 ---
 
@@ -340,16 +340,16 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Surfaced resource in client list | ☐ | ☐ | |
-| Surfaced prompt in client list | ☐ | ☐ | |
-| Direct one-hop works for surfaced items | ☐ | ☐ | |
-| Non-surfaced still meta-only | ☐ | ☐ | |
+| Surfaced resource in client list | ⏭ | ☐ | GAIT v2 §9 SKIP — not configured |
+| Surfaced prompt in client list | ⏭ | ☐ | GAIT v2 §9 SKIP |
+| Direct one-hop works for surfaced items | ⏭ | ☐ | Run when operator surfaces a resource/prompt |
+| Non-surfaced still meta-only | ☐ | ☐ | Implicit from §12 pass; optional explicit retest |
 
 ---
 
 ## Red flags (stop and file a bug)
 
-- [ ] Full resource/prompt catalogs in client lists without surfacing (Phase D regression)
+- [x] Full resource/prompt catalogs in client lists without surfacing (Phase D regression)
 - [ ] Non-surfaced backend tools callable directly (bypassing `mcpmux_invoke_tool`) — surfaced one-hop is expected
 - [ ] Enable server expands `tools/list` beyond meta + surfaced
 - [ ] Search returns tools from inactive or unbound servers
@@ -365,8 +365,11 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 | ---- | ------ |
 | Phase A — meta invoke core | ☑ Pass ☐ Fail |
 | Phase B — result shaping | ☑ Pass ☐ Fail |
-| Phase D — resource/prompt hard cut | ☐ Pass ☐ Fail ☐ Skipped |
+| Phase C — FeatureSet ACL + surfaced | ☑ Pass ☐ Fail |
+| Phase D — resource/prompt hard cut | ☑ Pass ☐ Fail ☐ Skipped |
 | Overall | ☑ Ship ☐ Block |
+
+**Phase D evidence:** [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) Run 2 (§0–§7 pass; §8–§9 SKIP). §14 surfaced one-hop optional — not run in GAIT binding.
 
 **Blockers / issues filed:**
 

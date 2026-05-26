@@ -5,7 +5,7 @@
 **Branch:** TBD (multiple tracks; see phasing)  
 **Base branch:** `main`  
 **Issue:** TBD  
-**Depends on:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) (meta-tool entrypoint — must be reliable at session start)  
+**Depends on:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) (meta-tool entrypoint — **Phases A–D shipped on fork `dev`**, May 2026)  
 **Unblocks:** Using McpMux as primary agent MCP endpoint without multi-minute warm-up, empty ACL false alarms, or manual Surface reload guesswork
 
 ---

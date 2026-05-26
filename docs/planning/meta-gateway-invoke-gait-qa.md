@@ -1,9 +1,9 @@
 # GAIT Workspace — Meta-Gateway Invoke Capability Test
 
 **Last Updated:** May 26, 2026  
-**Status:** **SHIP** — Run 5 passed; Issue #2 v3 confirmed live (YAML coalesce + filter envelope on `insights-list`)  
+**Status:** **SHIP** — Run 5 passed (Phases A–C); Phase D verified in [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) Run 2  
 **Branch:** `dev` (Issue #2 v3 in `crates/mcpmux-gateway/services/meta_tools/invoke.rs`)  
-**Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md), [`meta-gateway-invoke-retest.md`](./meta-gateway-invoke-retest.md)
+**Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) (§12–14), [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) (Phase D — **SHIP** Run 2), [`run-from-source-macos.md`](../run-from-source-macos.md)
 
 **Source of truth for:** GAIT workspace binding QA, clone isolation, meta-gateway invoke DX, what passed/failed, what was fixed in code, and what still needs a live re-run.
 
@@ -38,7 +38,7 @@
 
 **Out of scope for Phases A–C / not Run 2 blockers:**
 
-- **124 resources** in Cursor mux UI — resources still fully materialized per grants (tools-only hard cut). **Tracked: Phase D** in [`meta-gateway-invoke.md`](./meta-gateway-invoke.md#phase-d--advanced-optimizations-defer)
+- ~~**124 resources** in Cursor mux UI~~ — **Resolved Phase D** — GAIT v2 Run 2 confirms **0 resources**; see [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md)
 - **Supabase `com.supabase-mcp-npx`** — one PAT, all org projects; not clone-scoped
 - **PostHog project display name** — still "Default project" in PostHog UI (cosmetic)
 - **`projects-get` accepts `{}`** despite schema listing `context` — PostHog MCP server behavior
@@ -93,7 +93,7 @@ Context: post Issue #2 v3 (`yaml_serde` YAML coalesce); fresh gateway build + MC
 | §4 Fail-closed | **Pass** | disable → enable hint → recovery |
 | §5 E2E task | **Pass** | Jira (GAIT-163/165/160) + PostHog brief (filtered insights-list) |
 | §6 Supabase | **Skip** | `com.supabase-mcp-npx` inactive in this workspace |
-| **Overall** | **SHIP** | Issue #2 v3 confirmed; ready for PR #155 merge |
+| **Overall** | **SHIP** | Issue #2 v3 confirmed (tools); Phase D in v2 doc |
 
 **Clone isolation verified:**
 
@@ -274,11 +274,11 @@ Workspace: `/Users/joe/Desktop/Repos/Contracts/generAIt`
 | Item | Severity | Owner | Notes |
 | ---- | -------- | ----- | ----- |
 | ~~Run 5 §2 step 4 live QA~~ | ~~Required before ship~~ | QA | **Done** — filter envelope confirmed (Run 5) |
-| Resource list bloat (~124 PostHog skill URIs) | Medium | **Resolved Phase D** | Hard cut + `mcpmux_search_resources`; re-run GAIT §0 expecting 0 resources |
+| Resource list bloat (~124 PostHog skill URIs) | Medium | **Resolved** | GAIT v2 Run 2 — **14/0/0**; `mcpmux_search_resources` + `mcpmux_read_resource` |
 | Supabase hard project isolation | Optional | Config | Needs 4 clones with `--project-ref` or accept unscoped |
 | Rename PostHog project 433907 | Cosmetic | PostHog UI | Still "Default project" |
-| PR #155 merge + CHANGELOG | Process | Eng | Unblocked — Issue #2 v3 + Run 5 **SHIP** |
-| Phase D meta-gateway polish | Deferred | Eng | Better errors, search, batch invoke |
+| Upstream topic PRs (#152, #154 stack) | Process | Eng | Fork `dev` is canonical; megapr #155 closed |
+| Phase D deferred polish | Deferred | Eng | Batch invoke, delta responses, `gateway_execute_code` — see [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) |
 
 ### Closed — not bugs
 
@@ -286,7 +286,7 @@ Workspace: `/Users/joe/Desktop/Repos/Contracts/generAIt`
 | ----------- | ---------- |
 | Supabase returns personal + GAIT projects | `com.supabase-mcp-npx` is unscoped; one Management API PAT |
 | `projects-get` schema lists `context` but `{}` works | Backend MCP validation, not mux |
-| 124 resources in Cursor | Phases A–C spec; **Phase D** tracks meta search/read path for resources |
+| 124 resources in Cursor | **Resolved** — GAIT v2 Run 2 (**0** resources in mux line) |
 
 ---
 
@@ -301,7 +301,7 @@ Workspace: `/Users/joe/Desktop/Repos/Contracts/generAIt`
 | 3 | `get_tool_schema({ tools: ["posthog-personal-gait_projects-get", ""] })` | `missing: [""]` | **Pass** |
 | 4 | §1 + §4 smoke | No regressions | **Pass** |
 
-**Run 5 complete (2026-05-26):** Issue #2 v3 confirmed → Overall **SHIP**. Next: PR #155 merge + CHANGELOG.
+**Run 5 complete (2026-05-26):** Issue #2 v3 confirmed → Overall **SHIP** (tools path). **Phase D:** [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) Run 2 **SHIP** (May 26, `a4a212a`).
 
 ---
 
@@ -578,7 +578,7 @@ Run §0, §1 steps 3–4, §2 steps 3–4, §3 step 1 only; paste FINAL REPORT w
 
 ### Resources note
 
-Cursor may show **~124 resources** on mux (PostHog `posthog://skills/...` URIs). Meta-gateway hard cut applies to **tools only** in Phases A–C — resources are still full grant materialization. Can pollute client UI and (depending on host) agent context; **Phase D** tracks `mcpmux_search_resources` / slim `resources/list` (see [`meta-gateway-invoke.md` Phase D](./meta-gateway-invoke.md#phase-d--advanced-optimizations-defer)). Interim: remove unused PostHog skill resources from `bundle:gait`.
+**Phase D (resources):** Hard cut verified in [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) — expect **14 tools, 0 prompts, 0 resources** in Cursor mux line. Discovery via `mcpmux_search_resources` → `mcpmux_read_resource`. Optional interim: trim unused PostHog skill resources from `bundle:gait` operator config.
 
 ---
 

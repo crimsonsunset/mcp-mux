@@ -1,7 +1,7 @@
 # GAIT Workspace — Meta-Gateway Invoke Capability Test (v2 / Phase D)
 
 **Last Updated:** May 26, 2026  
-**Status:** **Run 2 SHIP** — Issue #4 verified; Phase D gate cleared on `dev` @ **2a31dc7**  
+**Status:** **Run 2 SHIP** — Issue #4 verified; Phase D gate cleared on `dev` @ **a4a212a**  
 **Supersedes for Phase D:** [`meta-gateway-invoke-gait-qa.md`](./meta-gateway-invoke-gait-qa.md) (Phases A–C runs 1–5 remain canonical for tool invoke)  
 **Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) (§12–14), [`run-from-source-macos.md`](../run-from-source-macos.md)
 
@@ -378,9 +378,9 @@ After v2 Run 2 **SHIP**, update **Current verdict** at top and archive evidence 
 
 ---
 
-## Run 2 prompt (after `pnpm dev:restart`)
+## Run 2 prompt (completed May 26, 2026)
 
-Minimal re-test for Issue #4:
+Minimal re-test for Issue #4 — **done**; evidence in Run 2 archive below. Re-run after future §7 regressions:
 
 ```
 1. mcpmux_search_resources({ query: "skill", server_id: "posthog-personal-gait", limit: 1 })
@@ -529,7 +529,7 @@ Run: 2
 
 ## Environment snapshot
 
-- Gateway: `pnpm dev:restart` / commit: **2a31dc7** on **dev**
+- Gateway: `pnpm dev:restart` / commit: **a4a212a** on **dev**
 - mcpmux meta tool count: **14**
 - Cursor mux line (tools / prompts / resources): **14 / 0 / 0**
 

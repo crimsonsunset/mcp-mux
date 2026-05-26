@@ -1,6 +1,6 @@
 # Personal fork integration (crimsonsunset)
 
-**Last updated:** May 25, 2026  
+**Last updated:** May 26, 2026  
 **Purpose:** Single source of truth for local/homelab work on [crimsonsunset/mcp-mux](https://github.com/crimsonsunset/mcp-mux). Upstream PR stacking is separate and optional.
 
 ---
@@ -19,10 +19,12 @@
 
 ### What is on `dev`
 
-1. Meta-gateway invoke (search → schema → invoke, surfaced tools, opt-in invoke filters)
+1. Meta-gateway invoke Phases **A–D** (14 meta tools, resource/prompt hard cut, TF-IDF, Levenshtein) — GAIT QA **SHIP** ([v1](./meta-gateway-invoke-gait-qa.md) tools, [v2](./meta-gateway-invoke-gait-qa-v2.md) Phase D)
 2. Server account clones
 3. Dynamic MCP toggle meta-tools + workspace/session routing
-4. Planning docs and homelab QA sign-offs
+4. Workspace binding icons, server display rename
+5. Dev-env restart workflow (`scripts/dev-env.mjs`, `pnpm dev:restart`)
+6. Planning docs and homelab QA sign-offs
 
 See [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`agent-mcp-session-readiness.md`](./agent-mcp-session-readiness.md), [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md).
 
@@ -82,9 +84,11 @@ Future upstream contributions: branch off fresh `upstream/main` (or merged upstr
 
 ## Next implementation priorities (on `dev`)
 
-1. [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md) — cold start / `gateway_warming`
+1. [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md) — cold start / `gateway_warming` (**next feature**)
 2. Homelab `mcp.json` cutover (bindings + `bundle:core`)
 3. Replace stock `McpMux.app` with a build from `dev` ([`run-from-source-macos.md`](../run-from-source-macos.md))
+
+**Meta-gateway invoke:** Phases A–D complete on fork; deferred items (batch invoke, `gateway_execute_code`) stay in [`meta-gateway-invoke.md`](./meta-gateway-invoke.md).
 
 ---
 

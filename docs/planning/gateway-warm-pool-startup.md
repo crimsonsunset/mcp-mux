@@ -5,7 +5,7 @@
 **Branch:** TBD (suggest `feat/gateway-warm-pool` off `main`)  
 **Base branch:** `main`  
 **Issue:** TBD — file after planning review  
-**Depends on:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) (agent meta-tool entrypoint — warm pool makes invoke/search reliable at session start)  
+**Depends on:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) (agent meta-tool entrypoint — **shipped on fork `dev`**)  
 **Parent initiative:** [`agent-mcp-session-readiness.md`](./agent-mcp-session-readiness.md) (umbrella — all four agent entrypoint pain points)  
 **Unblocks:** Agent-first McpMux sessions without multi-minute CONNECTING stalls; post-restart binding/roots race where `total_invokable: 0` until backends connect
 

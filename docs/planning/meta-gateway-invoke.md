@@ -1,7 +1,7 @@
 # Meta-Gateway Invoke (Search → Schema → Invoke)
 
-**Last Updated:** May 25, 2026
-**Status:** ✅ Phases A–D implemented — Phase D pending manual QA ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) §12–14)
+**Last Updated:** May 26, 2026
+**Status:** ✅ Phases A–D implemented and manually QA complete — GAIT v2 **SHIP** ([`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md)); generic runbook §12–14 reconciled in [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md)
 **Branch:** `dev` on [crimsonsunset/mcp-mux](https://github.com/crimsonsunset/mcp-mux) (see [`fork-integration.md`](./fork-integration.md))
 **Base branch:** `feat/dynamic-mcp-toggle-meta-tools` on fork; upstream contribution is topic-stacked, not `main`
 **Issue:** Fork-only; upstream megapr [#155](https://github.com/mcpmux/mcp-mux/pull/155) closed — use #154 stack for meta-tools upstream
@@ -173,7 +173,7 @@ Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke.rs` | `InvokeToolTool` impl — permission check, routing, error mapping, result shaping | ✅ Done |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke_backend.rs` | `InvokeToolBackend` trait + `RoutingService` adapter for testable invoke routing | ✅ Done |
 | `tests/rust/src/canned_invoke_backend.rs` | Canned backend for filter e2e integration tests | ✅ Done |
-| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, disclosure, polish | ✅ Done (35 tests) |
+| `tests/rust/tests/integration/meta_gateway_invoke.rs` | Search, schema, invoke, disclosure, polish | ✅ Done (36 tests) |
 | `docs/planning/meta-gateway-invoke-qa.md` | Manual QA runbook (Phases A–D) | ✅ Done |
 | `docs/planning/meta-gateway-invoke.md` | This doc | ✅ Done |
 | `crates/mcpmux-gateway/src/services/resource_discovery.rs` | Resource index + search | ✅ Done |
@@ -269,7 +269,7 @@ Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts
 ### Phase D — Resource/prompt hard cut + invoke polish
 
 **Effort:** ~4 days  
-**Status:** ✅ Implemented — manual QA §12–14 pending
+**Status:** ✅ Implemented — GAIT v2 Run 2 **SHIP** (May 26); Issue #4 clone routing fixed @ `a4a212a`
 
 - [x] **Resource progressive disclosure** — slim `resources/list` to surfaced only; `mcpmux_search_resources` / `mcpmux_read_resource`
 - [x] **Prompt progressive disclosure** — slim `prompts/list` to surfaced only; `mcpmux_search_prompts` / `mcpmux_fetch_prompt`
@@ -280,12 +280,12 @@ Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts
 - [x] Levenshtein "did you mean?" on invoke / read / fetch errors (`strsim`)
 - [x] TF-IDF ranking in search (tools, resources, prompts) when query present
 - [x] Better empty-search / ACL errors (inactive server, not-in-binding hints)
-- [x] Integration tests: 35 in `meta_gateway_invoke.rs`
+- [x] Integration tests: 36 in `meta_gateway_invoke.rs` (includes clone `read_resource` routing)
 - [ ] Bundle hygiene: trim PostHog skill resources from `bundle:gait` (operator config interim)
 - [ ] Delta responses, auto-summarize, parallel invoke batching — deferred
 - [ ] Sandboxed code execution (`gateway_execute_code`) — deferred
 
-**Outcome:** GAIT workspace Cursor mux line drops from ~124 resources to **0** (unless surfaced). Meta surface grows to **14** tools.
+**Outcome:** GAIT workspace Cursor mux line **14 / 0 / 0** verified ([`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) Run 2). Meta surface **14** tools.
 
 ### Phase D (deferred items)
 
@@ -366,7 +366,7 @@ Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts
 
 ## Reconciliation
 
-This doc is the source of truth for the meta-gateway invoke model. Phases A–C are implemented on `feat/meta-gateway-invoke` and manually QA complete ([`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) — **Ship**). Mark [`tool-level-session-pin.md`](./tool-level-session-pin.md) **Status** as *Superseded* when this branch merges to main.
+This doc is the source of truth for the meta-gateway invoke model. Phases A–D are implemented on fork **`dev`** and manually QA complete. Tools path: [`meta-gateway-invoke-gait-qa.md`](./meta-gateway-invoke-gait-qa.md) Run 5 **SHIP**. Phase D path: [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) Run 2 **SHIP**. Generic runbook: [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md). Mark [`tool-level-session-pin.md`](./tool-level-session-pin.md) **Status** as *Superseded* when contributing upstream.
 
 **Decision record (May 25, 2026):** Hard cut to invoke-only for non-surfaced backend tools — no legacy full-catalog `tools/list`. Surfaced tools default zero everywhere (bundles included); opt-in per FeatureSet member for one-hop hot paths. FeatureSets redefine as invoke ACL + optional surfaced promotion. Session pin deferred to Phase F (very optional, last). Competitor analysis (MikkoParkkola + abdullah1854) informed Phase A–B scope; REST capabilities in Phase E / separate doc.
 
@@ -376,11 +376,11 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 
 **QA ergonomics (May 25, 2026):** Bind FeatureSets in Workspaces UI before agent QA — session enable alone is insufficient without binding ACL. Do **not** call `mcpmux_bind_current_workspace` during routine QA (triggers Space-wide approval modal). Reload MCP tools after UI binding or Surface changes.
 
-**Test coverage (May 25, 2026):** Phase B filter shaping — 13 unit tests in `invoke.rs`, 35 integration tests in `meta_gateway_invoke.rs`, manual QA sections 0–11 pass on live gateway.
+**Test coverage (May 26, 2026):** Phase B filter shaping — 13 unit tests in `invoke.rs`, 36 integration tests in `meta_gateway_invoke.rs`, manual QA sections 0–11 pass on live gateway; GAIT v2 Run 2 covers Phase D §0–§7.
 
-**Phase D (May 25, 2026):** Resource/prompt hard cut shipped — `resources/list` and `prompts/list` advertised-only (surfaced escape hatch); 4 new meta tools (`mcpmux_search_resources`, `mcpmux_read_resource`, `mcpmux_search_prompts`, `mcpmux_fetch_prompt`); TF-IDF search rank; Levenshtein invoke suggestions; FeatureSet Surface toggle for resources/prompts. Meta tool count **14**. Manual QA §12–14 pending.
+**Phase D (May 26, 2026):** Resource/prompt hard cut shipped — `resources/list` and `prompts/list` advertised-only (surfaced escape hatch); 4 new meta tools; TF-IDF search rank; Levenshtein invoke suggestions; FeatureSet Surface toggle for resources/prompts. Meta tool count **14**. GAIT v2 Run 2 **SHIP**; Issue #4 (`read_resource` clone routing) fixed in `a4a212a`.
 
-**Manual QA progress (May 25, 2026):** Overall **Ship**. Full section results in [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md). Highlights:
+**Manual QA progress (May 26, 2026):** Overall **Ship** (Phases A–D). Full section results in [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) and GAIT evidence in [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md). Highlights:
 
 | QA section | Result | Notes |
 | ---------- | ------ | ----- |
@@ -396,3 +396,6 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–C 
 | 9 — Surfaced promotion (Phase C) | ✅ Pass | `github_list_issues` in tools/list + direct one-hop; `get_me` invoke-only |
 | 10 — Diagnostic list vs search | ✅ Pass | 120 tools both paths for GWorkspace Personal |
 | 11 — End-to-end agent task | ✅ Pass | Meta-only workflow; schema-first; filter truncation metadata |
+| 12 — Resources hard cut (Phase D) | ✅ Pass | GAIT v2 Run 2 — 14/0/0 surface; search 91 URIs; read content |
+| 13 — Prompts hard cut (Phase D) | ⏭ Skip | No fetchable prompts in GAIT binding (§8 SKIP) |
+| 14 — Surfaced resource/prompt | ⏭ Skip | Not configured in GAIT binding (§9 SKIP) |
