@@ -1,7 +1,7 @@
 //! Web admin HTTP server startup (loopback :45819 by default).
 
 use crate::state::AppState;
-use mcpmux_core::{AppSettingsService, ApplicationServices, ApplicationServicesBuilder, EventBus};
+use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
 use mcpmux_gateway::{AdminConfig, AdminServer, AdminServerHandle};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,17 +40,7 @@ fn build_application_services(
     app_state: &AppState,
     event_bus: Arc<EventBus>,
 ) -> anyhow::Result<Arc<ApplicationServices>> {
-    Ok(Arc::new(
-        ApplicationServicesBuilder::new()
-            .with_event_bus(event_bus)
-            .with_space_repo(app_state.space_service.repository())
-            .with_installed_server_repo(app_state.installed_server_repository.clone())
-            .with_feature_set_repo(app_state.feature_set_repository.clone())
-            .with_server_feature_repo(app_state.server_feature_repository_core.clone())
-            .with_client_repo(app_state.client_repository.clone())
-            .with_credential_repo(app_state.credential_repository.clone())
-            .build()?,
-    ))
+    Ok(Arc::new(app_state.build_application_services(event_bus)?))
 }
 
 /// Start the admin server when `gateway.admin_enabled` is true.

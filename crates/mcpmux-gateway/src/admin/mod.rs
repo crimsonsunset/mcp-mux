@@ -5,6 +5,7 @@
 //! when configured.
 
 mod config;
+pub mod command_bridge;
 mod handlers;
 mod middleware;
 mod router;

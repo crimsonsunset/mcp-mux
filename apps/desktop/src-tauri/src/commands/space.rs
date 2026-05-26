@@ -5,10 +5,17 @@
 //! root via `WorkspaceBinding`, with the `is_default` Space as the
 //! built-in fallback. The desktop UI tracks which space the user is
 //! viewing in its own Zustand store (frontend-only state).
+//!
+//! Business logic lives in `mcpmux_gateway::admin::command_bridge::space`;
+//! these handlers are thin wrappers adding Tauri/desktop side effects.
 
-use mcpmux_core::Space;
-use serde::Deserialize;
 use std::sync::Arc;
+
+use mcpmux_core::{ApplicationServices, Space};
+use mcpmux_gateway::admin::command_bridge::space::{self, SpaceBridgeCtx};
+
+pub use mcpmux_gateway::admin::command_bridge::space::UpdateSpaceInput;
+
 use tauri::{AppHandle, State};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -18,15 +25,42 @@ use crate::commands::gateway::GatewayAppState;
 use crate::state::AppState;
 use crate::tray;
 
+fn bridge_ctx<'a>(
+    app_state: &'a AppState,
+    services: &'a ApplicationServices,
+) -> SpaceBridgeCtx<'a> {
+    SpaceBridgeCtx {
+        services,
+        spaces_dir: app_state.spaces_dir(),
+    }
+}
+
+/// Emit a space domain event through the gateway when it is running.
+async fn emit_space_domain_event(
+    gateway_state: &Arc<RwLock<GatewayAppState>>,
+    event: mcpmux_core::DomainEvent,
+) {
+    let gw_state = gateway_state.read().await;
+    if let Some(ref gw) = gw_state.gateway_state {
+        let gw = gw.read().await;
+        gw.emit_domain_event(event);
+    }
+}
+
 /// List all spaces.
 #[tauri::command]
-pub async fn list_spaces(state: State<'_, AppState>) -> Result<Vec<Space>, String> {
+pub async fn list_spaces(
+    state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
+) -> Result<Vec<Space>, String> {
     tracing::info!("[list_spaces] Command invoked");
 
-    let spaces = state.space_service.list().await.map_err(|e| {
-        tracing::error!("[list_spaces] Error: {}", e);
-        e.to_string()
-    })?;
+    let spaces = space::list_spaces(&bridge_ctx(&state, &services))
+        .await
+        .map_err(|e| {
+            tracing::error!("[list_spaces] Error: {}", e);
+            e.to_string()
+        })?;
 
     tracing::info!("[list_spaces] Returning {} spaces", spaces.len());
     for space in &spaces {
@@ -38,21 +72,16 @@ pub async fn list_spaces(state: State<'_, AppState>) -> Result<Vec<Space>, Strin
 
 /// Get a space by ID.
 #[tauri::command]
-pub async fn get_space(id: String, state: State<'_, AppState>) -> Result<Option<Space>, String> {
+pub async fn get_space(
+    id: String,
+    state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
+) -> Result<Option<Space>, String> {
     let uuid = Uuid::parse_str(&id).map_err(|e| e.to_string())?;
-    state
-        .space_service
-        .get(&uuid)
+    space::get_space(&bridge_ctx(&state, &services), uuid)
         .await
         .map_err(|e| e.to_string())
 }
-
-/// Default space configuration template
-const DEFAULT_SPACE_CONFIG: &str = r#"{
-  "mcpServers": {
-  }
-}
-"#;
 
 /// Create a new space.
 #[tauri::command]
@@ -61,40 +90,24 @@ pub async fn create_space(
     icon: Option<String>,
     app: AppHandle,
     state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<Space, String> {
-    let space = state
-        .space_service
-        .create(name.clone(), icon.clone())
+    let ctx = bridge_ctx(&state, &services);
+    let space = space::create_space(&ctx, name.clone(), icon.clone())
         .await
         .map_err(|e| e.to_string())?;
 
-    // Create default config file for the space (spaces_dir already exists via AppState::new)
-    let config_path = state.space_config_path(&space.id.to_string());
-
-    // Create default config file if it doesn't exist
-    if !config_path.exists() {
-        std::fs::write(&config_path, DEFAULT_SPACE_CONFIG)
-            .map_err(|e| format!("Failed to create config file: {}", e))?;
-        info!(
-            "[create_space] Created config file: {}",
-            config_path.display()
-        );
-    }
-
-    // Emit domain event if gateway is running
-    let gw_state = gateway_state.read().await;
-    if let Some(ref gw) = gw_state.gateway_state {
-        let gw = gw.read().await;
-        gw.emit_domain_event(mcpmux_core::DomainEvent::SpaceCreated {
+    emit_space_domain_event(
+        &gateway_state,
+        mcpmux_core::DomainEvent::SpaceCreated {
             space_id: space.id,
             name: space.name.clone(),
             icon: icon.clone(),
-        });
-    }
+        },
+    )
+    .await;
 
-    // Update system tray menu to show the new space
-    // Only reached if both space creation and config file writing succeeded
     if let Err(e) = tray::update_tray_spaces(&app, &state).await {
         warn!("Failed to update tray menu: {}", e);
     }
@@ -104,14 +117,6 @@ pub async fn create_space(
     Ok(space)
 }
 
-/// Partial update payload for a Space (name, icon, description).
-#[derive(Debug, Deserialize)]
-pub struct UpdateSpaceInput {
-    pub name: Option<String>,
-    pub icon: Option<String>,
-    pub description: Option<String>,
-}
-
 /// Update a space's display metadata.
 #[tauri::command]
 pub async fn update_space(
@@ -119,34 +124,23 @@ pub async fn update_space(
     input: UpdateSpaceInput,
     app: AppHandle,
     state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<Space, String> {
     let uuid = Uuid::parse_str(&id).map_err(|e| e.to_string())?;
-
-    let name = input
-        .name
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty());
-    let icon = input
-        .icon
-        .map(|i| i.trim().to_string())
-        .filter(|i| !i.is_empty());
-    let description = input.description.map(|d| d.trim().to_string());
-
-    let space = state
-        .space_service
-        .update(uuid, name, icon, description)
+    let ctx = bridge_ctx(&state, &services);
+    let space = space::update_space(&ctx, uuid, input)
         .await
         .map_err(|e| e.to_string())?;
 
-    let gw_state = gateway_state.read().await;
-    if let Some(ref gw) = gw_state.gateway_state {
-        let gw = gw.read().await;
-        gw.emit_domain_event(mcpmux_core::DomainEvent::SpaceUpdated {
+    emit_space_domain_event(
+        &gateway_state,
+        mcpmux_core::DomainEvent::SpaceUpdated {
             space_id: space.id,
             name: space.name.clone(),
-        });
-    }
+        },
+    )
+    .await;
 
     if let Err(e) = tray::update_tray_spaces(&app, &state).await {
         warn!("Failed to update tray menu: {}", e);
@@ -163,25 +157,20 @@ pub async fn delete_space(
     id: String,
     app: AppHandle,
     state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&id).map_err(|e| e.to_string())?;
-
-    state
-        .space_service
-        .delete(&uuid)
+    space::delete_space(&bridge_ctx(&state, &services), uuid)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Emit domain event if gateway is running
-    let gw_state = gateway_state.read().await;
-    if let Some(ref gw) = gw_state.gateway_state {
-        let gw = gw.read().await;
-        gw.emit_domain_event(mcpmux_core::DomainEvent::SpaceDeleted { space_id: uuid });
-    }
+    emit_space_domain_event(
+        &gateway_state,
+        mcpmux_core::DomainEvent::SpaceDeleted { space_id: uuid },
+    )
+    .await;
 
-    // Update system tray menu to remove the deleted space
-    // Only reached if space deletion from DB succeeded
     if let Err(e) = tray::update_tray_spaces(&app, &state).await {
         warn!("Failed to update tray menu: {}", e);
     }
@@ -208,7 +197,6 @@ pub async fn open_space_config_file(
         ));
     }
 
-    // Open in default editor based on platform
     #[cfg(target_os = "windows")]
     {
         Command::new("cmd")
@@ -241,20 +229,11 @@ pub async fn open_space_config_file(
 pub async fn read_space_config(
     space_id: String,
     state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
 ) -> Result<String, String> {
-    let config_path = state.space_config_path(&space_id);
-
-    // Create default config if it doesn't exist (for spaces created before this feature)
-    if !config_path.exists() {
-        std::fs::write(&config_path, DEFAULT_SPACE_CONFIG)
-            .map_err(|e| format!("Failed to create config file: {}", e))?;
-        info!(
-            "[read_space_config] Created default config file: {}",
-            config_path.display()
-        );
-    }
-
-    std::fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config file: {}", e))
+    space::read_space_config(&bridge_ctx(&state, &services), &space_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Save space configuration file
@@ -263,14 +242,11 @@ pub async fn save_space_config(
     space_id: String,
     content: String,
     state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
 ) -> Result<(), String> {
-    let config_path = state.space_config_path(&space_id);
-
-    // Validate JSON before saving
-    serde_json::from_str::<serde_json::Value>(&content)
-        .map_err(|e| format!("Invalid JSON: {}", e))?;
-
-    std::fs::write(&config_path, content).map_err(|e| format!("Failed to write config file: {}", e))
+    space::save_space_config(&bridge_ctx(&state, &services), &space_id, &content)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Remove a server from the space configuration file
@@ -279,44 +255,11 @@ pub async fn remove_server_from_config(
     space_id: String,
     server_id: String,
     state: State<'_, AppState>,
+    services: State<'_, Arc<ApplicationServices>>,
 ) -> Result<bool, String> {
-    let config_path = state.space_config_path(&space_id);
-
-    // If config file doesn't exist, nothing to remove
-    if !config_path.exists() {
-        return Ok(false);
-    }
-
-    // Read current config
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config file: {}", e))?;
-
-    // Parse as JSON
-    let mut config: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))?;
-
-    // Get mcpServers object
-    let servers = config.get_mut("mcpServers").and_then(|v| v.as_object_mut());
-
-    if let Some(servers) = servers {
-        // Check if server exists
-        if servers.remove(&server_id).is_some() {
-            // Write back the modified config
-            let new_content = serde_json::to_string_pretty(&config)
-                .map_err(|e| format!("Failed to serialize config: {}", e))?;
-
-            std::fs::write(&config_path, new_content)
-                .map_err(|e| format!("Failed to write config file: {}", e))?;
-
-            info!(
-                "[remove_server_from_config] Removed server '{}' from space '{}'",
-                server_id, space_id
-            );
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
+    space::remove_server_from_config(&bridge_ctx(&state, &services), &space_id, &server_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Refresh the system tray menu to reflect current spaces

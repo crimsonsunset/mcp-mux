@@ -9,6 +9,7 @@
 //! are in the database tests since they need the real SQLite implementation.
 
 mod admin_api;
+mod command_bridge_space;
 mod feature_routing;
 mod feature_set_resolver;
 mod mcp_flows;

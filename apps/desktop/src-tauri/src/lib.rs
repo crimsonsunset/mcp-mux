@@ -334,6 +334,13 @@ pub fn run() {
                 event_sender,
             );
 
+            let application_services = Arc::new(
+                app_state
+                    .build_application_services(event_bus.clone())
+                    .expect("build ApplicationServices"),
+            );
+            app.manage(application_services);
+
             let managed_app_service = Arc::new(RwLock::new(Some(server_app_service)));
             app.manage(managed_app_service);
 
