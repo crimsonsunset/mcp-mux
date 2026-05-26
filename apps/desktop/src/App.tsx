@@ -17,17 +17,12 @@ import {
   Sidebar,
   SidebarItem,
   SidebarSection,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
 } from '@mcpmux/ui';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { checkForAvailableUpdate, isTauri, performWindowControl } from '@/lib/backend/shell';
 import { OAuthConsentModal } from '@/components/OAuthConsentModal';
 import { ServerInstallModal } from '@/components/ServerInstallModal';
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';
-import { ConnectionCard } from '@/components/ConnectionCard';
 import { useDataSync } from '@/hooks/useDataSync';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { initAnalytics, capture, optIn, optOut } from '@/lib/analytics';
@@ -39,10 +34,11 @@ import { ServersPage } from '@/features/servers';
 import { SpacesPage } from '@/features/spaces';
 import { WorkspacesPage } from '@/features/workspaces';
 import { SettingsPage } from '@/features/settings';
+import { DashboardPage } from '@/features/dashboard';
 import { AutoStartConflictResolver } from '@/features/gateway/AutoStartConflictResolver';
 import { WorkspaceBindingSheet } from '@/features/workspaces';
 import { MetaToolApprovalDialog } from '@/features/metaTools';
-import { useGatewayEvents, useServerStatusEvents } from '@/hooks/useDomainEvents';
+import { useGatewayEvents } from '@/hooks/useDomainEvents';
 import { getVersion } from '@/lib/api/app';
 
 /** McpMux title-bar icon — miniature cat icon */
@@ -369,7 +365,7 @@ function AppContent() {
             </button>
           </div>
         )}
-        {activeNav === 'home' && <DashboardView />}
+        {activeNav === 'home' && <DashboardPage />}
         {activeNav === 'registry' && <RegistryPage />}
         {activeNav === 'servers' && <ServersPage />}
         {activeNav === 'spaces' && <SpacesPage />}
@@ -398,191 +394,6 @@ function App() {
       {/* Meta-tool approval dialog — gates every mcpmux_* write tool */}
       <MetaToolApprovalDialog />
     </ThemeProvider>
-  );
-}
-
-function DashboardView() {
-  const navigateTo = useNavigateTo();
-  const [stats, setStats] = useState({
-    installedServers: 0,
-    connectedServers: 0,
-    tools: 0,
-    clients: 0,
-    featureSets: 0,
-  });
-  const viewSpace = useViewSpace();
-
-  const statCardClass =
-    'cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50';
-
-  // Load stats on mount and when gateway changes
-  const loadStats = async () => {
-    try {
-      const [clients, featureSets, gateway, installedServers] = await Promise.all([
-        import('@/lib/api/clients').then((m) => m.listClients()),
-        import('@/lib/api/featureSets').then((m) =>
-          viewSpace?.id ? m.listFeatureSetsBySpace(viewSpace.id) : m.listFeatureSets()
-        ),
-        import('@/lib/api/gateway').then((m) => m.getGatewayStatus(viewSpace?.id)),
-        import('@/lib/api/registry').then((m) => m.listInstalledServers(viewSpace?.id)),
-      ]);
-      setStats({
-        installedServers: installedServers.length,
-        connectedServers: gateway.connected_backends,
-        tools: 0, // Will be populated when servers report tools
-        clients: clients.length,
-        featureSets: featureSets.length,
-      });
-    } catch (e) {
-      console.error('Failed to load dashboard stats:', e);
-    }
-  };
-
-  // Load stats on mount and when viewing space changes
-  useEffect(() => {
-    loadStats();
-  }, [viewSpace?.id]);
-
-  // Reload stats when gateway starts/stops so `Servers: X/Y` stays honest.
-  // ConnectionCard owns the actual running/URL UI.
-  useGatewayEvents((payload) => {
-    if (payload.action === 'started') {
-      loadStats();
-    } else if (payload.action === 'stopped') {
-      setStats((prev) => ({ ...prev, connectedServers: 0 }));
-    }
-  });
-
-  // Subscribe to server status changes to update connected count
-  useServerStatusEvents((payload) => {
-    if (payload.status === 'connected' || payload.status === 'disconnected') {
-      loadStats();
-    }
-  });
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-[rgb(var(--muted))]">
-          Welcome to McpMux - your centralized MCP server manager.
-        </p>
-      </div>
-
-      {/* Canonical connection surface — owns URL, Start/Stop, IDE grid,
-          pending-approval nudge. Replaces the old status banner + the
-          separate ConnectIDEs card that duplicated the URL. */}
-      <ConnectionCard />
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="dashboard-stats-grid">
-        <Card
-          className={statCardClass}
-          data-testid="stat-servers"
-          role="button"
-          tabIndex={0}
-          aria-label="Go to Servers"
-          onClick={() => navigateTo('servers')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigateTo('servers');
-            }
-          }}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Server className="h-5 w-5 text-primary-500" />
-              Servers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold" data-testid="stat-servers-value">{stats.connectedServers}/{stats.installedServers}</div>
-            <div className="text-sm text-[rgb(var(--muted))]">Connected / Installed</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={statCardClass}
-          data-testid="stat-featuresets"
-          role="button"
-          tabIndex={0}
-          aria-label="Go to Feature Sets"
-          onClick={() => navigateTo('featuresets')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigateTo('featuresets');
-            }
-          }}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Wrench className="h-5 w-5 text-primary-500" />
-              FeatureSets
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold" data-testid="stat-featuresets-value">{stats.featureSets}</div>
-            <div className="text-sm text-[rgb(var(--muted))]">Permission bundles</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={statCardClass}
-          data-testid="stat-clients"
-          role="button"
-          tabIndex={0}
-          aria-label="Go to Clients"
-          onClick={() => navigateTo('clients')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigateTo('clients');
-            }
-          }}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Monitor className="h-5 w-5 text-primary-500" />
-              Clients
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold" data-testid="stat-clients-value">{stats.clients}</div>
-            <div className="text-sm text-[rgb(var(--muted))]">Registered AI clients</div>
-          </CardContent>
-        </Card>
-
-        <Card
-          className={statCardClass}
-          data-testid="stat-active-space"
-          role="button"
-          tabIndex={0}
-          aria-label="Go to Spaces"
-          onClick={() => navigateTo('spaces')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigateTo('spaces');
-            }
-          }}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Globe className="h-5 w-5 text-primary-500" />
-              Workspace
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold truncate" data-testid="stat-active-space-value">
-              {viewSpace?.icon} {viewSpace?.name || 'None'}
-            </div>
-            <div className="text-sm text-[rgb(var(--muted))]">Currently viewing</div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
   );
 }
 
