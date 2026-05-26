@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useCallback, useState } from 'react';
 import { CheckCircle2, Eye, ShieldAlert, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
 import type { MetaToolAuditEvent } from '@/lib/api/metaTools';
+import { useMetaToolEventListener } from '@/hooks/useMetaToolEvents';
 
 /** Ring-buffer size — keeps the most recent N audit rows in memory. */
 const MAX_ROWS = 50;
@@ -16,21 +16,14 @@ const MAX_ROWS = 50;
 export function MetaToolAuditLog() {
   const [rows, setRows] = useState<MetaToolAuditEvent[]>([]);
 
-  useEffect(() => {
-    const unlisten = listen<MetaToolAuditEvent>(
-      'meta-tool-invoked',
-      (event) => {
-        setRows((prev) => {
-          // Most-recent-first; trim to MAX_ROWS.
-          const next = [event.payload, ...prev];
-          return next.length > MAX_ROWS ? next.slice(0, MAX_ROWS) : next;
-        });
-      }
-    );
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
+  const appendRow = useCallback((event: MetaToolAuditEvent) => {
+    setRows((prev) => {
+      const next = [event, ...prev];
+      return next.length > MAX_ROWS ? next.slice(0, MAX_ROWS) : next;
+    });
   }, []);
+
+  useMetaToolEventListener(appendRow);
 
   return (
     <Card data-testid="meta-tool-audit-log">

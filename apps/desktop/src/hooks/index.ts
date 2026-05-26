@@ -25,10 +25,33 @@ export type {
   ServerFeaturesRefreshedPayload,
   FeatureSetChangedPayload,
   ClientChangedPayload,
-  GrantsChangedPayload,
+  ClientGrantChangedPayload,
   GatewayChangedPayload,
   MCPNotificationPayload,
 } from './useDomainEvents';
+
+export {
+  useWorkspaceEvents,
+  useWorkspaceEventListener,
+} from './useWorkspaceEvents';
+
+export type {
+  WorkspaceEventChannel,
+  WorkspaceBindingChangedPayload,
+  WorkspaceNeedsBindingPayload,
+} from './useWorkspaceEvents';
+
+export {
+  useOAuthClientEvents,
+  useOAuthClientEventListener,
+} from './useOAuthClientEvents';
+
+export type { OAuthClientChangedPayload } from './useOAuthClientEvents';
+
+export {
+  useMetaToolEvents,
+  useMetaToolEventListener,
+} from './useMetaToolEvents';
 
 // Server management
 export { useServerManager } from './useServerManager';

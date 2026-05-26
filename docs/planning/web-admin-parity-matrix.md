@@ -15,7 +15,7 @@ Living tracker for IPC → HTTP parity. Check columns as work lands; do not star
 | REST (direct parity) | 104 |
 | REST (web variant) | 6 |
 | Desktop-only (no HTTP) | 5 |
-| Fix mismatch first | 2 |
+| Fix mismatch first | 0 |
 | Deferred (BE only, no FE yet) | 12 |
 
 ## Regenerate
@@ -28,9 +28,11 @@ rg --no-filename -o "invoke(?:<[^>]*>)?\\(\\s*['\"]([a-z0-9_]+)['\"]" apps/deskt
 
 ## Known anomalies (fix before bridge)
 
-- **`export_config`** — FE calls `export_config`; Tauri registers `export_config_to_file` — align names before bridge
-- **`list_registry_categories`** — FE invokes but no Tauri handler in lib.rs — add handler or remove FE call
-- **Unregistered FE invokes:** `export_config`, `list_registry_categories`
+- ~~**`export_config`** — FE calls `export_config`; Tauri registers `export_config_to_file`~~ — **Fixed** (Phase 1: `configExport.ts`)
+- ~~**`list_registry_categories`** — FE invokes but no Tauri handler~~ — **Fixed** (Phase 1: removed from `registry.ts`)
+- ~~**`grants-changed`** — hook listened; backend emits `client-grant-changed`~~ — **Fixed** (Phase 4: `useDomainEvents`)
+- ~~**`workspace-appearance-changed` / `server-status`** — dead WorkspacesPage listeners~~ — **Fixed** (Phase 4: `useWorkspaceEvents` + `server-status-changed`)
+- **Dual Rust emit paths** — EventBus bridge vs direct `app.emit` — **Documented** (Phase 4); SSE fan-in deferred to web-admin Phase 5
 
 ## Pilot module (Phase 3)
 
@@ -40,18 +42,28 @@ Start with **`spaces`** — 9 commands, bounded CRUD, template for bridge extrac
 
 ## SSE event channels (Phase 5)
 
-| Channel | SSE test | Playwright |
-| ------- | -------- | ---------- |
-| `space-changed` | [ ] | [ ] |
-| `server-changed` | [ ] | [ ] |
-| `server-status-changed` | [ ] | [ ] |
-| `server-auth-progress` | [ ] | [ ] |
-| `server-features-refreshed` | [ ] | [ ] |
-| `feature-set-changed` | [ ] | [ ] |
-| `client-changed` | [ ] | [ ] |
-| `grants-changed` | [ ] | [ ] |
-| `gateway-changed` | [ ] | [ ] |
-| `mcp-notification` | [ ] | [ ] |
+**16 channels** — fan in EventBus bridge (`gateway.rs`) **and** direct `app.emit` (`oauth.rs`, `session_overrides.rs`). See [`gateway.rs`](../../apps/desktop/src-tauri/src/commands/gateway.rs) module docs.
+
+| Channel | Rust source | Desktop hook | SSE test | Playwright |
+| ------- | ----------- | ------------ | -------- | ---------- |
+| `space-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
+| `server-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
+| `server-status-changed` | EventBus bridge | `useDomainEvents` / `useServerManager` | [ ] | [ ] |
+| `server-auth-progress` | EventBus bridge | `useDomainEvents` / `useServerManager` | [ ] | [ ] |
+| `server-features-refreshed` | EventBus bridge | `useDomainEvents` / `useServerManager` | [ ] | [ ] |
+| `feature-set-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
+| `client-changed` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
+| `client-grant-changed` | EventBus bridge | `useDomainEvents` (`useClientEvents`) | [ ] | [ ] |
+| `gateway-changed` | EventBus bridge | `useGatewayEvents` | [ ] | [ ] |
+| `mcp-notification` | EventBus bridge | `useDomainEvents` | [ ] | [ ] |
+| `session-roots-changed` | EventBus bridge | `useWorkspaceEvents` | [ ] | [ ] |
+| `workspace-binding-changed` | EventBus bridge | `useWorkspaceEvents` | [ ] | [ ] |
+| `workspace-needs-binding` | EventBus bridge | `useWorkspaceEvents` | [ ] | [ ] |
+| `meta-tool-invoked` | EventBus bridge | `useMetaToolEvents` | [ ] | [ ] |
+| `oauth-client-changed` | Direct emit (`oauth.rs`) | `useOAuthClientEvents` | [ ] | [ ] |
+| `session-overrides-changed` | Direct emit (`session_overrides.rs`) | `useWorkspaceEvents` | [ ] | [ ] |
+
+**Removed (never emitted):** `grants-changed` (use `client-grant-changed`), `workspace-appearance-changed` (reuse `workspace-binding-changed`), `server-status` (use `server-status-changed`).
 
 ## Commands
 
@@ -83,7 +95,7 @@ Start with **`spaces`** — 9 commands, bounded CRUD, template for bridge extrac
 | `disconnect_server_v2` | `lib/api/serverManager.ts` | `server_manager` | POST | `POST /api/v1/servers/connections` → `disconnect_server_v2` | `command_bridge::server_manager::disconnect_server_v2` | W | REST | P6 | [ ] | [ ] | [ ] | [ ] |
 | `discover_servers` | `lib/api/registry.ts` | `server_discovery` | GET | `GET /api/v1/registry` → `discover_servers` | `command_bridge::server_discovery::discover_servers` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
 | `enable_server_v2` | `lib/api/serverManager.ts` | `server_manager` | POST | `POST /api/v1/servers/connections` → `enable_server_v2` | `command_bridge::server_manager::enable_server_v2` | W | REST | P6 | [ ] | [ ] | [ ] | [ ] |
-| `export_config` | `lib/api/gateway.ts` | `config_export` | POST | `POST /api/v1/config-export` → `export_config` | `command_bridge::config_export::export_config` | W | Fix mismatch | — | ⚠ | ⚠ | ⚠ | ⚠ |
+| `export_config_to_file` | `lib/api/configExport.ts` | `config_export` | POST | `POST /api/v1/config-export` → `export_config_to_file` | `command_bridge::config_export::export_config_to_file` | W | Deferred | — | — | — | — | — |
 | `flush_pending_deep_link` | `components/OAuthConsentModal.tsx` | `oauth` | — | `— /api/v1/oauth` → `flush_pending_deep_link` | `command_bridge::oauth::flush_pending_deep_link` | — | Desktop-only | — | N/A | N/A | N/A | N/A |
 | `get_bundle_version` | `features/settings/UpdateChecker.tsx` | `app` | GET | `GET /api/v1/app` → `get_bundle_version` | `command_bridge::app::get_bundle_version` | R | REST (web variant) | P4 | [ ] | [ ] | [ ] | [ ] |
 | `get_client` | `lib/api/clients.ts` | `client` | GET | `GET /api/v1/clients` → `get_client` | `command_bridge::client::get_client` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
@@ -122,7 +134,7 @@ Start with **`spaces`** — 9 commands, bounded CRUD, template for bridge extrac
 | `list_feature_sets_by_space` | `lib/api/featureSets.ts` | `feature_set` | GET | `GET /api/v1/feature-sets` → `list_feature_sets_by_space` | `command_bridge::feature_set::list_feature_sets_by_space` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
 | `list_installed_servers` | `lib/api/registry.ts` | `server` | GET | `GET /api/v1/servers` → `list_installed_servers` | `command_bridge::server::list_installed_servers` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
 | `list_meta_tool_grants` | `lib/api/metaTools.ts` | `meta_tool_approval` | GET | `GET /api/v1/meta-tools` → `list_meta_tool_grants` | `command_bridge::meta_tool_approval::list_meta_tool_grants` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
-| `list_registry_categories` | `lib/api/registry.ts` | `server_discovery` | GET | `GET /api/v1/registry` → `list_registry_categories` | `command_bridge::server_discovery::list_registry_categories` | R | Fix mismatch | — | ⚠ | ⚠ | ⚠ | ⚠ |
+| `list_registry_categories` | `— (removed Phase 1)` | `server_discovery` | — | — | — | — | Removed | — | N/A | N/A | N/A | N/A |
 | `list_reported_workspace_roots` | `lib/api/workspaceBindings.ts` | `workspace_binding` | GET | `GET /api/v1/workspaces/bindings` → `list_reported_workspace_roots` | `command_bridge::workspace_binding::list_reported_workspace_roots` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
 | `list_server_features` | `lib/api/serverFeatures.ts` | `server_feature` | GET | `GET /api/v1/server-features` → `list_server_features` | `command_bridge::server_feature::list_server_features` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
 | `list_server_features_by_server` | `lib/api/serverFeatures.ts` | `server_feature` | GET | `GET /api/v1/server-features` → `list_server_features_by_server` | `command_bridge::server_feature::list_server_features_by_server` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
@@ -176,7 +188,6 @@ Start with **`spaces`** — 9 commands, bounded CRUD, template for bridge extrac
 | `validate_workspace_root` | `lib/api/workspaceBindings.ts` | `workspace_binding` | GET | `GET /api/v1/workspaces/bindings` → `validate_workspace_root` | `command_bridge::workspace_binding::validate_workspace_root` | R | REST | P4 | [ ] | [ ] | [ ] | [ ] |
 | `backup_existing_config` | `— (no FE invoke yet)` | `config_export` | POST | `POST /api/v1/config-export` → `backup_existing_config` | `command_bridge::config_export::backup_existing_config` | W | Deferred | — | — | — | — | — |
 | `check_config_exists` | `— (no FE invoke yet)` | `config_export` | POST | `POST /api/v1/config-export` → `check_config_exists` | `command_bridge::config_export::check_config_exists` | W | Deferred | — | — | — | — | — |
-| `export_config_to_file` | `— (no FE invoke yet)` | `config_export` | POST | `POST /api/v1/config-export` → `export_config_to_file` | `command_bridge::config_export::export_config_to_file` | W | Deferred | — | — | — | — | — |
 | `gateway` | `— (no FE invoke yet)` | `unknown` | GET | `GET /api/v1/unknown` → `gateway` | `command_bridge::unknown::gateway` | R | Deferred | — | — | — | — | — |
 | `generate_gateway_config` | `— (no FE invoke yet)` | `gateway` | POST | `POST /api/v1/gateway` → `generate_gateway_config` | `command_bridge::gateway::generate_gateway_config` | W | Deferred | — | — | — | — | — |
 | `get_config_paths` | `— (no FE invoke yet)` | `config_export` | GET | `GET /api/v1/config-export` → `get_config_paths` | `command_bridge::config_export::get_config_paths` | R | Deferred | — | — | — | — | — |

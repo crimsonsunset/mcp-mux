@@ -13,7 +13,7 @@
  * - `server-features-refreshed` - Features discovered/updated
  * - `feature-set-changed` - Feature set create/update/delete
  * - `client-changed` - Client registration/update/delete
- * - `grants-changed` - Grant/revoke permissions
+ * - `client-grant-changed` - Per-client feature-set grant edits
  * - `gateway-changed` - Gateway start/stop
  * - `mcp-notification` - MCP capability notifications
  *
@@ -56,7 +56,7 @@ export type DomainEventChannel =
   | 'server-features-refreshed'
   | 'feature-set-changed'
   | 'client-changed'
-  | 'grants-changed'
+  | 'client-grant-changed'
   | 'gateway-changed'
   | 'mcp-notification';
 
@@ -137,13 +137,10 @@ export interface ClientChangedPayload extends DomainEventPayload {
   registration_type?: string;
 }
 
-/** Grant event payloads */
-export interface GrantsChangedPayload extends DomainEventPayload {
-  action: 'granted' | 'revoked' | 'batch_updated';
+/** Client grant event payload (matches gateway bridge emit). */
+export interface ClientGrantChangedPayload extends DomainEventPayload {
   client_id: string;
   space_id: string;
-  feature_set_id?: string;
-  feature_set_ids?: string[];
 }
 
 /** Gateway event payloads */
@@ -169,7 +166,7 @@ export interface PayloadTypeMap {
   'server-features-refreshed': ServerFeaturesRefreshedPayload;
   'feature-set-changed': FeatureSetChangedPayload;
   'client-changed': ClientChangedPayload;
-  'grants-changed': GrantsChangedPayload;
+  'client-grant-changed': ClientGrantChangedPayload;
   'gateway-changed': GatewayChangedPayload;
   'mcp-notification': MCPNotificationPayload;
 }
@@ -198,7 +195,7 @@ const ALL_CHANNELS: DomainEventChannel[] = [
   'server-features-refreshed',
   'feature-set-changed',
   'client-changed',
-  'grants-changed',
+  'client-grant-changed',
   'gateway-changed',
   'mcp-notification',
 ];
@@ -343,15 +340,13 @@ export function useServerAuthProgress(callback: ChannelCallback<'server-auth-pro
 }
 
 /**
- * Hook that subscribes to client/grant changes
+ * Hook that subscribes to client registration and grant changes.
  */
-export function useClientEvents(
-  callback: AllEventsCallback
-) {
+export function useClientEvents(callback: AllEventsCallback) {
   const { subscribeMany } = useDomainEvents();
 
   useEffect(() => {
-    return subscribeMany(['client-changed', 'grants-changed'], callback);
+    return subscribeMany(['client-changed', 'client-grant-changed'], callback);
   }, [subscribeMany, callback]);
 }
 

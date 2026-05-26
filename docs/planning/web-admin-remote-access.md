@@ -223,7 +223,7 @@ Suggested first spike module: **`spaces`** (9 invokes, bounded CRUD, good templa
 | 2 | Health + static SPA + 401 without JWT when CF Access enabled |
 | 3 | `spaces` (or chosen pilot) fully bridged with dual-entry tests; Tauri commands delegate to bridge |
 | 4 | All read endpoints + transport vitest for read commands; browse smoke E2E |
-| 5 | All 10 SSE channels contract-tested; `useDomainEventsWeb` wired |
+| 5 | All **16** SSE channels contract-tested; `useDomainEventsWeb` + workspace/OAuth/meta-tool hooks wired |
 | 6 | All write endpoints + CSRF + error mapping + install round-trip integration + write smoke E2E |
 | 7 | OAuth consent HTTP path + integration test |
 | 8 | WDIO parity catalog ported to Playwright admin + homelab manual smoke |
@@ -295,7 +295,7 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
 - [ ] Create [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) — **done** (129 rows: 117 FE invokes + 12 deferred BE + anomalies flagged)
 - [ ] Map each row to its Tauri command module (`apps/desktop/src-tauri/src/commands/*.rs`) and planned HTTP path — **done in matrix**
 - [ ] Mark IPC-only commands (window chrome, IDE install, etc.) as **N/A — desktop only** — **done in matrix**
-- [ ] Document all 10 `DomainEventChannel` values from `useDomainEvents.ts` with planned SSE contract — **done in matrix**
+- [ ] Document all **16** canonical Tauri/SSE channels (10 `useDomainEvents` + 4 `useWorkspaceEvents` + `oauth-client-changed` + `meta-tool-invoked`) with planned SSE contract — **done in matrix** (post desktop cleanup)
 
 **Testing (same phase)**
 
@@ -382,16 +382,18 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
 
 **Implementation**
 
-- [ ] `GET /api/v1/events` — SSE bridge from `EventBus`
+- [ ] `GET /api/v1/events` — SSE bridge fanning in **both** Rust emit paths (EventBus bridge + direct `app.emit` in `oauth.rs` / `session_overrides.rs`)
 - [ ] `useDomainEventsWeb.ts` — SSE listener matching `useDomainEvents` API (`subscribe`, `subscribeAll`, `subscribeMany`)
-- [ ] `useDomainEvents.ts` — delegate to SSE hook when not in Tauri
+- [ ] `useWorkspaceEventsWeb.ts`, `useOAuthClientEventsWeb.ts`, `useMetaToolEventsWeb.ts` — SSE equivalents of desktop hooks
+- [ ] `useDomainEvents.ts` — delegate to SSE hooks when not in Tauri
 
 **Testing (same phase)**
 
-- [ ] One integration test **per channel** (10 total): trigger domain action → assert SSE event name + JSON payload matches Tauri emission shape
-- [ ] Channels: `space-changed`, `server-changed`, `server-status-changed`, `server-auth-progress`, `server-features-refreshed`, `feature-set-changed`, `client-changed`, `grants-changed`, `gateway-changed`, `mcp-notification`
+- [ ] One integration test **per channel** (**16** total): trigger domain action → assert SSE event name + JSON payload matches Tauri emission shape
+- [ ] Channels (EventBus bridge via `gateway.rs`): `space-changed`, `server-changed`, `server-status-changed`, `server-auth-progress`, `server-features-refreshed`, `feature-set-changed`, `client-changed`, `client-grant-changed`, `gateway-changed`, `mcp-notification`, `session-roots-changed`, `workspace-binding-changed`, `workspace-needs-binding`, `meta-tool-invoked`
+- [ ] Channels (direct `app.emit`): `oauth-client-changed` (`oauth.rs`), `session-overrides-changed` (`session_overrides.rs`)
 - [ ] Playwright admin smoke: gateway start/stop updates UI without refresh (proves live SSE in browser)
-- [ ] Parity matrix: add **Events** section — all 10 channels contract-tested
+- [ ] Parity matrix: **Events** section — all 16 channels contract-tested
 
 **Outcome:** Web UI stays live-synced like desktop. Event payload drift caught in CI, not manually on Gondor.
 
@@ -491,7 +493,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 | 1+ | `pnpm test:rust` (includes `admin_api` harness) |
 | 1+ | `pnpm test:ts` (includes `admin-transport.test.ts`) |
 | 4+ | Dual-entry tests for all merged read endpoints |
-| 5+ | SSE channel contract tests (10/10) |
+| 5+ | SSE channel contract tests (16/16) |
 | 6+ | Write round-trip + CSRF tests; `pnpm test:e2e:web:admin` smoke |
 | 8 | Full admin Playwright catalog + manual homelab smoke checklist |
 
@@ -531,7 +533,10 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 | [`apps/desktop/src-tauri/src/commands/mod.rs`](../../apps/desktop/src-tauri/src/commands/mod.rs) | Command module registry — each module gets a corresponding admin handler |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | Existing Axum gateway — pattern reference for admin router |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) (lines 340–365) | OAuth consent removed from HTTP for security — web admin re-adds guarded version |
-| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Tauri event listener — 10 channels need SSE contract tests in Phase 5 |
+| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Tauri event listener — 10 domain channels; SSE contract tests in Phase 5 |
+| [`apps/desktop/src/hooks/useWorkspaceEvents.ts`](../../apps/desktop/src/hooks/useWorkspaceEvents.ts) | Workspace/session-override channels (4) — SSE in Phase 5 |
+| [`apps/desktop/src/hooks/useOAuthClientEvents.ts`](../../apps/desktop/src/hooks/useOAuthClientEvents.ts) | `oauth-client-changed` (direct Rust emit) — SSE in Phase 5 |
+| [`apps/desktop/src/hooks/useMetaToolEvents.ts`](../../apps/desktop/src/hooks/useMetaToolEvents.ts) | `meta-tool-invoked` — SSE in Phase 5 |
 | [`tests/e2e/specs/*.wdio.ts`](../../tests/e2e/specs/) | Behavioral catalog — port to `tests/e2e/specs/admin/*.spec.ts` in Phases 4–8 |
 | [`tests/rust/tests/integration/workspace_binding_events.rs`](../../tests/rust/tests/integration/workspace_binding_events.rs) | Event JSON shape testing precedent for SSE contract tests |
 | [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) | Living coverage tracker — created Phase 1, completed Phase 8 |

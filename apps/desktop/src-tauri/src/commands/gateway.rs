@@ -1,6 +1,21 @@
 //! Gateway management commands
 //!
 //! IPC commands for controlling the local MCP gateway server.
+//!
+//! ## Tauri event emission (desktop UI + future web-admin SSE)
+//!
+//! Most domain events reach the frontend via `start_domain_event_bridge`, which
+//! maps `DomainEvent` variants to Tauri channel names in `map_domain_event_to_ui`.
+//! A second path emits directly from command handlers without EventBus:
+//!
+//! | Source | Channels |
+//! | ------ | -------- |
+//! | EventBus bridge (this module) | `space-changed`, `server-changed`, `server-status-changed`, `server-auth-progress`, `server-features-refreshed`, `feature-set-changed`, `client-changed`, `client-grant-changed`, `gateway-changed`, `mcp-notification`, `session-roots-changed`, `workspace-binding-changed`, `workspace-needs-binding`, `meta-tool-invoked` |
+//! | Direct `app.emit` in `oauth.rs` | `oauth-client-changed` |
+//! | Direct `app.emit` in `session_overrides.rs` | `session-overrides-changed` |
+//!
+//! Web-admin SSE (`GET /api/v1/events`) must fan in **both** paths — merging
+//! emitters in Rust is deferred; this module documents the contract only.
 
 use crate::commands::server_manager::ServerManagerState;
 use crate::AppState;
