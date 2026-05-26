@@ -6,7 +6,7 @@
 **Base branch:** `dev` (fork); upstream merge path is `main`
 **Issue:** TBD — file after planning review
 **Depends on:** [Pre–Web Admin Desktop Cleanup](./pre-web-admin-desktop-cleanup.md) — **Complete** (`fix/pre-web-admin-cleanup`, May 25, 2026). Phase 1 matrix scaffolding may start.
-**Unblocks:** [`jsg-tech-check` homelab wiring Step 6](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) — remote McpMux admin UI from Weathertop / Rohan at `https://mux.joe-hassio.com`
+**Unblocks:** [`jsg-tech-check` homelab wiring Step 6](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) — remote McpMux admin UI from Weathertop / Rohan at `https://mux.example.com`
 
 ---
 
@@ -18,8 +18,8 @@ The homelab wiring plan already exposes two public endpoints via Cloudflare Tunn
 
 | Hostname | Target | What it serves |
 | -------- | ------ | -------------- |
-| `mcp.joe-hassio.com` | `localhost:45818` | MCP gateway (`/mcp`) for AI clients |
-| `code.joe-hassio.com` | `localhost:3001` | ClaudeCodeUI |
+| `mcp.example.com` | `localhost:45818` | MCP gateway (`/mcp`) for AI clients |
+| `code.example.com` | `localhost:3001` | ClaudeCodeUI |
 
 Neither exposes the admin UI. Tunneling Vite dev (`:1420`) serves a React shell with no backend — every action fails because nothing answers `invoke()`. Tunneling the MCP gateway (`:45818`) serves the protocol endpoint, not admin pages.
 
@@ -36,8 +36,8 @@ Screen sharing / VNC behind CF Access works today but is not a web UI. This doc 
 | # | Decision | Choice | Rationale |
 | - | -------- | ------ | --------- |
 | 1 | Deployment model | **Single-user homelab** — one McpMux instance on Gondor, one operator | Avoids multi-tenant auth, cloud KMS, and per-user DB isolation. The Rust process still runs locally with OS keychain access. |
-| 2 | Auth | **Cloudflare Access at the tunnel edge** — app trusts `CF-Access-Jwt-Assertion` when `gateway.admin_trust_cf_access` is enabled | No login UI to build. Same pattern as `b.joe-hassio.com` (Beeper). Reject requests without a valid JWT when admin mode is enabled. |
-| 3 | Admin server placement | **Separate Axum router on configurable port** (default `45819`), not mixed into MCP gateway routes | Keeps MCP protocol surface unchanged. Admin and MCP can be tunneled independently (`mux.joe-hassio.com` vs `mcp.joe-hassio.com`). Easier to disable admin without stopping the gateway. |
+| 2 | Auth | **Cloudflare Access at the tunnel edge** — app trusts `CF-Access-Jwt-Assertion` when `gateway.admin_trust_cf_access` is enabled | No login UI to build. Same pattern as `b.example.com` (Beeper). Reject requests without a valid JWT when admin mode is enabled. |
+| 3 | Admin server placement | **Separate Axum router on configurable port** (default `45819`), not mixed into MCP gateway routes | Keeps MCP protocol surface unchanged. Admin and MCP can be tunneled independently (`mux.example.com` vs `mcp.example.com`). Easier to disable admin without stopping the gateway. |
 | 4 | Static UI | **Serve `frontendDist` from the Tauri build** at `/` with SPA fallback | Reuses the existing React app. No separate web bundle. |
 | 5 | API shape | **REST JSON at `/api/v1/*`** mirroring Tauri command names (kebab → snake mapping) | Predictable mapping: `get_gateway_status` → `GET /api/v1/gateway/status`. One handler module per Tauri command group. |
 | 6 | Frontend transport | **Unified backend facade (`@/lib/backend`)** — `apiCall()` in `backend/data/transport.ts`; Tauri `invoke()` vs admin `fetch()` | Detect via `window.__TAURI__` or build-time `import.meta.env.VITE_ADMIN_WEB`. Same function signatures, different backend. `@/lib/api/*` remains as deprecated shims. |
@@ -84,16 +84,16 @@ All handlers delegate to the same `ApplicationServices` / command-layer logic Ta
 ```yaml
 # gondor cloudflared config (addition to home-lab-wiring-plan.md Step 5)
 ingress:
-  - hostname: mux.joe-hassio.com
+  - hostname: mux.example.com
     service: http://localhost:45819    # NEW — admin UI
-  - hostname: mcp.joe-hassio.com
+  - hostname: mcp.example.com
     service: http://localhost:45818    # existing — MCP clients
-  - hostname: code.joe-hassio.com
+  - hostname: code.example.com
     service: http://localhost:3001     # existing — ClaudeCodeUI
   - service: http_status:404
 ```
 
-CF Access policy on `mux.joe-hassio.com`: allow `jsangio1@gmail.com` (or equivalent Zero Trust rule).
+CF Access policy on `mux.example.com`: allow your operator email (or equivalent Zero Trust rule).
 
 ---
 
@@ -104,7 +104,7 @@ Weathertop / Rohan browser
         │
         │ HTTPS + CF Access (Google login)
         ▼
-  mux.joe-hassio.com ──── cloudflared tunnel ────► localhost:45819
+  mux.example.com ──── cloudflared tunnel ────► localhost:45819
                                                           │
                               ┌───────────────────────────┤
                               │                           │
@@ -458,8 +458,8 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
 
 **Implementation**
 
-- [x] Update [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) Step 5 with `mux.joe-hassio.com` ingress rule
-- [x] Document CF Access policy setup for `mux.joe-hassio.com`
+- [x] Update [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) Step 5 with `mux.example.com` ingress rule
+- [x] Document CF Access policy setup for `mux.example.com`
 - [x] Add admin mode section to [`docs/guide/gateway.mdx`](../../docs/guide/gateway.mdx)
 - [x] `pnpm build:web:admin` + verify production SPA served correctly from admin server
 
@@ -481,7 +481,7 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
   | `comprehensive.wdio.ts` | `admin/comprehensive.spec.ts` (subset) |
 
 - [ ] CI job: `pnpm test:e2e:web:admin` on Linux with AdminServer fixture — **deferred** (script in root `package.json`; requires live `:45819` + `apps/desktop/dist` from `pnpm build:web:admin`)
-- [ ] Manual homelab smoke from Weathertop: `https://mux.joe-hassio.com` — browse, mutate, OAuth (cannot fully CI tunnel + real CF Access)
+- [ ] Manual homelab smoke from Weathertop: `https://mux.example.com` — browse, mutate, OAuth (cannot fully CI tunnel + real CF Access)
 - [x] Parity matrix: 100% rows resolved (checked or N/A)
 
 **Outcome:** Homelab wiring complete. CI proves web ≡ desktop for catalog flows. Operator manages McpMux from phone/laptop.
@@ -511,7 +511,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 | TS tests | `pnpm test:ts` | vitest transport mapping (all parity matrix rows) |
 | Admin web E2E | `pnpm test:e2e:web:admin` | Playwright against real `:45819` |
 | Desktop regression | `pnpm test:e2e:grep -- "<smoke>"` | WDIO unchanged — desktop IPC not regressed |
-| Manual smoke | Weathertop → `mux.joe-hassio.com` | CF Access + tunnel + real operator UX |
+| Manual smoke | Weathertop → `mux.example.com` | CF Access + tunnel + real operator UX |
 
 ---
 
@@ -524,7 +524,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 | Binding admin server to `0.0.0.0` | Loopback + CF tunnel is the access path. Direct internet bind violates `AGENTS.md` posture. |
 | Replacing Tauri desktop app | Desktop remains primary on Gondor. Web admin is for remote access only. |
 | Mobile-optimized responsive UI | React app works in mobile browser but no dedicated mobile layout pass. Acceptable for v1 homelab use. |
-| Public MCP gateway hardening (`mcp.joe-hassio.com`) | Separate concern — OAuth JWT auth exists but unauthenticated admin routes on `:45818` need CF Access too. Track as follow-up, not blocked on this doc. |
+| Public MCP gateway hardening (`mcp.example.com`) | Separate concern — OAuth JWT auth exists but unauthenticated admin routes on `:45818` need CF Access too. Track as follow-up, not blocked on this doc. |
 | WebSocket transport (instead of SSE) | SSE is sufficient for EventBus fan-out. WebSocket adds complexity with no v1 benefit. |
 | Headless-only mode (no Tauri window) | v1 starts admin server from Tauri app. Headless/systemd mode is a follow-up for Rivendell-style deployment. |
 
@@ -568,7 +568,7 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 
 ## Reconciliation
 
-This doc is the source of truth for web admin mode. Phases 1–8 are **Complete** on branch `feat/web-ui` (May 26, 2026). Homelab operator checklist: enable admin in Settings, `pnpm build:web:admin`, tunnel `mux.joe-hassio.com` → `:45819`, CF Access allow rule for operator email. Dev workflows: [`docs/run-from-source-macos.md`](../run-from-source-macos.md).
+This doc is the source of truth for web admin mode. Phases 1–8 are **Complete** on branch `feat/web-ui` (May 26, 2026). Homelab operator checklist: enable admin in Settings, `pnpm build:web:admin`, tunnel `mux.example.com` → `:45819`, CF Access allow rule for operator email. Dev workflows: [`docs/run-from-source-macos.md`](../run-from-source-macos.md).
 
 **Post-phase-8 hardening (May 26, 2026):** PR #2 code review remediation in three commits — see [`pr-2-web-admin-code-review.md`](./pr-2-web-admin-code-review.md). Key additions beyond Phases 1–8:
 

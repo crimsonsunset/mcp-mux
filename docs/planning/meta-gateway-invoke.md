@@ -2,7 +2,7 @@
 
 **Last Updated:** May 26, 2026
 **Status:** ✅ Phases A–D implemented and manually QA complete — GAIT v2 **SHIP** ([`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md)); generic runbook §12–14 reconciled in [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md)
-**Branch:** `dev` on [crimsonsunset/mcp-mux](https://github.com/crimsonsunset/mcp-mux) (see [`fork-integration.md`](./fork-integration.md))
+**Branch:** `dev` on the personal fork (see [`fork-integration.md`](./fork-integration.md))
 **Base branch:** `feat/dynamic-mcp-toggle-meta-tools` on fork; upstream contribution is topic-stacked, not `main`
 **Issue:** Fork-only; upstream megapr [#155](https://github.com/mcpmux/mcp-mux/pull/155) closed — use #154 stack for meta-tools upstream
 **Depends on:** [`dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) (session overrides + meta-tool registry); benefits from workspace bindings / FeatureSets from PR #151

@@ -2,15 +2,15 @@
 
 **Reviewed:** 2026-05-26  
 **Last reconciled:** 2026-05-26 (post-facade on `feat/web-ui`)  
-**PR:** https://github.com/crimsonsunset/mcp-mux/pull/2  
+**PR:** fork PR #2 (web admin mode)  
 **Branch:** `feat/web-ui` → `dev`
 
 ---
 
 ### 📋 PR Summary
 
-**Title** linked to the PR URL: [feat: web admin mode (remote UI via HTTP) #2](https://github.com/crimsonsunset/mcp-mux/pull/2)
-**Author** crimsonsunset · **Merging into**: `feat/web-ui` → `dev`
+**Title:** feat: web admin mode (remote UI via HTTP) #2  
+**Merging into:** `feat/web-ui` → `dev`
 **Opened**: 2026-05-26 · **Last commit**: 2026-05-26 · **Commits**: 22+ (web admin phases + post-review remediation + unified backend facade Phases 1–5)
 **Files changed**: 160+ (see PR diff vs `dev`)
 **Description**: Adds optional Axum web admin server on `127.0.0.1:45819` serving the React SPA + REST `/api/v1/*` backed by `command_bridge`, frontend `@/lib/backend` facade (`apiCall` invoke ↔ fetch, SSE events, shell helpers), CF Access JWT gate, CSRF on mutations, web OAuth consent path, and integration / Playwright scaffolding.
@@ -135,4 +135,4 @@ All four original critical items are fixed. Remaining open work (#3 JWKS refresh
 
 The phased commit structure made review possible — web admin phases, review remediation, then facade Phases 1–5 are individually digestible.
 
-Sources: [crates/mcpmux-gateway/src/admin/](https://github.com/crimsonsunset/mcp-mux/pull/2/files), [oauth/inbound_consent.rs](https://github.com/crimsonsunset/mcp-mux/blob/feat/web-ui/crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [apps/desktop/src/lib/backend/](https://github.com/crimsonsunset/mcp-mux/tree/feat/web-ui/apps/desktop/src/lib/backend), [docs/planning/unified-backend-facade.md](https://github.com/crimsonsunset/mcp-mux/blob/feat/web-ui/docs/planning/unified-backend-facade.md).
+Sources: [`crates/mcpmux-gateway/src/admin/`](../../crates/mcpmux-gateway/src/admin/), [`oauth/inbound_consent.rs`](../../crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [`apps/desktop/src/lib/backend/`](../../apps/desktop/src/lib/backend/), [`docs/planning/unified-backend-facade.md`](./unified-backend-facade.md).

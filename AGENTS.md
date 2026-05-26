@@ -105,7 +105,7 @@ Anything that spawns a child process (stdio MCP servers, installers, etc.) **mus
 - Credentials encrypt at rest via AES-256-GCM in SQLite plus DPAPI (Windows) / OS keychain (macOS, Linux). Don't add new code paths that persist secrets any other way.
 - Secrets should be wiped from memory after use via `zeroize`.
 - The gateway binds to `127.0.0.1`. Don't bind to `0.0.0.0` or expose it on the network.
-- The **web admin server** (default `:45819`) uses the same loopback-only posture. Remote access is via Cloudflare Tunnel + **Cloudflare Access** on a dedicated hostname (e.g. `mux.joe-hassio.com`), not by binding the admin port on the LAN. When `gateway.admin_trust_cf_access` is enabled, mutating routes require a valid `CF-Access-Jwt-Assertion` header.
+- The **web admin server** (default `:45819`) uses the same loopback-only posture. Remote access is via Cloudflare Tunnel + **Cloudflare Access** on a dedicated hostname (e.g. `mux.example.com`), not by binding the admin port on the LAN. When `gateway.admin_trust_cf_access` is enabled, mutating routes require a valid `CF-Access-Jwt-Assertion` header.
 
 ## Frontend Notes
 

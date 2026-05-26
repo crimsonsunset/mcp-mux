@@ -1,7 +1,7 @@
-# Personal fork integration (crimsonsunset)
+# Personal fork integration
 
 **Last updated:** May 26, 2026  
-**Purpose:** Single source of truth for local/homelab work on [crimsonsunset/mcp-mux](https://github.com/crimsonsunset/mcp-mux). Upstream PR stacking is separate and optional.
+**Purpose:** Single source of truth for local/homelab work on a personal fork of [mcpmux/mcp-mux](https://github.com/mcpmux/mcp-mux). Upstream PR stacking is separate and optional.
 
 ---
 
