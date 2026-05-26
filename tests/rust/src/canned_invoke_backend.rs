@@ -23,7 +23,11 @@ impl CannedInvokeBackend {
     }
 
     /// Register a response for a qualified tool name.
-    pub fn with_response(mut self, qualified_name: impl Into<String>, result: ToolCallResult) -> Self {
+    pub fn with_response(
+        mut self,
+        qualified_name: impl Into<String>,
+        result: ToolCallResult,
+    ) -> Self {
         self.responses.insert(qualified_name.into(), result);
         self
     }

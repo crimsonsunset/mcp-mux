@@ -785,11 +785,8 @@ async fn bind_current_workspace_updates_existing_binding_for_same_root() {
     };
 
     // Seed an existing binding (simulates Workspaces UI or prior bind).
-    let starter = WorkspaceBinding::new(
-        normalized.clone(),
-        f.space_id,
-        f.fs_android_id.to_string(),
-    );
+    let starter =
+        WorkspaceBinding::new(normalized.clone(), f.space_id, f.fs_android_id.to_string());
     f.binding_repo.create(&starter).await.unwrap();
 
     let result = f
@@ -808,10 +805,7 @@ async fn bind_current_workspace_updates_existing_binding_for_same_root() {
     assert_eq!(bindings.len(), 1, "must not insert a second binding row");
     assert_eq!(bindings[0].id, starter.id, "must reuse existing binding id");
     assert_eq!(bindings[0].workspace_root, normalized);
-    assert_eq!(
-        bindings[0].feature_set_ids,
-        vec![fs_full_id.to_string()]
-    );
+    assert_eq!(bindings[0].feature_set_ids, vec![fs_full_id.to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

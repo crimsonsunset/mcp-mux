@@ -779,12 +779,8 @@ impl ServerHandler for McpMuxGatewayHandler {
             };
         }
 
-        self.ensure_roots_probed(
-            &context.peer,
-            session_id,
-            &oauth_ctx.client_id,
-        )
-        .await;
+        self.ensure_roots_probed(&context.peer, session_id, &oauth_ctx.client_id)
+            .await;
 
         // Resolve routing — the binding's target space is authoritative,
         // which may differ from oauth_ctx.space_id.
@@ -806,11 +802,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .services
                 .pool_services
                 .feature_service
-                .get_advertised_tools_for_grants(
-                    &space_id_str,
-                    &feature_set_ids,
-                    session_id,
-                )
+                .get_advertised_tools_for_grants(&space_id_str, &feature_set_ids, session_id)
                 .await
                 .map_err(|e| {
                     McpError::internal_error(format!("Failed to get advertised tools: {}", e), None)
