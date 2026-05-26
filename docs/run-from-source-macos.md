@@ -75,6 +75,32 @@ pnpm dev:restart
 
 A Tauri window opens. Edit `.tsx` files for instant HMR; edit Rust and the window will relaunch on its own after recompile.
 
+### Stopping dev
+
+Use **`pnpm dev:stop`** — same script `predev` runs before every start. It:
+
+1. Quits `/Applications/McpMux.app` (macOS)
+2. Stops orphaned dev processes: `pnpm --filter @mcpmux/desktop dev`, Tauri, Vite (`:1420`), debug `mcpmux` (`:45818` / `:45819`), and `dev:admin` wrappers
+3. Waits until `:1420`, `:45818`, and `:45819` are free
+
+Implementation: [`scripts/dev-kill.helpers.mjs`](../scripts/dev-kill.helpers.mjs) (called from [`scripts/dev-env.mjs`](../scripts/dev-env.mjs)).
+
+If a crashed session left ports busy and `pnpm dev:stop` still reports a conflict, run stop again (the second pass SIGKILLs stragglers). On macOS you can also verify nothing is listening:
+
+```bash
+lsof -nP -iTCP:1420,45818,45819 -sTCP:LISTEN
+```
+
+Then restart:
+
+```bash
+pnpm dev:stop && pnpm dev:admin   # web admin + HMR in browser
+# or
+pnpm dev:stop && pnpm dev          # Tauri window only
+```
+
+**Do not** use bare `pkill -f mcpmux` — that can hit unrelated processes. Prefer `pnpm dev:stop`.
+
 ### Frontend-only iteration (desktop transport)
 
 If you're only changing UI inside the Tauri shell and don't need the HTTP admin transport:
@@ -170,7 +196,7 @@ Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx
 | ------- | --- | --- |
 | Keychain prompts on first launch of the dev binary | Different signer than `/Applications/McpMux.app` | Click **Always Allow** once — sticks for that built artifact. See `Keychain prompts` below for detail |
 | `Address already in use: 45818` | Installed `.app` or stale dev process | `pnpm dev:stop` then `pnpm dev` (or `pnpm dev:restart`) |
-| `Port 1420 is already in use` | Orphan Vite from a crashed `pnpm dev` | `pnpm dev:stop` then retry |
+| `Port 1420 is already in use` | Orphan Vite / `pnpm dev` from a crashed session | `pnpm dev:stop` (run twice if needed) — see **Stopping dev** above |
 | Gateway code changed but filter/behavior unchanged | Stale binary (`Finished in 0.20s`, no `Compiling mcpmux-gateway`) | `pnpm dev:restart` |
 | Cursor's MCP server "disconnected" mid-session | You stopped `pnpm dev` | Cursor reconnects when the gateway is back on `localhost:45818` (either flow) |
 | Rust recompile feels slow | Big edits in `mcpmux-gateway` / `mcpmux-storage` | Expected — keep edits scoped or use `pnpm dev:web` for UI |
@@ -313,7 +339,7 @@ open /Applications/McpMux.app
 | Symptom | Applies to | Fix |
 | ------- | ---------- | --- |
 | "App is damaged" / won't open | Flow 2 | Re-run `codesign --force --deep --sign - /Applications/McpMux.app` |
-| Gateway port already in use | Both | Old process still running — `pkill -f mcpmux` then relaunch |
+| Gateway port already in use | Both | `pnpm dev:stop` then relaunch — avoid bare `pkill -f mcpmux` |
 | Cursor OAuth fails after swap | Both | Re-trigger MCP OAuth in Cursor (DCR redirect URI validation may have changed) |
 | Empty app / missing UI | Flow 2 (Option B) | You used binary-only swap but frontend changed — run Option A (full build) |
 | Permission denied on `/Applications` | Flow 2 | Use `sudo` for mv/cp/chown, or install to `~/Applications/` and skip sudo |
