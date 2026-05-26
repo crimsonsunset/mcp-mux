@@ -200,12 +200,17 @@ export interface RefreshResult {
   refresh_failed: number;
 }
 
+let refreshOAuthOnStartupPromise: Promise<RefreshResult> | null = null;
+
 /**
  * Refresh OAuth tokens on startup for all installed HTTP servers.
  * This should be called during app initialization before connecting to servers.
  */
 export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
-  return apiCall('refresh_oauth_tokens_on_startup');
+  if (!refreshOAuthOnStartupPromise) {
+    refreshOAuthOnStartupPromise = apiCall<RefreshResult>('refresh_oauth_tokens_on_startup');
+  }
+  return refreshOAuthOnStartupPromise;
 }
 
 // OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.

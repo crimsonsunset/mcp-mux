@@ -1,6 +1,8 @@
 //! Read-only admin REST handlers delegating to command bridge functions.
 
 use axum::extract::{Path, Query, State};
+use axum::http::{header, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
@@ -382,6 +384,37 @@ pub async fn resolve_workspace_icon_path(
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
+}
+
+/// Stream a workspace icon PNG for web admin (`local:workspace-icons/…` refs).
+pub async fn serve_workspace_icon(
+    State(state): State<AdminState>,
+    Query(query): Query<IconPathQuery>,
+) -> Response {
+    let Some(path) = bridge::workspace_icon_path(&state.bridge.data_dir, &query.icon_ref) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "image/png"),
+                (header::CACHE_CONTROL, "private, max-age=3600"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Err(err) => {
+            warn!(
+                path = %path.display(),
+                error = %err,
+                "[Admin] failed to read workspace icon"
+            );
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 pub async fn list_session_overrides(

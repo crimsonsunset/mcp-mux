@@ -147,6 +147,11 @@ fn icon_ref_to_path(data_dir: &Path, icon_ref: &str) -> Option<PathBuf> {
     Some(data_dir.join(WORKSPACE_ICON_DIR).join(file_name))
 }
 
+/// Resolve a validated `local:workspace-icons/…` ref to an on-disk path.
+pub fn workspace_icon_path(data_dir: &Path, icon_ref: &str) -> Option<PathBuf> {
+    icon_ref_to_path(data_dir, icon_ref)
+}
+
 pub(crate) fn space_ctx<'a>(ctx: &'a AdminBridgeCtx) -> SpaceBridgeCtx<'a> {
     SpaceBridgeCtx {
         services: &ctx.services,

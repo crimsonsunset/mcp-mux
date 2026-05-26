@@ -4,10 +4,14 @@ export { routeFor, registeredCommands } from './fetch-api.routes';
 import { routeFor } from './fetch-api.routes';
 
 let cachedCsrfToken: string | null = null;
+let csrfFetchInFlight: Promise<string> | null = null;
+let adminReadyPromise: Promise<void> | null = null;
 
 const RETRYABLE_STATUS_CODES = new Set([500, 502, 503, 504]);
 const MAX_GET_RETRIES = 4;
+const MAX_MUTATION_RETRIES = 4;
 const GET_RETRY_DELAYS_MS = [400, 800, 1600, 3200];
+const CSRF_RETRY_DELAY_MS = 200;
 
 /**
  * Pause briefly before retrying a transient admin API failure.
@@ -30,6 +34,7 @@ function isCsrfRejection(status: number, message: string): boolean {
  */
 function invalidateCsrfToken(): void {
   cachedCsrfToken = null;
+  csrfFetchInFlight = null;
 }
 
 /**
@@ -41,8 +46,19 @@ function isRetryableGetFailure(status: number | null): boolean {
 
 /**
  * Poll admin `/health` until the backend accepts requests (web startup / hot-reload).
+ * Single-flight per page load so React Strict Mode does not double-invalidate CSRF.
  */
 export async function waitForAdminReady(timeoutMs = 15000): Promise<void> {
+  if (!adminReadyPromise) {
+    adminReadyPromise = waitForAdminReadyOnce(timeoutMs);
+  }
+  return adminReadyPromise;
+}
+
+/**
+ * One-shot admin readiness probe plus CSRF prefetch for the current admin process.
+ */
+async function waitForAdminReadyOnce(timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
 
@@ -54,10 +70,11 @@ export async function waitForAdminReady(timeoutMs = 15000): Promise<void> {
         credentials: 'same-origin',
       });
       if (response.ok) {
+        invalidateCsrfToken();
         if (attempt > 0) {
-          invalidateCsrfToken();
           console.info(`[fetchApi] Admin API ready after ${attempt + 1} health probe(s)`);
         }
+        await ensureCsrfToken();
         return;
       }
     } catch {
@@ -70,6 +87,7 @@ export async function waitForAdminReady(timeoutMs = 15000): Promise<void> {
   }
 
   console.warn(`[fetchApi] Admin health probe timed out after ${timeoutMs}ms — proceeding anyway`);
+  invalidateCsrfToken();
 }
 
 /**
@@ -79,20 +97,32 @@ async function ensureCsrfToken(): Promise<string> {
   if (cachedCsrfToken) {
     return cachedCsrfToken;
   }
-  const response = await fetch('/api/v1/csrf-token', {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    credentials: 'same-origin',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch CSRF token');
+  if (csrfFetchInFlight) {
+    return csrfFetchInFlight;
   }
-  const body = (await response.json()) as { token?: string };
-  if (!body.token) {
-    throw new Error('CSRF token missing from response');
+
+  csrfFetchInFlight = (async () => {
+    const response = await fetch('/api/v1/csrf-token', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to fetch CSRF token');
+    }
+    const body = (await response.json()) as { token?: string };
+    if (!body.token) {
+      throw new Error('CSRF token missing from response');
+    }
+    cachedCsrfToken = body.token;
+    return cachedCsrfToken;
+  })();
+
+  try {
+    return await csrfFetchInFlight;
+  } finally {
+    csrfFetchInFlight = null;
   }
-  cachedCsrfToken = body.token;
-  return cachedCsrfToken;
 }
 
 /**
@@ -103,7 +133,7 @@ export async function fetchApi<T>(
   args?: Record<string, unknown>
 ): Promise<T> {
   const { method, path, body } = routeFor(command, args ?? {});
-  const maxAttempts = method === 'GET' ? MAX_GET_RETRIES : 2;
+  const maxAttempts = method === 'GET' ? MAX_GET_RETRIES : MAX_MUTATION_RETRIES;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const headers: Record<string, string> = { Accept: 'application/json' };
@@ -169,6 +199,7 @@ export async function fetchApi<T>(
           `[fetchApi] ${method} ${path} CSRF rejected (attempt ${attempt + 1}/${maxAttempts}) — refreshing token`
         );
         invalidateCsrfToken();
+        await sleep(CSRF_RETRY_DELAY_MS);
         continue;
       }
 

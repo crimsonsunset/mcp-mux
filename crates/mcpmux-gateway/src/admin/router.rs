@@ -215,6 +215,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/workspaces/icon-path",
             get(read::resolve_workspace_icon_path),
         )
+        .route(
+            "/api/v1/workspaces/icon",
+            get(read::serve_workspace_icon),
+        )
         .route("/api/v1/session-overrides", get(read::list_session_overrides))
         .route(
             "/api/v1/session-overrides/clear",

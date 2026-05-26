@@ -8,8 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { fileSrcFromAbsolutePath } from '@/lib/backend/shell';
-import { resolveWorkspaceIconPath } from '@/lib/api/workspaceAppearances';
+import { resolveWorkspaceIconDisplaySrc } from '@/lib/api/workspaceAppearances';
 
 interface ServerIconProps {
   icon: string | null | undefined;
@@ -41,12 +40,12 @@ export function ServerIcon({ icon, className = 'w-9 h-9 object-contain', fallbac
 
     const localIcon = icon;
     let cancelled = false;
-    void resolveWorkspaceIconPath(localIcon)
-      .then((absolutePath) => {
+    void resolveWorkspaceIconDisplaySrc(localIcon)
+      .then((src) => {
         if (cancelled) {
           return;
         }
-        setLocalResolved({ icon: localIcon, src: fileSrcFromAbsolutePath(absolutePath) });
+        setLocalResolved({ icon: localIcon, src });
       })
       .catch(() => {
         if (cancelled) {

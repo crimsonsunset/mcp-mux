@@ -7,6 +7,8 @@ import {
   waitForAdminReady,
 } from '@/lib/backend';
 
+let startupSyncPromise: Promise<void> | null = null;
+
 /**
  * Syncs data from Rust backend to Zustand store.
  * Run once at app startup.
@@ -16,7 +18,10 @@ export function useDataSync() {
   const setLoading = useAppStore((state) => state.setLoading);
 
   useEffect(() => {
-    async function syncData() {
+    /**
+     * Load spaces and kick off a non-blocking OAuth refresh.
+     */
+    async function syncData(): Promise<void> {
       const transport = isTauri() ? 'tauri' : 'admin-http';
       console.log(`[useDataSync] Starting data sync (transport=${transport})...`);
       setLoading('spaces', true);
@@ -31,13 +36,12 @@ export function useDataSync() {
         console.log('[useDataSync] listSpaces returned:', spaces.length, 'spaces');
         setSpaces(spaces);
 
-        void refreshOAuthTokensOnStartup()
-          .then((refreshResult) => {
-            console.log('[useDataSync] OAuth token refresh result:', refreshResult);
-          })
-          .catch((error) => {
-            console.warn('[useDataSync] OAuth token refresh failed (non-fatal):', error);
-          });
+        try {
+          const refreshResult = await refreshOAuthTokensOnStartup();
+          console.log('[useDataSync] OAuth token refresh result:', refreshResult);
+        } catch (error) {
+          console.warn('[useDataSync] OAuth token refresh failed (non-fatal):', error);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[useDataSync] Failed to sync:', message, error);
@@ -52,6 +56,9 @@ export function useDataSync() {
       }
     }
 
-    syncData();
+    if (!startupSyncPromise) {
+      startupSyncPromise = syncData();
+    }
+    void startupSyncPromise;
   }, [setSpaces, setLoading]);
 }

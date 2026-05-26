@@ -1,5 +1,6 @@
 /** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
-import { apiCall } from './transport';
+import { fileSrcFromAbsolutePath } from '@/lib/backend/shell';
+import { apiCall, isTauri } from './transport';
 
 /** Persisted per-root icon used before a binding exists. */
 export interface WorkspaceAppearance {
@@ -38,4 +39,18 @@ export async function uploadWorkspaceIcon(sourcePath: string): Promise<string> {
 /** Resolve a local:workspace-icons ref to an absolute file path. */
 export async function resolveWorkspaceIconPath(iconRef: string): Promise<string | null> {
   return apiCall('resolve_workspace_icon_path', { iconRef });
+}
+
+/**
+ * Resolve a local icon ref to a displayable URL (Tauri asset URL or admin HTTP path).
+ */
+export async function resolveWorkspaceIconDisplaySrc(iconRef: string): Promise<string | null> {
+  if (!iconRef.startsWith('local:')) {
+    return null;
+  }
+  if (!isTauri()) {
+    return `/api/v1/workspaces/icon?iconRef=${encodeURIComponent(iconRef)}`;
+  }
+  const absolutePath = await resolveWorkspaceIconPath(iconRef);
+  return fileSrcFromAbsolutePath(absolutePath);
 }
