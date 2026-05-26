@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /** An "always allow from (client, tool)" entry kept in the gateway's broker. */
 export interface MetaToolGrantEntry {
   client_id: string;
@@ -21,7 +23,7 @@ export interface MetaToolAuditEvent {
 
 /** List every session-scoped "always allow" entry in the gateway. */
 export async function listMetaToolGrants(): Promise<MetaToolGrantEntry[]> {
-  return invoke('list_meta_tool_grants');
+  return apiCall('list_meta_tool_grants');
 }
 
 /** Revoke a single "always allow" entry. */
@@ -37,7 +39,7 @@ export async function revokeMetaToolGrant(
  * advertised to connected MCP clients. Default ON.
  */
 export async function getMetaToolsEnabled(): Promise<boolean> {
-  return invoke('get_meta_tools_enabled');
+  return apiCall('get_meta_tools_enabled');
 }
 
 /** Flip the master switch; takes effect on the next `list_tools` push. */

@@ -4,43 +4,102 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mcpmux_core::{ApplicationServices, ApplicationServicesBuilder, EventBus, SpaceRepository};
-use mcpmux_gateway::admin::{
-    build_admin_router, test_valid_jwt, test_validator, AdminConfig, AdminState,
-    CF_ACCESS_JWT_HEADER,
+use mcpmux_core::{
+    ApplicationServices, ApplicationServicesBuilder, EventBus, GatewayPortService, LogConfig,
+    ServerDiscoveryService, ServerLogManager, SpaceRepository, SpaceService,
 };
-use mcpmux_storage::{Database, SqliteSpaceRepository};
+use mcpmux_gateway::admin::{
+    command_bridge::read as bridge_read,
+    build_admin_router, format_bridge_error_message, test_valid_jwt, test_validator, AdminConfig,
+    AdminState,
+    AdminBridgeCtx, CF_ACCESS_JWT_HEADER, StubGatewayRuntime,
+};
+use mcpmux_storage::{
+    Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
+    SqliteInboundMcpClientRepository, SqliteInstalledServerRepository, SqliteServerFeatureRepository,
+    SqliteSpaceRepository, SqliteWorkspaceAppearanceRepository, SqliteWorkspaceBindingRepository,
+};
 use reqwest::{Client, RequestBuilder, Response};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 /// In-memory `ApplicationServices` for admin integration tests.
-async fn in_memory_services() -> Arc<ApplicationServices> {
+async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>) {
+    let temp_dir = tempfile::TempDir::new().expect("tempdir");
     let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
     let event_bus = Arc::new(EventBus::new());
-    let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db));
+    let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db.clone()));
+    let installed_repo = Arc::new(SqliteInstalledServerRepository::new(
+        db.clone(),
+        Arc::new(mcpmux_storage::FieldEncryptor::new(&[7_u8; 32]).expect("encryptor")),
+    ));
+    let feature_set_repo = Arc::new(SqliteFeatureSetRepository::new(db.clone()));
+    let client_repo = Arc::new(SqliteInboundMcpClientRepository::new(db.clone()));
+    let credential_repo = Arc::new(SqliteCredentialRepository::new(
+        db.clone(),
+        Arc::new(mcpmux_storage::FieldEncryptor::new(&[9_u8; 32]).expect("encryptor")),
+    ));
+    let settings_repo = Arc::new(SqliteAppSettingsRepository::new(db.clone()));
+    let workspace_binding_repository = Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
+    let workspace_appearance_repository = Arc::new(SqliteWorkspaceAppearanceRepository::new(db.clone()));
+    let server_feature_repository = Arc::new(SqliteServerFeatureRepository::new(db.clone()));
 
-    Arc::new(
+    let services = Arc::new(
         ApplicationServicesBuilder::new()
-            .with_event_bus(event_bus)
-            .with_space_repo(space_repo)
+            .with_event_bus(event_bus.clone())
+            .with_space_repo(space_repo.clone())
+            .with_installed_server_repo(installed_repo)
+            .with_feature_set_repo(feature_set_repo.clone())
+            .with_server_feature_repo(server_feature_repository.clone())
+            .with_client_repo(client_repo)
+            .with_credential_repo(credential_repo)
             .build()
             .expect("build ApplicationServices"),
-    )
+    );
+    let space_service = SpaceService::with_feature_set_repository(space_repo, feature_set_repo.clone());
+    let data_dir = temp_dir.path().join("data");
+    let spaces_dir = data_dir.join("spaces");
+    std::fs::create_dir_all(&spaces_dir).expect("create spaces");
+    let bridge = Arc::new(AdminBridgeCtx {
+        services: services.clone(),
+        spaces_dir,
+        data_dir: data_dir.clone(),
+        gateway_port_service: Arc::new(GatewayPortService::new(settings_repo.clone())),
+        server_discovery: Arc::new(ServerDiscoveryService::new(data_dir.clone(), data_dir.join("spaces"))),
+        settings_repository: settings_repo,
+        workspace_binding_repository,
+        workspace_appearance_repository,
+        server_feature_repository,
+        server_log_manager: Arc::new(ServerLogManager::new(LogConfig {
+            base_dir: data_dir.join("logs"),
+            max_file_size: 1024 * 1024,
+            max_files: 5,
+            compress: false,
+        })),
+        space_service: Arc::new(space_service),
+        gateway_runtime: Arc::new(StubGatewayRuntime),
+        auto_launch_enabled: Some(false),
+        app_version: "0.0.0-test".to_string(),
+        bundle_version: None,
+    });
+
+    (services, bridge)
 }
 
 /// Running admin server on an ephemeral loopback port.
 struct AdminHarness {
     base_url: String,
     _services: Arc<ApplicationServices>,
+    bridge: Arc<AdminBridgeCtx>,
     cancel: CancellationToken,
 }
 
 impl AdminHarness {
     /// Mount the admin router and bind to `127.0.0.1:0`.
     async fn start(config: AdminConfig, gateway_running: bool) -> Self {
-        let services = in_memory_services().await;
+        let (services, bridge) = in_memory_services().await;
         let gateway_flag = Arc::new(AtomicBool::new(gateway_running));
         let cf_validator = if config.trust_cf_access {
             config
@@ -57,6 +116,7 @@ impl AdminHarness {
             gateway_running: gateway_flag,
             frontend_dist: std::path::PathBuf::from("/nonexistent"),
             cf_validator,
+            bridge: bridge.clone(),
         };
         let router = build_admin_router(state);
 
@@ -82,6 +142,7 @@ impl AdminHarness {
         Self {
             base_url,
             _services: services,
+            bridge,
             cancel,
         }
     }
@@ -89,6 +150,18 @@ impl AdminHarness {
     fn shutdown(self) {
         self.cancel.cancel();
     }
+}
+
+async fn assert_get_matches_bridge(
+    _harness: &AdminHarness,
+    client: &AdminClient,
+    path: &str,
+    bridge_value: serde_json::Value,
+) {
+    let resp = client.get_response(path).await;
+    assert_eq!(resp.status(), 200, "path={path}");
+    let body: serde_json::Value = resp.json().await.expect("json response");
+    assert_eq!(body, bridge_value, "path={path}");
 }
 
 /// HTTP client for admin API requests with optional CF Access JWT.
@@ -174,4 +247,289 @@ async fn health_returns_200_when_cf_access_disabled() {
     assert_eq!(body["gateway_running"], false);
 
     harness.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_endpoints_match_bridge_for_core_p4_routes() {
+    let harness = AdminHarness::start(AdminConfig::default(), false).await;
+    let client = AdminClient::new(&harness.base_url, None);
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/spaces",
+        bridge_read::list_spaces(&harness.bridge).await.expect("bridge list_spaces"),
+    )
+    .await;
+
+    let default_space_id = bridge_read::list_spaces(&harness.bridge)
+        .await
+        .expect("bridge list spaces")
+        .as_array()
+        .and_then(|spaces| spaces.first())
+        .and_then(|space| space.get("id"))
+        .and_then(|id| id.as_str())
+        .map(str::to_string)
+        .expect("default space id");
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        &format!("/api/v1/spaces/{default_space_id}"),
+        bridge_read::get_space(&harness.bridge, default_space_id.clone())
+            .await
+            .expect("bridge get_space"),
+    )
+    .await;
+
+    let temp_space_id = Uuid::new_v4().to_string();
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        &format!("/api/v1/spaces/{temp_space_id}/config"),
+        bridge_read::read_space_config(&harness.bridge, temp_space_id.clone())
+            .await
+            .expect("bridge read config"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/gateway/status",
+        bridge_read::get_gateway_status(&harness.bridge, None)
+            .await
+            .expect("bridge gateway status"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/gateway/probe-start",
+        bridge_read::probe_gateway_start(&harness.bridge, None)
+            .await
+            .expect("bridge gateway probe"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/gateway/port-settings",
+        bridge_read::get_gateway_port_settings(&harness.bridge)
+            .await
+            .expect("bridge gateway port settings"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/registry/discover",
+        bridge_read::discover_servers(&harness.bridge)
+            .await
+            .expect("bridge discover servers"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/clients",
+        bridge_read::list_clients(&harness.bridge)
+            .await
+            .expect("bridge list clients"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/feature-sets",
+        bridge_read::list_feature_sets(&harness.bridge)
+            .await
+            .expect("bridge list feature sets"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/workspaces/bindings",
+        bridge_read::list_workspace_bindings(&harness.bridge)
+            .await
+            .expect("bridge list workspace bindings"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/workspaces/reported-roots",
+        bridge_read::list_reported_workspace_roots(&harness.bridge)
+            .await
+            .expect("bridge list roots"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/workspaces/validate-root?path=/tmp",
+        bridge_read::validate_workspace_root("/tmp".to_string())
+            .await
+            .expect("bridge validate root"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/workspaces/appearances",
+        bridge_read::list_workspace_appearances(&harness.bridge)
+            .await
+            .expect("bridge list appearances"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/session-overrides",
+        bridge_read::list_session_overrides(&harness.bridge, None)
+            .await
+            .expect("bridge list session overrides"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/settings/startup",
+        bridge_read::get_startup_settings(&harness.bridge)
+            .await
+            .expect("bridge startup settings"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/settings/meta-tools-enabled",
+        bridge_read::get_meta_tools_enabled(&harness.bridge)
+            .await
+            .expect("bridge meta tools enabled"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/app/version",
+        bridge_read::get_version(&harness.bridge)
+            .await
+            .expect("bridge version"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/app/bundle-version",
+        bridge_read::get_bundle_version(&harness.bridge)
+            .await
+            .expect("bridge bundle version"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/app/logs-path",
+        bridge_read::get_logs_path(&harness.bridge)
+            .await
+            .expect("bridge logs path"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/logs/retention-days",
+        bridge_read::get_log_retention_days(&harness.bridge)
+            .await
+            .expect("bridge retention"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/oauth/clients",
+        bridge_read::get_oauth_clients(&harness.bridge)
+            .await
+            .expect("bridge oauth clients"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/meta-tools/grants",
+        bridge_read::list_meta_tool_grants(&harness.bridge)
+            .await
+            .expect("bridge grants"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/server-features?spaceId=00000000-0000-0000-0000-000000000001",
+        bridge_read::list_server_features(
+            &harness.bridge,
+            "00000000-0000-0000-0000-000000000001".to_string(),
+            None,
+        )
+        .await
+        .expect("bridge server features"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/servers/clones/available?spaceId=00000000-0000-0000-0000-000000000001&sourceServerId=demo&suffix=work",
+        bridge_read::is_clone_id_available(
+            &harness.bridge,
+            "00000000-0000-0000-0000-000000000001".to_string(),
+            "demo".to_string(),
+            "work".to_string(),
+        )
+        .await
+        .expect("bridge clone availability"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/servers/clones/dependents?spaceId=00000000-0000-0000-0000-000000000001&sourceServerId=demo",
+        bridge_read::list_clone_dependents(
+            &harness.bridge,
+            "00000000-0000-0000-0000-000000000001".to_string(),
+            "demo".to_string(),
+        )
+        .await
+        .expect("bridge clone dependents"),
+    )
+    .await;
+
+    harness.shutdown();
+}
+
+#[test]
+fn format_helper_preserves_port_in_use_sentinel() {
+    let msg = format_bridge_error_message(anyhow::anyhow!("PORT_IN_USE:45818:default"));
+    assert_eq!(msg, "PORT_IN_USE:45818:default");
 }

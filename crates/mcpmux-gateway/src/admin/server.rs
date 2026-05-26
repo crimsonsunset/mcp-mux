@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::config::AdminConfig;
+use super::bridge_context::AdminBridgeCtx;
 use super::middleware::CfAccessValidator;
 use super::router::{build_admin_router, AdminState};
 
@@ -39,6 +40,7 @@ impl AdminServer {
     pub async fn new(
         config: AdminConfig,
         services: Arc<ApplicationServices>,
+        bridge: Arc<AdminBridgeCtx>,
         gateway_running: Arc<AtomicBool>,
         frontend_dist: PathBuf,
         cf_validator: Option<Arc<CfAccessValidator>>,
@@ -54,6 +56,7 @@ impl AdminServer {
             gateway_running,
             frontend_dist,
             cf_validator,
+            bridge,
         });
 
         Ok(Self {

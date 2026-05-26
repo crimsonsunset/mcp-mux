@@ -5,6 +5,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { InstalledServerState } from '@/types/registry';
 
+import { apiCall } from './transport';
+
 /** Default suffix suggestions shown in the clone wizard */
 export const CLONE_SUFFIX_SUGGESTIONS = ['work', 'personal', 'prod', 'staging'] as const;
 
@@ -44,7 +46,7 @@ export async function isCloneIdAvailable(
   sourceServerId: string,
   suffix: string
 ): Promise<boolean> {
-  return invoke<boolean>('is_clone_id_available', {
+  return apiCall<boolean>('is_clone_id_available', {
     spaceId,
     sourceServerId,
     suffix,
@@ -55,7 +57,7 @@ export async function isCloneIdAvailable(
  * Suggest the first available default suffix for cloning a server.
  */
 export async function suggestCloneSuffix(spaceId: string, sourceServerId: string): Promise<string> {
-  return invoke<string>('suggest_clone_suffix', {
+  return apiCall<string>('suggest_clone_suffix', {
     spaceId,
     sourceServerId,
   });
@@ -68,7 +70,7 @@ export async function listCloneDependents(
   spaceId: string,
   sourceServerId: string
 ): Promise<ClonedInstalledServer[]> {
-  return invoke<ClonedInstalledServer[]>('list_clone_dependents', {
+  return apiCall<ClonedInstalledServer[]>('list_clone_dependents', {
     spaceId,
     sourceServerId,
   });

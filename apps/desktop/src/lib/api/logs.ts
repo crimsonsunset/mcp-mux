@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /**
  * Server log entry from the backend.
  */
@@ -19,7 +21,7 @@ export async function getServerLogs(
   limit?: number,
   levelFilter?: string
 ): Promise<ServerLogEntry[]> {
-  return invoke('get_server_logs', {
+  return apiCall('get_server_logs', {
     serverId,
     limit,
     levelFilter,
@@ -37,14 +39,14 @@ export async function clearServerLogs(serverId: string): Promise<void> {
  * Get the log file path for a server (for external viewers).
  */
 export async function getServerLogFile(serverId: string): Promise<string> {
-  return invoke('get_server_log_file', { serverId });
+  return apiCall('get_server_log_file', { serverId });
 }
 
 /**
  * Get log retention period in days (0 = keep forever).
  */
 export async function getLogRetentionDays(): Promise<number> {
-  return invoke('get_log_retention_days');
+  return apiCall('get_log_retention_days');
 }
 
 /**

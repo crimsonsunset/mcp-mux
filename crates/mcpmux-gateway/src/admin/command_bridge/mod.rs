@@ -4,3 +4,4 @@
 //! delegate here so business logic is not duplicated across IPC and REST.
 
 pub mod space;
+pub mod read;

@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /** Startup and system tray settings. */
 export interface StartupSettings {
   autoLaunch: boolean;
@@ -18,7 +20,7 @@ export interface GatewayPortSettings {
  * Load startup and system tray preferences.
  */
 export async function getStartupSettings(): Promise<StartupSettings> {
-  return invoke('get_startup_settings');
+  return apiCall('get_startup_settings');
 }
 
 /**
@@ -32,7 +34,7 @@ export async function updateStartupSettings(settings: StartupSettings): Promise<
  * Load gateway port settings (configured override, default, active).
  */
 export async function getGatewayPortSettings(): Promise<GatewayPortSettings> {
-  return invoke('get_gateway_port_settings');
+  return apiCall('get_gateway_port_settings');
 }
 
 /**
@@ -46,14 +48,14 @@ export async function setGatewayPort(port: number): Promise<void> {
  * Clear the persisted gateway port override.
  */
 export async function resetGatewayPort(): Promise<void> {
-  return invoke('reset_gateway_port');
+  return apiCall('reset_gateway_port');
 }
 
 /**
  * Resolve the on-disk application logs directory path.
  */
 export async function getLogsPath(): Promise<string> {
-  return invoke('get_logs_path');
+  return apiCall('get_logs_path');
 }
 
 /**

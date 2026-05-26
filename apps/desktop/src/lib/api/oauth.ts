@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /** Inbound client registration type (per MCP spec 2025-11-25). */
 export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';
 
@@ -93,7 +95,7 @@ export async function flushPendingDeepLink(): Promise<void> {
  * List all registered OAuth clients.
  */
 export async function listOAuthClients(): Promise<OAuthClient[]> {
-  return invoke('get_oauth_clients');
+  return apiCall('get_oauth_clients');
 }
 
 /**
@@ -120,7 +122,7 @@ export async function getOAuthClientGrants(
   clientId: string,
   spaceId: string
 ): Promise<string[]> {
-  return invoke('get_oauth_client_grants', { clientId, spaceId });
+  return apiCall('get_oauth_client_grants', { clientId, spaceId });
 }
 
 /**

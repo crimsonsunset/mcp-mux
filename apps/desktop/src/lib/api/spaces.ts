@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /**
  * A Space represents an isolated environment with its own credentials and
  * server configs. Every Space has exactly one auto-seeded Default FeatureSet
@@ -19,11 +21,11 @@ export interface Space {
 }
 
 export async function listSpaces(): Promise<Space[]> {
-  return invoke('list_spaces');
+  return apiCall('list_spaces');
 }
 
 export async function getSpace(id: string): Promise<Space | null> {
-  return invoke('get_space', { id });
+  return apiCall('get_space', { id });
 }
 
 export async function createSpace(name: string, icon?: string): Promise<Space> {
@@ -49,7 +51,7 @@ export async function deleteSpace(id: string): Promise<void> {
 }
 
 export async function readSpaceConfig(spaceId: string): Promise<string> {
-  return invoke('read_space_config', { spaceId });
+  return apiCall('read_space_config', { spaceId });
 }
 
 export async function saveSpaceConfig(spaceId: string, content: string): Promise<void> {

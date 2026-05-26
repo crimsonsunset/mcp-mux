@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /**
  * A WorkspaceBinding maps one normalized filesystem path to one or more
  * FeatureSets within a Space. When an MCP session reports a root that
@@ -36,7 +38,7 @@ export interface WorkspaceBindingInput {
 
 /** List every binding (sorted by workspace_root). */
 export async function listWorkspaceBindings(): Promise<WorkspaceBinding[]> {
-  return invoke('list_workspace_bindings');
+  return apiCall('list_workspace_bindings');
 }
 
 /**
@@ -46,7 +48,7 @@ export async function listWorkspaceBindings(): Promise<WorkspaceBinding[]> {
  * tab instead of waiting for the one-shot prompt.
  */
 export async function listReportedWorkspaceRoots(): Promise<string[]> {
-  return invoke('list_reported_workspace_roots');
+  return apiCall('list_reported_workspace_roots');
 }
 
 /**
@@ -60,14 +62,14 @@ export async function listReportedWorkspaceRoots(): Promise<string[]> {
  * "don't nag yet" from "here's a real error".
  */
 export async function validateWorkspaceRoot(path: string): Promise<string> {
-  return invoke('validate_workspace_root', { path });
+  return apiCall('validate_workspace_root', { path });
 }
 
 /** List bindings whose target Space is the given one. */
 export async function listWorkspaceBindingsForSpace(
   spaceId: string
 ): Promise<WorkspaceBinding[]> {
-  return invoke('list_workspace_bindings_for_space', { spaceId });
+  return apiCall('list_workspace_bindings_for_space', { spaceId });
 }
 
 /**
@@ -177,5 +179,5 @@ export interface WorkspaceEffectiveFeatures {
 export async function getWorkspaceEffectiveFeatures(
   workspaceRoot: string
 ): Promise<WorkspaceEffectiveFeatures> {
-  return invoke('get_workspace_effective_features', { workspaceRoot });
+  return apiCall('get_workspace_effective_features', { workspaceRoot });
 }

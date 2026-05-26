@@ -560,8 +560,8 @@ pub fn run() {
                 }
             });
 
-            app.manage(gateway_state);
-            app.manage(server_manager_state);
+            app.manage(gateway_state.clone());
+            app.manage(server_manager_state.clone());
             app.manage(admin_server_state.clone());
 
             // Web admin HTTP server (optional, settings-gated)
@@ -573,6 +573,8 @@ pub fn run() {
                     start_admin_server_if_enabled(
                         app_handle_admin,
                         admin_state_spawn,
+                        gateway_state.clone(),
+                        server_manager_state.clone(),
                         event_bus_admin,
                     )
                     .await;

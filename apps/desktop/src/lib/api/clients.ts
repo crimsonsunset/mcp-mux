@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /**
  * A Client represents an AI assistant (Cursor, VS Code, Claude, etc.).
  *
@@ -21,12 +23,12 @@ export interface CreateClientInput {
 
 /** List all clients. */
 export async function listClients(): Promise<Client[]> {
-  return invoke('list_clients');
+  return apiCall('list_clients');
 }
 
 /** Get a client by ID. */
 export async function getClient(id: string): Promise<Client | null> {
-  return invoke('get_client', { id });
+  return apiCall('get_client', { id });
 }
 
 /** Create a new client. */

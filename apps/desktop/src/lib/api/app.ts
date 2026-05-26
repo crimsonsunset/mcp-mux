@@ -1,10 +1,10 @@
-import { invoke } from '@tauri-apps/api/core';
+import { apiCall } from './transport';
 
 /**
  * Read the running application version from the Rust backend.
  */
 export async function getVersion(): Promise<string> {
-  return invoke('get_version');
+  return apiCall('get_version');
 }
 
 /**
@@ -12,5 +12,5 @@ export async function getVersion(): Promise<string> {
  * (e.g. after a Homebrew Cask upgrade). Returns null on non-macOS platforms.
  */
 export async function getBundleVersion(): Promise<string | null> {
-  return invoke('get_bundle_version');
+  return apiCall('get_bundle_version');
 }

@@ -10,24 +10,26 @@ import type {
   HomeConfig,
 } from '../../types/registry';
 
+import { apiCall } from './transport';
+
 /** Discover all servers (definitions from all sources) */
 export async function discoverServers(): Promise<ServerDefinition[]> {
-  return invoke<ServerDefinition[]>('discover_servers');
+  return apiCall<ServerDefinition[]>('discover_servers');
 }
 
 /** Get UI configuration from registry bundle (filters, sort options, etc.) */
 export async function getRegistryUiConfig(): Promise<UiConfig> {
-  return invoke<UiConfig>('get_registry_ui_config');
+  return apiCall<UiConfig>('get_registry_ui_config');
 }
 
 /** Get home configuration from registry bundle (featured server IDs) */
 export async function getRegistryHomeConfig(): Promise<HomeConfig | null> {
-  return invoke<HomeConfig | null>('get_registry_home_config');
+  return apiCall<HomeConfig | null>('get_registry_home_config');
 }
 
 /** Check if registry is running in offline mode (using disk cache) */
 export async function isRegistryOffline(): Promise<boolean> {
-  return invoke<boolean>('is_registry_offline');
+  return apiCall<boolean>('is_registry_offline');
 }
 
 /** Force refresh server discovery from all sources (ignores cache)
@@ -38,7 +40,7 @@ export async function refreshRegistry(): Promise<number> {
 
 /** Get a specific server definition */
 export async function getServerDefinition(serverId: string): Promise<ServerDefinition | null> {
-  return invoke<ServerDefinition | null>('get_server_definition', { serverId });
+  return apiCall<ServerDefinition | null>('get_server_definition', { serverId });
 }
 
 /** Install a server (adds to DB) */
@@ -53,7 +55,7 @@ export async function uninstallServer(id: string, spaceId: string): Promise<void
 
 /** List installed servers (returns state from DB) */
 export async function listInstalledServers(spaceId?: string): Promise<InstalledServerState[]> {
-  return invoke<InstalledServerState[]>('list_installed_servers', { spaceId });
+  return apiCall<InstalledServerState[]>('list_installed_servers', { spaceId });
 }
 
 /** Get count of installed servers */

@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall, isTauri } from './transport';
+
 /**
  * Gateway lifecycle and pool disconnect API.
  *
@@ -28,7 +30,7 @@ export interface GatewayStatus {
  * Get gateway status.
  */
 export async function getGatewayStatus(spaceId?: string): Promise<GatewayStatus> {
-  return invoke('get_gateway_status', { spaceId });
+  return apiCall('get_gateway_status', { spaceId });
 }
 
 /**
@@ -48,7 +50,7 @@ export interface GatewayStartProbe {
  * Does not start anything — used by the UI to decide whether to prompt.
  */
 export async function probeGatewayStart(port?: number): Promise<GatewayStartProbe> {
-  return invoke('probe_gateway_start', { port });
+  return apiCall('probe_gateway_start', { port });
 }
 
 /**
@@ -68,7 +70,7 @@ export interface PendingPortConflict {
  * double-mount.
  */
 export async function takePendingPortConflict(): Promise<PendingPortConflict | null> {
-  return invoke('take_pending_port_conflict');
+  return apiCall('take_pending_port_conflict');
 }
 
 /**
@@ -152,7 +154,7 @@ export async function disconnectServer(serverId: string, spaceId: string, logout
  * List all connected backend servers.
  */
 export async function listConnectedServers(): Promise<BackendStatus[]> {
-  return invoke('list_connected_servers');
+  return apiCall('list_connected_servers');
 }
 
 /**
@@ -187,7 +189,7 @@ export interface PoolStats {
  * Get server pool statistics.
  */
 export async function getPoolStats(): Promise<PoolStats> {
-  return invoke('get_pool_stats');
+  return apiCall('get_pool_stats');
 }
 
 /**
@@ -214,7 +216,11 @@ export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
  * the webview's opener plugin may not be allowed to open directly.
  */
 export async function openUrl(url: string): Promise<void> {
-  return invoke('open_url', { url });
+  if (isTauri()) {
+    return invoke('open_url', { url });
+  }
+  const result = await apiCall<{ url: string }>('open_url', { url });
+  window.open(result.url, '_blank', 'noopener,noreferrer');
 }
 
 // OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.

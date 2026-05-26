@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { apiCall } from './transport';
+
 /**
  * FeatureSet type.
  *
@@ -97,21 +99,21 @@ export interface AddMemberInput {
  * List all feature sets.
  */
 export async function listFeatureSets(): Promise<FeatureSet[]> {
-  return invoke('list_feature_sets');
+  return apiCall('list_feature_sets');
 }
 
 /**
  * List feature sets for a specific space.
  */
 export async function listFeatureSetsBySpace(spaceId: string): Promise<FeatureSet[]> {
-  return invoke('list_feature_sets_by_space', { spaceId });
+  return apiCall('list_feature_sets_by_space', { spaceId });
 }
 
 /**
  * Get a feature set by ID.
  */
 export async function getFeatureSet(id: string): Promise<FeatureSet | null> {
-  return invoke('get_feature_set', { id });
+  return apiCall('get_feature_set', { id });
 }
 
 /**
@@ -132,7 +134,7 @@ export async function deleteFeatureSet(id: string): Promise<void> {
  * Get a feature set with its members.
  */
 export async function getFeatureSetWithMembers(id: string): Promise<FeatureSet | null> {
-  return invoke('get_feature_set_with_members', { id });
+  return apiCall('get_feature_set_with_members', { id });
 }
 
 /**

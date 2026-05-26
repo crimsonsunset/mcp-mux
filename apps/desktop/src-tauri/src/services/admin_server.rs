@@ -1,12 +1,22 @@
 //! Web admin HTTP server startup (loopback :45819 by default).
 
 use crate::state::AppState;
+use crate::{
+    commands::{gateway::GatewayAppState, server_manager::ServerManagerState},
+    get_bundle_version,
+};
+use async_trait::async_trait;
 use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
+use mcpmux_core::service::is_port_available;
+use mcpmux_gateway::admin::bridge_context::AdminBridgeCtx;
+use mcpmux_gateway::admin::runtime::GatewayRuntime;
 use mcpmux_gateway::{AdminConfig, AdminServer, AdminServerHandle};
+use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 /// Tracks the running admin server and shared gateway liveness flag.
@@ -43,10 +53,243 @@ fn build_application_services(
     Ok(Arc::new(app_state.build_application_services(event_bus)?))
 }
 
+struct DesktopGatewayRuntime {
+    gateway_port_service: Arc<mcpmux_core::GatewayPortService>,
+    gateway_state: Arc<RwLock<GatewayAppState>>,
+    server_manager_state: Arc<RwLock<ServerManagerState>>,
+}
+
+impl DesktopGatewayRuntime {
+    fn new(
+        gateway_port_service: Arc<mcpmux_core::GatewayPortService>,
+        gateway_state: Arc<RwLock<GatewayAppState>>,
+        server_manager_state: Arc<RwLock<ServerManagerState>>,
+    ) -> Self {
+        Self {
+            gateway_port_service,
+            gateway_state,
+            server_manager_state,
+        }
+    }
+}
+
+#[async_trait]
+impl GatewayRuntime for DesktopGatewayRuntime {
+    async fn get_gateway_status(&self, space_id: Option<String>) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        let active_sessions = if let Some(ref gateway_state) = state.gateway_state {
+            gateway_state.read().await.sessions.len()
+        } else {
+            0
+        };
+
+        let connected_backends = {
+            let manager_state = self.server_manager_state.read().await;
+            if let Some(ref manager) = manager_state.manager {
+                if let Some(space_id) = space_id {
+                    let space_id = uuid::Uuid::parse_str(&space_id)?;
+                    manager.connected_count_for_space(&space_id).await
+                } else {
+                    manager.connected_count().await
+                }
+            } else {
+                0
+            }
+        };
+
+        Ok(json!({
+            "running": state.running,
+            "url": state.url,
+            "active_sessions": active_sessions,
+            "connected_backends": connected_backends,
+        }))
+    }
+
+    async fn probe_gateway_start(&self, port: Option<u16>) -> anyhow::Result<serde_json::Value> {
+        let (preferred_port, source) = if let Some(port) = port {
+            (port, "override")
+        } else if let Some(port) = self.gateway_port_service.load_persisted_port().await {
+            (port, "configured")
+        } else {
+            (mcpmux_core::DEFAULT_GATEWAY_PORT, "default")
+        };
+        Ok(json!({
+            "preferredPort": preferred_port,
+            "preferredAvailable": is_port_available(preferred_port),
+            "source": source,
+        }))
+    }
+
+    async fn take_pending_port_conflict(&self) -> anyhow::Result<serde_json::Value> {
+        let mut state = self.gateway_state.write().await;
+        Ok(state
+            .pending_port_conflict
+            .take()
+            .map(|conflict| json!({
+                "preferredPort": conflict.preferred_port,
+                "source": conflict.source,
+            }))
+            .unwrap_or(serde_json::Value::Null))
+    }
+
+    async fn get_gateway_port_settings(&self) -> anyhow::Result<serde_json::Value> {
+        let configured_port = self.gateway_port_service.load_persisted_port().await;
+        let active_port = {
+            let state = self.gateway_state.read().await;
+            state
+                .url
+                .as_deref()
+                .and_then(|url| url.split("://").nth(1))
+                .and_then(|host_port| host_port.split('/').next())
+                .and_then(|host_port| host_port.rsplit(':').next())
+                .and_then(|port| port.parse::<u16>().ok())
+        };
+        Ok(json!({
+            "configuredPort": configured_port,
+            "defaultPort": mcpmux_core::DEFAULT_GATEWAY_PORT,
+            "activePort": active_port,
+        }))
+    }
+
+    async fn reset_gateway_port(&self) -> anyhow::Result<serde_json::Value> {
+        self.gateway_port_service.clear_persisted_port().await?;
+        Ok(json!({ "ok": true }))
+    }
+
+    async fn list_connected_servers(&self) -> anyhow::Result<serde_json::Value> {
+        Ok(json!([]))
+    }
+
+    async fn get_pool_stats(&self) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        let stats = match &state.pool_service {
+            Some(pool) => pool.stats(),
+            None => mcpmux_gateway::PoolStats::default(),
+        };
+        Ok(json!({
+            "total_instances": stats.total_instances,
+            "connected_instances": stats.connected_instances,
+            "total_space_server_mappings": stats.connecting_instances + stats.failed_instances + stats.oauth_pending_instances,
+        }))
+    }
+
+    async fn list_session_overrides(
+        &self,
+        session_id: Option<String>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        let Some(ref overrides) = state.session_overrides else {
+            return Ok(json!([]));
+        };
+        let roots_by_session: std::collections::HashMap<String, Vec<String>> = state
+            .session_roots
+            .as_ref()
+            .map(|registry| registry.list_all_sessions().into_iter().collect())
+            .unwrap_or_default();
+        let mut rows = overrides
+            .list_all()
+            .into_iter()
+            .map(|entry| {
+                json!({
+                    "session_id": entry.session_id,
+                    "enabled": entry.enabled,
+                    "disabled": entry.disabled,
+                    "roots": roots_by_session.get(&entry.session_id).cloned().unwrap_or_default(),
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(session_id) = session_id {
+            rows.retain(|row| row["session_id"] == session_id);
+        }
+        Ok(json!(rows))
+    }
+
+    async fn list_reported_workspace_roots(&self) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        Ok(json!(state
+            .session_roots
+            .as_ref()
+            .map(|registry| registry.list_all_roots())
+            .unwrap_or_default()))
+    }
+
+    async fn list_meta_tool_grants(&self) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        let Some(ref broker) = state.approval_broker else {
+            return Ok(json!([]));
+        };
+        Ok(json!(broker
+            .list_always_allow()
+            .into_iter()
+            .map(|(client_id, tool_name)| json!({
+                "client_id": client_id,
+                "tool_name": tool_name,
+            }))
+            .collect::<Vec<_>>()))
+    }
+
+    async fn get_oauth_clients(&self) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        let Some(ref gateway_state) = state.gateway_state else {
+            return Err(anyhow::anyhow!("Gateway not running"));
+        };
+        let gateway_state = gateway_state.read().await;
+        let Some(repository) = gateway_state.inbound_client_repository() else {
+            return Err(anyhow::anyhow!("Database not available"));
+        };
+        let clients = repository.list_clients().await?;
+        let approved = clients
+            .into_iter()
+            .filter(|client| client.approved)
+            .map(|client| {
+                json!({
+                    "client_id": client.client_id,
+                    "registration_type": client.registration_type.as_str(),
+                    "client_name": client.client_name,
+                    "client_alias": client.client_alias,
+                    "redirect_uris": client.redirect_uris,
+                    "scope": client.scope,
+                    "approved": client.approved,
+                    "logo_uri": client.logo_uri,
+                    "client_uri": client.client_uri,
+                    "software_id": client.software_id,
+                    "software_version": client.software_version,
+                    "metadata_url": client.metadata_url,
+                    "metadata_cached_at": client.metadata_cached_at,
+                    "metadata_cache_ttl": client.metadata_cache_ttl,
+                    "last_seen": client.last_seen,
+                    "created_at": client.created_at,
+                    "reports_roots": client.reports_roots,
+                    "roots_capability_known": client.roots_capability_known,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!(approved))
+    }
+
+    async fn get_oauth_client_grants(
+        &self,
+        client_id: String,
+        space_id: String,
+    ) -> anyhow::Result<serde_json::Value> {
+        let state = self.gateway_state.read().await;
+        let Some(ref grant_service) = state.grant_service else {
+            return Err(anyhow::anyhow!("Gateway not running"));
+        };
+        Ok(json!(
+            grant_service
+                .get_grants_for_space(&client_id, &space_id)
+                .await?
+        ))
+    }
+}
+
 /// Start the admin server when `gateway.admin_enabled` is true.
 pub async fn start_admin_server_if_enabled(
     app: AppHandle,
     admin_state: Arc<tokio::sync::RwLock<AdminServerState>>,
+    gateway_state: Arc<RwLock<GatewayAppState>>,
+    server_manager_state: Arc<RwLock<ServerManagerState>>,
     event_bus: Arc<EventBus>,
 ) {
     let app_state: tauri::State<'_, AppState> = app.state();
@@ -91,9 +334,35 @@ pub async fn start_admin_server_if_enabled(
     };
 
     let frontend_dist = resolve_frontend_dist(&app);
+    let auto_launch_enabled = app
+        .try_state::<tauri_plugin_autostart::AutoLaunchManager>()
+        .and_then(|manager| manager.is_enabled().ok());
+    let gateway_runtime = Arc::new(DesktopGatewayRuntime::new(
+        app_state.gateway_port_service.clone(),
+        gateway_state.clone(),
+        server_manager_state.clone(),
+    ));
+    let bridge = Arc::new(AdminBridgeCtx {
+        services: services.clone(),
+        spaces_dir: app_state.spaces_dir().to_path_buf(),
+        data_dir: app_state.data_dir().to_path_buf(),
+        gateway_port_service: app_state.gateway_port_service.clone(),
+        server_discovery: app_state.server_discovery.clone(),
+        settings_repository: app_state.settings_repository.clone(),
+        workspace_binding_repository: app_state.workspace_binding_repository.clone(),
+        workspace_appearance_repository: app_state.workspace_appearance_repository.clone(),
+        server_feature_repository: app_state.server_feature_repository_core.clone(),
+        server_log_manager: app_state.server_log_manager.clone(),
+        space_service: Arc::new(mcpmux_core::SpaceService::new(app_state.space_service.repository())),
+        gateway_runtime,
+        auto_launch_enabled,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        bundle_version: get_bundle_version(),
+    });
     let server = match AdminServer::new(
         config.clone(),
         services,
+        bridge,
         gateway_running,
         frontend_dist,
         cf_validator,
