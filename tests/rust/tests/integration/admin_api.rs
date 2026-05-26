@@ -98,7 +98,7 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
 /// Start admin harness with a live gateway state wired for OAuth consent tests.
 pub async fn start_with_gateway_state(
     config: AdminConfig,
-    gateway_state: Arc<RwLock<mcpmux_gateway::GatewayState>>,
+    gateway_state: Arc<tokio::sync::RwLock<mcpmux_gateway::GatewayState>>,
 ) -> AdminHarness {
     let (services, bridge) = in_memory_services().await;
     let gateway_port_service = bridge.gateway_port_service.clone();
