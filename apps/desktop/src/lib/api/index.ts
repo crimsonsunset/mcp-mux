@@ -7,6 +7,7 @@ export * from './serverFeatures';
 export * from './clientInstall';
 export * from './clients';
 export * from './gateway';
+export * from './configExport';
 export * from './serverManager';
 export * from './workspaceBindings';
 export * from './workspaceAppearances';
