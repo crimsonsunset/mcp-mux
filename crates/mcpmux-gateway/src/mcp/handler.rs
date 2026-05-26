@@ -1122,18 +1122,27 @@ impl ServerHandler for McpMuxGatewayHandler {
             .resolve_routing(session_id_owned.as_deref(), &oauth_ctx.client_id)
             .await?;
 
-        let server_id = self
+        let authorized_resources = self
             .services
             .pool_services
             .feature_service
-            .find_server_for_resource(&space_id.to_string(), &params.uri)
+            .get_readable_resources_for_grants(
+                &space_id.to_string(),
+                &feature_set_ids,
+                session_id_owned.as_deref(),
+            )
             .await
             .map_err(|e| {
-                McpError::internal_error(format!("Failed to resolve resource: {}", e), None)
-            })?
-            .ok_or_else(|| {
-                McpError::invalid_params(format!("Resource '{}' not found", params.uri), None)
+                McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
             })?;
+
+        let server_id = crate::pool::FeatureService::resolve_resource_server_from_grants(
+            &authorized_resources,
+            &params.uri,
+        )
+        .ok_or_else(|| {
+            McpError::invalid_params(format!("Resource '{}' not authorized", params.uri), None)
+        })?;
 
         let advertised_resources = self
             .services
@@ -1161,31 +1170,6 @@ impl ServerHandler for McpMuxGatewayHandler {
                     "message": message,
                 })
                 .to_string(),
-                None,
-            ));
-        }
-
-        let authorized_resources = self
-            .services
-            .pool_services
-            .feature_service
-            .get_readable_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
-            .await
-            .map_err(|e| {
-                McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
-            })?;
-
-        let is_authorized = authorized_resources
-            .iter()
-            .any(|r| r.server_id == server_id && r.feature_name == params.uri && r.is_available);
-
-        if !is_authorized {
-            return Err(McpError::invalid_params(
-                format!("Resource '{}' not authorized", params.uri),
                 None,
             ));
         }

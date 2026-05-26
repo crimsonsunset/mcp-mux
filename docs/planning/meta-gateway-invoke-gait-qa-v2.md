@@ -1,7 +1,7 @@
 # GAIT Workspace — Meta-Gateway Invoke Capability Test (v2 / Phase D)
 
 **Last Updated:** May 26, 2026  
-**Status:** **Run 1 complete** — BLOCK (§7 `read_resource` clone routing)  
+**Status:** **Run 2 SHIP** — Issue #4 verified; Phase D gate cleared on `dev` @ **2a31dc7**  
 **Supersedes for Phase D:** [`meta-gateway-invoke-gait-qa.md`](./meta-gateway-invoke-gait-qa.md) (Phases A–C runs 1–5 remain canonical for tool invoke)  
 **Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md) (§12–14), [`run-from-source-macos.md`](../run-from-source-macos.md)
 
@@ -31,8 +31,9 @@
 | Run | Date | Verdict | Notes |
 | --- | ---- | ------- | ----- |
 | **Run 1** | May 26, 2026 | **BLOCK** | §0–§5 pass; §7 `read_resource` routes to inactive `posthog-personal` parent |
+| **Run 2** | May 26, 2026 | **SHIP** | Issue #4 fixed; §7 read returns content; §0–§5 no regressions |
 
-**Target for ship:** Run 1 passes §0 (14 meta / 0 resources / 0 prompts), §7–§8 (resource + prompt disclosure), and **no regressions** on v1 §1–§5 tool invoke path.
+**Target for ship:** Run 2 passes §7 (search → read on clone) with no regressions on §0–§5.
 
 ---
 
@@ -365,7 +366,29 @@ Rules: paste exact JSON for §2 filter envelope, §7 search/read, §4b error. Do
 | [`meta-gateway-invoke-gait-qa.md`](./meta-gateway-invoke-gait-qa.md) | Historical Runs 1–5; Phases A–C ship evidence; Issue #1–#3 tracker |
 | **This doc (v2)** | Phase D live QA; resource/prompt disclosure; regression gate before merge |
 
-After v2 Run 1 **SHIP**, update **Current verdict** at top and archive evidence below.
+After v2 Run 2 **SHIP**, update **Current verdict** at top and archive evidence below.
+
+---
+
+## Issue tracker (Phase D)
+
+| # | Symptom (Run 1) | Root cause | Fix | Files | Status |
+| - | --------------- | ---------- | --- | ----- | ------ |
+| **4** | `mcpmux_read_resource` on GAIT PostHog skill URI → `server 'posthog-personal' is inactive` while search returns `posthog-personal-gait` | Space-wide `find_server_for_resource_uri` picks parent clone when URI is duplicated | Grant-scoped `FeatureService::resolve_resource_server_from_grants` on read paths | `pool/features/facade.rs`, `meta_tools/disclosure.rs`, `mcp/handler.rs` | **Verified** — Run 2 §7 pass |
+
+---
+
+## Run 2 prompt (after `pnpm dev:restart`)
+
+Minimal re-test for Issue #4:
+
+```
+1. mcpmux_search_resources({ query: "skill", server_id: "posthog-personal-gait", limit: 1 })
+2. mcpmux_read_resource({ uri: "<uri from step 1>" })
+3. Confirm Cursor mux line still 14 / 0 / 0
+```
+
+**Pass:** read returns content (not `posthog-personal` inactive error).
 
 ---
 
@@ -449,6 +472,64 @@ Client resources count remained **0** throughout.
 ## Environment snapshot
 
 - Gateway: `pnpm dev:restart` / commit: **8314525** on **dev**
+- mcpmux meta tool count: **14**
+- Cursor mux line (tools / prompts / resources): **14 / 0 / 0**
+
+</details>
+
+## Run 2 evidence archive
+
+<details>
+<summary>Run 2 — May 26, 2026</summary>
+
+## GAIT Workspace Meta-Gateway Test v2 (Phase D)
+Overall: **SHIP**
+Workspace: generAIt
+Date: May 26, 2026
+Run: 2
+
+| Section | Result | Evidence |
+|---------|--------|----------|
+| §0 Sanity (14/0/0) | **PASS** | 14 meta tools; Cursor mux line: **14 / 0 / 0**; GAIT servers `enabled_via_binding` |
+| §1 Jira GAIT | **PASS** | `jsangiorgio@generaitsolutions.com` / `generait1.atlassian.net`; S2H search 0 hits |
+| §2 PostHog GAIT | **PASS** | project id **433907**; filter envelope below |
+| §3 Search DX (tools) | **PASS** | invokable **331** = search total **331**; `missing: [""]` |
+| §4 Fail-closed | **PASS** | `"server 'posthog-personal-gait' is disabled for this session → mcpmux_enable_server(...)"` |
+| §4b Levenshtein | **PASS** | same as Run 1 |
+| §5 E2E task | **PASS** | Jira GAIT-163/165/160 + PostHog 3 insights |
+| §6 Supabase | **SKIP** | inactive in binding |
+| §7 Resources (Phase D) | **PASS** | search total **91**; read returns content (see below) |
+| §8 Prompts (Phase D) | **SKIP** | no fetchable prompts in ACL |
+| §9 Surfaced | **SKIP** | not configured |
+
+## Clone isolation verified?
+- [x] Jira GAIT ≠ S2H
+- [x] PostHog GAIT (433907) ≠ Personal ≠ S2H
+- [x] Resource search scoped to posthog-personal-gait; posthog-work → inactive hint
+
+## Phase D red flags (check any)
+- [ ] Still ~124 resources in Cursor mux line
+- [ ] Backend tools in tools/list without Surface
+- [ ] search_resources returns S2H/personal URIs when server_id filtered
+- [ ] read_resource denied for ACL-visible URI
+- [ ] No Levenshtein hint on typo invoke
+- [ ] Tool path regressions vs v1 Runs 1–5
+
+## §7 read (verbatim — Issue #4 fix)
+
+```json
+{"uri":"posthog://skills/audit/all","contents":[{"uri":"posthog://skills/audit/all","mimeType":"text/plain","text":"https://github.com/PostHog/context-mill/releases/download/v1.13.1/audit.zip"}]}
+```
+
+## §2 filter envelope (verbatim)
+
+```json
+{"count":16,"next":null,"previous":null,"_posthogUrl":"https://us.posthog.com/project/433907/insights","results":[{"name":"Rewrite feature usage","short_id":"9d4ljh6t"},{"name":"Section resets (quality signal)","short_id":"AYEN0OCK"},{"name":"Reports created vs completed","short_id":"Sxxd3xCD"}],"returned":3,"total":16,"truncated":true}
+```
+
+## Environment snapshot
+
+- Gateway: `pnpm dev:restart` / commit: **2a31dc7** on **dev**
 - mcpmux meta tool count: **14**
 - Cursor mux line (tools / prompts / resources): **14 / 0 / 0**
 

@@ -325,7 +325,10 @@ impl FeatureService {
     }
 
     /// Find server for a resource by its URI (not prefixed)
-    /// Resources use URIs which are already namespaced
+    ///
+    /// Resources use URIs which are already namespaced. When clone servers share
+    /// URIs with their parent, this Space-wide lookup is ambiguous — prefer
+    /// [`Self::resolve_resource_server_from_grants`] on read paths.
     pub async fn find_server_for_resource(
         &self,
         space_id: &str,
@@ -334,6 +337,22 @@ impl FeatureService {
         self.routing
             .find_server_for_resource_uri(space_id, uri)
             .await
+    }
+
+    /// Resolve the owning server for `uri` among grant-visible readable resources.
+    ///
+    /// Clone servers can expose the same URI as their parent; grant-scoped
+    /// resolution ensures reads route to the bound clone, not an inactive parent.
+    pub fn resolve_resource_server_from_grants(
+        readable: &[ServerFeature],
+        uri: &str,
+    ) -> Option<String> {
+        readable
+            .iter()
+            .find(|f| {
+                f.feature_type == FeatureType::Resource && f.feature_name == uri && f.is_available
+            })
+            .map(|f| f.server_id.clone())
     }
 
     // === Helper methods for MCP handler ===

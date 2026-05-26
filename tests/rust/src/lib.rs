@@ -8,8 +8,10 @@ pub use mcpmux_core::{
 };
 
 /// Mock repository implementations
+pub mod canned_disclosure_backend;
 pub mod canned_invoke_backend;
 pub mod mocks;
+pub use canned_disclosure_backend::CannedDisclosureBackend;
 pub use canned_invoke_backend::CannedInvokeBackend;
 pub use mocks::MockRepositories;
 

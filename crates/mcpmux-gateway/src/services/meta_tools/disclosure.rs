@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::tools::{caller_resolution, caller_space_id, text_result};
-use crate::pool::{format_server_inactive_error, format_server_not_in_binding_error};
+use crate::pool::{
+    format_server_inactive_error, format_server_not_in_binding_error, FeatureService,
+};
 use crate::services::{
     levenshtein_suggestions, PromptDetailLevel, PromptDiscoveryService, ResourceDetailLevel,
     ResourceDiscoveryService,
@@ -243,15 +245,39 @@ impl MetaTool for ReadResourceTool {
         let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
 
-        let server_id = call
+        let readable = call
             .ctx
             .feature_service
-            .find_server_for_resource(&space_id.to_string(), &uri)
+            .get_readable_resources_for_grants(
+                &space_id.to_string(),
+                &resolved.feature_set_ids,
+                call.session_id,
+            )
             .await
-            .map_err(|e| MetaToolError::Internal(e.to_string()))?
-            .ok_or_else(|| {
-                MetaToolError::InvalidArgument(format!("resource URI '{uri}' not found in Space"))
-            })?;
+            .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+
+        let server_id = match FeatureService::resolve_resource_server_from_grants(&readable, &uri) {
+            Some(server_id) => server_id,
+            None => {
+                let index = call
+                    .ctx
+                    .resource_discovery
+                    .build_index(&space_id.to_string(), &readable)
+                    .await
+                    .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+                let candidates: Vec<String> = index.iter().map(|e| e.uri.clone()).collect();
+                let suggestions = levenshtein_suggestions(&uri, &candidates, 3);
+                let message = if suggestions.is_empty() {
+                    format!("resource '{uri}' is not readable with current grants")
+                } else {
+                    format!(
+                        "resource '{uri}' is not readable — did you mean {}?",
+                        suggestions.join(", ")
+                    )
+                };
+                return Ok(disclosure_error(message));
+            }
+        };
 
         let binding_servers = binding_servers_for_call(&call).await?;
         let (session_enabled, session_disabled) = session_override_sets(&call);
@@ -269,41 +295,6 @@ impl MetaTool for ReadResourceTool {
             &session_disabled,
         ) {
             return Ok(disclosure_error(format_server_inactive_error(&server_id)));
-        }
-
-        let readable = call
-            .ctx
-            .feature_service
-            .get_readable_resources_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
-            .await
-            .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-
-        let is_readable = readable
-            .iter()
-            .any(|f| f.server_id == server_id && f.feature_name == uri && f.is_available);
-
-        if !is_readable {
-            let index = call
-                .ctx
-                .resource_discovery
-                .build_index(&space_id.to_string(), &readable)
-                .await
-                .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-            let candidates: Vec<String> = index.iter().map(|e| e.uri.clone()).collect();
-            let suggestions = levenshtein_suggestions(&uri, &candidates, 3);
-            let message = if suggestions.is_empty() {
-                format!("resource '{uri}' is not readable with current grants")
-            } else {
-                format!(
-                    "resource '{uri}' is not readable — did you mean {}?",
-                    suggestions.join(", ")
-                )
-            };
-            return Ok(disclosure_error(message));
         }
 
         let backend =

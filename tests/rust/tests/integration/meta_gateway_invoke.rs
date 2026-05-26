@@ -16,8 +16,9 @@ use mcpmux_gateway::services::meta_tools::invoke::{
     apply_invoke_result_filter, parse_invoke_filter, shape_json_value, InvokeResultFilter,
 };
 use mcpmux_gateway::services::{
-    meta_tools, ApprovalBroker, FeatureSetResolverService, InvokeToolBackend, MetaToolRegistry,
-    PrefixCacheService, SessionOverrideRegistry, SessionRootsRegistry,
+    meta_tools, meta_tools::DisclosureBackend, ApprovalBroker, FeatureSetResolverService,
+    InvokeToolBackend, MetaToolRegistry, PrefixCacheService, SessionOverrideRegistry,
+    SessionRootsRegistry,
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
@@ -25,6 +26,7 @@ use mcpmux_storage::{
     SqliteServerFeatureRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
 };
 use serde_json::{json, Value};
+use tests::CannedDisclosureBackend;
 use tests::CannedInvokeBackend;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
@@ -50,10 +52,17 @@ fn test_encryptor() -> Arc<FieldEncryptor> {
 
 impl Fixture {
     async fn new() -> Self {
-        Self::with_invoke_backend(None).await
+        Self::with_backends(None, None).await
     }
 
     async fn with_invoke_backend(invoke_backend: Option<Arc<dyn InvokeToolBackend>>) -> Self {
+        Self::with_backends(invoke_backend, None).await
+    }
+
+    async fn with_backends(
+        invoke_backend: Option<Arc<dyn InvokeToolBackend>>,
+        disclosure_backend: Option<Arc<dyn DisclosureBackend>>,
+    ) -> Self {
         let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
 
         let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db.clone()));
@@ -136,7 +145,7 @@ impl Fixture {
             resolver,
             feature_service.clone(),
             invoke_backend,
-            None,
+            disclosure_backend,
             session_roots.clone(),
             session_overrides.clone(),
             broker,
@@ -1394,6 +1403,62 @@ async fn search_tools_tf_idf_ranks_list_issues_first() {
     assert_eq!(
         tools[0].get("qualified_name"),
         Some(&json!("github_list_issues"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_resource_routes_clone_server_not_inactive_parent() {
+    let uri = "posthog://skills/audit/all";
+    let disclosure_backend = CannedDisclosureBackend::new()
+        .with_resource_read(
+            "posthog-personal-gait",
+            uri,
+            vec![json!({ "uri": uri, "text": "audit skill body" })],
+        )
+        .into_arc();
+    let f = Fixture::with_backends(None, Some(disclosure_backend)).await;
+
+    let parent = ServerFeature::resource(f.space_id, "posthog-personal", uri);
+    f.server_feature_repo.upsert(&parent).await.unwrap();
+
+    let clone = ServerFeature::resource(f.space_id, "posthog-personal-gait", uri);
+    f.server_feature_repo.upsert(&clone).await.unwrap();
+
+    let ambiguous = f
+        .feature_service
+        .find_server_for_resource(&f.space_id.to_string(), uri)
+        .await
+        .unwrap();
+    assert_eq!(
+        ambiguous.as_deref(),
+        Some("posthog-personal"),
+        "Space-wide lookup is ambiguous for clones"
+    );
+
+    let mut fs = FeatureSet::new_custom("GAIT PostHog skills", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: clone.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides
+        .enable(&f.session_id, "posthog-personal-gait");
+
+    let read = f
+        .call("mcpmux_read_resource", json!({ "uri": uri }))
+        .await;
+    let body = Fixture::result_json(&read);
+    assert_eq!(body.get("uri"), Some(&json!(uri)));
+    let contents = body.get("contents").unwrap().as_array().unwrap();
+    assert_eq!(contents.len(), 1);
+    assert_eq!(
+        contents[0].get("text"),
+        Some(&json!("audit skill body"))
     );
 }
 
