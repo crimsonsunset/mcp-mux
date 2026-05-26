@@ -1,7 +1,7 @@
 # PR #2 Code Review — feat: web admin mode (remote UI via HTTP)
 
 **Reviewed:** 2026-05-26  
-**Last reconciled:** 2026-05-26 (post-remediation on `feat/web-ui`)  
+**Last reconciled:** 2026-05-26 (post-facade on `feat/web-ui`)  
 **PR:** https://github.com/crimsonsunset/mcp-mux/pull/2  
 **Branch:** `feat/web-ui` → `dev`
 
@@ -11,9 +11,9 @@
 
 **Title** linked to the PR URL: [feat: web admin mode (remote UI via HTTP) #2](https://github.com/crimsonsunset/mcp-mux/pull/2)
 **Author** crimsonsunset · **Merging into**: `feat/web-ui` → `dev`
-**Opened**: 2026-05-26 · **Last commit**: 2026-05-26 · **Commits**: 16 (13 feature + 3 post-review remediation)
-**Files changed**: 120 (+11,634 / −1,368)
-**Description**: Adds optional Axum web admin server on `127.0.0.1:45819` serving the React SPA + REST `/api/v1/*` backed by `command_bridge`, frontend `apiCall` transport that swaps Tauri `invoke` ↔ `fetch`, SSE event parity (`useDomainEventsWeb` etc.), CF Access JWT gate, CSRF on mutations, web OAuth consent path, and integration / Playwright scaffolding.
+**Opened**: 2026-05-26 · **Last commit**: 2026-05-26 · **Commits**: 22+ (web admin phases + post-review remediation + unified backend facade Phases 1–5)
+**Files changed**: 160+ (see PR diff vs `dev`)
+**Description**: Adds optional Axum web admin server on `127.0.0.1:45819` serving the React SPA + REST `/api/v1/*` backed by `command_bridge`, frontend `@/lib/backend` facade (`apiCall` invoke ↔ fetch, SSE events, shell helpers), CF Access JWT gate, CSRF on mutations, web OAuth consent path, and integration / Playwright scaffolding.
 
 ### 🎯 What This PR Does
 
@@ -21,7 +21,7 @@ Three architectural moves landed together:
 
 1. **Backend split** — Domain logic moved out of Tauri command handlers into `mcpmux_gateway::admin::command_bridge::{read,write,space,oauth}` with a `AdminBridgeCtx` carrying `ApplicationServices` + repo handles. Tauri commands become thin wrappers retaining desktop side-effects (tray refresh, `app.emit`).
 2. **Web admin HTTP server** — New `mcpmux_gateway::admin::*` module with router (~95 routes), CF Access middleware (JWKS-based RS256), CSRF middleware (single-token store), SSE event hub fanning in `EventBus` + direct `app.emit` paths + gateway domain events.
-3. **Frontend transport boundary** — `apiCall()` switches between `invoke` and `fetchApi`, all `lib/api/*` modules go through it, Tauri-only side effects relocated to `lib/desktop-shell.ts`, web-mode SSE hooks added (`useDomainEventsWeb`, `useMetaToolEventsWeb`, `useOAuthClientEventsWeb`, `useWorkspaceEventsWeb`). Transport route map lives in `lib/api/fetch-api.routes/*` (split from the original monolithic `fetch-api.ts`).
+3. **Frontend transport boundary** — `@/lib/backend` three-channel facade: **data** (`apiCall` in `backend/data/transport.ts`), **events** (`backend/events/` — Tauri + SSE adapters; `*Web` hooks internal-only), **shell** (`backend/shell/` — dialogs, updater, icons, admin settings). Deprecated `@/lib/api/*` shims re-export the same surface. ESLint blocks `@tauri-apps/*` outside `lib/backend/**`.
 
 ### Post-review remediation (May 26, 2026)
 
@@ -35,6 +35,21 @@ Three follow-up commits on `feat/web-ui` after the initial review:
 
 **Verdict after remediation:** 🟢 **Approve** — all critical items fixed; remaining items are explicit follow-up tickets (see checklist below).
 
+### Post-facade follow-up (May 26, 2026)
+
+Six commits on `feat/web-ui` after PR #2 review remediation — implements [`unified-backend-facade.md`](./unified-backend-facade.md) Phases 1–5:
+
+| Commit | Scope |
+| ------ | ----- |
+| `1f36ad9` | Phase 1 — `lib/backend/` scaffold; transport + fetch-api moved to `backend/data/`; ESLint `no-restricted-imports` |
+| `f72af83` | Phase 2 — event hooks under `backend/events/`; `useBackendEventSubscription` for ad-hoc channels |
+| `e9a0e49` | Phase 3 — shell facade; all `@tauri-apps` imports confined to `lib/backend/**`; web hides shell-only UI |
+| `90cbd9f` | Phase 4 — config-export REST parity via `apiCall`; oauth/settings shell/data split |
+| `2267884` | Phase 5 — deprecation comments on `@/lib/api/*`; planning docs reconciled |
+| `c236a06` | Lint — resolve `set-state-in-effect` blockers in `HoverTooltip`, `ServerIcon`, `WorkspacesPage` |
+
+**Outcome:** The "dual hooks / scattered guards / stragglers" items called out in the original review and `unified-backend-facade.md` pre-facade table are addressed. `@/lib/backend` is the preferred import for new code.
+
 ### ✅ Strengths
 
 - The bridge / runtime trait split is genuinely good design. `GatewayRuntime` + `GatewayWriteRuntime` traits with `StubGatewayRuntime` for tests cleanly decouple admin HTTP from the live gateway's `Arc<RwLock<GatewayState>>`. Integration tests can spin up the full router with a stubbed runtime — that's why the 691-line `admin_api.rs` exists.
@@ -42,7 +57,7 @@ Three follow-up commits on `feat/web-ui` after the initial review:
 - `consent_token` is a server-issued secret tied to the pending-authorization record, validated explicitly in `approve_oauth_consent`. Web/desktop paths share the same `inbound_consent.rs` module — good DRY.
 - SSE keep-alive with `Lagged` recovery (line 38–40 of `events.rs`) prevents stale subscribers from blocking the broadcast.
 - Strong test coverage for what shipped: 34 admin Rust integration tests + 106 transport vitest rows + 13 Playwright smoke specs + dedicated CF Access fixture pair.
-- The `unified-backend-facade.md` planning doc (Option 4A) honestly names what's still messy after this PR (dual `useDomainEvents*` hooks, scattered `isTauri()` guards, stragglers in `lib/api`) instead of pretending parity is "done." Realistic followup framing.
+- The `unified-backend-facade.md` planning doc (Option 4A) honestly named pre-facade gaps; Phases 1–5 on `feat/web-ui` closed them (events consolidated, ESLint boundary, shell/data split).
 - Static SPA fallback serves built assets when `index.html` exists; otherwise a **503 build-hint page** (`handlers/spa.rs`) tells operators to run `pnpm build:web:admin`.
 
 ### 🔴 Critical Issues
@@ -57,7 +72,7 @@ Three follow-up commits on `feat/web-ui` after the initial review:
 5. **Typed structs for meta-tools toggles.** — **✅ Fixed** (`SetEnabledBody { enabled: bool }`; malformed body → 400)
 6. **CSRF token never rotates; String equality; poison panic.** — **🟡 Partial** — `parking_lot::Mutex` + `ConstantTimeEq` done; rotation endpoint still open
 7. **CF Access errors collapse to `UnknownKeyId`.** — **✅ Fixed** (last decode error propagated as `InvalidJwt`)
-8. **`open_url` admin endpoint is a no-op echo.** — **✅ Fixed** (REST endpoint removed; desktop uses Tauri `open_url`, web uses `window.open()` in `gateway.ts`)
+8. **`open_url` admin endpoint is a no-op echo.** — **✅ Fixed** (REST endpoint removed; `openUrl` lives in `backend/shell` — Tauri opener on desktop, `window.open` on web)
 9. **Admin settings card in web mode.** — **✅ Fixed** (`SettingsPage` returns `null` when `!isTauri()`)
 10. **`/api/v1/test/events/publish` in production.** — **✅ Fixed** (`#[cfg(feature = "test-utils")]` route registration)
 
@@ -94,7 +109,7 @@ Three follow-up commits on `feat/web-ui` after the initial review:
 - [x] Replace `serde_json::Value` body parsing with typed structs in `set_meta_tools_enabled` / `set_session_overrides_require_approval` (#5)
 - [x] Switch CSRF mutex to `parking_lot::Mutex`, swap comparison to `ConstantTimeEq` (#6 — rotation still open)
 - [x] Make CF Access validator surface real `decode` errors instead of `UnknownKeyId` for all failures (#7)
-- [x] Drop `open_url` server endpoint; desktop Tauri + web `window.open` (#8)
+- [x] Drop `open_url` server endpoint; `openUrl` in `backend/shell` (#8)
 - [x] Hide admin-web settings card from web-mode UI when `!isTauri()` (#9)
 - [x] Compile-time gate `/api/v1/test/events/publish` (#10)
 - [x] Replace `expect("UI event payload serializes")` with logged-skip (#14)
@@ -118,6 +133,6 @@ Three follow-up commits on `feat/web-ui` after the initial review:
 
 All four original critical items are fixed. Remaining open work (#3 JWKS refresh, CSRF rotation, #21 retry fragility, manual smoke tests) is acceptable follow-up or operator checklist — not merge blockers for the homelab threat model.
 
-The 11k-line size and 13-commit phased structure made review possible — phase commits are individually digestible. Keep that pattern for the `unified-backend-facade` followup.
+The phased commit structure made review possible — web admin phases, review remediation, then facade Phases 1–5 are individually digestible.
 
-Sources: [crates/mcpmux-gateway/src/admin/](https://github.com/crimsonsunset/mcp-mux/pull/2/files), [oauth/inbound_consent.rs](https://github.com/crimsonsunset/mcp-mux/blob/feat/web-ui/crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [apps/desktop/src/lib/api/fetch-api.routes/](https://github.com/crimsonsunset/mcp-mux/tree/feat/web-ui/apps/desktop/src/lib/api/fetch-api.routes), [docs/planning/unified-backend-facade.md](https://github.com/crimsonsunset/mcp-mux/blob/feat/web-ui/docs/planning/unified-backend-facade.md).
+Sources: [crates/mcpmux-gateway/src/admin/](https://github.com/crimsonsunset/mcp-mux/pull/2/files), [oauth/inbound_consent.rs](https://github.com/crimsonsunset/mcp-mux/blob/feat/web-ui/crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [apps/desktop/src/lib/backend/](https://github.com/crimsonsunset/mcp-mux/tree/feat/web-ui/apps/desktop/src/lib/backend), [docs/planning/unified-backend-facade.md](https://github.com/crimsonsunset/mcp-mux/blob/feat/web-ui/docs/planning/unified-backend-facade.md).

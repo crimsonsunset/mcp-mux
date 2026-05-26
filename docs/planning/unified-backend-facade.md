@@ -29,7 +29,7 @@ Post-review commits did **not** create `lib/backend/` yet, but they reduce Phase
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| Split `fetch-api.ts` route map | ✅ Done | `lib/api/fetch-api.routes/*` + helpers/types; transport core ~180 lines |
+| Split `fetch-api.ts` route map | ✅ Done | `lib/backend/data/fetch-api.routes/*` (+ shims at `lib/api/`) |
 | `open_url` parity | ✅ Done | REST endpoint removed; `gateway.ts` branches on `isTauri()` |
 | Admin settings web UX | ✅ Partial | `SettingsPage` hides admin card when `!isTauri()` — still invoke-only |
 | Live gateway integration test | ✅ Done | `LiveGatewayRuntime` + `admin_api_live_gateway.rs` |
@@ -47,7 +47,7 @@ Post-review commits did **not** create `lib/backend/` yet, but they reduce Phase
 | 1 | Approach | **Option 4A — thin facade** | Re-export + relocate; **no** `backend.spaces.list()` rename across 40+ files |
 | 2 | Not chosen | **Option 2 — always HTTP in Tauri** | Admin would be mandatory; extra latency; fights optional admin + desktop IPC consent model |
 | 3 | Not chosen | **Option 5 — Tauri webview loads only from admin origin** | Large product/ dev-HMR change; defer |
-| 4 | Command transport | **Keep `apiCall()` in `lib/backend/transport.ts`** (move from `lib/api/transport.ts`) | Single runtime branch (`invoke` vs `fetch`); unchanged semantics |
+| 4 | Command transport | **Keep `apiCall()` in `lib/backend/data/transport.ts`** (moved from `lib/api/transport.ts`) | Single runtime branch (`invoke` vs `fetch`); unchanged semantics |
 | 5 | Events | **Single export: `backend.events`** — one hook surface, Tauri + SSE adapters inside | Eliminates dual-hook pattern that called `listen()` in browser |
 | 6 | OS / desktop shell | **Single export: `backend.shell`** — invoke-only helpers with typed “unsupported on web” no-ops or hidden UI | File dialogs, updater, `convertFileSrc`, client install, deep links cannot be HTTP |
 | 7 | Page imports | **ESLint: no `@tauri-apps/*` outside `apps/desktop/src/lib/backend/**`** | Enforcement beats documentation |
@@ -111,14 +111,9 @@ features/, components/, hooks/ (non-backend)
 | File | Purpose |
 | ---- | ------- |
 | [`apps/desktop/src/lib/backend/index.ts`](../../apps/desktop/src/lib/backend/index.ts) | Public facade: re-export `data`, `events`, `shell` |
-| [`apps/desktop/src/lib/backend/transport.ts`](../../apps/desktop/src/lib/backend/transport.ts) | Move from `lib/api/transport.ts` |
-| [`apps/desktop/src/lib/backend/events/index.ts`](../../apps/desktop/src/lib/backend/events/index.ts) | Single `useBackendEvents()` (or keep `useDomainEvents` name as alias) |
-| [`apps/desktop/src/lib/backend/shell/index.ts`](../../apps/desktop/src/lib/backend/shell/index.ts) | Barrel for shell helpers |
-| [`apps/desktop/src/lib/backend/shell/dialogs.ts`](../../apps/desktop/src/lib/backend/shell/dialogs.ts) | `@tauri-apps/plugin-dialog` wrappers |
-| [`apps/desktop/src/lib/backend/shell/updater.ts`](../../apps/desktop/src/lib/backend/shell/updater.ts) | Updater check + relaunch (from `App.tsx`, `UpdateChecker`) |
-| [`apps/desktop/src/lib/backend/shell/icons.ts`](../../apps/desktop/src/lib/backend/shell/icons.ts) | `convertFileSrc` + `resolveWorkspaceIconPath` for web fallback |
-| [`apps/desktop/src/lib/backend/shell/client-install.ts`](../../apps/desktop/src/lib/backend/shell/client-install.ts) | Move from `lib/api/clientInstall.ts` |
-| [`apps/desktop/src/lib/backend/shell/admin-settings.ts`](../../apps/desktop/src/lib/backend/shell/admin-settings.ts) | `get_admin_web_settings` / `update_admin_web_settings` |
+| [`apps/desktop/src/lib/backend/data/transport.ts`](../../apps/desktop/src/lib/backend/data/transport.ts) | Moved from `lib/api/transport.ts` |
+| [`apps/desktop/src/lib/backend/events/index.ts`](../../apps/desktop/src/lib/backend/events/index.ts) | Single hook surface (`useDomainEvents` re-exported for compat) |
+| [`apps/desktop/src/lib/backend/shell/index.ts`](../../apps/desktop/src/lib/backend/shell/index.ts) | Shell helpers (rename-only from `desktop-shell.ts`) |
 | [`apps/desktop/eslint.config.js`](../../apps/desktop/eslint.config.js) or root ESLint | Rule: restrict `@tauri-apps/*` imports to `lib/backend/**` |
 
 ## Files to modify (direct `@tauri-apps` today — must move or gate)
@@ -253,8 +248,9 @@ features/, components/, hooks/ (non-backend)
 
 | File | Why |
 | ---- | --- |
-| [`apps/desktop/src/lib/api/transport.ts`](../../apps/desktop/src/lib/api/transport.ts) | Existing unified command switch |
-| [`apps/desktop/src/lib/api/fetch-api.routes/`](../../apps/desktop/src/lib/api/fetch-api.routes/) | Per-resource route map (split pre-facade on `feat/web-ui`) |
+| [`apps/desktop/src/lib/backend/data/transport.ts`](../../apps/desktop/src/lib/backend/data/transport.ts) | Unified command switch |
+| [`apps/desktop/src/lib/backend/data/fetch-api.routes/`](../../apps/desktop/src/lib/backend/data/fetch-api.routes/) | Per-resource route map |
+| [`apps/desktop/src/lib/api/transport.ts`](../../apps/desktop/src/lib/api/transport.ts) | Deprecated shim → `backend/data/transport` |
 | [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Dual Tauri/web hooks — primary consolidation target |
 | [`docs/planning/pr-2-web-admin-code-review.md`](./pr-2-web-admin-code-review.md) | Post-review remediation status — what landed before facade work |
 | [`docs/planning/web-admin-remote-access.md`](./web-admin-remote-access.md) | Parent feature — `command_bridge` + admin HTTP |

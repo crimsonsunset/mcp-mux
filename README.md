@@ -223,10 +223,12 @@ Or download directly from [GitHub Releases](https://github.com/mcpmux/mcp-mux/re
 
 ```bash
 pnpm setup    # First-time: install dependencies
-pnpm dev      # Start development
+pnpm dev      # Start development (Tauri + Vite HMR)
 pnpm build    # Production build
 pnpm test     # Run all tests
 ```
+
+**Web admin (browser UI over HTTP):** `pnpm dev:admin` or `pnpm dev:web:admin` — see [`docs/run-from-source-macos.md`](docs/run-from-source-macos.md).
 
 **Prerequisites:** Rust 1.75+, Node.js 18+, pnpm 9+. Linux also needs `gnome-keyring libsecret-1-dev librsvg2-dev pkg-config`.
 

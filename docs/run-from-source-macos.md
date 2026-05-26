@@ -93,6 +93,8 @@ For **web admin transport** (`fetch` + SSE), use the web admin section below —
 
 Optional loopback admin server: static SPA + REST `/api/v1/*` + SSE. Same SQLite DB and Keychain as desktop. **Not** the MCP gateway (`:45818`).
 
+**Frontend boundary:** Browser code imports `@/lib/backend` (data commands via `apiCall`, live updates via `backend/events`, OS integrations via `backend/shell`). Do not import `@tauri-apps/*` outside `lib/backend/**` — ESLint enforces this. Deprecated `@/lib/api/*` shims still work during transition. See [`unified-backend-facade.md`](planning/unified-backend-facade.md).
+
 | Port | Role |
 | ---- | ---- |
 | `1420` | Vite dev server (HMR). Proxies `/api` → admin port. |
@@ -158,7 +160,7 @@ Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx
 | ------- | --- | --- |
 | Dashboard empty / "Waiting for admin API" on `:1420` | Admin server off or not ready | `pnpm dev:admin` or enable Web admin in Settings; wait for health |
 | 503 HTML "Web admin UI not built" on `:45819` | No `index.html` in `apps/desktop/dist` | `pnpm build:web:admin` |
-| `invoke` / `transformCallback` errors in browser | Opened `:1420` without `VITE_ADMIN_WEB` | Use `dev:web:admin` / `dev:admin` (sets flag) |
+| `invoke` / `transformCallback` errors in browser | Opened `:1420` without admin web transport, or a component imported `@tauri-apps` directly | Use `dev:web:admin` / `dev:admin` (sets `VITE_ADMIN_WEB` + proxies `/api` → `:45819`). Post-facade, feature code should only touch Tauri via `@/lib/backend/shell` or `@/lib/backend/events` — grep for stray `@tauri-apps` imports if errors persist after a clean reload |
 | Mutations 403 | CSRF or CF Access | Local fast: trust off; tunnel: pass `CF-Access-Jwt-Assertion` |
 | Playwright can't reach admin | App not running or CF trust without JWT | Start app + build; set `MCPMUX_ADMIN_CF_JWT` when trust on |
 
@@ -341,3 +343,5 @@ open /Applications/McpMux.app
 
 - [`AGENTS.md`](../AGENTS.md) — build commands and project layout
 - [`CLAUDE.md`](../CLAUDE.md) — full dev environment reference
+- [`docs/planning/web-admin-remote-access.md`](planning/web-admin-remote-access.md) — web admin architecture and parity matrix
+- [`docs/planning/unified-backend-facade.md`](planning/unified-backend-facade.md) — three-channel frontend boundary (data / events / shell)

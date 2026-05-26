@@ -33,6 +33,9 @@ All commands run from `mcp-mux/`:
 pnpm setup              # First-time dev environment setup (PowerShell)
 pnpm dev                # Tauri desktop app dev mode (Rust + React hot-reload)
 pnpm dev:web            # Web UI only (Vite, no Rust)
+pnpm dev:admin          # Tauri dev + web admin enabled for session
+pnpm dev:web:admin      # Vite with admin HTTP transport (fetch + SSE)
+pnpm build:web:admin    # Production SPA build for admin static serving
 pnpm build              # Production Tauri build (all platforms)
 ```
 
@@ -50,6 +53,7 @@ pnpm test:e2e           # WebDriver IO desktop E2E (needs MCPMUX_REGISTRY_URL)
 pnpm test:e2e:file      # Single E2E spec: pnpm test:e2e:file -- tests/e2e/specs/foo.ts
 pnpm test:e2e:grep      # E2E by name: pnpm test:e2e:grep -- "test name"
 pnpm test:e2e:web       # Playwright web UI E2E
+pnpm test:e2e:web:admin # Playwright admin catalog against real :45819
 pnpm test:coverage      # cargo llvm-cov + vitest coverage
 ```
 
@@ -80,10 +84,12 @@ Key patterns: event-driven architecture (EventBus), repository pattern (trait-ba
 ### Frontend Architecture
 
 - **Entry**: `apps/desktop/src/main.tsx` -> `App.tsx`
+- **Backend facade**: import `@/lib/backend` (data commands, events, desktop shell) — not `@tauri-apps/*` directly. See [`docs/planning/unified-backend-facade.md`](docs/planning/unified-backend-facade.md). Deprecated `@/lib/api/*` shims re-export the same surface.
 - **State**: Zustand store (`stores/appStore.ts`)
-- **Hooks**: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (Rust event listeners), `useDataSync` (data synchronization)
+- **Hooks**: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (via `backend/events`), `useDataSync` (data synchronization)
 - **UI**: React 19 + Tailwind CSS + Lucide icons + Monaco Editor (config editing)
 - **Path aliases**: `@/` -> `src/`, `@mcpmux/ui` -> shared UI package
+- **Web admin dev**: [`docs/run-from-source-macos.md`](docs/run-from-source-macos.md) — `pnpm dev:admin`, ports `:1420` / `:45818` / `:45819`
 
 ### Data Flow
 

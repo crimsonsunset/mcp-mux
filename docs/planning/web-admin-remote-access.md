@@ -225,7 +225,7 @@ Suggested first spike module: **`spaces`** (9 invokes, bounded CRUD, good templa
 | 2 | Health + static SPA + 401 without JWT when CF Access enabled |
 | 3 | `spaces` (or chosen pilot) fully bridged with dual-entry tests; Tauri commands delegate to bridge |
 | 4 | All read endpoints + transport vitest for read commands; browse smoke E2E |
-| 5 | All **16** SSE channels contract-tested; `useDomainEventsWeb` + workspace/OAuth/meta-tool hooks wired |
+| 5 | All **16** SSE channels contract-tested; `backend/events/` hooks (Tauri + SSE adapters) wired |
 | 6 | All write endpoints + CSRF + error mapping + install round-trip integration + write smoke E2E |
 | 7 | OAuth consent HTTP path + integration test |
 | 8 | WDIO parity catalog ported to Playwright admin + homelab manual smoke |
@@ -251,9 +251,10 @@ Suggested first spike module: **`spaces`** (9 invokes, bounded CRUD, good templa
 | `crates/mcpmux-gateway/src/admin/handlers/settings.rs` | App settings handlers |
 | `crates/mcpmux-gateway/src/admin/handlers/events.rs` | SSE EventBus bridge |
 | `crates/mcpmux-gateway/src/admin/command_bridge.rs` | Shared helper: call Tauri command logic without Tauri runtime |
-| `apps/desktop/src/lib/api/transport.ts` | Tauri vs fetch transport abstraction |
-| `apps/desktop/src/lib/api/fetch-api.ts` | REST client mapping command names → HTTP paths |
-| `apps/desktop/src/hooks/useDomainEventsWeb.ts` | SSE-based event listener for web mode |
+| `apps/desktop/src/lib/backend/data/transport.ts` | Tauri vs fetch transport abstraction |
+| `apps/desktop/src/lib/backend/data/fetch-api.ts` | REST client mapping command names → HTTP paths |
+| `apps/desktop/src/lib/backend/events/` | SSE + Tauri event adapters (`useDomainEvents`, etc.) |
+| `apps/desktop/src/lib/api/*.ts` | Deprecated shims — re-export domain modules; prefer `@/lib/backend` |
 | `docs/planning/web-admin-parity-matrix.md` | Living command → route → test coverage tracker (Phase 1) |
 | `tests/rust/tests/integration/admin_api.rs` | Admin HTTP integration tests + shared test harness |
 | `tests/rust/tests/integration/admin_api/` | Per-module dual-entry tests (optional submodules as file grows) |
@@ -270,8 +271,9 @@ Suggested first spike module: **`spaces`** (9 invokes, bounded CRUD, good templa
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | `GatewayConfig` gains `admin_enabled`, `admin_port`, `admin_trust_cf_access`, `admin_cf_team_domain` |
 | [`apps/desktop/src-tauri/src/lib.rs`](../../apps/desktop/src-tauri/src/lib.rs) | Start `AdminServer` when setting enabled; share `ApplicationServices` Arc |
 | [`apps/desktop/src-tauri/src/commands/gateway.rs`](../../apps/desktop/src-tauri/src/commands/gateway.rs) | Extract shared gateway logic callable from admin handlers |
-| [`apps/desktop/src/lib/api/*.ts`](../../apps/desktop/src/lib/api/) | Replace direct `invoke()` with `apiCall()` from transport layer |
-| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Delegate to SSE hook in web mode |
+| [`apps/desktop/src/lib/api/*.ts`](../../apps/desktop/src/lib/api/) | Deprecated shims — domain modules use `apiCall()` via `@/lib/backend` |
+| [`apps/desktop/src/lib/backend/events/`](../../apps/desktop/src/lib/backend/events/) | Unified event hooks — Tauri + SSE adapters (`useDomainEvents`, etc.) |
+| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Shim re-exporting from `backend/events` (compat) |
 | [`apps/desktop/src/features/oauth/OAuthConsentModal.tsx`](../../apps/desktop/src/features/oauth/OAuthConsentModal.tsx) | Web mode: POST to `/api/v1/oauth/consent/approve` instead of Tauri command |
 | [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx) | Admin mode toggle + port setting |
 | [`apps/desktop/vite.config.ts`](../../apps/desktop/vite.config.ts) | `VITE_ADMIN_WEB` build flag for web-only builds |
@@ -384,10 +386,11 @@ Eight phases. **Tests are part of each phase, not a follow-up.** Do not start ph
 
 **Implementation**
 
-- [ ] `GET /api/v1/events` — SSE bridge fanning in **both** Rust emit paths (EventBus bridge + direct `app.emit` in `oauth.rs` / `session_overrides.rs`)
-- [ ] `useDomainEventsWeb.ts` — SSE listener matching `useDomainEvents` API (`subscribe`, `subscribeAll`, `subscribeMany`)
-- [ ] `useWorkspaceEventsWeb.ts`, `useOAuthClientEventsWeb.ts`, `useMetaToolEventsWeb.ts` — SSE equivalents of desktop hooks
-- [ ] `useDomainEvents.ts` — delegate to SSE hooks when not in Tauri
+- [x] `GET /api/v1/events` — SSE bridge fanning in **both** Rust emit paths (EventBus bridge + direct `app.emit` in `oauth.rs` / `session_overrides.rs`)
+- [x] `backend/events/` — unified hooks with internal Tauri + SSE adapters (`useDomainEventsWeb`, `useWorkspaceEventsWeb`, etc. are internal-only)
+- [x] `@/hooks/*` shims re-export from `backend/events` for backward compat
+
+**Historical note (Phase 5 at ship):** Public surface was dual desktop/web hooks under `hooks/`. Facade Phases 1–5 consolidated under `lib/backend/events/`.
 
 **Testing (same phase)**
 
@@ -539,10 +542,11 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 | [`apps/desktop/src-tauri/src/commands/mod.rs`](../../apps/desktop/src-tauri/src/commands/mod.rs) | Command module registry — each module gets a corresponding admin handler |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | Existing Axum gateway — pattern reference for admin router |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) (lines 340–365) | OAuth consent removed from HTTP for security — web admin re-adds guarded version |
-| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Tauri event listener — 10 domain channels; SSE contract tests in Phase 5 |
-| [`apps/desktop/src/hooks/useWorkspaceEvents.ts`](../../apps/desktop/src/hooks/useWorkspaceEvents.ts) | Workspace/session-override channels (4) — SSE in Phase 5 |
-| [`apps/desktop/src/hooks/useOAuthClientEvents.ts`](../../apps/desktop/src/hooks/useOAuthClientEvents.ts) | `oauth-client-changed` (direct Rust emit) — SSE in Phase 5 |
-| [`apps/desktop/src/hooks/useMetaToolEvents.ts`](../../apps/desktop/src/hooks/useMetaToolEvents.ts) | `meta-tool-invoked` — SSE in Phase 5 |
+| [`apps/desktop/src/lib/backend/shell/`](../../apps/desktop/src/lib/backend/shell/) | Desktop-only OS integrations (dialogs, updater, icons, admin settings) |
+| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Shim → `backend/events` (compat) |
+| [`apps/desktop/src/hooks/useWorkspaceEvents.ts`](../../apps/desktop/src/hooks/useWorkspaceEvents.ts) | Shim → `backend/events` (compat) |
+| [`apps/desktop/src/hooks/useOAuthClientEvents.ts`](../../apps/desktop/src/hooks/useOAuthClientEvents.ts) | Shim → `backend/events` (compat) |
+| [`apps/desktop/src/hooks/useMetaToolEvents.ts`](../../apps/desktop/src/hooks/useMetaToolEvents.ts) | Shim → `backend/events` (compat) |
 | [`tests/e2e/specs/*.wdio.ts`](../../tests/e2e/specs/) | Behavioral catalog — port to `tests/e2e/specs/admin/*.spec.ts` in Phases 4–8 |
 | [`tests/rust/tests/integration/workspace_binding_events.rs`](../../tests/rust/tests/integration/workspace_binding_events.rs) | Event JSON shape testing precedent for SSE contract tests |
 | [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) | Living coverage tracker — created Phase 1, completed Phase 8 |
@@ -557,13 +561,14 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 - [`jsg-tech-check/docs/setup/mcpmux-server-migration.md`](../../../jsg-tech-check/docs/setup/mcpmux-server-migration.md) — server/bundle/binding migration tracker (orthogonal to web admin)
 - [`docs/guide/security.mdx`](../../docs/guide/security.mdx) — credential encryption model (unchanged by web admin)
 - [`docs/planning/dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) — session override UI that web admin must expose via HTTP
-- [`docs/planning/server-account-clones.md`](./server-account-clones.md) — clone wizard that web admin must expose via HTTP
+- [`docs/planning/unified-backend-facade.md`](./unified-backend-facade.md) — Three-channel frontend boundary (complete on `feat/web-ui`)
+- [`docs/run-from-source-macos.md`](../run-from-source-macos.md) — Dev vs build-and-swap; web admin workflows
 
 ---
 
 ## Reconciliation
 
-This doc is the source of truth for web admin mode. Phases 1–8 are **Complete** on branch `feat/web-ui` (May 26, 2026). Homelab operator checklist: enable admin in Settings, `pnpm build:web:admin`, tunnel `mux.joe-hassio.com` → `:45819`, CF Access allow rule for operator email.
+This doc is the source of truth for web admin mode. Phases 1–8 are **Complete** on branch `feat/web-ui` (May 26, 2026). Homelab operator checklist: enable admin in Settings, `pnpm build:web:admin`, tunnel `mux.joe-hassio.com` → `:45819`, CF Access allow rule for operator email. Dev workflows: [`docs/run-from-source-macos.md`](../run-from-source-macos.md).
 
 **Post-phase-8 hardening (May 26, 2026):** PR #2 code review remediation in three commits — see [`pr-2-web-admin-code-review.md`](./pr-2-web-admin-code-review.md). Key additions beyond Phases 1–8:
 
@@ -572,7 +577,8 @@ This doc is the source of truth for web admin mode. Phases 1–8 are **Complete*
 | Security | `test-utils` feature gate, OAuth log fix, CSRF `parking_lot` + constant-time compare, CF Access error propagation |
 | Resilience | Event hub task abort on reload, SSE warn-and-skip, SPA 503 build-hint when `index.html` missing |
 | Tests | `admin_api_regression.rs`, `admin_api_live_gateway.rs`, `security-negative.spec.ts`, OAuth log unit test |
-| Transport | `fetch-api.routes/*` split; `open_url` REST removed (desktop Tauri / web `window.open`) |
+| Transport | `backend/data/fetch-api.routes/*` split; `open_url` REST removed (`backend/shell`) |
+| Frontend facade | `lib/backend/{data,events,shell}` — ESLint `@tauri-apps` boundary; `@/lib/api/*` deprecated shims |
 | Backend runtime | `LiveGatewayRuntime` wired to real `GatewayServer` for integration tests |
 
 **Test counts (post-hardening):** 34 Rust admin integration tests; 106 vitest transport rows.
