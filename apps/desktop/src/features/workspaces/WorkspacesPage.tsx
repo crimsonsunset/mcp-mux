@@ -922,15 +922,19 @@ function InspectorPanel({
   /** Live icon edits from the binding form (before autosave lands in entry state). */
   onIconChange?: (icon: string | null) => void;
 }) {
-  const [liveIcon, setLiveIcon] = useState<string | null>(resolvedIcon);
+  const [editedIcon, setEditedIcon] = useState<string | null | undefined>(undefined);
+  const [prevResolvedIcon, setPrevResolvedIcon] = useState(resolvedIcon);
 
-  useEffect(() => {
-    setLiveIcon(resolvedIcon);
-  }, [resolvedIcon, entry?.id]);
+  if (resolvedIcon !== prevResolvedIcon) {
+    setPrevResolvedIcon(resolvedIcon);
+    setEditedIcon(undefined);
+  }
+
+  const liveIcon = editedIcon !== undefined ? editedIcon : resolvedIcon;
 
   const handleIconChange = useCallback(
     (icon: string | null) => {
-      setLiveIcon(icon);
+      setEditedIcon(icon);
       onIconChange?.(icon);
     },
     [onIconChange]

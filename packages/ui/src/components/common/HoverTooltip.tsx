@@ -125,7 +125,6 @@ export function HoverTooltip({
 
   useLayoutEffect(() => {
     if (!active || hidden) {
-      setCoords(null);
       return;
     }
     updateCoords();
