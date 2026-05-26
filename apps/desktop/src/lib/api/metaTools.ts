@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /** An "always allow from (client, tool)" entry kept in the gateway's broker. */
@@ -31,7 +29,7 @@ export async function revokeMetaToolGrant(
   clientId: string,
   toolName: string
 ): Promise<boolean> {
-  return invoke('revoke_meta_tool_grant', { clientId, toolName });
+  return apiCall('revoke_meta_tool_grant', { clientId, toolName });
 }
 
 /**
@@ -44,7 +42,7 @@ export async function getMetaToolsEnabled(): Promise<boolean> {
 
 /** Flip the master switch; takes effect on the next `list_tools` push. */
 export async function setMetaToolsEnabled(enabled: boolean): Promise<void> {
-  return invoke('set_meta_tools_enabled', { enabled });
+  return apiCall('set_meta_tools_enabled', { enabled });
 }
 
 /**
@@ -60,7 +58,7 @@ export async function respondToMetaToolApproval(
     | 'always_for_this_session_and_client'
     | 'deny'
 ): Promise<boolean> {
-  return invoke('respond_to_meta_tool_approval', {
+  return apiCall('respond_to_meta_tool_approval', {
     requestId,
     clientId,
     toolName,

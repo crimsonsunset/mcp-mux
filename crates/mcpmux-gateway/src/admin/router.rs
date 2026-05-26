@@ -1,17 +1,21 @@
 //! Admin Axum router — health, static SPA, API routes.
 
-use axum::{middleware, routing::{get, post}, Router};
+use axum::{
+    middleware,
+    routing::{delete, get, post, put},
+    Router,
+};
 use mcpmux_core::ApplicationServices;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::warn;
 
 use super::config::AdminConfig;
 use super::event_hub::AdminEventHub;
-use super::handlers::{events, health, read};
-use super::middleware::{cf_access_middleware, CfAccessValidator};
+use super::handlers::{events, health, read, write};
+use super::middleware::{cf_access_middleware, csrf_middleware, get_csrf_token, CfAccessValidator};
 use crate::admin::bridge_context::AdminBridgeCtx;
 
 /// Shared state for admin HTTP handlers.
@@ -31,6 +35,8 @@ pub struct AdminState {
     pub bridge: Arc<AdminBridgeCtx>,
     /// Merged EventBus + direct UI event fan-in for SSE.
     pub event_hub: Arc<AdminEventHub>,
+    /// CSRF token for mutating requests.
+    pub csrf_token: Arc<Mutex<String>>,
 }
 
 /// Build the admin router with health, API stubs, and SPA static fallback.
@@ -39,6 +45,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
 
     let mut router = Router::new()
         .route("/api/v1/health", get(health))
+        .route("/api/v1/csrf-token", get(get_csrf_token))
         .route("/api/v1/events", get(events::sse_events))
         .route(
             "/api/v1/test/events/publish",
@@ -60,10 +67,71 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::list_connected_servers),
         )
         .route("/api/v1/gateway/pool-stats", get(read::get_pool_stats))
-        .route("/api/v1/spaces", get(read::list_spaces))
-        .route("/api/v1/spaces/{id}", get(read::get_space))
-        .route("/api/v1/spaces/{id}/config", get(read::read_space_config))
+        .route("/api/v1/gateway/start", post(write::start_gateway))
+        .route("/api/v1/gateway/stop", post(write::stop_gateway))
+        .route("/api/v1/gateway/restart", post(write::restart_gateway))
+        .route("/api/v1/gateway/disconnect", post(write::disconnect_server))
+        .route(
+            "/api/v1/gateway/connect-all",
+            post(write::connect_all_enabled_servers),
+        )
+        .route(
+            "/api/v1/gateway/refresh-oauth-tokens",
+            post(write::refresh_oauth_tokens_on_startup),
+        )
+        .route("/api/v1/gateway/port", put(write::set_gateway_port))
+        .route("/api/v1/spaces", get(read::list_spaces).post(write::create_space))
+        .route(
+            "/api/v1/spaces/{id}",
+            get(read::get_space)
+                .put(write::update_space)
+                .delete(write::delete_space),
+        )
+        .route(
+            "/api/v1/spaces/{id}/config",
+            get(read::read_space_config).put(write::save_space_config),
+        )
+        .route(
+            "/api/v1/spaces/{space_id}/config/servers/{server_id}",
+            delete(write::remove_server_from_config),
+        )
         .route("/api/v1/servers/installed", get(read::list_installed_servers))
+        .route("/api/v1/servers/install", post(write::install_server))
+        .route("/api/v1/servers/{id}", delete(write::uninstall_server))
+        .route("/api/v1/servers/{id}/inputs", put(write::save_server_inputs))
+        .route(
+            "/api/v1/servers/{id}/display-name",
+            put(write::set_server_display_name),
+        )
+        .route(
+            "/api/v1/servers/{id}/oauth-connected",
+            put(write::set_server_oauth_connected),
+        )
+        .route(
+            "/api/v1/servers/connections/enable",
+            post(write::enable_server_v2),
+        )
+        .route(
+            "/api/v1/servers/connections/disable",
+            post(write::disable_server_v2),
+        )
+        .route(
+            "/api/v1/servers/connections/start-auth",
+            post(write::start_auth_v2),
+        )
+        .route(
+            "/api/v1/servers/connections/cancel-auth",
+            post(write::cancel_auth_v2),
+        )
+        .route(
+            "/api/v1/servers/connections/retry",
+            post(write::retry_connection),
+        )
+        .route(
+            "/api/v1/servers/connections/logout",
+            post(write::logout_server),
+        )
+        .route("/api/v1/servers/clones", post(write::clone_server))
         .route("/api/v1/registry/discover", get(read::discover_servers))
         .route(
             "/api/v1/registry/definition/{server_id}",
@@ -75,22 +143,53 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::get_registry_home_config),
         )
         .route("/api/v1/registry/offline", get(read::is_registry_offline))
-        .route("/api/v1/clients", get(read::list_clients))
-        .route("/api/v1/clients/{id}", get(read::get_client))
-        .route("/api/v1/feature-sets", get(read::list_feature_sets))
+        .route("/api/v1/registry/refresh", post(write::refresh_registry))
+        .route("/api/v1/clients", get(read::list_clients).post(write::create_client))
+        .route(
+            "/api/v1/clients/{id}",
+            get(read::get_client).delete(write::delete_client),
+        )
+        .route(
+            "/api/v1/clients/init-presets",
+            post(write::init_preset_clients),
+        )
+        .route(
+            "/api/v1/feature-sets",
+            get(read::list_feature_sets).post(write::create_feature_set),
+        )
         .route(
             "/api/v1/feature-sets/by-space/{space_id}",
             get(read::list_feature_sets_by_space),
         )
-        .route("/api/v1/feature-sets/{id}", get(read::get_feature_set))
+        .route(
+            "/api/v1/feature-sets/{id}",
+            get(read::get_feature_set)
+                .put(write::update_feature_set)
+                .delete(write::delete_feature_set),
+        )
         .route(
             "/api/v1/feature-sets/{id}/with-members",
             get(read::get_feature_set_with_members),
         )
-        .route("/api/v1/workspaces/bindings", get(read::list_workspace_bindings))
+        .route(
+            "/api/v1/feature-sets/{id}/members",
+            post(write::add_feature_set_member).put(write::set_feature_set_members),
+        )
+        .route(
+            "/api/v1/feature-sets/{id}/members/{member_id}",
+            delete(write::remove_feature_set_member),
+        )
+        .route(
+            "/api/v1/workspaces/bindings",
+            get(read::list_workspace_bindings).post(write::create_workspace_binding),
+        )
         .route(
             "/api/v1/workspaces/bindings/space/{space_id}",
             get(read::list_workspace_bindings_for_space),
+        )
+        .route(
+            "/api/v1/workspaces/bindings/{id}",
+            put(write::update_workspace_binding).delete(write::delete_workspace_binding),
         )
         .route(
             "/api/v1/workspaces/reported-roots",
@@ -106,38 +205,75 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route(
             "/api/v1/workspaces/appearances",
-            get(read::list_workspace_appearances),
+            get(read::list_workspace_appearances)
+                .post(write::upload_workspace_icon)
+                .put(write::upsert_workspace_appearance)
+                .delete(write::delete_workspace_appearance),
         )
         .route(
             "/api/v1/workspaces/icon-path",
             get(read::resolve_workspace_icon_path),
         )
         .route("/api/v1/session-overrides", get(read::list_session_overrides))
-        .route("/api/v1/settings/startup", get(read::get_startup_settings))
+        .route(
+            "/api/v1/session-overrides/clear",
+            post(write::clear_session_overrides),
+        )
+        .route(
+            "/api/v1/settings/startup",
+            get(read::get_startup_settings).put(write::update_startup_settings),
+        )
         .route(
             "/api/v1/settings/meta-tools-enabled",
-            get(read::get_meta_tools_enabled),
+            get(read::get_meta_tools_enabled).put(write::set_meta_tools_enabled),
         )
         .route(
             "/api/v1/settings/session-overrides-require-approval",
-            get(read::get_session_overrides_require_approval),
+            get(read::get_session_overrides_require_approval)
+                .put(write::set_session_overrides_require_approval),
         )
         .route("/api/v1/app/version", get(read::get_version))
         .route("/api/v1/app/bundle-version", get(read::get_bundle_version))
         .route("/api/v1/app/logs-path", get(read::get_logs_path))
-        .route("/api/v1/logs/server/{server_id}", get(read::get_server_logs))
+        .route(
+            "/api/v1/logs/server/{server_id}",
+            get(read::get_server_logs).delete(write::clear_server_logs),
+        )
         .route(
             "/api/v1/logs/server/{server_id}/file",
             get(read::get_server_log_file),
         )
-        .route("/api/v1/logs/retention-days", get(read::get_log_retention_days))
+        .route(
+            "/api/v1/logs/retention-days",
+            get(read::get_log_retention_days).put(write::set_log_retention_days),
+        )
         .route("/api/v1/oauth/clients", get(read::get_oauth_clients))
+        .route(
+            "/api/v1/oauth/clients/{client_id}",
+            put(write::update_oauth_client).delete(write::delete_oauth_client),
+        )
+        .route(
+            "/api/v1/oauth/clients/{client_id}/grants",
+            post(write::grant_oauth_client_feature_set),
+        )
+        .route(
+            "/api/v1/oauth/clients/{client_id}/grants/revoke",
+            post(write::revoke_oauth_client_feature_set),
+        )
         .route(
             "/api/v1/oauth/clients/{client_id}/grants/{space_id}",
             get(read::get_oauth_client_grants),
         )
         .route("/api/v1/oauth/open-url", get(read::open_url))
         .route("/api/v1/meta-tools/grants", get(read::list_meta_tool_grants))
+        .route(
+            "/api/v1/meta-tools/approval",
+            post(write::respond_to_meta_tool_approval),
+        )
+        .route(
+            "/api/v1/meta-tools/grants/revoke",
+            post(write::revoke_meta_tool_grant),
+        )
         .route("/api/v1/server-features", get(read::list_server_features))
         .route(
             "/api/v1/server-features/by-server",
@@ -174,6 +310,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
     }
 
     router
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            csrf_middleware,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             cf_access_middleware,

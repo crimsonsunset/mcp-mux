@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /**
@@ -33,15 +31,15 @@ export async function getClient(id: string): Promise<Client | null> {
 
 /** Create a new client. */
 export async function createClient(input: CreateClientInput): Promise<Client> {
-  return invoke('create_client', { input });
+  return apiCall('create_client', { input });
 }
 
 /** Delete a client. */
 export async function deleteClient(id: string): Promise<void> {
-  return invoke('delete_client', { id });
+  return apiCall('delete_client', { id });
 }
 
 /** Initialize preset clients (Cursor, VS Code, Claude). */
 export async function initPresetClients(): Promise<void> {
-  return invoke('init_preset_clients');
+  return apiCall('init_preset_clients');
 }

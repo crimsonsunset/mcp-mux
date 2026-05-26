@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /**
@@ -79,7 +77,7 @@ export async function listWorkspaceBindingsForSpace(
 export async function createWorkspaceBinding(
   input: WorkspaceBindingInput
 ): Promise<WorkspaceBinding> {
-  return invoke('create_workspace_binding', { input });
+  return apiCall('create_workspace_binding', { input });
 }
 
 /** Update any axis of an existing binding. */
@@ -87,12 +85,12 @@ export async function updateWorkspaceBinding(
   id: string,
   input: WorkspaceBindingInput
 ): Promise<WorkspaceBinding> {
-  return invoke('update_workspace_binding', { id, input });
+  return apiCall('update_workspace_binding', { id, input });
 }
 
 /** Delete a binding by id. */
 export async function deleteWorkspaceBinding(id: string): Promise<void> {
-  return invoke('delete_workspace_binding', { id });
+  return apiCall('delete_workspace_binding', { id });
 }
 
 /** Convenience: build a `WorkspaceBindingInput` from a binding-shaped object. */

@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /** Persisted per-root icon used before a binding exists. */
@@ -23,17 +21,17 @@ export async function listWorkspaceAppearances(): Promise<WorkspaceAppearance[]>
 export async function upsertWorkspaceAppearance(
   input: WorkspaceAppearanceInput
 ): Promise<WorkspaceAppearance> {
-  return invoke('upsert_workspace_appearance', { input });
+  return apiCall('upsert_workspace_appearance', { input });
 }
 
 /** Delete appearance for a workspace root. */
 export async function deleteWorkspaceAppearance(workspaceRoot: string): Promise<void> {
-  return invoke('delete_workspace_appearance', { workspaceRoot });
+  return apiCall('delete_workspace_appearance', { workspaceRoot });
 }
 
 /** Copy a source image into app data and return local: ref. */
 export async function uploadWorkspaceIcon(sourcePath: string): Promise<string> {
-  return invoke('upload_workspace_icon', { sourcePath });
+  return apiCall('upload_workspace_icon', { sourcePath });
 }
 
 /** Resolve a local:workspace-icons ref to an absolute file path. */

@@ -18,8 +18,9 @@
  * wrapper unless a dedicated UI action needs ServerManager pause semantics.
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+
+import { apiCall } from "./transport";
 
 /**
  * Connection status - matches backend ConnectionStatus enum
@@ -130,7 +131,7 @@ export async function enableServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("enable_server_v2", { spaceId, serverId });
+  return apiCall("enable_server_v2", { spaceId, serverId });
 }
 
 /**
@@ -140,7 +141,7 @@ export async function disableServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("disable_server_v2", { spaceId, serverId });
+  return apiCall("disable_server_v2", { spaceId, serverId });
 }
 
 /**
@@ -153,7 +154,7 @@ export async function startAuth(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("start_auth_v2", { spaceId, serverId });
+  return apiCall("start_auth_v2", { spaceId, serverId });
 }
 
 /**
@@ -163,7 +164,7 @@ export async function cancelAuth(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("cancel_auth_v2", { spaceId, serverId });
+  return apiCall("cancel_auth_v2", { spaceId, serverId });
 }
 
 /**
@@ -173,7 +174,7 @@ export async function retryConnection(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("retry_connection", { spaceId, serverId });
+  return apiCall("retry_connection", { spaceId, serverId });
 }
 
 /**
@@ -187,7 +188,7 @@ export async function logoutServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("logout_server", { spaceId, serverId });
+  return apiCall("logout_server", { spaceId, serverId });
 }
 
 // ============================================================================

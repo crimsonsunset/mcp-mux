@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /**
@@ -120,14 +118,14 @@ export async function getFeatureSet(id: string): Promise<FeatureSet | null> {
  * Create a new feature set.
  */
 export async function createFeatureSet(input: CreateFeatureSetInput): Promise<FeatureSet> {
-  return invoke('create_feature_set', { input });
+  return apiCall('create_feature_set', { input });
 }
 
 /**
  * Delete a feature set.
  */
 export async function deleteFeatureSet(id: string): Promise<void> {
-  return invoke('delete_feature_set', { id });
+  return apiCall('delete_feature_set', { id });
 }
 
 /**
@@ -141,7 +139,7 @@ export async function getFeatureSetWithMembers(id: string): Promise<FeatureSet |
  * Update a feature set.
  */
 export async function updateFeatureSet(id: string, input: UpdateFeatureSetInput): Promise<FeatureSet> {
-  return invoke('update_feature_set', { id, input });
+  return apiCall('update_feature_set', { id, input });
 }
 
 /**
@@ -151,7 +149,7 @@ export async function addFeatureSetMember(
   featureSetId: string,
   input: AddMemberInput
 ): Promise<FeatureSet> {
-  return invoke('add_feature_set_member', { featureSetId, input });
+  return apiCall('add_feature_set_member', { featureSetId, input });
 }
 
 /**
@@ -161,7 +159,7 @@ export async function removeFeatureSetMember(
   featureSetId: string,
   memberId: string
 ): Promise<FeatureSet> {
-  return invoke('remove_feature_set_member', { featureSetId, memberId });
+  return apiCall('remove_feature_set_member', { featureSetId, memberId });
 }
 
 /**
@@ -171,5 +169,5 @@ export async function setFeatureSetMembers(
   featureSetId: string,
   members: AddMemberInput[]
 ): Promise<FeatureSet> {
-  return invoke('set_feature_set_members', { featureSetId, members });
+  return apiCall('set_feature_set_members', { featureSetId, members });
 }

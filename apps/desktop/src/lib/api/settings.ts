@@ -27,7 +27,7 @@ export async function getStartupSettings(): Promise<StartupSettings> {
  * Persist startup and system tray preferences.
  */
 export async function updateStartupSettings(settings: StartupSettings): Promise<void> {
-  return invoke('update_startup_settings', { settings });
+  return apiCall('update_startup_settings', { settings });
 }
 
 /**
@@ -41,7 +41,7 @@ export async function getGatewayPortSettings(): Promise<GatewayPortSettings> {
  * Persist a custom gateway port. Takes effect on the next gateway start.
  */
 export async function setGatewayPort(port: number): Promise<void> {
-  return invoke('set_gateway_port', { port });
+  return apiCall('set_gateway_port', { port });
 }
 
 /**

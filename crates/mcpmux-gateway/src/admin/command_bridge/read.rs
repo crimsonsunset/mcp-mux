@@ -18,11 +18,11 @@ use crate::admin::command_bridge::space::{self, SpaceBridgeCtx};
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
 
-fn as_json<T: serde::Serialize>(value: T) -> Result<Value> {
+pub(crate) fn as_json<T: serde::Serialize>(value: T) -> Result<Value> {
     serde_json::to_value(value).map_err(Into::into)
 }
 
-fn to_client_response(client: mcpmux_core::Client) -> Value {
+pub(crate) fn to_client_response(client: mcpmux_core::Client) -> Value {
     json!({
         "id": client.id.to_string(),
         "name": client.name,
@@ -31,7 +31,7 @@ fn to_client_response(client: mcpmux_core::Client) -> Value {
     })
 }
 
-fn to_feature_set_member_response(member: &FeatureSetMember) -> Value {
+pub(crate) fn to_feature_set_member_response(member: &FeatureSetMember) -> Value {
     json!({
         "id": member.id,
         "feature_set_id": member.feature_set_id,
@@ -42,7 +42,7 @@ fn to_feature_set_member_response(member: &FeatureSetMember) -> Value {
     })
 }
 
-fn to_feature_set_response(feature_set: FeatureSet) -> Value {
+pub(crate) fn to_feature_set_response(feature_set: FeatureSet) -> Value {
     json!({
         "id": feature_set.id,
         "name": feature_set.name,
@@ -61,7 +61,7 @@ fn to_feature_set_response(feature_set: FeatureSet) -> Value {
     })
 }
 
-fn to_workspace_binding_response(binding: mcpmux_core::WorkspaceBinding) -> Value {
+pub(crate) fn to_workspace_binding_response(binding: mcpmux_core::WorkspaceBinding) -> Value {
     json!({
         "id": binding.id.to_string(),
         "workspace_root": binding.workspace_root,
@@ -74,7 +74,7 @@ fn to_workspace_binding_response(binding: mcpmux_core::WorkspaceBinding) -> Valu
     })
 }
 
-fn to_workspace_appearance_response(appearance: mcpmux_core::WorkspaceAppearance) -> Value {
+pub(crate) fn to_workspace_appearance_response(appearance: mcpmux_core::WorkspaceAppearance) -> Value {
     json!({
         "workspace_root": appearance.workspace_root,
         "icon": appearance.icon,
@@ -147,7 +147,7 @@ fn icon_ref_to_path(data_dir: &Path, icon_ref: &str) -> Option<PathBuf> {
     Some(data_dir.join(WORKSPACE_ICON_DIR).join(file_name))
 }
 
-fn space_ctx<'a>(ctx: &'a AdminBridgeCtx) -> SpaceBridgeCtx<'a> {
+pub(crate) fn space_ctx<'a>(ctx: &'a AdminBridgeCtx) -> SpaceBridgeCtx<'a> {
     SpaceBridgeCtx {
         services: &ctx.services,
         spaces_dir: &ctx.spaces_dir,

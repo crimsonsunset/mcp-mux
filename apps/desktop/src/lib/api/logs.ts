@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /**
@@ -32,7 +30,7 @@ export async function getServerLogs(
  * Clear logs for a server.
  */
 export async function clearServerLogs(serverId: string): Promise<void> {
-  return invoke('clear_server_logs', { serverId });
+  return apiCall('clear_server_logs', { serverId });
 }
 
 /**
@@ -54,6 +52,6 @@ export async function getLogRetentionDays(): Promise<number> {
  * Triggers an immediate cleanup with the new setting.
  */
 export async function setLogRetentionDays(days: number): Promise<void> {
-  return invoke('set_log_retention_days', { days });
+  return apiCall('set_log_retention_days', { days });
 }
 

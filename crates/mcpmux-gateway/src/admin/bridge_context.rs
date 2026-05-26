@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mcpmux_core::{
-    AppSettingsRepository, ApplicationServices, GatewayPortService, ServerDiscoveryService,
-    ServerFeatureRepository, ServerLogManager, SpaceService, WorkspaceAppearanceRepository,
-    WorkspaceBindingRepository,
+    AppSettingsRepository, ApplicationServices, FeatureSetRepository, GatewayPortService,
+    ServerDiscoveryService, ServerFeatureRepository, ServerLogManager, SpaceService,
+    WorkspaceAppearanceRepository, WorkspaceBindingRepository,
 };
 
 use super::runtime::GatewayRuntime;
+use super::write_runtime::GatewayWriteRuntime;
 
 /// Shared dependency graph used by admin bridge functions.
 ///
@@ -29,6 +30,9 @@ pub struct AdminBridgeCtx {
     pub server_log_manager: Arc<ServerLogManager>,
     pub space_service: Arc<SpaceService>,
     pub gateway_runtime: Arc<dyn GatewayRuntime>,
+    /// Gateway-dependent write operations (start/stop, server connections, OAuth grants).
+    pub gateway_writes: Arc<dyn GatewayWriteRuntime>,
+    pub feature_set_repository: Arc<dyn FeatureSetRepository>,
     /// Optional OS auto-launch value injected by desktop runtime.
     pub auto_launch_enabled: Option<bool>,
     /// Desktop app version (`CARGO_PKG_VERSION` from the app crate).

@@ -55,6 +55,7 @@ zeroize = "1.8"
 which = "7.0"
 open = "5.3"
 dirs = "5.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 # MCP SDK
 rmcp.workspace = true

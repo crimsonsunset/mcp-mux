@@ -10,15 +10,16 @@ use mcpmux_core::{
 };
 use mcpmux_gateway::admin::{
     command_bridge::read as bridge_read,
-    build_admin_router, format_bridge_error_message, test_valid_jwt, test_validator, AdminConfig,
-    AdminState,
-    AdminBridgeCtx, CF_ACCESS_JWT_HEADER, StubGatewayRuntime, AdminEventHub, AdminUiEventBus,
+    build_admin_router, format_bridge_error_message, new_csrf_token_store, test_valid_jwt,
+    test_validator, AdminConfig, AdminState, AdminBridgeCtx, CF_ACCESS_JWT_HEADER,
+    StubGatewayRuntime, StubGatewayWriteRuntime, AdminEventHub, AdminUiEventBus,
 };
 use mcpmux_storage::{
     Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
     SqliteInboundMcpClientRepository, SqliteInstalledServerRepository, SqliteServerFeatureRepository,
     SqliteSpaceRepository, SqliteWorkspaceAppearanceRepository, SqliteWorkspaceBindingRepository,
 };
+use mcpmux_gateway::admin::CSRF_HEADER;
 use reqwest::{Client, RequestBuilder, Response};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -42,6 +43,7 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
         Arc::new(mcpmux_storage::FieldEncryptor::new(&[9_u8; 32]).expect("encryptor")),
     ));
     let settings_repo = Arc::new(SqliteAppSettingsRepository::new(db.clone()));
+    let gateway_port_service = Arc::new(GatewayPortService::new(settings_repo.clone()));
     let workspace_binding_repository = Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
     let workspace_appearance_repository = Arc::new(SqliteWorkspaceAppearanceRepository::new(db.clone()));
     let server_feature_repository = Arc::new(SqliteServerFeatureRepository::new(db.clone()));
@@ -66,7 +68,7 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
         services: services.clone(),
         spaces_dir,
         data_dir: data_dir.clone(),
-        gateway_port_service: Arc::new(GatewayPortService::new(settings_repo.clone())),
+        gateway_port_service: gateway_port_service.clone(),
         server_discovery: Arc::new(ServerDiscoveryService::new(data_dir.clone(), data_dir.join("spaces"))),
         settings_repository: settings_repo,
         workspace_binding_repository,
@@ -80,6 +82,10 @@ async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeCtx>)
         })),
         space_service: Arc::new(space_service),
         gateway_runtime: Arc::new(StubGatewayRuntime),
+        gateway_writes: Arc::new(StubGatewayWriteRuntime {
+            gateway_port_service: Some(gateway_port_service),
+        }),
+        feature_set_repository: feature_set_repo,
         auto_launch_enabled: Some(false),
         app_version: "0.0.0-test".to_string(),
         bundle_version: None,
@@ -122,6 +128,7 @@ impl AdminHarness {
             cf_validator,
             bridge: bridge.clone(),
             event_hub: event_hub.clone(),
+            csrf_token: new_csrf_token_store(),
         };
         let router = build_admin_router(state);
 
@@ -171,34 +178,108 @@ async fn assert_get_matches_bridge(
 }
 
 /// HTTP client for admin API requests with optional CF Access JWT.
-struct AdminClient {
+pub(crate) struct AdminClient {
     inner: Client,
     base_url: String,
     cf_jwt: Option<String>,
+    csrf_token: Option<String>,
 }
 
 impl AdminClient {
     /// Create a client targeting `base_url` with an optional JWT stub.
-    fn new(base_url: impl Into<String>, cf_jwt: Option<&str>) -> Self {
+    pub(crate) fn new(base_url: impl Into<String>, cf_jwt: Option<&str>) -> Self {
         Self {
             inner: Client::new(),
             base_url: base_url.into(),
             cf_jwt: cf_jwt.map(str::to_string),
+            csrf_token: None,
         }
     }
 
-    /// Begin a GET request, attaching `CF-Access-Jwt-Assertion` when configured.
-    fn get(&self, path: &str) -> RequestBuilder {
-        let mut req = self.inner.get(format!("{}{}", self.base_url, path));
+    fn with_headers(&self, mut req: RequestBuilder) -> RequestBuilder {
         if let Some(jwt) = &self.cf_jwt {
             req = req.header(CF_ACCESS_JWT_HEADER, jwt);
+        }
+        if let Some(token) = &self.csrf_token {
+            req = req.header(CSRF_HEADER, token);
         }
         req
     }
 
+    /// Fetch and cache CSRF token from the admin server.
+    pub(crate) async fn fetch_csrf_token(&mut self) {
+        let resp = self
+            .get("/api/v1/csrf-token")
+            .send()
+            .await
+            .expect("csrf token request");
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.expect("csrf json");
+        self.csrf_token = body["token"].as_str().map(str::to_string);
+    }
+
+    /// Begin a GET request, attaching `CF-Access-Jwt-Assertion` when configured.
+    fn get(&self, path: &str) -> RequestBuilder {
+        self.with_headers(self.inner.get(format!("{}{}", self.base_url, path)))
+    }
+
+    fn post_json(&self, path: &str, body: &serde_json::Value) -> RequestBuilder {
+        self.with_headers(
+            self.inner
+                .post(format!("{}{}", self.base_url, path))
+                .header("Content-Type", "application/json")
+                .json(body),
+        )
+    }
+
+    fn put_json(&self, path: &str, body: &serde_json::Value) -> RequestBuilder {
+        self.with_headers(
+            self.inner
+                .put(format!("{}{}", self.base_url, path))
+                .header("Content-Type", "application/json")
+                .json(body),
+        )
+    }
+
+    fn delete_json(&self, path: &str, body: Option<&serde_json::Value>) -> RequestBuilder {
+        let mut req = self
+            .inner
+            .delete(format!("{}{}", self.base_url, path))
+            .header("Content-Type", "application/json");
+        if let Some(body) = body {
+            req = req.json(body);
+        }
+        self.with_headers(req)
+    }
+
     /// Send GET and return the response.
-    async fn get_response(&self, path: &str) -> Response {
+    pub(crate) async fn get_response(&self, path: &str) -> Response {
         self.get(path).send().await.expect("admin GET request")
+    }
+
+    pub(crate) async fn post_response(&self, path: &str, body: &serde_json::Value) -> Response {
+        self.post_json(path, body)
+            .send()
+            .await
+            .expect("admin POST request")
+    }
+
+    pub(crate) async fn put_response(&self, path: &str, body: &serde_json::Value) -> Response {
+        self.put_json(path, body)
+            .send()
+            .await
+            .expect("admin PUT request")
+    }
+
+    pub(crate) async fn delete_response(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Response {
+        self.delete_json(path, body)
+            .send()
+            .await
+            .expect("admin DELETE request")
     }
 }
 

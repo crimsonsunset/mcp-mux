@@ -35,7 +35,7 @@ export async function isRegistryOffline(): Promise<boolean> {
 /** Force refresh server discovery from all sources (ignores cache)
  * Returns number of newly auto-installed user-configured servers */
 export async function refreshRegistry(): Promise<number> {
-  return invoke<number>('refresh_registry');
+  return apiCall<number>('refresh_registry');
 }
 
 /** Get a specific server definition */
@@ -45,12 +45,12 @@ export async function getServerDefinition(serverId: string): Promise<ServerDefin
 
 /** Install a server (adds to DB) */
 export async function installServer(id: string, spaceId: string): Promise<void> {
-  return invoke<void>('install_server', { id, spaceId });
+  return apiCall<void>('install_server', { id, spaceId });
 }
 
 /** Uninstall a server (removes from DB) */
 export async function uninstallServer(id: string, spaceId: string): Promise<void> {
-  return invoke<void>('uninstall_server', { id, spaceId });
+  return apiCall<void>('uninstall_server', { id, spaceId });
 }
 
 /** List installed servers (returns state from DB) */
@@ -79,7 +79,7 @@ export async function setServerOAuthConnected(
   connected: boolean,
   spaceId: string
 ): Promise<void> {
-  return invoke<void>('set_server_oauth_connected', { id, connected, spaceId });
+  return apiCall<void>('set_server_oauth_connected', { id, connected, spaceId });
 }
 
 /** Save input values for a server */
@@ -92,7 +92,7 @@ export async function saveServerInputs(
   extraHeaders?: Record<string, string>,
   displayNameOverride?: string
 ): Promise<void> {
-  return invoke<void>('save_server_inputs', {
+  return apiCall<void>('save_server_inputs', {
     id,
     inputValues,
     spaceId,
@@ -114,5 +114,5 @@ export async function setServerDisplayName(
   spaceId: string,
   displayName: string
 ): Promise<void> {
-  return invoke<void>('set_server_display_name', { id, spaceId, displayName });
+  return apiCall<void>('set_server_display_name', { id, spaceId, displayName });
 }

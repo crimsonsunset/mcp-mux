@@ -192,12 +192,79 @@ const P4_READ_ROUTES: Array<{
   },
 ];
 
+/** P6 write commands — one vitest row per parity matrix entry. */
+const P6_WRITE_ROUTES: Array<{
+  command: string;
+  args?: Record<string, unknown>;
+  method: 'POST' | 'PUT' | 'DELETE';
+  path: string;
+}> = [
+  { command: 'create_space', args: { name: 'Test' }, method: 'POST', path: '/api/v1/spaces' },
+  { command: 'update_space', args: { id: SPACE_ID, input: { name: 'X' } }, method: 'PUT', path: `/api/v1/spaces/${SPACE_ID}` },
+  { command: 'delete_space', args: { id: SPACE_ID }, method: 'DELETE', path: `/api/v1/spaces/${SPACE_ID}` },
+  { command: 'save_space_config', args: { spaceId: SPACE_ID, content: '{}' }, method: 'PUT', path: `/api/v1/spaces/${SPACE_ID}/config` },
+  { command: 'remove_server_from_config', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'DELETE', path: `/api/v1/spaces/${SPACE_ID}/config/servers/${SERVER_ID}` },
+  { command: 'start_gateway', args: { port: 45818 }, method: 'POST', path: '/api/v1/gateway/start' },
+  { command: 'stop_gateway', method: 'POST', path: '/api/v1/gateway/stop' },
+  { command: 'restart_gateway', method: 'POST', path: '/api/v1/gateway/restart' },
+  { command: 'disconnect_server', args: { serverId: SERVER_ID, spaceId: SPACE_ID }, method: 'POST', path: '/api/v1/gateway/disconnect' },
+  { command: 'connect_all_enabled_servers', method: 'POST', path: '/api/v1/gateway/connect-all' },
+  { command: 'refresh_oauth_tokens_on_startup', method: 'POST', path: '/api/v1/gateway/refresh-oauth-tokens' },
+  { command: 'set_gateway_port', args: { port: 45818 }, method: 'PUT', path: '/api/v1/gateway/port' },
+  { command: 'install_server', args: { id: SERVER_ID, spaceId: SPACE_ID }, method: 'POST', path: '/api/v1/servers/install' },
+  { command: 'uninstall_server', args: { id: SERVER_ID, spaceId: SPACE_ID }, method: 'DELETE', path: `/api/v1/servers/${SERVER_ID}` },
+  { command: 'save_server_inputs', args: { id: SERVER_ID, inputValues: {}, spaceId: SPACE_ID }, method: 'PUT', path: `/api/v1/servers/${SERVER_ID}/inputs` },
+  { command: 'set_server_display_name', args: { id: SERVER_ID, spaceId: SPACE_ID, displayName: 'Demo' }, method: 'PUT', path: `/api/v1/servers/${SERVER_ID}/display-name` },
+  { command: 'set_server_oauth_connected', args: { id: SERVER_ID, spaceId: SPACE_ID, connected: true }, method: 'PUT', path: `/api/v1/servers/${SERVER_ID}/oauth-connected` },
+  { command: 'enable_server_v2', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/enable' },
+  { command: 'disable_server_v2', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/disable' },
+  { command: 'start_auth_v2', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/start-auth' },
+  { command: 'cancel_auth_v2', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/cancel-auth' },
+  { command: 'retry_connection', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/retry' },
+  { command: 'logout_server', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/logout' },
+  { command: 'clone_server', args: { spaceId: SPACE_ID, sourceServerId: SERVER_ID, suffix: 'work' }, method: 'POST', path: '/api/v1/servers/clones' },
+  { command: 'create_feature_set', args: { input: { name: 'Set', space_id: SPACE_ID } }, method: 'POST', path: '/api/v1/feature-sets' },
+  { command: 'update_feature_set', args: { id: FEATURE_SET_ID, input: { name: 'Set' } }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}` },
+  { command: 'delete_feature_set', args: { id: FEATURE_SET_ID }, method: 'DELETE', path: `/api/v1/feature-sets/${FEATURE_SET_ID}` },
+  { command: 'add_feature_set_member', args: { featureSetId: FEATURE_SET_ID, input: { member_type: 'feature', member_id: FEATURE_ID } }, method: 'POST', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members` },
+  { command: 'remove_feature_set_member', args: { featureSetId: FEATURE_SET_ID, memberId: FEATURE_ID }, method: 'DELETE', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members/${FEATURE_ID}` },
+  { command: 'set_feature_set_members', args: { featureSetId: FEATURE_SET_ID, members: [] }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members` },
+  { command: 'create_client', args: { input: { name: 'C', client_type: 'custom' } }, method: 'POST', path: '/api/v1/clients' },
+  { command: 'delete_client', args: { id: CLIENT_ID }, method: 'DELETE', path: `/api/v1/clients/${CLIENT_ID}` },
+  { command: 'init_preset_clients', method: 'POST', path: '/api/v1/clients/init-presets' },
+  { command: 'create_workspace_binding', args: { input: { workspace_root: '/tmp', space_id: SPACE_ID, feature_set_ids: [FEATURE_SET_ID] } }, method: 'POST', path: '/api/v1/workspaces/bindings' },
+  { command: 'update_workspace_binding', args: { id: CLIENT_ID, input: { workspace_root: '/tmp', space_id: SPACE_ID, feature_set_ids: [FEATURE_SET_ID] } }, method: 'PUT', path: `/api/v1/workspaces/bindings/${CLIENT_ID}` },
+  { command: 'delete_workspace_binding', args: { id: CLIENT_ID }, method: 'DELETE', path: `/api/v1/workspaces/bindings/${CLIENT_ID}` },
+  { command: 'upsert_workspace_appearance', args: { input: { workspace_root: '/tmp', icon: 'local:workspace-icons/x.png' } }, method: 'PUT', path: '/api/v1/workspaces/appearances' },
+  { command: 'delete_workspace_appearance', args: { workspaceRoot: '/tmp' }, method: 'DELETE', path: '/api/v1/workspaces/appearances' },
+  { command: 'upload_workspace_icon', args: { sourcePath: '/tmp/icon.png' }, method: 'POST', path: '/api/v1/workspaces/appearances' },
+  { command: 'update_startup_settings', args: { settings: { autoLaunch: false, startMinimized: true, closeToTray: true } }, method: 'PUT', path: '/api/v1/settings/startup' },
+  { command: 'set_meta_tools_enabled', args: { enabled: true }, method: 'PUT', path: '/api/v1/settings/meta-tools-enabled' },
+  { command: 'set_session_overrides_require_approval', args: { requireApproval: false }, method: 'PUT', path: '/api/v1/settings/session-overrides-require-approval' },
+  { command: 'clear_session_overrides', args: { sessionId: 'sess-1' }, method: 'POST', path: '/api/v1/session-overrides/clear' },
+  { command: 'clear_server_logs', args: { serverId: SERVER_ID }, method: 'DELETE', path: `/api/v1/logs/server/${SERVER_ID}` },
+  { command: 'set_log_retention_days', args: { days: 7 }, method: 'PUT', path: '/api/v1/logs/retention-days' },
+  { command: 'refresh_registry', method: 'POST', path: '/api/v1/registry/refresh' },
+  { command: 'respond_to_meta_tool_approval', args: { requestId: 'r1', clientId: CLIENT_ID, toolName: 'mcpmux_foo', decision: 'deny' }, method: 'POST', path: '/api/v1/meta-tools/approval' },
+  { command: 'revoke_meta_tool_grant', args: { clientId: CLIENT_ID, toolName: 'mcpmux_foo' }, method: 'POST', path: '/api/v1/meta-tools/grants/revoke' },
+  { command: 'update_oauth_client', args: { clientId: CLIENT_ID, settings: { client_alias: 'Alias' } }, method: 'PUT', path: `/api/v1/oauth/clients/${CLIENT_ID}` },
+  { command: 'delete_oauth_client', args: { clientId: CLIENT_ID }, method: 'DELETE', path: `/api/v1/oauth/clients/${CLIENT_ID}` },
+  { command: 'grant_oauth_client_feature_set', args: { clientId: CLIENT_ID, spaceId: SPACE_ID, featureSetId: FEATURE_SET_ID }, method: 'POST', path: `/api/v1/oauth/clients/${CLIENT_ID}/grants` },
+  { command: 'revoke_oauth_client_feature_set', args: { clientId: CLIENT_ID, spaceId: SPACE_ID, featureSetId: FEATURE_SET_ID }, method: 'POST', path: `/api/v1/oauth/clients/${CLIENT_ID}/grants/revoke` },
+];
+
 describe('admin transport mapping', () => {
-  it.each(P4_READ_ROUTES)('maps $command', ({ command, args, method, path }) => {
+  it.each(P4_READ_ROUTES)('maps read $command', ({ command, args, method, path }) => {
     expect(routeFor(command, args)).toEqual({ method, path });
   });
 
+  it.each(P6_WRITE_ROUTES)('maps write $command', ({ command, args, method, path }) => {
+    const route = routeFor(command, args);
+    expect(route.method).toEqual(method);
+    expect(route.path).toEqual(path);
+  });
+
   it('rejects unknown commands', () => {
-    expect(() => routeFor('start_gateway')).toThrow('Unknown command: start_gateway');
+    expect(() => routeFor('not_a_real_command')).toThrow('Unknown command: not_a_real_command');
   });
 });

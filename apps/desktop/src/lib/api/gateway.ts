@@ -103,7 +103,7 @@ export async function startGateway(opts?: {
   port?: number;
   allowDynamicFallback?: boolean;
 }): Promise<string> {
-  return invoke('start_gateway', {
+  return apiCall('start_gateway', {
     port: opts?.port,
     allowDynamicFallback: opts?.allowDynamicFallback,
   });
@@ -113,7 +113,7 @@ export async function startGateway(opts?: {
  * Stop the gateway server.
  */
 export async function stopGateway(): Promise<void> {
-  return invoke('stop_gateway');
+  return apiCall('stop_gateway');
 }
 
 /**
@@ -123,7 +123,7 @@ export async function restartGateway(opts?: {
   port?: number;
   allowDynamicFallback?: boolean;
 }): Promise<string> {
-  return invoke('restart_gateway', {
+  return apiCall('restart_gateway', {
     port: opts?.port,
     allowDynamicFallback: opts?.allowDynamicFallback,
   });
@@ -147,7 +147,7 @@ export interface BackendStatus {
  * @param logout - When true, also clear stored OAuth tokens (credential logout)
  */
 export async function disconnectServer(serverId: string, spaceId: string, logout?: boolean): Promise<void> {
-  return invoke('disconnect_server', { serverId, spaceId, logout });
+  return apiCall('disconnect_server', { serverId, spaceId, logout });
 }
 
 /**
@@ -173,7 +173,7 @@ export interface BulkConnectResult {
  * This is typically called on gateway startup.
  */
 export async function connectAllEnabledServers(): Promise<BulkConnectResult> {
-  return invoke('connect_all_enabled_servers');
+  return apiCall('connect_all_enabled_servers');
 }
 
 /**
@@ -206,7 +206,7 @@ export interface RefreshResult {
  * This should be called during app initialization before connecting to servers.
  */
 export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
-  return invoke('refresh_oauth_tokens_on_startup');
+  return apiCall('refresh_oauth_tokens_on_startup');
 }
 
 /**

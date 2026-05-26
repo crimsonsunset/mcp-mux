@@ -1,5 +1,6 @@
 //! Web admin HTTP server startup (loopback :45819 by default).
 
+use super::admin_write_runtime::DesktopGatewayWriteRuntime;
 use crate::state::AppState;
 use crate::{
     commands::{gateway::GatewayAppState, server_manager::ServerManagerState},
@@ -371,6 +372,7 @@ pub async fn start_admin_server_if_enabled(
         gateway_state.clone(),
         server_manager_state.clone(),
     ));
+    let gateway_writes = Arc::new(DesktopGatewayWriteRuntime::new(app.clone()));
     let bridge = Arc::new(AdminBridgeCtx {
         services: services.clone(),
         spaces_dir: app_state.spaces_dir().to_path_buf(),
@@ -384,6 +386,8 @@ pub async fn start_admin_server_if_enabled(
         server_log_manager: app_state.server_log_manager.clone(),
         space_service: Arc::new(mcpmux_core::SpaceService::new(app_state.space_service.repository())),
         gateway_runtime,
+        gateway_writes,
+        feature_set_repository: app_state.feature_set_repository.clone(),
         auto_launch_enabled,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         bundle_version: get_bundle_version(),

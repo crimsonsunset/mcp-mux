@@ -105,14 +105,14 @@ export async function updateOAuthClient(
   clientId: string,
   settings: UpdateClientRequest
 ): Promise<OAuthClient> {
-  return invoke('update_oauth_client', { clientId, settings });
+  return apiCall('update_oauth_client', { clientId, settings });
 }
 
 /**
  * Delete an OAuth client registration.
  */
 export async function deleteOAuthClient(clientId: string): Promise<void> {
-  return invoke('delete_oauth_client', { clientId });
+  return apiCall('delete_oauth_client', { clientId });
 }
 
 /**
@@ -133,7 +133,7 @@ export async function grantOAuthClientFeatureSet(
   spaceId: string,
   featureSetId: string
 ): Promise<void> {
-  return invoke('grant_oauth_client_feature_set', {
+  return apiCall('grant_oauth_client_feature_set', {
     clientId,
     spaceId,
     featureSetId,
@@ -148,7 +148,7 @@ export async function revokeOAuthClientFeatureSet(
   spaceId: string,
   featureSetId: string
 ): Promise<void> {
-  return invoke('revoke_oauth_client_feature_set', {
+  return apiCall('revoke_oauth_client_feature_set', {
     clientId,
     spaceId,
     featureSetId,

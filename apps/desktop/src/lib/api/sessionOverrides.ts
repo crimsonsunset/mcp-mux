@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
-
 import { apiCall } from './transport';
 
 /** Session-scoped server enable/disable overrides from meta tools. */
@@ -20,7 +18,7 @@ export async function listSessionOverrides(
 
 /** Drop all overrides for a session and refresh its tool list. */
 export async function clearSessionOverrides(sessionId: string): Promise<void> {
-  return invoke('clear_session_overrides', { sessionId });
+  return apiCall('clear_session_overrides', { sessionId });
 }
 
 /** Whether session-scope enable/disable meta tools require approval. Default false. */
@@ -32,7 +30,7 @@ export async function getSessionOverridesRequireApproval(): Promise<boolean> {
 export async function setSessionOverridesRequireApproval(
   requireApproval: boolean
 ): Promise<void> {
-  return invoke('set_session_overrides_require_approval', { requireApproval });
+  return apiCall('set_session_overrides_require_approval', { requireApproval });
 }
 
 /**

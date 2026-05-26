@@ -2,7 +2,7 @@
  * Server clone API — Tauri wrappers for multi-account cloning.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { apiCall } from './transport';
 import type { InstalledServerState } from '@/types/registry';
 
 import { apiCall } from './transport';
@@ -29,7 +29,7 @@ export async function cloneServer(
   alias?: string,
   displayName?: string
 ): Promise<ClonedInstalledServer> {
-  return invoke<ClonedInstalledServer>('clone_server', {
+  return apiCall<ClonedInstalledServer>('clone_server', {
     spaceId,
     sourceServerId,
     suffix,

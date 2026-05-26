@@ -29,7 +29,7 @@ export async function getSpace(id: string): Promise<Space | null> {
 }
 
 export async function createSpace(name: string, icon?: string): Promise<Space> {
-  return invoke('create_space', { name, icon });
+  return apiCall('create_space', { name, icon });
 }
 
 /** Partial update payload for a Space. */
@@ -43,11 +43,11 @@ export interface UpdateSpaceInput {
  * Update a Space's display metadata (name, icon, description).
  */
 export async function updateSpace(id: string, input: UpdateSpaceInput): Promise<Space> {
-  return invoke('update_space', { id, input });
+  return apiCall('update_space', { id, input });
 }
 
 export async function deleteSpace(id: string): Promise<void> {
-  return invoke('delete_space', { id });
+  return apiCall('delete_space', { id });
 }
 
 export async function readSpaceConfig(spaceId: string): Promise<string> {
@@ -55,7 +55,7 @@ export async function readSpaceConfig(spaceId: string): Promise<string> {
 }
 
 export async function saveSpaceConfig(spaceId: string, content: string): Promise<void> {
-  return invoke('save_space_config', { spaceId, content });
+  return apiCall('save_space_config', { spaceId, content });
 }
 
 /**
@@ -63,7 +63,7 @@ export async function saveSpaceConfig(spaceId: string, content: string): Promise
  * Returns true if the server was found and removed, false if it wasn't in the config.
  */
 export async function removeServerFromConfig(spaceId: string, serverId: string): Promise<boolean> {
-  return invoke('remove_server_from_config', { spaceId, serverId });
+  return apiCall('remove_server_from_config', { spaceId, serverId });
 }
 
 export async function openSpaceConfigFile(spaceId: string): Promise<void> {

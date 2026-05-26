@@ -14,6 +14,7 @@ use super::config::AdminConfig;
 use super::bridge_context::AdminBridgeCtx;
 use super::event_hub::AdminEventHub;
 use super::middleware::CfAccessValidator;
+use super::middleware::new_csrf_token_store;
 use super::router::{build_admin_router, AdminState};
 
 /// Running admin server handle for graceful shutdown.
@@ -60,6 +61,7 @@ impl AdminServer {
             cf_validator,
             bridge,
             event_hub,
+            csrf_token: new_csrf_token_store(),
         });
 
         Ok(Self {

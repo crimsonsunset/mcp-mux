@@ -1,6 +1,32 @@
 export interface ApiRoute {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   path: string;
+  body?: Record<string, unknown>;
+}
+
+let cachedCsrfToken: string | null = null;
+
+/**
+ * Fetch and cache the CSRF token for mutating admin requests.
+ */
+async function ensureCsrfToken(): Promise<string> {
+  if (cachedCsrfToken) {
+    return cachedCsrfToken;
+  }
+  const response = await fetch('/api/v1/csrf-token', {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    credentials: 'same-origin',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch CSRF token');
+  }
+  const body = (await response.json()) as { token?: string };
+  if (!body.token) {
+    throw new Error('CSRF token missing from response');
+  }
+  cachedCsrfToken = body.token;
+  return cachedCsrfToken;
 }
 
 /**
@@ -220,6 +246,271 @@ export function routeFor(command: string, args: Record<string, unknown> = {}): A
           sourceServerId: args.sourceServerId,
         })}`,
       };
+    case 'create_space':
+      return { method: 'POST', path: '/api/v1/spaces', body: { name: args.name, icon: args.icon } };
+    case 'update_space':
+      return {
+        method: 'PUT',
+        path: `/api/v1/spaces/${encodeURIComponent(String(args.id))}`,
+        body: args.input as Record<string, unknown>,
+      };
+    case 'delete_space':
+      return { method: 'DELETE', path: `/api/v1/spaces/${encodeURIComponent(String(args.id))}` };
+    case 'save_space_config':
+      return {
+        method: 'PUT',
+        path: `/api/v1/spaces/${encodeURIComponent(String(args.spaceId))}/config`,
+        body: { content: args.content },
+      };
+    case 'remove_server_from_config':
+      return {
+        method: 'DELETE',
+        path: `/api/v1/spaces/${encodeURIComponent(String(args.spaceId))}/config/servers/${encodeURIComponent(String(args.serverId))}`,
+      };
+    case 'start_gateway':
+      return {
+        method: 'POST',
+        path: '/api/v1/gateway/start',
+        body: { port: args.port, allowDynamicFallback: args.allowDynamicFallback },
+      };
+    case 'stop_gateway':
+      return { method: 'POST', path: '/api/v1/gateway/stop' };
+    case 'restart_gateway':
+      return {
+        method: 'POST',
+        path: '/api/v1/gateway/restart',
+        body: { port: args.port, allowDynamicFallback: args.allowDynamicFallback },
+      };
+    case 'disconnect_server':
+      return {
+        method: 'POST',
+        path: '/api/v1/gateway/disconnect',
+        body: { serverId: args.serverId, spaceId: args.spaceId, logout: args.logout },
+      };
+    case 'connect_all_enabled_servers':
+      return { method: 'POST', path: '/api/v1/gateway/connect-all' };
+    case 'refresh_oauth_tokens_on_startup':
+      return { method: 'POST', path: '/api/v1/gateway/refresh-oauth-tokens' };
+    case 'set_gateway_port':
+      return { method: 'PUT', path: '/api/v1/gateway/port', body: { port: args.port } };
+    case 'install_server':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/install',
+        body: { id: args.id, space_id: args.spaceId },
+      };
+    case 'uninstall_server':
+      return {
+        method: 'DELETE',
+        path: `/api/v1/servers/${encodeURIComponent(String(args.id))}`,
+        body: { space_id: args.spaceId },
+      };
+    case 'save_server_inputs':
+      return {
+        method: 'PUT',
+        path: `/api/v1/servers/${encodeURIComponent(String(args.id))}/inputs`,
+        body: {
+          input_values: args.inputValues,
+          space_id: args.spaceId,
+          env_overrides: args.envOverrides,
+          args_append: args.argsAppend,
+          extra_headers: args.extraHeaders,
+          display_name_override: args.displayNameOverride,
+        },
+      };
+    case 'set_server_display_name':
+      return {
+        method: 'PUT',
+        path: `/api/v1/servers/${encodeURIComponent(String(args.id))}/display-name`,
+        body: { space_id: args.spaceId, display_name: args.displayName },
+      };
+    case 'set_server_oauth_connected':
+      return {
+        method: 'PUT',
+        path: `/api/v1/servers/${encodeURIComponent(String(args.id))}/oauth-connected`,
+        body: { space_id: args.spaceId, connected: args.connected },
+      };
+    case 'enable_server_v2':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/connections/enable',
+        body: { space_id: args.spaceId, server_id: args.serverId },
+      };
+    case 'disable_server_v2':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/connections/disable',
+        body: { space_id: args.spaceId, server_id: args.serverId },
+      };
+    case 'start_auth_v2':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/connections/start-auth',
+        body: { space_id: args.spaceId, server_id: args.serverId },
+      };
+    case 'cancel_auth_v2':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/connections/cancel-auth',
+        body: { space_id: args.spaceId, server_id: args.serverId },
+      };
+    case 'retry_connection':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/connections/retry',
+        body: { space_id: args.spaceId, server_id: args.serverId },
+      };
+    case 'logout_server':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/connections/logout',
+        body: { space_id: args.spaceId, server_id: args.serverId },
+      };
+    case 'clone_server':
+      return {
+        method: 'POST',
+        path: '/api/v1/servers/clones',
+        body: {
+          space_id: args.spaceId,
+          source_server_id: args.sourceServerId,
+          suffix: args.suffix,
+          alias: args.alias,
+          display_name: args.displayName,
+        },
+      };
+    case 'create_feature_set':
+      return { method: 'POST', path: '/api/v1/feature-sets', body: args.input as Record<string, unknown> };
+    case 'update_feature_set':
+      return {
+        method: 'PUT',
+        path: `/api/v1/feature-sets/${encodeURIComponent(String(args.id))}`,
+        body: args.input as Record<string, unknown>,
+      };
+    case 'delete_feature_set':
+      return { method: 'DELETE', path: `/api/v1/feature-sets/${encodeURIComponent(String(args.id))}` };
+    case 'add_feature_set_member':
+      return {
+        method: 'POST',
+        path: `/api/v1/feature-sets/${encodeURIComponent(String(args.featureSetId))}/members`,
+        body: args.input as Record<string, unknown>,
+      };
+    case 'remove_feature_set_member':
+      return {
+        method: 'DELETE',
+        path: `/api/v1/feature-sets/${encodeURIComponent(String(args.featureSetId))}/members/${encodeURIComponent(String(args.memberId))}`,
+      };
+    case 'set_feature_set_members':
+      return {
+        method: 'PUT',
+        path: `/api/v1/feature-sets/${encodeURIComponent(String(args.featureSetId))}/members`,
+        body: { members: args.members },
+      };
+    case 'create_client':
+      return { method: 'POST', path: '/api/v1/clients', body: args.input as Record<string, unknown> };
+    case 'delete_client':
+      return { method: 'DELETE', path: `/api/v1/clients/${encodeURIComponent(String(args.id))}` };
+    case 'init_preset_clients':
+      return { method: 'POST', path: '/api/v1/clients/init-presets' };
+    case 'create_workspace_binding':
+      return { method: 'POST', path: '/api/v1/workspaces/bindings', body: args.input as Record<string, unknown> };
+    case 'update_workspace_binding':
+      return {
+        method: 'PUT',
+        path: `/api/v1/workspaces/bindings/${encodeURIComponent(String(args.id))}`,
+        body: args.input as Record<string, unknown>,
+      };
+    case 'delete_workspace_binding':
+      return {
+        method: 'DELETE',
+        path: `/api/v1/workspaces/bindings/${encodeURIComponent(String(args.id))}`,
+      };
+    case 'upsert_workspace_appearance':
+      return {
+        method: 'PUT',
+        path: '/api/v1/workspaces/appearances',
+        body: args.input as Record<string, unknown>,
+      };
+    case 'delete_workspace_appearance':
+      return {
+        method: 'DELETE',
+        path: '/api/v1/workspaces/appearances',
+        body: { workspace_root: args.workspaceRoot },
+      };
+    case 'upload_workspace_icon':
+      return {
+        method: 'POST',
+        path: '/api/v1/workspaces/appearances',
+        body: { source_path: args.sourcePath },
+      };
+    case 'update_startup_settings':
+      return { method: 'PUT', path: '/api/v1/settings/startup', body: args.settings as Record<string, unknown> };
+    case 'set_meta_tools_enabled':
+      return {
+        method: 'PUT',
+        path: '/api/v1/settings/meta-tools-enabled',
+        body: { enabled: args.enabled },
+      };
+    case 'set_session_overrides_require_approval':
+      return {
+        method: 'PUT',
+        path: '/api/v1/settings/session-overrides-require-approval',
+        body: { requireApproval: args.requireApproval },
+      };
+    case 'clear_session_overrides':
+      return {
+        method: 'POST',
+        path: '/api/v1/session-overrides/clear',
+        body: { session_id: args.sessionId },
+      };
+    case 'clear_server_logs':
+      return {
+        method: 'DELETE',
+        path: `/api/v1/logs/server/${encodeURIComponent(String(args.serverId))}`,
+      };
+    case 'set_log_retention_days':
+      return { method: 'PUT', path: '/api/v1/logs/retention-days', body: { days: args.days } };
+    case 'refresh_registry':
+      return { method: 'POST', path: '/api/v1/registry/refresh' };
+    case 'respond_to_meta_tool_approval':
+      return {
+        method: 'POST',
+        path: '/api/v1/meta-tools/approval',
+        body: {
+          request_id: args.requestId,
+          client_id: args.clientId,
+          tool_name: args.toolName,
+          decision: args.decision,
+        },
+      };
+    case 'revoke_meta_tool_grant':
+      return {
+        method: 'POST',
+        path: '/api/v1/meta-tools/grants/revoke',
+        body: { client_id: args.clientId, tool_name: args.toolName },
+      };
+    case 'update_oauth_client':
+      return {
+        method: 'PUT',
+        path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}`,
+        body: { client_alias: (args.settings as { client_alias?: string } | undefined)?.client_alias },
+      };
+    case 'delete_oauth_client':
+      return {
+        method: 'DELETE',
+        path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}`,
+      };
+    case 'grant_oauth_client_feature_set':
+      return {
+        method: 'POST',
+        path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}/grants`,
+        body: { space_id: args.spaceId, feature_set_id: args.featureSetId },
+      };
+    case 'revoke_oauth_client_feature_set':
+      return {
+        method: 'POST',
+        path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}/grants/revoke`,
+        body: { space_id: args.spaceId, feature_set_id: args.featureSetId },
+      };
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -232,12 +523,25 @@ export async function fetchApi<T>(
   command: string,
   args?: Record<string, unknown>
 ): Promise<T> {
-  const { method, path } = routeFor(command, args ?? {});
-  const response = await fetch(path, {
+  const { method, path, body } = routeFor(command, args ?? {});
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const init: RequestInit = {
     method,
-    headers: { Accept: 'application/json' },
+    headers,
     credentials: 'same-origin',
-  });
+  };
+
+  if (method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
+    headers['X-CSRF-Token'] = await ensureCsrfToken();
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    } else if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+      init.body = '{}';
+    }
+  }
+
+  const response = await fetch(path, init);
 
   if (!response.ok) {
     const body = await response.text();
