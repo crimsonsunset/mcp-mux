@@ -1,6 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 
 /**
+ * Gateway lifecycle and pool disconnect API.
+ *
+ * Server enable/disable and OAuth flows live in `serverManager.ts`
+ * (`enable_server_v2`, `disable_server_v2`, `logout_server`, etc.).
+ *
+ * | Tauri command | Wrapper | When to use |
+ * | ------------- | ------- | ----------- |
+ * | `disconnect_server` | `disconnectServer` | Tear down gateway pool connection; `logout: true` also clears stored OAuth tokens. `logout: false` (default) pauses while preserving credentials — ServersPage Disconnect button and uninstall cleanup. |
+ *
+ * Prefer `serverManager` for enable/disable toggles; use this module only for
+ * gateway-scoped disconnect and gateway start/stop.
+ */
+
+/**
  * Gateway status.
  */
 export interface GatewayStatus {
@@ -124,10 +138,11 @@ export interface BackendStatus {
 }
 
 /**
- * Disconnect a server from the gateway.
+ * Disconnect a server from the gateway pool.
+ *
  * @param serverId - The server ID to disconnect
  * @param spaceId - The space ID (required for proper space isolation)
- * @param logout - If true, also delete stored credentials (OAuth tokens)
+ * @param logout - When true, also clear stored OAuth tokens (credential logout)
  */
 export async function disconnectServer(serverId: string, spaceId: string, logout?: boolean): Promise<void> {
   return invoke('disconnect_server', { serverId, spaceId, logout });
