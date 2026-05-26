@@ -2,17 +2,17 @@
 
 **Last Updated:** May 25, 2026
 **Status:** Planning
-**Branch:** TBD — branch off `main` (or current fork head)
-**Base branch:** `main`
+**Branch:** TBD — suggest `feat/web-admin` off fork **`dev`** (meta-tools, clones, Phase D already merged)
+**Base branch:** `dev` (fork); upstream merge path is `main`
 **Issue:** TBD — file after planning review
-**Depends on:** None for core admin HTTP layer; benefits from merged fork features (session meta-tools, account clones) but does not require them
+**Depends on:** [Pre–Web Admin Desktop Cleanup](./pre-web-admin-desktop-cleanup.md) — **must complete first** (broken invokes, IPC consolidation, event channel audit)
 **Unblocks:** [`jsg-tech-check` homelab wiring Step 6](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) — remote McpMux admin UI from Weathertop / Rohan at `https://mux.joe-hassio.com`
 
 ---
 
 ## Problem
 
-The McpMux admin UI (Spaces, servers, credentials, workspace bindings, FeatureSets, OAuth consent) is a Tauri desktop app. The React frontend talks to Rust exclusively via Tauri `invoke()` — ~80 calls across 15 API modules, backed by ~110 Tauri commands in 19 command modules. There is no HTTP admin surface.
+The McpMux admin UI (Spaces, servers, credentials, workspace bindings, FeatureSets, OAuth consent) is a Tauri desktop app. The React frontend talks to Rust exclusively via Tauri `invoke()` — **117 unique commands** across 16 API modules + settings/OAuth components, backed by **130 registered** Tauri handlers in 21 command modules. There is no HTTP admin surface.
 
 The homelab wiring plan already exposes two public endpoints via Cloudflare Tunnel on Gondor:
 
@@ -44,7 +44,8 @@ Screen sharing / VNC behind CF Access works today but is not a web UI. This doc 
 | 7 | OAuth consent | **Re-enable guarded HTTP consent endpoint** for web admin only — `POST /api/v1/oauth/consent/approve` behind CF Access + CSRF token | Production desktop keeps Tauri-IPC-only consent (existing security model). Web mode needs an HTTP path because there is no Tauri shell on Weathertop. |
 | 8 | Bind address | **Default `127.0.0.1:45819`** — same loopback-first posture as MCP gateway | CF tunnel reaches localhost; no need to bind `0.0.0.0`. `AGENTS.md` loopback rule preserved. |
 | 9 | Event streaming | **SSE at `/api/v1/events`** bridging existing `EventBus` | Replaces Tauri event listeners (`useDomainEvents`) in web mode. Desktop keeps Tauri events. |
-| 10 | Scope phasing | **Read-only views first, then writes, then OAuth** | Each phase is independently testable behind CF Access. Avoids a big-bang API dump. |
+| 10 | Scope phasing | **Seven phases — test scaffolding first, then skeleton, bridge, reads, events, writes, OAuth, homelab** | Each phase ships its tests before the next phase starts. No HTTP handler without a `command_bridge` fn and a dual-entry integration test. |
+| 11 | Parity proof | **`command_bridge.rs` is the single backend entry** — Tauri commands and HTTP handlers are one-liners | Existing Rust domain tests remain the backstop; new tests prove the admin wire layer reaches the same room. |
 
 ---
 
@@ -148,6 +149,87 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 
 ---
 
+## Parity & testing strategy
+
+Web admin reuses the **same React SPA** and **same `ApplicationServices`**. Parity risk lives in two thin layers only:
+
+1. **Backend wire** — HTTP route → `command_bridge` fn → services (must not duplicate Tauri command bodies)
+2. **Frontend wire** — `apiCall()` → `fetchApi()` command-name → HTTP path mapping
+
+Everything below React hooks/stores is already covered by `pnpm test:rust`. The goal of admin testing is to prove **IPC ≡ HTTP ≡ bridge** for every exposed command, not to re-prove domain logic.
+
+### What existing tests do and do not cover
+
+| Layer | Today | Gap |
+| ----- | ----- | --- |
+| Rust domain / gateway services | `pnpm test:rust` — strong | None for business rules |
+| Tauri IPC | WDIO `.wdio.ts` (15 specs) — behavioral catalog | IPC-only; not web |
+| React UI shell | Playwright `.spec.ts` — mocks Tauri | No real backend |
+| Admin HTTP / transport / SSE | — | **Zero** — all new |
+
+**Do not treat Playwright `.spec.ts` or green WDIO as web-admin parity.** WDIO specs are the checklist to port; Playwright admin E2E runs against real `:45819`.
+
+### Parity matrix (living artifact)
+
+Create `docs/planning/web-admin-parity-matrix.md` in Phase 1. One row per frontend `invoke()` / REST surface:
+
+```text
+command | TS module | HTTP method/path | bridge fn | dual-entry test | transport vitest | E2E (WDIO ref)
+```
+
+Phase gates require matrix rows for that phase to be checked before merge. Empty rows = not done.
+
+### Test patterns (reuse everywhere)
+
+**Dual-entry (Rust integration)** — same fixture, same args, identical JSON:
+
+```rust
+let via_bridge = command_bridge::spaces::list(&services, &space_id).await?;
+let via_http = admin.get("/api/v1/spaces").json().await?;
+assert_json_eq!(via_bridge, via_http);
+```
+
+**Transport mapping (Vitest)** — pure, no network:
+
+```typescript
+expect(routeFor('get_gateway_status', { spaceId })).toEqual({
+  method: 'GET',
+  path: '/api/v1/gateway/status?spaceId=...',
+});
+```
+
+**Event contract (Rust integration)** — trigger domain action → SSE frame on channel matches Tauri payload shape (see `workspace_binding_events.rs` for precedent).
+
+**Error sentinel parity** — known UI parsers (e.g. `PORT_IN_USE:<port>:<source>` in `gateway.ts`) must produce parseable bodies over HTTP; explicit tests per sentinel.
+
+### Module-by-module wiring rule
+
+Never refactor all 16 `lib/api/*.ts` modules in one PR. Per command group:
+
+1. Extract `command_bridge` fns for that group
+2. Add read (then write) HTTP handlers calling bridge only
+3. Add dual-entry integration tests
+4. Add transport vitest rows for that group
+5. Swap `invoke` → `apiCall` in that TS module only
+6. Update parity matrix
+
+Suggested first spike module: **`spaces`** (9 invokes, bounded CRUD, good template).
+
+### Phase exit criteria (summary)
+
+| Phase | Must be green before next phase |
+| ----- | -------------------------------- |
+| 1 | Parity matrix file + `admin_api` test harness + CF middleware unit tests |
+| 2 | Health + static SPA + 401 without JWT when CF Access enabled |
+| 3 | `spaces` (or chosen pilot) fully bridged with dual-entry tests; Tauri commands delegate to bridge |
+| 4 | All read endpoints + transport vitest for read commands; browse smoke E2E |
+| 5 | All 10 SSE channels contract-tested; `useDomainEventsWeb` wired |
+| 6 | All write endpoints + CSRF + error mapping + install round-trip integration + write smoke E2E |
+| 7 | OAuth consent HTTP path + integration test |
+| 8 | WDIO parity catalog ported to Playwright admin + homelab manual smoke |
+
+---
+
 ## Files to create
 
 | File | Purpose |
@@ -170,7 +252,12 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 | `apps/desktop/src/lib/api/transport.ts` | Tauri vs fetch transport abstraction |
 | `apps/desktop/src/lib/api/fetch-api.ts` | REST client mapping command names → HTTP paths |
 | `apps/desktop/src/hooks/useDomainEventsWeb.ts` | SSE-based event listener for web mode |
-| `tests/rust/tests/integration/admin_api.rs` | Admin API integration tests (health, auth rejection, read endpoints) |
+| `docs/planning/web-admin-parity-matrix.md` | Living command → route → test coverage tracker (Phase 1) |
+| `tests/rust/tests/integration/admin_api.rs` | Admin HTTP integration tests + shared test harness |
+| `tests/rust/tests/integration/admin_api/` | Per-module dual-entry tests (optional submodules as file grows) |
+| `tests/ts/admin-transport.test.ts` | Vitest: `fetch-api` command → path/method mapping |
+| `tests/e2e/playwright.admin.config.ts` | Playwright project: real `:45819`, CF JWT stub, no Tauri mock |
+| `tests/e2e/specs/admin/*.spec.ts` | Admin parity E2E (ported from WDIO catalog over time) |
 | `docs/planning/web-admin-remote-access.md` | This doc |
 
 ## Files to modify
@@ -187,16 +274,45 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 | [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx) | Admin mode toggle + port setting |
 | [`apps/desktop/vite.config.ts`](../../apps/desktop/vite.config.ts) | `VITE_ADMIN_WEB` build flag for web-only builds |
 | [`apps/desktop/package.json`](../../apps/desktop/package.json) | `build:web:admin` script — production SPA build for admin serving |
-| [`tests/e2e/playwright.config.ts`](../../tests/e2e/playwright.config.ts) | Optional admin web E2E project against `:45819` with mocked CF JWT |
+| [`tests/e2e/playwright.config.ts`](../../tests/e2e/playwright.config.ts) | Keep existing web-only project (mocked Tauri) unchanged |
+| [`tests/e2e/playwright.admin.config.ts`](../../tests/e2e/playwright.admin.config.ts) | **New** admin parity project against `:45819` |
+| [`tests/rust/tests/integration/mod.rs`](../../tests/rust/tests/integration/mod.rs) | `mod admin_api;` |
+| [`package.json`](../../package.json) | `test:e2e:web:admin`, `test:ts:admin-transport` scripts |
 | [`AGENTS.md`](../../AGENTS.md) | Document admin server loopback binding + CF Access requirement |
 
 ---
 
 ## Phasing
 
-### Phase 1 — Admin server skeleton + static SPA + CF Access gate
+Eight phases. **Tests are part of each phase, not a follow-up.** Do not start phase N+1 until that phase's exit criteria (above) are green in CI.
+
+### Phase 1 — Parity inventory & test scaffolding
+
+**Effort:** ~1 day
+
+**Implementation**
+
+- [ ] Create [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) — **done** (129 rows: 117 FE invokes + 12 deferred BE + anomalies flagged)
+- [ ] Map each row to its Tauri command module (`apps/desktop/src-tauri/src/commands/*.rs`) and planned HTTP path — **done in matrix**
+- [ ] Mark IPC-only commands (window chrome, IDE install, etc.) as **N/A — desktop only** — **done in matrix**
+- [ ] Document all 10 `DomainEventChannel` values from `useDomainEvents.ts` with planned SSE contract — **done in matrix**
+
+**Testing (same phase)**
+
+- [ ] `tests/rust/tests/integration/admin_api.rs` — empty harness: spin in-memory `ApplicationServices`, mount admin router on ephemeral port, helper `admin_client()` with optional CF JWT header
+- [ ] `tests/ts/admin-transport.test.ts` — skeleton with one example mapping row (placeholder until Phase 4)
+- [ ] `tests/e2e/playwright.admin.config.ts` — project stub pointing at `:45819`, `testIgnore: ['**/*']` until Phase 4 smoke
+- [ ] `pnpm test:rust:int` and `pnpm test:ts` include new files (passing, minimal)
+
+**Outcome:** Parity matrix exists. Test harnesses compile. Every future command has a row waiting to be checked off.
+
+---
+
+### Phase 2 — Admin server skeleton + static SPA + CF Access gate
 
 **Effort:** ~2 days
+
+**Implementation**
 
 - [ ] `AdminServer` Axum router on `127.0.0.1:45819` (configurable)
 - [ ] Serve `frontendDist` with SPA fallback (`index.html` for unknown routes)
@@ -204,71 +320,191 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 - [ ] CF Access middleware: validate `CF-Access-Jwt-Assertion` when `admin_trust_cf_access` is true; 401 without it
 - [ ] Settings: `gateway.admin_enabled` (default `false`), `gateway.admin_port` (default `45819`)
 - [ ] Start admin server from Tauri app when setting enabled (alongside gateway)
-- [ ] Unit test: health endpoint returns 200; unauthenticated request returns 401 when CF Access enabled
 
-**Outcome:** With admin mode enabled and a valid CF Access JWT, `https://mux.joe-hassio.com` (via tunnel) loads the McpMux UI shell. API calls still fail (no handlers yet), but static assets render and auth gate works.
+**Testing (same phase)**
 
-### Phase 2 — Transport abstraction + read-only API
+- [ ] `admin_api.rs`: `health_returns_200_with_valid_jwt_stub`
+- [ ] `admin_api.rs`: `health_returns_401_when_cf_access_enabled_and_no_jwt`
+- [ ] `admin_api.rs`: `health_returns_200_when_cf_access_disabled` (local dev bypass)
+- [ ] Unit test: CF Access middleware cert validation / rejection paths (`cf_access.rs`)
+- [ ] Manual: enable admin mode locally, `curl` health with/without header
 
-**Effort:** ~3 days
+**Outcome:** Authenticated tunnel loads McpMux UI shell. API calls still fail (no handlers yet) except health. Auth gate proven in CI.
 
-- [ ] `transport.ts` + `fetch-api.ts` — command name → HTTP path mapping
-- [ ] Refactor all `lib/api/*.ts` modules to use `apiCall()`
-- [ ] `command_bridge.rs` — extract shared logic from Tauri commands into functions callable from both IPC and HTTP
-- [ ] Read-only handlers: gateway status, list spaces, list installed servers, list workspace bindings, list feature sets, list clients, list session overrides, get settings
-- [ ] `GET /api/v1/events` — SSE bridge from `EventBus`
-- [ ] `useDomainEventsWeb.ts` — SSE listener; `useDomainEvents` switches on environment
-- [ ] Integration tests for each read endpoint
+---
 
-**Outcome:** From Weathertop, authenticated user can browse Spaces, My Servers, Workspaces, FeatureSets, Clients, and Settings in read-only mode. Domain events (server connected, gateway started) stream via SSE. No writes yet.
+### Phase 3 — `command_bridge` foundation (pilot module)
 
-### Phase 3 — Write API (config mutations)
+**Effort:** ~2 days
+
+**Implementation**
+
+- [ ] `command_bridge.rs` module tree mirroring Tauri command groups
+- [ ] **Pilot: `spaces`** — extract all space command logic into bridge fns; Tauri `commands/space.rs` becomes thin wrappers calling bridge
+- [ ] No HTTP handlers yet except health — prove extraction pattern without widening surface
+
+**Testing (same phase)**
+
+- [ ] Bridge unit/integration tests calling `command_bridge::spaces::*` directly against in-memory DB (reuse patterns from `tests/rust/tests/integration/`)
+- [ ] Regression: existing `pnpm test:rust` still green — Tauri path unchanged behaviorally
+- [ ] Parity matrix: all `spaces.ts` rows get **bridge fn** column filled
+
+**Outcome:** One full command group proven end-to-end through bridge. Pattern documented for remaining 20 modules. **Gate for Phase 4:** no HTTP read handler without a bridge fn already tested.
+
+---
+
+### Phase 4 — Transport layer + read-only REST API
 
 **Effort:** ~4 days
 
-- [ ] Write handlers: install/uninstall server, enable/disable, configure inputs, clone server, CRUD spaces, CRUD workspace bindings, CRUD feature sets + members, gateway start/stop, export config, clear session overrides, update settings
-- [ ] CSRF middleware on all `POST`/`PUT`/`DELETE` routes
-- [ ] Error mapping: domain errors → HTTP status codes with JSON body
-- [ ] Integration tests: install + configure + enable round-trip via HTTP
-- [ ] Playwright admin web E2E: smoke test install flow against `:45819`
+**Implementation**
 
-**Outcome:** Full admin CRUD works from the browser. User can install servers, edit credentials, manage bindings and FeatureSets, start/stop gateway — all remote. OAuth consent still requires Phase 4.
+- [ ] `transport.ts` + `fetch-api.ts` — command name → HTTP path/method mapping
+- [ ] Read-only HTTP handlers (bridge one-liners only): gateway status, list spaces, list installed servers, list workspace bindings, list feature sets, list clients, list session overrides, get settings, registry browse
+- [ ] Refactor `lib/api/*.ts` **module-by-module** (`invoke` → `apiCall`) — start with pilot `spaces.ts`, then remaining read-only modules
+- [ ] Do **not** batch-refactor all 16 modules in one PR
 
-### Phase 4 — Web OAuth consent
+**Testing (same phase)**
+
+- [ ] Dual-entry integration test **per read endpoint** in `admin_api.rs` (bridge JSON ≡ HTTP JSON)
+- [ ] `admin-transport.test.ts`: vitest row for **every read command** in parity matrix
+- [ ] Error sentinel tests for read paths that can fail parseably (gateway port probe, etc.)
+- [ ] Playwright admin smoke: `admin/read-browse.spec.ts` — load SPA on `:45819`, navigate Spaces + My Servers + Settings, assert list data renders (no writes)
+- [ ] Parity matrix: read rows checked through **dual-entry + transport vitest**
+
+**Outcome:** From Weathertop (or local `:45819`), authenticated user browses all main views read-only. Transport mapping fully tested for GETs.
+
+---
+
+### Phase 5 — SSE event parity
 
 **Effort:** ~2 days
+
+**Implementation**
+
+- [ ] `GET /api/v1/events` — SSE bridge from `EventBus`
+- [ ] `useDomainEventsWeb.ts` — SSE listener matching `useDomainEvents` API (`subscribe`, `subscribeAll`, `subscribeMany`)
+- [ ] `useDomainEvents.ts` — delegate to SSE hook when not in Tauri
+
+**Testing (same phase)**
+
+- [ ] One integration test **per channel** (10 total): trigger domain action → assert SSE event name + JSON payload matches Tauri emission shape
+- [ ] Channels: `space-changed`, `server-changed`, `server-status-changed`, `server-auth-progress`, `server-features-refreshed`, `feature-set-changed`, `client-changed`, `grants-changed`, `gateway-changed`, `mcp-notification`
+- [ ] Playwright admin smoke: gateway start/stop updates UI without refresh (proves live SSE in browser)
+- [ ] Parity matrix: add **Events** section — all 10 channels contract-tested
+
+**Outcome:** Web UI stays live-synced like desktop. Event payload drift caught in CI, not manually on Gondor.
+
+---
+
+### Phase 6 — Write API (config mutations)
+
+**Effort:** ~4 days
+
+**Implementation**
+
+- [ ] Write handlers (bridge one-liners): install/uninstall server, enable/disable, configure inputs, clone server, CRUD spaces, CRUD workspace bindings, CRUD feature sets + members, gateway start/stop, export config, clear session overrides, update settings, meta-tools approval, logs actions
+- [ ] CSRF middleware on all `POST`/`PUT`/`DELETE` routes; `GET /api/v1/csrf-token` for SPA bootstrap
+- [ ] Error mapping: domain errors → HTTP status + JSON body (preserve parseable sentinels for shared UI code)
+- [ ] Finish `lib/api/*.ts` transport refactor for remaining write modules
+
+**Testing (same phase)**
+
+- [ ] Dual-entry integration test **per write endpoint**
+- [ ] Round-trip tests: HTTP mutate → GET confirms state (e.g. install server → appears in list)
+- [ ] CSRF tests: mutating request without token → 403; with token → success
+- [ ] `admin-transport.test.ts`: vitest rows for **all write commands**
+- [ ] Playwright admin E2E: `admin/server-lifecycle.spec.ts` — install + configure + enable (port from `server-lifecycle.wdio.ts`)
+- [ ] Playwright admin E2E: `admin/spaces.spec.ts`, `admin/featureset.spec.ts` (port critical paths from WDIO catalog)
+- [ ] Parity matrix: all non–desktop-only rows checked through **dual-entry + transport vitest**
+
+**Outcome:** Full admin CRUD from browser. OAuth consent still Phase 7.
+
+---
+
+### Phase 7 — Web OAuth consent
+
+**Effort:** ~2 days
+
+**Implementation**
 
 - [ ] `POST /api/v1/oauth/consent/approve` and `/reject` — guarded HTTP endpoints (web admin only; desktop keeps Tauri IPC)
 - [ ] CSRF + consent token validation (reuse existing cryptographic consent token from gateway)
 - [ ] `OAuthConsentModal.tsx` — web path posts to HTTP endpoint; desktop path unchanged
-- [ ] Deep link bridge: `mcpmux://` URLs on Gondor still work for desktop; web mode polls consent pending state via SSE
-- [ ] Integration test: OAuth authorize → consent approve via HTTP → token issued
+- [ ] Web mode polls consent pending state via SSE (no `mcpmux://` on Weathertop)
 
-**Outcome:** Remote user can complete OAuth flows (Notion, GitHub, Google Workspace, etc.) from the browser without needing the Tauri shell on Gondor.
+**Testing (same phase)**
 
-### Phase 5 — Homelab integration + docs
+- [ ] Integration: OAuth authorize → consent approve via HTTP → token issued → server connects
+- [ ] Integration: reject path + invalid consent token → 4xx
+- [ ] CSRF required on consent POST
+- [ ] Playwright admin E2E: `admin/oauth-consent.spec.ts` — mocked OAuth server or test double
+- [ ] Desktop regression: WDIO / manual — Tauri consent path unchanged
 
-**Effort:** ~1 day
+**Outcome:** Remote OAuth flows completable from browser.
+
+---
+
+### Phase 8 — Homelab integration + parity E2E catalog + docs
+
+**Effort:** ~2 days
+
+**Implementation**
 
 - [ ] Update [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) Step 5 with `mux.joe-hassio.com` ingress rule
 - [ ] Document CF Access policy setup for `mux.joe-hassio.com`
 - [ ] Add admin mode section to [`docs/guide/gateway.mdx`](../../docs/guide/gateway.mdx)
 - [ ] `pnpm build:web:admin` + verify production SPA served correctly from admin server
-- [ ] End-to-end smoke from Weathertop: open `https://mux.joe-hassio.com`, manage a server, approve OAuth
 
-**Outcome:** Homelab wiring plan reflects the third public hostname. Operator can manage McpMux from phone/laptop browser with CF Access auth.
+**Testing (same phase)**
+
+- [ ] Port remaining high-value WDIO specs to Playwright admin (target ≥10 of 15 `.wdio.ts` files):
+
+  | WDIO reference | Playwright admin spec |
+  | -------------- | --------------------- |
+  | `spaces.wdio.ts` | `admin/spaces.spec.ts` |
+  | `server-lifecycle.wdio.ts` | `admin/server-lifecycle.spec.ts` |
+  | `server-config.wdio.ts` | `admin/server-config.spec.ts` |
+  | `gateway.wdio.ts` | `admin/gateway.spec.ts` |
+  | `workspaces.wdio.ts` | `admin/workspaces.spec.ts` |
+  | `featureset.wdio.ts` | `admin/featureset.spec.ts` |
+  | `clients.wdio.ts` | `admin/clients.spec.ts` |
+  | `meta-tools.wdio.ts` | `admin/meta-tools.spec.ts` |
+  | `settings.wdio.ts` | `admin/settings.spec.ts` |
+  | `comprehensive.wdio.ts` | `admin/comprehensive.spec.ts` (subset) |
+
+- [ ] CI job: `pnpm test:e2e:web:admin` on Linux with AdminServer fixture
+- [ ] Manual homelab smoke from Weathertop: `https://mux.joe-hassio.com` — browse, mutate, OAuth (cannot fully CI tunnel + real CF Access)
+- [ ] Parity matrix: 100% rows resolved (checked or N/A)
+
+**Outcome:** Homelab wiring complete. CI proves web ≡ desktop for catalog flows. Operator manages McpMux from phone/laptop.
 
 ---
 
 ## Pre-PR validation
 
+Per-phase minimum (accumulative — later phases run all prior checks):
+
+| Phase | Required green |
+| ----- | -------------- |
+| 1+ | `pnpm validate` |
+| 1+ | `pnpm test:rust` (includes `admin_api` harness) |
+| 1+ | `pnpm test:ts` (includes `admin-transport.test.ts`) |
+| 4+ | Dual-entry tests for all merged read endpoints |
+| 5+ | SSE channel contract tests (10/10) |
+| 6+ | Write round-trip + CSRF tests; `pnpm test:e2e:web:admin` smoke |
+| 8 | Full admin Playwright catalog + manual homelab smoke checklist |
+
+**Full merge gate (Phase 8 / feature complete):**
+
 | Step | Command | Purpose |
 | ---- | ------- | ------- |
 | Full validate | `pnpm validate` | fmt, clippy, check, eslint, typecheck |
-| Rust tests | `pnpm test:rust` | unit + integration (`admin_api.rs`) |
-| TS tests | `pnpm test:ts` | vitest (transport layer) |
-| Admin web E2E | `pnpm test:e2e:web:admin` (new) | Playwright against `:45819` |
-| Manual smoke | Enable admin mode, tunnel `mux.joe-hassio.com`, browse from phone | UX + CF Access verification |
+| Rust tests | `pnpm test:rust` | unit + integration including all `admin_api` dual-entry tests |
+| TS tests | `pnpm test:ts` | vitest transport mapping (all parity matrix rows) |
+| Admin web E2E | `pnpm test:e2e:web:admin` | Playwright against real `:45819` |
+| Desktop regression | `pnpm test:e2e:grep -- "<smoke>"` | WDIO unchanged — desktop IPC not regressed |
+| Manual smoke | Weathertop → `mux.joe-hassio.com` | CF Access + tunnel + real operator UX |
 
 ---
 
@@ -295,13 +531,17 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 | [`apps/desktop/src-tauri/src/commands/mod.rs`](../../apps/desktop/src-tauri/src/commands/mod.rs) | Command module registry — each module gets a corresponding admin handler |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | Existing Axum gateway — pattern reference for admin router |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) (lines 340–365) | OAuth consent removed from HTTP for security — web admin re-adds guarded version |
-| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Tauri event listener — needs SSE equivalent for web mode |
-| [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) | CF tunnel config — gets `mux.joe-hassio.com` ingress in Phase 5 |
+| [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Tauri event listener — 10 channels need SSE contract tests in Phase 5 |
+| [`tests/e2e/specs/*.wdio.ts`](../../tests/e2e/specs/) | Behavioral catalog — port to `tests/e2e/specs/admin/*.spec.ts` in Phases 4–8 |
+| [`tests/rust/tests/integration/workspace_binding_events.rs`](../../tests/rust/tests/integration/workspace_binding_events.rs) | Event JSON shape testing precedent for SSE contract tests |
+| [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) | Living coverage tracker — created Phase 1, completed Phase 8 |
 
 ---
 
 ## Related documentation
 
+- [`docs/planning/pre-web-admin-desktop-cleanup.md`](./pre-web-admin-desktop-cleanup.md) — **Prerequisite** — IPC/API/event fixes; blocks this doc until complete
+- [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) — Invoke + SSE coverage tracker (re-scan after cleanup)
 - [`jsg-tech-check/docs/setup/home-lab-wiring-plan.md`](../../../jsg-tech-check/docs/setup/home-lab-wiring-plan.md) — Step 5 (CF tunnel), Step 6 (McpMux on Gondor), cross-device MCP access
 - [`jsg-tech-check/docs/setup/mcpmux-server-migration.md`](../../../jsg-tech-check/docs/setup/mcpmux-server-migration.md) — server/bundle/binding migration tracker (orthogonal to web admin)
 - [`docs/guide/security.mdx`](../../docs/guide/security.mdx) — credential encryption model (unchanged by web admin)
@@ -312,6 +552,8 @@ Existing `lib/api/*.ts` modules swap `invoke(...)` → `apiCall(...)` with no si
 
 ## Reconciliation
 
-This doc is the source of truth for web admin mode. When implementation starts, update **Status** and **Branch** at the top. Phase 5 homelab doc updates live in `jsg-tech-check` — track cross-repo separately.
+This doc is the source of truth for web admin mode. When implementation starts, update **Status** and **Branch** at the top. Phase 8 homelab doc updates live in `jsg-tech-check` — track cross-repo separately.
 
 **Decision record (May 25, 2026):** Web admin mode on fork selected over screen sharing (immediate but not web UI), tunneling `:1420` (broken), and full "McpMux Cloud" multi-tenant SaaS (months of work). CF Access at edge replaces building login UI. Separate admin port (`45819`) keeps MCP gateway surface unchanged.
+
+**Decision record (May 25, 2026 — testing):** Expanded from five implementation phases to **eight phases** with tests baked into each phase. Added parity matrix artifact, `command_bridge` pilot before HTTP reads, dedicated SSE phase, and WDIO→Playwright admin catalog in Phase 8. No HTTP handler ships without dual-entry test; no transport refactor without vitest row.
