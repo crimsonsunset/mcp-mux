@@ -13,6 +13,7 @@ use mcpmux_core::FeatureType;
 /// Object keys that commonly hold large list payloads from backend tools.
 const HEAVY_ARRAY_KEYS: &[&str] = &[
     "items", "data", "results", "rows", "records", "issues", "entries", "values", "list",
+    "insights",
 ];
 
 /// Optional post-processing controls for invoke results.
@@ -58,6 +59,11 @@ impl InvokeResultFilter {
     fn is_summary(&self) -> bool {
         self.format.as_deref() == Some("summary")
     }
+
+    /// Whether any shaping limit is set (row/byte/field caps).
+    pub fn has_effect(&self) -> bool {
+        self.max_rows.is_some() || self.max_bytes.is_some() || self.fields.is_some()
+    }
 }
 
 /// Post-process routed tool output before returning it to the MCP client.
@@ -66,11 +72,22 @@ pub fn apply_invoke_result_filter(
     structured_content: Option<Value>,
     filter: &InvokeResultFilter,
 ) -> (Vec<Value>, Option<Value>) {
+    if !filter.has_effect() {
+        return (content, structured_content);
+    }
+
     let shaped_structured = structured_content.map(|value| shape_json_value(value, filter));
-    let shaped_content = content
-        .into_iter()
-        .map(|block| shape_content_block(block, filter))
-        .collect();
+    let mut shaped_content = shape_content_blocks(content, filter);
+
+    // Mirror shaped structured JSON into text content so clients that only read
+    // content[].text (not structuredContent) still see truncated payloads.
+    if let Some(ref shaped) = shaped_structured {
+        shaped_content = vec![json!({
+            "type": "text",
+            "text": shaped.to_string(),
+        })];
+    }
+
     (shaped_content, shaped_structured)
 }
 
@@ -273,11 +290,15 @@ impl MetaTool for InvokeToolTool {
                     return Ok(mcp_result);
                 }
 
-                let (content, structured_content) = if let Some(ref filter) = filter {
-                    apply_invoke_result_filter(result.content, result.structured_content, filter)
-                } else {
-                    (result.content, result.structured_content)
-                };
+                let (content, structured_content) =
+                    match filter.as_ref().filter(|f| f.has_effect()) {
+                        Some(active_filter) => apply_invoke_result_filter(
+                            result.content,
+                            result.structured_content,
+                            active_filter,
+                        ),
+                        None => (result.content, result.structured_content),
+                    };
                 let parsed_content: Vec<Content> = content
                     .into_iter()
                     .filter_map(|v| serde_json::from_value(v).ok())
@@ -288,6 +309,63 @@ impl MetaTool for InvokeToolTool {
             }
             Err(e) => Ok(invoke_error(e.to_string())),
         }
+    }
+}
+
+/// Shape all MCP content blocks, aggregating multi-block list payloads when needed.
+fn shape_content_blocks(blocks: Vec<Value>, filter: &InvokeResultFilter) -> Vec<Value> {
+    if blocks.is_empty() {
+        return blocks;
+    }
+
+    let parsed_rows = collect_json_rows_from_content_blocks(&blocks);
+    if parsed_rows.len() >= 2 && filter.has_effect() {
+        let shaped = shape_json_value(Value::Array(parsed_rows), filter);
+        return vec![json!({
+            "type": "text",
+            "text": shaped.to_string(),
+        })];
+    }
+
+    blocks
+        .into_iter()
+        .map(|block| shape_content_block(block, filter))
+        .collect()
+}
+
+/// Collect row-like JSON values from text content blocks (one object/array per block).
+fn collect_json_rows_from_content_blocks(blocks: &[Value]) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for block in blocks {
+        let Some(text) = block.get("text").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_str::<Value>(text) else {
+            continue;
+        };
+        rows.extend(normalize_json_rows(parsed));
+    }
+    rows
+}
+
+/// Flatten a parsed JSON value into individual row objects for list shaping.
+fn normalize_json_rows(value: Value) -> Vec<Value> {
+    match value {
+        Value::Array(items) => items,
+        Value::Object(map) => {
+            for key in HEAVY_ARRAY_KEYS {
+                if let Some(Value::Array(items)) = map.get(*key) {
+                    return items.clone();
+                }
+            }
+            for value in map.values() {
+                if let Value::Array(items) = value {
+                    return items.clone();
+                }
+            }
+            vec![Value::Object(map)]
+        }
+        other => vec![other],
     }
 }
 
@@ -487,7 +565,9 @@ mod tests {
 
     #[test]
     fn no_filter_passes_through_large_array() {
-        let items: Vec<Value> = (0..100).map(|i| json!({ "id": i, "name": format!("n{i}") })).collect();
+        let items: Vec<Value> = (0..100)
+            .map(|i| json!({ "id": i, "name": format!("n{i}") }))
+            .collect();
         let shaped = shape_json_value(Value::Array(items.clone()), &InvokeResultFilter::default());
         assert_eq!(shaped, Value::Array(items));
     }
@@ -532,7 +612,10 @@ mod tests {
         let filter = parse_invoke_filter(Some(&json!({ "max_rows": 10 }))).unwrap();
 
         let (shaped_content, _) = apply_invoke_result_filter(content, None, &filter);
-        let text = shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap();
+        let text = shaped_content[0]
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap();
         let parsed: Value = serde_json::from_str(text).unwrap();
 
         assert_eq!(parsed.get("returned"), Some(&json!(10)));
@@ -557,9 +640,13 @@ mod tests {
         let (shaped_content, shaped_structured) =
             apply_invoke_result_filter(content, Some(structured), &filter);
 
-        let parsed_text: Value =
-            serde_json::from_str(shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap())
-                .unwrap();
+        let parsed_text: Value = serde_json::from_str(
+            shaped_content[0]
+                .get("text")
+                .and_then(|t| t.as_str())
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(parsed_text.get("returned"), Some(&json!(5)));
         assert_eq!(parsed_text.get("total"), Some(&json!(20)));
 
@@ -590,7 +677,8 @@ mod tests {
         let items: Vec<Value> = (0..30)
             .map(|i| json!({ "id": i, "label": format!("row-{i}") }))
             .collect();
-        let filter = parse_invoke_filter(Some(&json!({ "max_rows": 5, "fields": ["id"] }))).unwrap();
+        let filter =
+            parse_invoke_filter(Some(&json!({ "max_rows": 5, "fields": ["id"] }))).unwrap();
         let shaped = shape_json_value(Value::Array(items), &filter);
 
         assert_eq!(shaped.get("returned"), Some(&json!(5)));
@@ -685,7 +773,8 @@ mod tests {
         };
         let block = json!({ "type": "text", "text": text });
         let shaped = shape_content_block(block, &filter);
-        let parsed: Value = serde_json::from_str(shaped.get("text").unwrap().as_str().unwrap()).unwrap();
+        let parsed: Value =
+            serde_json::from_str(shaped.get("text").unwrap().as_str().unwrap()).unwrap();
         assert_eq!(parsed.get("truncated"), Some(&json!(true)));
         assert_eq!(parsed.get("total"), Some(&json!(100)));
     }

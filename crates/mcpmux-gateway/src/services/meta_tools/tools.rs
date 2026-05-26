@@ -4,9 +4,7 @@
 //! directly; writes route through the [`ApprovalBroker`] first.
 
 use async_trait::async_trait;
-use mcpmux_core::{
-    normalize_workspace_root, DomainEvent, FeatureType, WorkspaceBinding,
-};
+use mcpmux_core::{normalize_workspace_root, DomainEvent, FeatureType, WorkspaceBinding};
 use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -145,10 +143,11 @@ impl MetaTool for ListAllToolsTool {
             )
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-        let invokable_names: HashSet<String> = invokable
+        // Match by (server_id, feature_name) — prefix aliases differ from raw catalog rows.
+        let invokable_keys: HashSet<(String, String)> = invokable
             .iter()
-            .filter(|f| f.feature_type == FeatureType::Tool)
-            .map(|f| f.qualified_name())
+            .filter(|f| f.feature_type == FeatureType::Tool && f.is_available)
+            .map(|f| (f.server_id.clone(), f.feature_name.clone()))
             .collect();
 
         let features = call
@@ -167,7 +166,7 @@ impl MetaTool for ListAllToolsTool {
                     "qualified_name": qualified_name,
                     "description": f.description,
                     "server_available": f.is_available,
-                    "invokable": invokable_names.contains(&qualified_name),
+                    "invokable": invokable_keys.contains(&(f.server_id.clone(), f.feature_name.clone())),
                 })
             })
             .collect();
@@ -465,11 +464,17 @@ impl MetaTool for SearchToolsTool {
 // mcpmux_get_tool_schema — read
 // ---------------------------------------------------------------------------
 
+/// Parsed `tools` argument for schema lookup, retaining invalid entries for `missing`.
+struct ToolSchemaNameRequest {
+    valid_names: Vec<String>,
+    invalid_entries: Vec<String>,
+}
+
 /// Parse the `tools` argument from `mcpmux_get_tool_schema` call args.
 ///
 /// Accepts a qualified name string, a string array, or a JSON-encoded array
 /// string (common when agents double-serialize through MCP clients).
-fn parse_tool_schema_names(value: Option<&Value>) -> Result<Vec<String>, MetaToolError> {
+fn parse_tool_schema_names(value: Option<&Value>) -> Result<ToolSchemaNameRequest, MetaToolError> {
     let Some(value) = value else {
         return Err(MetaToolError::InvalidArgument(
             "missing or invalid `tools` — expected string or string array".into(),
@@ -481,7 +486,10 @@ fn parse_tool_schema_names(value: Option<&Value>) -> Result<Vec<String>, MetaToo
             if let Ok(Value::Array(arr)) = serde_json::from_str(s) {
                 return names_from_json_array(&arr);
             }
-            Ok(vec![s.clone()])
+            Ok(ToolSchemaNameRequest {
+                valid_names: vec![s.clone()],
+                invalid_entries: Vec::new(),
+            })
         }
         Value::Array(arr) => names_from_json_array(arr),
         _ => Err(MetaToolError::InvalidArgument(
@@ -490,20 +498,29 @@ fn parse_tool_schema_names(value: Option<&Value>) -> Result<Vec<String>, MetaToo
     }
 }
 
-/// Collect non-empty qualified tool names from a JSON string array.
-fn names_from_json_array(arr: &[Value]) -> Result<Vec<String>, MetaToolError> {
-    let names: Vec<String> = arr
-        .iter()
-        .filter_map(|v| v.as_str().map(str::trim))
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect();
-    if names.is_empty() {
+/// Split a JSON string array into valid qualified names and invalid entries (e.g. empty strings).
+fn names_from_json_array(arr: &[Value]) -> Result<ToolSchemaNameRequest, MetaToolError> {
+    let mut valid_names = Vec::new();
+    let mut invalid_entries = Vec::new();
+
+    for value in arr {
+        match value.as_str() {
+            Some(name) if name.trim().is_empty() => invalid_entries.push(name.to_string()),
+            Some(name) => valid_names.push(name.trim().to_string()),
+            None => invalid_entries.push(value.to_string()),
+        }
+    }
+
+    if valid_names.is_empty() && invalid_entries.is_empty() {
         return Err(MetaToolError::InvalidArgument(
             "`tools` must contain at least one qualified name".into(),
         ));
     }
-    Ok(names)
+
+    Ok(ToolSchemaNameRequest {
+        valid_names,
+        invalid_entries,
+    })
 }
 
 pub struct GetToolSchemaTool;
@@ -542,7 +559,8 @@ impl MetaTool for GetToolSchemaTool {
         let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
 
-        let tool_names = parse_tool_schema_names(call.args.get("tools"))?;
+        let schema_request = parse_tool_schema_names(call.args.get("tools"))?;
+        let tool_names = schema_request.valid_names;
 
         let compact = call
             .args
@@ -582,16 +600,18 @@ impl MetaTool for GetToolSchemaTool {
                     .map(str::to_string)
             })
             .collect();
-        let missing: Vec<&String> = tool_names
+        let mut missing: Vec<String> = tool_names
             .iter()
             .filter(|name| !found_names.contains(*name))
+            .cloned()
             .collect();
+        missing.extend(schema_request.invalid_entries);
 
         if missing.is_empty() {
             return Ok(text_result(json!({ "schemas": schemas })));
         }
 
-        let missing_list: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
+        let missing_list: Vec<&str> = missing.iter().map(String::as_str).collect();
         Ok(text_result(json!({
             "schemas": schemas,
             "missing": missing_list,

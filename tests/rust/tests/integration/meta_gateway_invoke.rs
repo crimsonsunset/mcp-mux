@@ -29,6 +29,7 @@ use uuid::Uuid;
 struct Fixture {
     registry: Arc<MetaToolRegistry>,
     feature_service: Arc<FeatureService>,
+    prefix_cache: Arc<PrefixCacheService>,
     session_overrides: Arc<SessionOverrideRegistry>,
     session_roots: Arc<SessionRootsRegistry>,
     inbound_client_repo: Arc<InboundClientRepository>,
@@ -115,7 +116,7 @@ impl Fixture {
         let feature_service = Arc::new(FeatureService::new(
             server_feature_repo.clone(),
             feature_set_repo.clone(),
-            prefix_cache,
+            prefix_cache.clone(),
             session_overrides.clone(),
         ));
 
@@ -142,6 +143,7 @@ impl Fixture {
         Self {
             registry,
             feature_service,
+            prefix_cache,
             session_overrides,
             session_roots,
             inbound_client_repo,
@@ -156,11 +158,7 @@ impl Fixture {
     /// Grant a FeatureSet to the fixture client (Tier-2 resolver path).
     async fn grant_feature_set(&self, feature_set_id: &str) {
         self.inbound_client_repo
-            .grant_feature_set(
-                &self.client_id,
-                &self.space_id.to_string(),
-                feature_set_id,
-            )
+            .grant_feature_set(&self.client_id, &self.space_id.to_string(), feature_set_id)
             .await
             .unwrap();
         self.session_roots
@@ -256,7 +254,9 @@ async fn invoke_tool_applies_filter_end_to_end() {
     assert_eq!(sample.len(), 3);
     assert_eq!(sample[0], json!({ "id": 0, "title": "issue-0" }));
 
-    let structured = result.structured_content.expect("structured content shaped");
+    let structured = result
+        .structured_content
+        .expect("structured content shaped");
     assert_eq!(structured.get("returned"), Some(&json!(3)));
     let structured_sample = structured.get("issues").and_then(|v| v.as_array()).unwrap();
     assert_eq!(structured_sample.len(), 3);
@@ -424,7 +424,10 @@ async fn invoke_input_schema_includes_filter() {
         .find(|t| t.name.as_ref() == "mcpmux_invoke_tool")
         .expect("invoke tool registered");
     let schema = invoke.input_schema;
-    assert!(schema.get("properties").and_then(|p| p.get("filter")).is_some());
+    assert!(schema
+        .get("properties")
+        .and_then(|p| p.get("filter"))
+        .is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -434,13 +437,22 @@ async fn invoke_result_no_filter_passes_through() {
 
     let shaped = shape_json_value(payload, &InvokeResultFilter::default());
 
-    assert_eq!(shaped.get("items").and_then(|v| v.as_array()).unwrap().len(), 100);
+    assert_eq!(
+        shaped
+            .get("items")
+            .and_then(|v| v.as_array())
+            .unwrap()
+            .len(),
+        100
+    );
     assert!(shaped.get("truncated").is_none());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn invoke_result_explicit_filter_limits_rows() {
-    let items: Vec<Value> = (0..30).map(|i| json!({ "id": i, "label": format!("row-{i}") })).collect();
+    let items: Vec<Value> = (0..30)
+        .map(|i| json!({ "id": i, "label": format!("row-{i}") }))
+        .collect();
     let filter = parse_invoke_filter(Some(&json!({ "max_rows": 5, "fields": ["id"] }))).unwrap();
 
     let shaped = shape_json_value(Value::Array(items), &filter);
@@ -463,7 +475,10 @@ async fn invoke_result_filter_shapes_text_content_blocks() {
     let filter = parse_invoke_filter(Some(&json!({ "max_rows": 10 }))).unwrap();
 
     let (shaped_content, _) = apply_invoke_result_filter(content, None, &filter);
-    let text = shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap();
+    let text = shaped_content[0]
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap();
     let parsed: Value = serde_json::from_str(text).unwrap();
 
     assert_eq!(parsed.get("returned"), Some(&json!(10)));
@@ -478,8 +493,13 @@ async fn invoke_result_explicit_max_bytes_plain_text() {
     let filter = parse_invoke_filter(Some(&json!({ "max_bytes": 80 }))).unwrap();
 
     let (shaped_content, _) = apply_invoke_result_filter(content, None, &filter);
-    let parsed: Value =
-        serde_json::from_str(shaped_content[0].get("text").and_then(|t| t.as_str()).unwrap()).unwrap();
+    let parsed: Value = serde_json::from_str(
+        shaped_content[0]
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap(),
+    )
+    .unwrap();
 
     assert_eq!(parsed.get("truncated"), Some(&json!(true)));
     assert_eq!(parsed.get("total"), Some(&json!(200)));
@@ -680,8 +700,14 @@ async fn list_all_tools_marks_invokable_against_acl() {
         .call("mcpmux_list_all_tools", json!({ "server_id": "github" }))
         .await;
     let body = Fixture::result_json(&result);
-    assert_eq!(body.get("total_installed").and_then(|v| v.as_u64()), Some(2));
-    assert_eq!(body.get("total_invokable").and_then(|v| v.as_u64()), Some(1));
+    assert_eq!(
+        body.get("total_installed").and_then(|v| v.as_u64()),
+        Some(2)
+    );
+    assert_eq!(
+        body.get("total_invokable").and_then(|v| v.as_u64()),
+        Some(1)
+    );
 
     let tools = body.get("tools").unwrap().as_array().unwrap();
     let list_row = tools
@@ -797,4 +823,182 @@ async fn invoke_max_bytes_truncates_json_array_without_max_rows() {
     assert!(!result.is_error.unwrap_or(true));
     let body = Fixture::result_json(&result);
     assert_eq!(body.get("truncated"), Some(&json!(true)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_all_tools_invokable_uses_server_id_not_prefix_alias() {
+    let f = Fixture::new().await;
+
+    let mut gait_tool = ServerFeature::tool(f.space_id, "posthog-personal-gait", "projects-get");
+    gait_tool.description = Some("Get PostHog project".into());
+    f.server_feature_repo.upsert(&gait_tool).await.unwrap();
+
+    let mut gait_fs = FeatureSet::new_custom("GAIT PostHog", f.space_id.to_string());
+    gait_fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: gait_fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: gait_tool.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&gait_fs).await.unwrap();
+    f.grant_feature_set(&gait_fs.id).await;
+
+    f.prefix_cache
+        .assign_prefix_runtime(
+            &f.space_id.to_string(),
+            "posthog-personal-gait",
+            Some("posthog-personal"),
+        )
+        .await;
+    f.session_overrides
+        .enable(&f.session_id, "posthog-personal-gait");
+
+    let result = f
+        .call(
+            "mcpmux_list_all_tools",
+            json!({ "server_id": "posthog-personal-gait" }),
+        )
+        .await;
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("total_invokable").and_then(|v| v.as_u64()),
+        Some(1)
+    );
+
+    let tools = body.get("tools").unwrap().as_array().unwrap();
+    let row = tools
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("posthog-personal-gait_projects-get")))
+        .expect("catalog row present");
+    assert_eq!(row.get("invokable"), Some(&json!(true)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_tool_schema_reports_empty_string_in_missing() {
+    let f = Fixture::new().await;
+    f.grant_github_feature_set().await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let result = f
+        .call(
+            "mcpmux_get_tool_schema",
+            json!({ "tools": ["github_list_issues", ""] }),
+        )
+        .await;
+    let body = Fixture::result_json(&result);
+    let missing = body.get("missing").unwrap().as_array().unwrap();
+    assert!(missing.contains(&json!("")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_filter_shapes_structured_insights_payload() {
+    let insights: Vec<Value> = (0..16)
+        .map(|i| {
+            json!({
+                "name": format!("Insight {i}"),
+                "short_id": format!("ins-{i}"),
+                "extra": "noise"
+            })
+        })
+        .collect();
+    let payload = json!({ "insights": insights });
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": "legacy plain summary",
+        })],
+        structured_content: Some(payload),
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("posthog-personal-gait_insights-list", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+
+    let tool = ServerFeature::tool(f.space_id, "posthog-personal-gait", "insights-list");
+    f.server_feature_repo.upsert(&tool).await.unwrap();
+    let mut fs = FeatureSet::new_custom("GAIT insights", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: tool.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides
+        .enable(&f.session_id, "posthog-personal-gait");
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "posthog-personal-gait",
+                "tool": "insights-list",
+                "args": {},
+                "filter": { "max_rows": 3, "fields": ["name", "short_id"] }
+            }),
+        )
+        .await;
+
+    assert!(!result.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("returned"), Some(&json!(3)));
+    assert_eq!(body.get("total"), Some(&json!(16)));
+    assert_eq!(body.get("truncated"), Some(&json!(true)));
+    let sample = body.get("insights").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sample.len(), 3);
+    assert_eq!(sample[0], json!({ "name": "Insight 0", "short_id": "ins-0" }));
+
+    let structured = result.structured_content.expect("structured shaped");
+    assert_eq!(structured.get("returned"), Some(&json!(3)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_filter_aggregates_multi_block_content() {
+    let blocks: Vec<Value> = (0..8)
+        .map(|i| {
+            json!({
+                "type": "text",
+                "text": json!({ "name": format!("row-{i}"), "value": i }).to_string(),
+            })
+        })
+        .collect();
+    let backend_result = ToolCallResult {
+        content: blocks,
+        structured_content: None,
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("github_list_issues", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+    f.grant_github_feature_set().await;
+    f.session_overrides.enable(&f.session_id, "github");
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "list_issues",
+                "args": {},
+                "filter": { "max_rows": 3, "fields": ["name"] }
+            }),
+        )
+        .await;
+
+    assert!(!result.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("returned"), Some(&json!(3)));
+    assert_eq!(body.get("total"), Some(&json!(8)));
+    let sample = body.get("items").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sample.len(), 3);
+    assert_eq!(sample[0], json!({ "name": "row-0" }));
 }

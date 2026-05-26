@@ -106,7 +106,7 @@ Three to four meta calls before the backend call — predictable schemas, bounde
 7. search_tools / invoke    ← scoped to invokable_tools only
 ```
 
-Prompts and resources: unchanged — still materialized per grants. Invoke model is tool-specific.
+Prompts and resources: unchanged in Phases A–C — still materialized per grants. Invoke model is tool-specific. **Resource list bloat** (e.g. ~124 PostHog skill URIs in GAIT QA) tracked in **Phase D**.
 
 ### What this is NOT
 
@@ -257,12 +257,22 @@ Prompts and resources: unchanged — still materialized per grants. Invoke model
 
 **Effort:** TBD
 
+- [ ] **Resource progressive disclosure** — extend invoke model to `resources/list` context bloat
+  - **Problem:** Phases A–C fixed tool definition bloat (`tools/list` → ~10 meta tools) but `resources/list` still materializes every granted resource URI + metadata to the client. GAIT workspace QA (May 25) surfaced **~124 resources** — mostly PostHog `posthog://skills/...` from `bundle:gait`. Lighter per entry than tool schemas, but still UI noise and potential client context tax if the host injects resource catalogs into agent prompts.
+  - **Not an ACL bug:** `get_resources_for_grants` already respects FeatureSets; the gap is **full list materialization**, same class of problem tools had pre–Phase A.
+  - **Proposed direction (pick subset to ship):**
+    - Slim client `resources/list` to meta-only (or empty) + `mcpmux_search_resources` / `mcpmux_read_resource` meta path — mirror search → read workflow
+    - Grant-filtered search index (reuse `ToolDiscoveryService` patterns or sibling `ResourceDiscoveryService`)
+    - Optional **surfaced resources** escape hatch (parallel to surfaced tools) for hot URIs
+    - Bundle hygiene: exclude PostHog skill resources from default `bundle:gait` until search path exists
+  - **Evidence:** [`meta-gateway-invoke-gait-qa.md`](./meta-gateway-invoke-gait-qa.md) — Run 1 §0, Resources note; not a ship blocker
+  - **Files:** [`handler.rs` `list_resources`](../../crates/mcpmux-gateway/src/mcp/handler.rs), [`facade.rs` `get_resources_for_grants`](../../crates/mcpmux-gateway/src/pool/features/facade.rs)
 - [ ] Levenshtein "did you mean?" on invoke errors
 - [ ] TF-IDF / semantic rank in search
 - [ ] Delta responses, auto-summarize, parallel invoke batching
 - [ ] Sandboxed code execution (abdullah-style `gateway_execute_code`)
 
-**Outcome:** Incremental token/latency wins for power users. Each item is independently shippable.
+**Outcome:** Incremental token/latency wins for power users. Resource disclosure is the highest-priority Phase D item after GAIT QA context feedback. Each item is independently shippable.
 
 ### Phase E — REST capabilities (separate initiative)
 
