@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { fileSrcFromAbsolutePath } from '@/lib/desktop-shell';
+import { fileSrcFromAbsolutePath } from '@/lib/backend/shell';
 import { resolveWorkspaceIconPath } from '@/lib/api/workspaceAppearances';
 
 interface ServerIconProps {

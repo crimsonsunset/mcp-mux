@@ -1,14 +1,2 @@
-/**
- * Build a query string from optional args, omitting null/undefined values.
- */
-export function buildQuery(args: Record<string, unknown>): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(args)) {
-    if (value === undefined || value === null) {
-      continue;
-    }
-    params.set(key, String(value));
-  }
-  const query = params.toString();
-  return query ? `?${query}` : '';
-}
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+export * from '../backend/data/fetch-api.helpers';

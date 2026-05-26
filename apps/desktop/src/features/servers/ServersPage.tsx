@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { pickPath } from '@/lib/desktop-shell';
+import { pickPath } from '@/lib/backend/shell';
 import {
   ChevronDown,
   ChevronRight,

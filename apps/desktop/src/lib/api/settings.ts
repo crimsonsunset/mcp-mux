@@ -2,7 +2,7 @@ import {
   getAdminWebSettings as shellGetAdminWebSettings,
   openLogsFolder as shellOpenLogsFolder,
   updateAdminWebSettings as shellUpdateAdminWebSettings,
-} from '@/lib/desktop-shell';
+} from '@/lib/backend/shell';
 
 import { apiCall } from './transport';
 

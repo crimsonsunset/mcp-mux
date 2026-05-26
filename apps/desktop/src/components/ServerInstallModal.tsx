@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { listenWhenTauri } from '@/lib/desktop-shell';
+import { listenWhenTauri } from '@/lib/backend/shell';
 import { Download, Check, X, AlertCircle, Loader2, Info } from 'lucide-react';
 import {
   Button,

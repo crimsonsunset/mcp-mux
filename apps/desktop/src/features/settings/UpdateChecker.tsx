@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Update } from '@tauri-apps/plugin-updater';
-import { checkAppUpdate, relaunchApp } from '@/lib/desktop-shell';
+import { checkAppUpdate, relaunchApp } from '@/lib/backend/shell';
 import {
   Button,
   Card,

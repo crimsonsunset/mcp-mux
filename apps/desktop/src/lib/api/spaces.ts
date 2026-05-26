@@ -1,4 +1,4 @@
-import { openSpaceConfigFile as shellOpenSpaceConfigFile } from '@/lib/desktop-shell';
+import { openSpaceConfigFile as shellOpenSpaceConfigFile } from '@/lib/backend/shell';
 
 import { apiCall } from './transport';
 

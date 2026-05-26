@@ -23,7 +23,7 @@ import {
   CardContent,
 } from '@mcpmux/ui';
 import { ThemeProvider } from '@/components/ThemeProvider';
-import { checkForAvailableUpdate } from '@/lib/desktop-shell';
+import { checkForAvailableUpdate } from '@/lib/backend/shell';
 import { OAuthConsentModal } from '@/components/OAuthConsentModal';
 import { ServerInstallModal } from '@/components/ServerInstallModal';
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';

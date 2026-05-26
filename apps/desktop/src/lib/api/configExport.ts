@@ -4,7 +4,7 @@ import {
   exportConfigToFile as shellExportConfigToFile,
   getConfigPaths as shellGetConfigPaths,
   previewConfigExport as shellPreviewConfigExport,
-} from '@/lib/desktop-shell';
+} from '@/lib/backend/shell';
 
 /** Supported MCP client config export targets. */
 export type ExportClientType = 'cursor' | 'vscode' | 'claude';

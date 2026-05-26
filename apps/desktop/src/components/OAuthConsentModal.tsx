@@ -23,7 +23,7 @@ import {
   type ConsentError,
   type ConsentRequestDetails,
 } from '@/lib/api/oauth';
-import { subscribeOAuthConsentEvents } from '@/lib/desktop-shell';
+import { subscribeOAuthConsentEvents } from '@/lib/backend/shell';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';

@@ -5,7 +5,7 @@ import {
   type WorkspaceEventChannel,
 } from '@/hooks';
 import { useMetaToolEventListener } from '@/hooks/useMetaToolEvents';
-import { pickPath } from '@/lib/desktop-shell';
+import { pickPath } from '@/lib/backend/shell';
 import {
   AlertCircle,
   Check,

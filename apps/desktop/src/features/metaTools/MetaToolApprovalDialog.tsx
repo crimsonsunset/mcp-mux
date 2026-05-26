@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listenWhenTauri } from '@/lib/desktop-shell';
+import { listenWhenTauri } from '@/lib/backend/shell';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
 import { respondToMetaToolApproval } from '@/lib/api/metaTools';

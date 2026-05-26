@@ -1,4 +1,4 @@
-import { addToCursor as shellAddToCursor, addToVscode as shellAddToVscode } from '@/lib/desktop-shell';
+import { addToCursor as shellAddToCursor, addToVscode as shellAddToVscode } from '@/lib/backend/shell';
 
 /** Add McpMux to VS Code via deep link. */
 export async function addToVscode(gatewayUrl: string): Promise<void> {
