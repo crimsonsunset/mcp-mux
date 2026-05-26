@@ -9,6 +9,7 @@ pub mod bridge_context;
 pub mod command_bridge;
 pub mod event_hub;
 mod handlers;
+mod live_runtime;
 mod middleware;
 mod router;
 pub mod runtime;
@@ -26,6 +27,7 @@ pub use handlers::error::format_bridge_error_message;
 pub use runtime::GatewayRuntime;
 #[cfg(any(test, feature = "test-utils"))]
 pub use runtime::StubGatewayRuntime;
+pub use live_runtime::LiveGatewayRuntime;
 pub use write_runtime::GatewayWriteRuntime;
 #[cfg(any(test, feature = "test-utils"))]
 pub use write_runtime::StubGatewayWriteRuntime;

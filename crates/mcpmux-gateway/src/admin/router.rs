@@ -265,7 +265,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/oauth/clients/{client_id}/grants/{space_id}",
             get(read::get_oauth_client_grants),
         )
-        .route("/api/v1/oauth/open-url", get(read::open_url))
         .route(
             "/api/v1/oauth/consent/pending",
             get(oauth::get_pending_consent),

@@ -141,12 +141,6 @@ const P4_READ_ROUTES: Array<{
     method: 'GET',
     path: `/api/v1/oauth/clients/${CLIENT_ID}/grants/${SPACE_ID}`,
   },
-  {
-    command: 'open_url',
-    args: { url: 'https://example.com/path' },
-    method: 'GET',
-    path: '/api/v1/oauth/open-url?url=https%3A%2F%2Fexample.com%2Fpath',
-  },
   { command: 'list_meta_tool_grants', method: 'GET', path: '/api/v1/meta-tools/grants' },
   {
     command: 'list_server_features',

@@ -9,6 +9,7 @@
 //! are in the database tests since they need the real SQLite implementation.
 
 mod admin_api;
+mod admin_api_live_gateway;
 mod admin_api_oauth;
 mod admin_api_regression;
 mod admin_api_write;

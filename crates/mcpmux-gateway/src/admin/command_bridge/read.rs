@@ -614,10 +614,6 @@ pub async fn get_oauth_client_grants(
         .await
 }
 
-pub async fn open_url(url: String) -> Result<Value> {
-    Ok(json!({ "url": url }))
-}
-
 pub async fn list_meta_tool_grants(ctx: &AdminBridgeCtx) -> Result<Value> {
     ctx.gateway_runtime.list_meta_tool_grants().await
 }

@@ -55,12 +55,6 @@ pub struct ServerLogsQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpenUrlQuery {
-    pub url: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ServerFeatureQuery {
     pub space_id: String,
     pub include_unavailable: Option<bool>,
@@ -488,13 +482,6 @@ pub async fn get_oauth_client_grants(
     Path((client_id, space_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::get_oauth_client_grants(&state.bridge, client_id, space_id)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
-pub async fn open_url(Query(query): Query<OpenUrlQuery>) -> Result<Json<Value>, ApiError> {
-    bridge::open_url(query.url)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

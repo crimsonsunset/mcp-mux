@@ -176,6 +176,16 @@ impl AdminHarness {
     /// Mount the admin router and bind to `127.0.0.1:0`.
     pub async fn start(config: AdminConfig, gateway_running: bool) -> Self {
         let (services, bridge) = in_memory_services().await;
+        Self::start_with_bridge(config, gateway_running, services, bridge).await
+    }
+
+    /// Mount the admin router using a pre-built bridge (e.g. live gateway runtime).
+    pub async fn start_with_bridge(
+        config: AdminConfig,
+        gateway_running: bool,
+        services: Arc<ApplicationServices>,
+        bridge: Arc<AdminBridgeCtx>,
+    ) -> Self {
         let gateway_flag = Arc::new(AtomicBool::new(gateway_running));
         let cf_validator = if config.trust_cf_access {
             config
