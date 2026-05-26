@@ -77,19 +77,8 @@ type ModalState =
   | { type: 'consent'; details: ConsentRequestDetails };
 
 async function openRedirectUrl(url: string): Promise<void> {
-  try {
-    const { openUrl } = await import('@/lib/api/gateway');
-    await openUrl(url);
-  } catch (err) {
-    console.error('[OAuth] openUrl failed:', err);
-    try {
-      const { openUrl: openUrlPlugin } = await import('@tauri-apps/plugin-opener');
-      await openUrlPlugin(url);
-    } catch (pluginErr) {
-      console.error('[OAuth] Plugin opener also failed:', pluginErr);
-      window.location.href = url;
-    }
-  }
+  const { openExternal } = await import('@/lib/backend/shell');
+  await openExternal(url);
 }
 
 function getErrorMessage(error: ConsentError): string {

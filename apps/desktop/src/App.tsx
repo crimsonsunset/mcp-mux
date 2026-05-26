@@ -23,7 +23,7 @@ import {
   CardContent,
 } from '@mcpmux/ui';
 import { ThemeProvider } from '@/components/ThemeProvider';
-import { checkForAvailableUpdate } from '@/lib/backend/shell';
+import { checkForAvailableUpdate, isTauri, performWindowControl } from '@/lib/backend/shell';
 import { OAuthConsentModal } from '@/components/OAuthConsentModal';
 import { ServerInstallModal } from '@/components/ServerInstallModal';
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';
@@ -91,6 +91,10 @@ function AppContent() {
 
   // Auto-check for updates on startup (Tauri desktop only)
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     const checkForUpdates = async () => {
       try {
         const update = await checkForAvailableUpdate();
@@ -325,15 +329,17 @@ function AppContent() {
       statusBar={statusBar}
       titleBar={titleBar}
       windowControls={
-        <div className="flex items-center">
-          <WindowButton action="minimize" />
-          <WindowButton action="maximize" />
-          <WindowButton action="close" />
-        </div>
+        isTauri() ? (
+          <div className="flex items-center">
+            <WindowButton action="minimize" />
+            <WindowButton action="maximize" />
+            <WindowButton action="close" />
+          </div>
+        ) : undefined
       }
     >
       <div className="animate-fade-in">
-        {availableUpdate && (
+        {isTauri() && availableUpdate && (
           <div
             className="flex items-center justify-between gap-3 px-4 py-2.5 bg-blue-500/10 border-b border-blue-500/20 text-sm"
             data-testid="update-banner"
@@ -582,12 +588,8 @@ function DashboardView() {
 
 /** Window control button for custom title bar */
 function WindowButton({ action }: { action: 'minimize' | 'maximize' | 'close' }) {
-  const handleClick = async () => {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-    const appWindow = getCurrentWindow();
-    if (action === 'minimize') appWindow.minimize();
-    else if (action === 'maximize') appWindow.toggleMaximize();
-    else appWindow.close();
+  const handleClick = () => {
+    void performWindowControl(action);
   };
 
   return (

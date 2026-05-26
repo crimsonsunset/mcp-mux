@@ -18,9 +18,7 @@
  * wrapper unless a dedicated UI action needs ServerManager pause semantics.
  */
 
-import type { UnlistenFn } from "@tauri-apps/api/event";
-
-import { listenWhenTauri } from "@/lib/backend/shell";
+import { listenWhenTauri, type UnlistenFn } from '@/lib/backend/shell';
 
 import { apiCall } from "./transport";
 

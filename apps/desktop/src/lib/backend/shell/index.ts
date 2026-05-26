@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import { open, type OpenDialogOptions } from '@tauri-apps/plugin-dialog';
 import { relaunch } from '@tauri-apps/plugin-process';
 import type { Update } from '@tauri-apps/plugin-updater';
@@ -11,9 +11,85 @@ import type {
 } from '@/lib/api/configExport';
 import type { AdminWebSettings } from '@/lib/api/settings';
 
-import { isTauri } from '../data/transport';
+import { apiCall, isTauri } from '../data/transport';
 
 export { isTauri };
+export type { Event, UnlistenFn, Update };
+
+declare global {
+  interface Window {
+    __TAURI_TEST_API__?: {
+      invoke: typeof invoke;
+      emit: typeof emit;
+    };
+  }
+}
+
+/** Window chrome control actions for the custom title bar. */
+export type WindowControlAction = 'minimize' | 'maximize' | 'close';
+
+/**
+ * Expose Tauri invoke/emit on window for E2E tests (desktop shell only).
+ */
+export function initTauriTestApi(): void {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
+    return;
+  }
+  window.__TAURI_TEST_API__ = { invoke, emit };
+}
+
+/**
+ * Open a URL using the system's default handler.
+ *
+ * In web admin mode the browser opens the URL directly. Desktop uses Tauri
+ * so custom protocol handlers (e.g. `cursor://`) reach the OS.
+ */
+export async function openUrl(url: string): Promise<void> {
+  if (!isTauri()) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  await apiCall('open_url', { url });
+}
+
+/**
+ * Open an external URL with opener-plugin and location fallbacks.
+ */
+export async function openExternal(url: string): Promise<void> {
+  try {
+    await openUrl(url);
+  } catch (err) {
+    console.error('[Shell] openUrl failed:', err);
+    if (isTauri()) {
+      try {
+        const { openUrl: pluginOpenUrl } = await import('@tauri-apps/plugin-opener');
+        await pluginOpenUrl(url);
+      } catch (pluginErr) {
+        console.error('[Shell] plugin-opener failed:', pluginErr);
+      }
+      return;
+    }
+    window.location.href = url;
+  }
+}
+
+/**
+ * Perform a native window control action (desktop title bar only).
+ */
+export async function performWindowControl(action: WindowControlAction): Promise<void> {
+  if (!isTauri()) {
+    return;
+  }
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  const appWindow = getCurrentWindow();
+  if (action === 'minimize') {
+    appWindow.minimize();
+  } else if (action === 'maximize') {
+    appWindow.toggleMaximize();
+  } else {
+    appWindow.close();
+  }
+}
 
 /**
  * Subscribe to a Tauri event only in the desktop shell.

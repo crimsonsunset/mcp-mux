@@ -404,8 +404,8 @@ export function SettingsPage() {
           <p className="text-[rgb(var(--muted))]">Configure McpMux preferences.</p>
         </div>
 
-      {/* Updates Section */}
-      <UpdateChecker />
+      {/* Updates Section — desktop shell only */}
+      {isTauri() ? <UpdateChecker /> : null}
 
       {/* Startup & System Tray Section - always show toggles so e2e and slow backends see the section */}
       <Card data-testid="settings-startup-section">
@@ -994,20 +994,22 @@ export function SettingsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleOpenLogs}
-                disabled={openingLogs}
-                data-testid="open-logs-btn"
-              >
-                {openingLogs ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <FolderOpen className="h-4 w-4 mr-2" />
-                )}
-                Open Logs Folder
-              </Button>
+              {isTauri() ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleOpenLogs}
+                  disabled={openingLogs}
+                  data-testid="open-logs-btn"
+                >
+                  {openingLogs ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                  )}
+                  Open Logs Folder
+                </Button>
+              ) : null}
             </div>
             <div className="border-t border-[rgb(var(--border))] pt-4">
               <div className="flex items-center justify-between gap-4">

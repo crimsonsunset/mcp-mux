@@ -26,16 +26,7 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: [
-      'src/lib/backend/**',
-      // Phase 2/3: remaining direct @tauri-apps touchpoints
-      'src/main.tsx',
-      'src/App.tsx',
-      'src/components/OAuthConsentModal.tsx',
-      'src/features/settings/UpdateChecker.tsx',
-      'src/lib/contribute.ts',
-      'src/lib/api/serverManager.ts',
-    ],
+    ignores: ['src/lib/backend/**'],
     rules: {
       'no-restricted-imports': [
         'error',
