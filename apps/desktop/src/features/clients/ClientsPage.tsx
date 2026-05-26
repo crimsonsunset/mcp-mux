@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { useOAuthClientEventListener } from '@/hooks/useOAuthClientEvents';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';
@@ -183,15 +184,17 @@ export default function ClientsPage() {
         info('Client reconnected', name);
       }
     });
-    const unlistenOAuth = listen('oauth-client-changed', () => {
-      refreshClients();
-    });
     return () => {
       unlistenDomain.then((fn) => fn());
-      unlistenOAuth.then((fn) => fn());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useOAuthClientEventListener(
+    useCallback(() => {
+      void refreshClients();
+    }, [])
+  );
 
   const openPanel = (client: OAuthClient) => {
     setSelected(client);

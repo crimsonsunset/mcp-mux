@@ -10,7 +10,7 @@ import {
   CardContent,
 } from '@mcpmux/ui';
 import { Download, Loader2, CheckCircle, AlertCircle, RefreshCw, RotateCcw } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { getBundleVersion, getVersion } from '@/lib/api/app';
 
 interface DownloadEvent {
   event: 'Started' | 'Progress' | 'Finished';
@@ -30,16 +30,16 @@ export function UpdateChecker() {
   const [bundleVersionMismatch, setBundleVersionMismatch] = useState<string | null>(null);
 
   // Load current version on mount
-  useState(() => {
-    invoke<string>('get_version')
+  useEffect(() => {
+    getVersion()
       .then(setCurrentVersion)
       .catch((err) => console.error('Failed to get version:', err));
-  });
+  }, []);
 
   // Check if the on-disk bundle version differs from the running version (Homebrew Cask upgrades)
   useEffect(() => {
     if (!currentVersion) return;
-    invoke<string | null>('get_bundle_version')
+    getBundleVersion()
       .then((bundleVersion) => {
         if (bundleVersion && bundleVersion !== currentVersion) {
           console.log(

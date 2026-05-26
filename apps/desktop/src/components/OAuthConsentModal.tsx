@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import {
@@ -19,6 +18,13 @@ import {
   CardTitle,
 } from '@mcpmux/ui';
 import { resolveKnownClientKey } from '@/lib/clientIcons';
+import {
+  approveOAuthConsent,
+  flushPendingDeepLink,
+  getPendingConsent,
+  type ConsentError,
+  type ConsentRequestDetails,
+} from '@/lib/api/oauth';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';
@@ -42,29 +48,6 @@ function getClientLogo(clientName: string): string | null {
 
 interface OAuthDeepLinkPayload {
   requestId: string;
-}
-
-interface ConsentRequestDetails {
-  requestId: string;
-  clientId: string;
-  clientName: string;
-  redirectUri: string;
-  scope: string;
-  state: string | null;
-  expiresAt: number;
-  /** Cryptographic token shared only via Tauri IPC — must be sent back on approval. */
-  consentToken: string;
-}
-
-interface ConsentError {
-  code: 'NOT_FOUND' | 'EXPIRED' | 'ALREADY_PROCESSED' | 'GATEWAY_UNAVAILABLE';
-  message: string;
-}
-
-interface ConsentApprovalResponse {
-  success: boolean;
-  redirect_url: string;
-  error: string | null;
 }
 
 type ModalState =
@@ -129,9 +112,7 @@ export function OAuthConsentModal() {
         setProcessError(null);
 
         try {
-          const details = await invoke<ConsentRequestDetails>('get_pending_consent', {
-            requestId,
-          });
+          const details = await getPendingConsent(requestId);
           setModalState({ type: 'consent', details });
         } catch (err) {
           console.error('[OAuth] Validation failed:', err);
@@ -145,7 +126,7 @@ export function OAuthConsentModal() {
     // the Rust side (see PendingInitialDeepLink). Rust will re-fire
     // `oauth-consent-request` which the listener above then catches.
     unlistenPromise.then(() => {
-      invoke('flush_pending_deep_link').catch((err) => {
+      flushPendingDeepLink().catch((err) => {
         console.warn('[OAuth] flush_pending_deep_link failed:', err);
       });
     });
@@ -163,13 +144,11 @@ export function OAuthConsentModal() {
     setProcessError(null);
 
     try {
-      const response = await invoke<ConsentApprovalResponse>('approve_oauth_consent', {
-        request: {
-          request_id: details.requestId,
-          approved: true,
-          consent_token: details.consentToken,
-          client_alias: null,
-        },
+      const response = await approveOAuthConsent({
+        request_id: details.requestId,
+        approved: true,
+        consent_token: details.consentToken,
+        client_alias: null,
       });
 
       if (response.success && response.redirect_url) {
@@ -194,13 +173,11 @@ export function OAuthConsentModal() {
     setProcessError(null);
 
     try {
-      const response = await invoke<ConsentApprovalResponse>('approve_oauth_consent', {
-        request: {
-          request_id: details.requestId,
-          approved: false,
-          consent_token: details.consentToken,
-          client_alias: null,
-        },
+      const response = await approveOAuthConsent({
+        request_id: details.requestId,
+        approved: false,
+        consent_token: details.consentToken,
+        client_alias: null,
       });
 
       if (response.success && response.redirect_url) {

@@ -4,7 +4,6 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type {
-  RegistryCategory,
   ServerDefinition,
   InstalledServerState,
   UiConfig,
@@ -40,11 +39,6 @@ export async function refreshRegistry(): Promise<number> {
 /** Get a specific server definition */
 export async function getServerDefinition(serverId: string): Promise<ServerDefinition | null> {
   return invoke<ServerDefinition | null>('get_server_definition', { serverId });
-}
-
-/** List all registry categories */
-export async function listCategories(): Promise<RegistryCategory[]> {
-  return invoke<RegistryCategory[]>('list_registry_categories');
 }
 
 /** Install a server (adds to DB) */

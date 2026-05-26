@@ -1,10 +1,21 @@
 /**
- * Server Manager API - Event-driven server connection management
+ * Server Manager API — event-driven connection lifecycle (ServerManager path).
  *
- * This replaces the old polling-based approach with Tauri events:
- * - Backend emits events: server-status-changed, server-auth-progress, server-features-refreshed
- * - UI listens to events and updates state accordingly
- * - No more polling for status changes
+ * Events (backend → UI): `server-status-changed`, `server-auth-progress`,
+ * `server-features-refreshed`.
+ *
+ * Commands (UI → backend) — use one path per user action:
+ *
+ * | Tauri command | Wrapper | When to use |
+ * | ------------- | ------- | ----------- |
+ * | `enable_server_v2` | `enableServer` | Primary enable toggle + connection attempt (ServersPage, useServerManager) |
+ * | `disable_server_v2` | `disableServer` | Primary disable toggle — cancels ops and disconnects (ServersPage) |
+ * | `start_auth_v2` / `cancel_auth_v2` / `retry_connection` | `startAuth`, `cancelAuth`, `retryConnection` | OAuth connect/cancel and error retry |
+ * | `logout_server` | `logoutServer` | Clear OAuth tokens while keeping server enabled (Reconnect overflow action) |
+ *
+ * Pause-without-logout and gateway pool teardown use `gateway.disconnectServer`
+ * (`disconnect_server`), not this module. Do not add a `disconnect_server_v2`
+ * wrapper unless a dedicated UI action needs ServerManager pause semantics.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -166,31 +177,17 @@ export async function retryConnection(
 }
 
 /**
- * Logout server - Clear OAuth tokens but keep enabled
- * 
- * Preserves: DCR registration, input values, enabled flag
- * Clears: OAuth tokens, oauth_connected flag
- * Result: State = auth_required, user must re-authenticate
+ * Logout server — clear OAuth tokens but keep enabled.
+ *
+ * Preserves: DCR registration, input values, enabled flag.
+ * Clears: OAuth tokens, oauth_connected flag.
+ * Result: auth_required; user must re-authenticate.
  */
 export async function logoutServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
   return invoke("logout_server", { spaceId, serverId });
-}
-
-/**
- * Disconnect server - Stop connection but keep enabled and preserve credentials
- * 
- * Preserves: Everything (tokens, DCR, inputs, enabled flag)
- * Result: State = auth_required (OAuth) or disconnected (non-OAuth)
- * Use case: Temporary pause, quick reconnect possible
- */
-export async function disconnectServerV2(
-  spaceId: string,
-  serverId: string
-): Promise<void> {
-  return invoke("disconnect_server_v2", { spaceId, serverId });
 }
 
 // ============================================================================

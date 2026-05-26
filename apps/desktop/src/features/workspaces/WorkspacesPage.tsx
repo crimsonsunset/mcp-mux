@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import {
+  useServerStatusEvents,
+  useWorkspaceEventListener,
+  type WorkspaceEventChannel,
+} from '@/hooks';
+import { useMetaToolEventListener } from '@/hooks/useMetaToolEvents';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   AlertCircle,
@@ -92,6 +97,15 @@ interface Entry {
 }
 type Selected = { mode: 'new' } | { mode: 'entry'; id: string };
 
+const WORKSPACE_TABLE_REFRESH_CHANNELS: WorkspaceEventChannel[] = [
+  'session-roots-changed',
+  'workspace-binding-changed',
+];
+
+const SESSION_OVERRIDE_REFRESH_CHANNELS: WorkspaceEventChannel[] = ['session-overrides-changed'];
+
+const EFFECTIVE_FEATURES_REFRESH_CHANNELS: WorkspaceEventChannel[] = ['workspace-binding-changed'];
+
 export function WorkspacesPage() {
   const spaces = useSpaces();
   const [bindings, setBindings] = useState<WorkspaceBinding[]>([]);
@@ -135,23 +149,15 @@ export function WorkspacesPage() {
 
   // Refresh whenever something the table reflects changes outside the page:
   //   • `session-roots-changed` — a connected client newly reported a root.
-  //   • `workspace-binding-changed` — a binding was created/updated/deleted
-  //     by another surface (e.g. the new-workspace popup or the meta-tool).
+  //   • `workspace-binding-changed` — binding or appearance write (same channel).
   // Without the binding listener, popup-driven saves leave this page showing
   // the stale "UNMAPPED" badge until the user navigates away and back.
-  useEffect(() => {
-    const reload = () => {
+  useWorkspaceEventListener(
+    useCallback(() => {
       void loadData();
-    };
-    const unRoots = listen('session-roots-changed', reload);
-    const unBinding = listen('workspace-binding-changed', reload);
-    const unAppearance = listen('workspace-appearance-changed', reload);
-    return () => {
-      unRoots.then((fn) => fn());
-      unBinding.then((fn) => fn());
-      unAppearance.then((fn) => fn());
-    };
-  }, [loadData]);
+    }, [loadData]),
+    WORKSPACE_TABLE_REFRESH_CHANNELS
+  );
 
   const refresh = async () => {
     setIsRefreshing(true);
@@ -1159,21 +1165,26 @@ function SessionOverridesContent({ workspaceRoot }: { workspaceRoot: string }) {
     void reload();
   }, [reload]);
 
-  useEffect(() => {
-    const unMeta = listen<{ tool_name?: string }>('meta-tool-invoked', (ev) => {
-      const name = ev.payload?.tool_name ?? '';
-      if (name === 'mcpmux_enable_server' || name === 'mcpmux_disable_server') {
-        void reload();
-      }
-    });
-    const unOverrides = listen('session-overrides-changed', () => {
+  useMetaToolEventListener(
+    useCallback(
+      (event) => {
+        if (
+          event.tool_name === 'mcpmux_enable_server' ||
+          event.tool_name === 'mcpmux_disable_server'
+        ) {
+          void reload();
+        }
+      },
+      [reload]
+    )
+  );
+
+  useWorkspaceEventListener(
+    useCallback(() => {
       void reload();
-    });
-    return () => {
-      void unMeta.then((fn) => fn());
-      void unOverrides.then((fn) => fn());
-    };
-  }, [reload]);
+    }, [reload]),
+    SESSION_OVERRIDE_REFRESH_CHANNELS
+  );
 
   const handleClear = async (sessionId: string) => {
     setClearingId(sessionId);
@@ -1414,29 +1425,25 @@ function EffectiveFeaturesContent({
     };
   }, [root, onTotalChange]);
 
+  const reloadEffectiveFeatures = useCallback(() => {
+    void getWorkspaceEffectiveFeatures(root)
+      .then((d) => {
+        setData(d);
+        onTotalChange?.(d.tools.length + d.prompts.length + d.resources.length);
+      })
+      .catch(() => {
+        /* ignore — initial load already surfaced any error */
+      });
+  }, [root, onTotalChange]);
+
   // Re-fetch on binding / server-status changes so the panel stays honest
   // without the user reopening it.
-  useEffect(() => {
-    let cancelled = false;
-    const reload = () => {
-      void getWorkspaceEffectiveFeatures(root)
-        .then((d) => {
-          if (cancelled) return;
-          setData(d);
-          onTotalChange?.(d.tools.length + d.prompts.length + d.resources.length);
-        })
-        .catch(() => {
-          /* ignore — initial load already surfaced any error */
-        });
-    };
-    const unBinding = listen('workspace-binding-changed', reload);
-    const unServer = listen('server-status', reload);
-    return () => {
-      cancelled = true;
-      unBinding.then((fn) => fn());
-      unServer.then((fn) => fn());
-    };
-  }, [root, onTotalChange]);
+  useWorkspaceEventListener(
+    reloadEffectiveFeatures,
+    EFFECTIVE_FEATURES_REFRESH_CHANNELS
+  );
+
+  useServerStatusEvents(reloadEffectiveFeatures);
 
   // All hooks must run on every render — keep them above any early
   // returns so React's hook-order invariant holds.

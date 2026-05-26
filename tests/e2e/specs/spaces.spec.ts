@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage, SpacesPage } from '../pages';
 
-// Helper to click Spaces in sidebar (avoids space switcher button)
+/** Opens Spaces management (not folder Workspaces bindings). */
 async function goToSpaces(page: import('@playwright/test').Page) {
-  await page.locator('nav button:has-text("Spaces")').last().click();
+  await page.getByTestId('nav-spaces').click();
+  await expect(page.getByTestId('spaces-page')).toBeVisible();
 }
 
 test.describe('Spaces Page', () => {
@@ -48,19 +49,18 @@ test.describe('Space Switcher', () => {
   test('should show current space name on dashboard', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    
-    // Dashboard should show active space card
-    const activeSpaceCard = page.locator('text=Active Space').first();
-    await expect(activeSpaceCard).toBeVisible();
+
+    await expect(dashboard.activeSpaceCard).toBeVisible();
+    await expect(page.getByText('Currently viewing')).toBeVisible();
   });
 
   test('should display active space info', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    
-    // Active space card should have content
-    const spaceCard = page.locator('text=Active Space').first().locator('xpath=ancestor::div[contains(@class, "rounded")]');
-    await expect(spaceCard.first()).toBeVisible();
+
+    const spaceValue = page.getByTestId('stat-active-space-value');
+    await expect(spaceValue).toBeVisible();
+    await expect(spaceValue).not.toHaveText('');
   });
 });
 

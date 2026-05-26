@@ -1,6 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 
 /**
+ * Gateway lifecycle and pool disconnect API.
+ *
+ * Server enable/disable and OAuth flows live in `serverManager.ts`
+ * (`enable_server_v2`, `disable_server_v2`, `logout_server`, etc.).
+ *
+ * | Tauri command | Wrapper | When to use |
+ * | ------------- | ------- | ----------- |
+ * | `disconnect_server` | `disconnectServer` | Tear down gateway pool connection; `logout: true` also clears stored OAuth tokens. `logout: false` (default) pauses while preserving credentials — ServersPage Disconnect button and uninstall cleanup. |
+ *
+ * Prefer `serverManager` for enable/disable toggles; use this module only for
+ * gateway-scoped disconnect and gateway start/stop.
+ */
+
+/**
  * Gateway status.
  */
 export interface GatewayStatus {
@@ -9,11 +23,6 @@ export interface GatewayStatus {
   active_sessions: number;
   connected_backends: number;
 }
-
-/**
- * Config export format.
- */
-export type ExportFormat = 'cursor' | 'vscode' | 'claude';
 
 /**
  * Get gateway status.
@@ -119,16 +128,6 @@ export async function restartGateway(opts?: {
 }
 
 /**
- * Export config for a client.
- */
-export async function exportConfig(
-  format: ExportFormat,
-  clientId?: string
-): Promise<string> {
-  return invoke('export_config', { format, clientId });
-}
-
-/**
  * Backend server status.
  */
 export interface BackendStatus {
@@ -139,17 +138,11 @@ export interface BackendStatus {
 }
 
 /**
- * Connect an installed server to the gateway.
- */
-export async function connectServer(serverId: string): Promise<void> {
-  return invoke('connect_server', { serverId });
-}
-
-/**
- * Disconnect a server from the gateway.
+ * Disconnect a server from the gateway pool.
+ *
  * @param serverId - The server ID to disconnect
  * @param spaceId - The space ID (required for proper space isolation)
- * @param logout - If true, also delete stored credentials (OAuth tokens)
+ * @param logout - When true, also clear stored OAuth tokens (credential logout)
  */
 export async function disconnectServer(serverId: string, spaceId: string, logout?: boolean): Promise<void> {
   return invoke('disconnect_server', { serverId, spaceId, logout });
@@ -160,154 +153,6 @@ export async function disconnectServer(serverId: string, spaceId: string, logout
  */
 export async function listConnectedServers(): Promise<BackendStatus[]> {
   return invoke('list_connected_servers');
-}
-
-/**
- * Inbound client registration type (per MCP spec 2025-11-25)
- */
-export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';
-
-/**
- * Inbound client (unified OAuth + MCP model)
- * 
- * Represents apps connecting TO McpMux (e.g., Cursor, VS Code, Claude Desktop).
- * Supports three MCP registration approaches:
- * - CIMD: Client ID Metadata Documents (client_id is a URL)
- * - DCR: Dynamic Client Registration (server generates client_id)
- * - Preregistered: Server pre-configures client_id
- * 
- * Per RFC 7591, clients self-identify via metadata they provide.
- * Use `logo_uri`, `software_id`, and `client_name` for client identification.
- */
-export interface OAuthClient {
-  client_id: string;
-  registration_type: RegistrationType;
-  client_name: string;
-  client_alias: string | null;
-  redirect_uris: string[];
-  scope: string | null;
-  
-  // Approval status - true if user has explicitly approved this client
-  approved: boolean;
-  
-  // RFC 7591 Client Metadata (use these for client identification)
-  logo_uri?: string | null;  // URL for client's logo
-  client_uri?: string | null;  // URL of client's homepage
-  software_id?: string | null;  // Unique identifier (e.g., "com.cursor.app")
-  software_version?: string | null;  // Client software version
-  
-  // CIMD-specific fields (only used when registration_type='cimd')
-  metadata_url?: string | null;  // URL where metadata was fetched
-  metadata_cached_at?: string | null;  // When we last fetched
-  metadata_cache_ttl?: number | null;  // Cache duration in seconds
-
-  last_seen: string | null;
-  created_at: string;
-
-  /**
-   * Sticky-positive bit: `true` once any session of this client declared
-   * the MCP `roots` capability. **Only meaningful when
-   * `roots_capability_known` is `true`** — for clients we haven't observed
-   * yet, this defaults to `false` and the UI must NOT render "Rootless"
-   * based on it alone.
-   */
-  reports_roots: boolean;
-
-  /**
-   * `true` once we've processed `notifications/initialized` for at least
-   * one session of this client. Until then the capability is **unknown**
-   * and the UI hides the badge entirely. Once known the badge resolves
-   * to either "Reports workspace" or "Rootless".
-   */
-  roots_capability_known: boolean;
-}
-
-/**
- * Update client settings request. Only the display alias is editable.
- */
-export interface UpdateClientRequest {
-  client_alias?: string;
-}
-
-/**
- * List all registered OAuth clients (Cursor, Claude, etc.)
- */
-export async function listOAuthClients(): Promise<OAuthClient[]> {
-  return invoke('get_oauth_clients');
-}
-
-/**
- * Update an OAuth client's settings.
- */
-export async function updateOAuthClient(
-  clientId: string,
-  settings: UpdateClientRequest
-): Promise<OAuthClient> {
-  return invoke('update_oauth_client', { clientId, settings });
-}
-
-/**
- * Delete an OAuth client.
- */
-export async function deleteOAuthClient(clientId: string): Promise<void> {
-  return invoke('delete_oauth_client', { clientId });
-}
-
-// =============================================================================
-// Per-client FeatureSet grants (rootless fallback path)
-// =============================================================================
-//
-// These grants only apply to clients that did NOT declare the MCP `roots`
-// capability — Claude.ai web, ChatGPT, and similar rootless connectors.
-// Roots-capable desktop clients (Cursor, VS Code, Claude Desktop) route via
-// `WorkspaceBinding` and ignore these grants.
-//
-// Backed by the `client_grants` table (restored in migration 009). Writes
-// emit a `ClientGrantChanged` domain event so MCPNotifier pushes
-// `notifications/{tools,prompts,resources}/list_changed` to the client's
-// connected peers without requiring a reconnect.
-
-/**
- * Read the FeatureSet ids granted to a (client, space) pair. Empty array
- * means the rootless fallback would deny — consumer should render the
- * "no defaults configured" empty state.
- */
-export async function getOAuthClientGrants(
-  clientId: string,
-  spaceId: string
-): Promise<string[]> {
-  return invoke('get_oauth_client_grants', { clientId, spaceId });
-}
-
-/**
- * Grant a FeatureSet to an OAuth client in a space. Idempotent at the DB
- * layer; always emits the change event so peers re-fetch.
- */
-export async function grantOAuthClientFeatureSet(
-  clientId: string,
-  spaceId: string,
-  featureSetId: string
-): Promise<void> {
-  return invoke('grant_oauth_client_feature_set', {
-    clientId,
-    spaceId,
-    featureSetId,
-  });
-}
-
-/**
- * Revoke a FeatureSet from an OAuth client in a space.
- */
-export async function revokeOAuthClientFeatureSet(
-  clientId: string,
-  spaceId: string,
-  featureSetId: string
-): Promise<void> {
-  return invoke('revoke_oauth_client_feature_set', {
-    clientId,
-    spaceId,
-    featureSetId,
-  });
 }
 
 /**
@@ -371,3 +216,18 @@ export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
 export async function openUrl(url: string): Promise<void> {
   return invoke('open_url', { url });
 }
+
+// OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.
+export type {
+  OAuthClient,
+  RegistrationType,
+  UpdateClientRequest,
+} from './oauth';
+export {
+  deleteOAuthClient,
+  getOAuthClientGrants,
+  grantOAuthClientFeatureSet,
+  listOAuthClients,
+  revokeOAuthClientFeatureSet,
+  updateOAuthClient,
+} from './oauth';

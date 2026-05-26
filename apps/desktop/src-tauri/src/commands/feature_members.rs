@@ -1,6 +1,10 @@
-//! Tauri commands for managing individual feature members in feature sets
+//! Tauri commands for managing individual feature members in feature sets.
 //!
-//! Allows fine-grained control: add individual tools/prompts/resources to feature sets
+//! **Deferred — no frontend wrapper.** The desktop UI uses batch APIs in
+//! `feature_set` (`set_feature_set_members`, `add_feature_set_member`, etc.)
+//! via `lib/api/featureSets.ts`. These granular commands remain registered for
+//! future editors or internal tooling; do not expose over HTTP until product
+//! needs per-feature membership outside the batch contract.
 
 use mcpmux_core::{FeatureSetMember, MemberMode};
 use std::sync::Arc;
