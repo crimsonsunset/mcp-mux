@@ -33,7 +33,9 @@ Run everything from `mcp-mux/`:
 | `pnpm dev` | Tauri desktop dev mode (Rust + React hot-reload). Runs `predev` to free `:1420` / `:45818`. |
 | `pnpm dev:restart` | After gateway crate edits — stop orphans, rebuild, start dev. |
 | `pnpm dev:stop` | Kill repo dev processes without starting. |
-| `pnpm dev:web` | Web UI only via Vite — no Rust, no Tauri shell. |
+| `pnpm dev:web` | Web UI only via Vite (`VITE_ADMIN_WEB`) — needs admin API on `:45819` for data. |
+| `pnpm dev:admin` | Tauri dev with web admin enabled for the session; opens HMR URL. |
+| `pnpm dev:web:admin` | Prep ports, start backend if needed, Vite with admin HTTP transport. |
 | `pnpm build` | Production Tauri build for the current platform. |
 | `pnpm build:web:admin` | Production SPA build (`VITE_ADMIN_WEB`) for admin static serving. |
 | `pnpm validate` | Full correctness gate — runs the items below in sequence. |

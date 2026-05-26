@@ -5,6 +5,7 @@ Two flows for working against this repo, picked by what you're doing:
 | Flow | Use when | Speed | Cursor / Claude / VS Code see it? |
 | ---- | -------- | ----- | --------------------------------- |
 | **Dev watch mode** (`pnpm dev`) | Iterating on UI or Rust — you want HMR for React and auto-recompile for Tauri commands | Vite HMR is instant; Rust changes ~5–15s incremental | Yes — same `localhost:45818` endpoint while `pnpm dev` is running |
+| **Web admin dev** (`pnpm dev:admin` / `pnpm dev:web:admin`) | Full UI in the browser over HTTP (`fetch` + SSE), same DB as desktop — remote/homelab parity | HMR on `:1420` when using Vite; `:45819` needs `build:web:admin` for static SPA | MCP gateway still `:45818`; admin UI is separate |
 | **Build + swap** (replace `/Applications/McpMux.app`) | You want a real installed app on this branch — autostart, system tray, runs without a terminal, survives reboot | Full build ~5–10 min, incremental ~1–3 min | Yes — and stays running after you close your editor |
 
 Quick rule of thumb: **`pnpm dev` while you're coding, swap when you're done** so other AI clients keep working when Cursor isn't open.
@@ -74,17 +75,94 @@ pnpm dev:restart
 
 A Tauri window opens. Edit `.tsx` files for instant HMR; edit Rust and the window will relaunch on its own after recompile.
 
-### Frontend-only iteration
+### Frontend-only iteration (desktop transport)
 
-If you're only changing UI and want the fastest possible loop:
+If you're only changing UI inside the Tauri shell and don't need the HTTP admin transport:
 
 ```bash
-pnpm dev:web
+pnpm dev
 ```
 
-This runs Vite alone in a browser tab — no Rust, no Tauri shell. Tauri `invoke()` calls won't work (no backend), but for pure layout/styling work it's the quickest path.
+Use the Tauri window (Vite on `:1420`, `invoke()` IPC). Fastest for layout work that doesn't touch web-only code paths.
 
-### Gotchas
+For **web admin transport** (`fetch` + SSE), use the web admin section below — plain `pnpm dev:web` still has no backend unless something is listening on `:45819`.
+
+---
+
+## Web admin UI (HTTP on `:45819`)
+
+Optional loopback admin server: static SPA + REST `/api/v1/*` + SSE. Same SQLite DB and Keychain as desktop. **Not** the MCP gateway (`:45818`).
+
+| Port | Role |
+| ---- | ---- |
+| `1420` | Vite dev server (HMR). Proxies `/api` → admin port. |
+| `45818` | MCP gateway for AI clients |
+| `45819` | Web admin API + (when built) production SPA at `/` |
+
+### Workflows (fastest → production parity)
+
+1. **Tauri + `invoke()` (desktop transport)** — `pnpm dev`, use the Tauri window. Best for Rust + UI when you don't need to validate browser/HTTP behavior. Settings → Gateway → Web admin can stay off.
+
+2. **HMR + HTTP transport (recommended for web UI work)** — backend + browser:
+
+   ```bash
+   pnpm dev:admin
+   ```
+
+   Starts `pnpm dev` with `MCPMUX_DEV_ADMIN=1` (admin API on for this session), frees ports `1420` / `45818` / `45819`, opens `http://127.0.0.1:1420` when `/api/v1/health` is up. Vite uses `VITE_ADMIN_WEB=true` and proxies `/api` to `:45819`.
+
+   Alternative (two-process, same result):
+
+   ```bash
+   pnpm dev:web:admin
+   ```
+
+   Runs `dev-env` prep, starts `pnpm dev` in the background if admin isn't up yet, then Vite on `:1420`.
+
+3. **Production-parity static SPA** — build + hit admin origin directly:
+
+   ```bash
+   pnpm build:web:admin
+   pnpm dev:admin   # or pnpm dev with web admin enabled in Settings
+   ```
+
+   Open `http://127.0.0.1:45819/` (hard refresh after rebuilds; no HMR on this origin). Use before homelab deploy or `pnpm test:e2e:web:admin`.
+
+**First-time dev default:** debug builds persist `gateway.admin_enabled=true` when that setting was never saved. If you previously disabled web admin in Settings, use `pnpm dev:admin` or enable it again under **Settings → Gateway**.
+
+**Disable admin in dev:** `MCPMUX_DEV_DISABLE_ADMIN=1 pnpm dev`
+
+### Cloudflare Access profiles
+
+| Profile | Settings | Local URL | Playwright |
+| ------- | -------- | --------- | ---------- |
+| **Local fast** | Trust CF Access **off** | `http://127.0.0.1:45819` or HMR `http://127.0.0.1:1420` | No JWT env vars |
+| **Tunnel parity** | Trust CF Access **on** + team domain | Same loopback; tunnel adds JWT at edge | `MCPMUX_ADMIN_CF_JWT=<token>`; negative spec: `MCPMUX_ADMIN_CF_TRUST_ENABLED=1` without JWT |
+
+Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx) and [`docs/planning/web-admin-remote-access.md`](planning/web-admin-remote-access.md).
+
+### Commands
+
+| Command | What it does |
+| ------- | ------------ |
+| `pnpm dev:admin` | Tauri dev + session admin on + browser opens `:1420` |
+| `pnpm dev:web:admin` | Prep ports, ensure backend, Vite with admin web flags |
+| `pnpm build:web:admin` | Production admin SPA → `apps/desktop/dist` |
+| `pnpm test:e2e:web:admin` | Playwright against `:45819` (needs running app + built dist) |
+
+`predev` / `pnpm dev:stop` also free `:45819` (see `scripts/dev-env.mjs`).
+
+### Web admin gotchas
+
+| Symptom | Why | Fix |
+| ------- | --- | --- |
+| Dashboard empty / "Waiting for admin API" on `:1420` | Admin server off or not ready | `pnpm dev:admin` or enable Web admin in Settings; wait for health |
+| 503 HTML "Web admin UI not built" on `:45819` | No `index.html` in `apps/desktop/dist` | `pnpm build:web:admin` |
+| `invoke` / `transformCallback` errors in browser | Opened `:1420` without `VITE_ADMIN_WEB` | Use `dev:web:admin` / `dev:admin` (sets flag) |
+| Mutations 403 | CSRF or CF Access | Local fast: trust off; tunnel: pass `CF-Access-Jwt-Assertion` |
+| Playwright can't reach admin | App not running or CF trust without JWT | Start app + build; set `MCPMUX_ADMIN_CF_JWT` when trust on |
+
+### Gotchas (desktop dev)
 
 | Symptom | Why | Fix |
 | ------- | --- | --- |

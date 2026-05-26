@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Dev stack helpers for McpMux — stop orphaned Vite/Tauri processes, free ports,
- * and optionally rebuild gateway crates before `pnpm dev`.
+ * Dev stack helpers for McpMux — stop orphaned Vite/Tauri processes, free ports
+ * (1420, 45818, 45819), and optionally rebuild gateway crates before `pnpm dev`.
  *
  * Usage:
  *   node scripts/dev-env.mjs prep          # predev: quit app, stop repo orphans, wait ports
@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DEV_PORTS = [1420, 45818];
+const DEV_PORTS = [1420, 45818, 45819];
 const WAIT_TIMEOUT_MS = 15_000;
 const POLL_MS = 250;
 
@@ -218,7 +218,7 @@ async function prep() {
     process.exit(1);
   }
 
-  console.log('[dev-env] Ports 1420 and 45818 are free.');
+  console.log('[dev-env] Ports 1420, 45818, and 45819 are free.');
 }
 
 /**

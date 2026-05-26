@@ -29,9 +29,10 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    // Web admin REST + SSE — requires AdminServer on :45819 (pnpm dev / dev:admin with admin enabled).
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:45819',
+        target: `http://127.0.0.1:${process.env.MCPMUX_ADMIN_PORT ?? '45819'}`,
         changeOrigin: true,
       },
     },

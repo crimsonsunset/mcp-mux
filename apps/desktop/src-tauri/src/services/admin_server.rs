@@ -7,6 +7,7 @@ use crate::{
     get_bundle_version,
 };
 use async_trait::async_trait;
+use mcpmux_core::service::app_settings_service::keys;
 use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
 use mcpmux_core::service::is_port_available;
 use mcpmux_gateway::admin::bridge_context::AdminBridgeCtx;
@@ -53,6 +54,44 @@ impl Default for AdminServerState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Whether the admin HTTP server should start (settings + dev overrides).
+async fn resolve_admin_enabled_for_startup(app_state: &AppState) -> bool {
+    if std::env::var("MCPMUX_DEV_DISABLE_ADMIN").as_deref() == Ok("1") {
+        info!("[Admin] Skipped (MCPMUX_DEV_DISABLE_ADMIN=1)");
+        return false;
+    }
+
+    let settings = AppSettingsService::new(app_state.settings_repository.clone());
+
+    #[cfg(debug_assertions)]
+    {
+        if std::env::var("MCPMUX_DEV_ADMIN").as_deref() == Ok("1") {
+            info!("[Admin] Enabled for this dev session (MCPMUX_DEV_ADMIN=1)");
+            return true;
+        }
+
+        match mcpmux_core::AppSettingsRepository::get(
+            app_state.settings_repository.as_ref(),
+            keys::gateway::ADMIN_ENABLED,
+        )
+        .await
+        {
+            Ok(None) => {
+                if let Err(e) = settings.set_admin_enabled(true).await {
+                    warn!("[Admin] Failed to persist dev default admin_enabled: {}", e);
+                } else {
+                    info!("[Admin] Dev default: enabled web admin (setting was unset)");
+                }
+                return true;
+            }
+            Ok(Some(_)) => {}
+            Err(e) => warn!("[Admin] Could not read admin_enabled: {}", e),
+        }
+    }
+
+    settings.get_admin_enabled().await
 }
 
 /// Resolve the built frontend directory for static SPA serving.
@@ -394,7 +433,7 @@ pub async fn start_admin_server_if_enabled(
 ) {
     let app_state: tauri::State<'_, AppState> = app.state();
     let settings = AppSettingsService::new(app_state.settings_repository.clone());
-    if !settings.get_admin_enabled().await {
+    if !resolve_admin_enabled_for_startup(app_state.inner()).await {
         info!("[Admin] Web admin disabled (gateway.admin_enabled=false)");
         return;
     }
@@ -438,6 +477,7 @@ pub async fn start_admin_server_if_enabled(
     };
 
     let frontend_dist = resolve_frontend_dist(&app);
+    let dist_ready = frontend_dist.join("index.html").is_file();
     let auto_launch_enabled = app
         .try_state::<tauri_plugin_autostart::AutoLaunchManager>()
         .and_then(|manager| manager.is_enabled().ok());
@@ -489,9 +529,19 @@ pub async fn start_admin_server_if_enabled(
 
     let handle = server.spawn();
     info!(
-        "[Admin] Started on {}:{} (cf_access={})",
-        config.host, config.port, config.trust_cf_access
+        "[Admin] Started on http://{}:{} (cf_access={}, static_spa={})",
+        config.host, config.port, config.trust_cf_access, dist_ready
     );
+    info!(
+        "[Admin] Dev HMR UI: http://127.0.0.1:1420 (Vite proxies /api → :{}) — run pnpm dev:web:admin or pnpm dev:admin",
+        config.port
+    );
+    if !dist_ready {
+        info!(
+            "[Admin] Production-parity UI: run `pnpm build:web:admin` then open http://127.0.0.1:{}/",
+            config.port
+        );
+    }
 
     let mut guard = admin_state.write().await;
     guard.handle = Some(handle);
