@@ -1,4 +1,9 @@
+import { flushPendingDeepLink } from '@/lib/backend/shell';
+
 import { apiCall } from './transport';
+
+/** Desktop-only: replay a buffered OAuth consent deep link after listeners attach. */
+export { flushPendingDeepLink };
 
 /** Inbound client registration type (per MCP spec 2025-11-25). */
 export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';

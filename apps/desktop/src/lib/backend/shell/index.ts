@@ -4,11 +4,7 @@ import { open, type OpenDialogOptions } from '@tauri-apps/plugin-dialog';
 import { relaunch } from '@tauri-apps/plugin-process';
 import type { Update } from '@tauri-apps/plugin-updater';
 
-import type {
-  ExportClientType,
-  ExportConfigRequest,
-  ExportConfigResponse,
-} from '@/lib/api/configExport';
+import type { ExportConfigRequest } from '@/lib/api/configExport';
 import type { AdminWebSettings } from '@/lib/api/settings';
 
 import { apiCall, isTauri } from '../data/transport';
@@ -255,45 +251,13 @@ export async function addToCursor(gatewayUrl: string): Promise<void> {
 }
 
 /**
- * Preview generated MCP client config JSON without writing to disk (desktop only).
- */
-export async function previewConfigExport(
-  request: ExportConfigRequest
-): Promise<ExportConfigResponse> {
-  return invoke('preview_config_export', { request });
-}
-
-/**
- * Write generated MCP client config JSON to the given file path (desktop only).
+ * Write generated MCP client config JSON to a user-selected path (desktop only).
  */
 export async function exportConfigToFile(
   request: ExportConfigRequest,
   path: string
 ): Promise<string> {
   return invoke('export_config_to_file', { request, path });
-}
-
-/**
- * Default config file paths per client type (desktop only).
- */
-export async function getConfigPaths(): Promise<Record<string, string | null>> {
-  return invoke('get_config_paths');
-}
-
-/**
- * Whether a config file exists at the default path for a client type (desktop only).
- */
-export async function checkConfigExists(clientType: ExportClientType): Promise<boolean> {
-  return invoke('check_config_exists', { clientType });
-}
-
-/**
- * Copy an existing default config to a `.json.bak` sibling before overwrite (desktop only).
- */
-export async function backupExistingConfig(
-  clientType: ExportClientType
-): Promise<string | null> {
-  return invoke('backup_existing_config', { clientType });
 }
 
 /**

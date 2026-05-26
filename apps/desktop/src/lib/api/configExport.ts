@@ -1,10 +1,6 @@
-import {
-  backupExistingConfig as shellBackupExistingConfig,
-  checkConfigExists as shellCheckConfigExists,
-  exportConfigToFile as shellExportConfigToFile,
-  getConfigPaths as shellGetConfigPaths,
-  previewConfigExport as shellPreviewConfigExport,
-} from '@/lib/backend/shell';
+import { exportConfigToFile as shellExportConfigToFile } from '@/lib/backend/shell';
+
+import { apiCall } from './transport';
 
 /** Supported MCP client config export targets. */
 export type ExportClientType = 'cursor' | 'vscode' | 'claude';
@@ -29,11 +25,11 @@ export interface ExportConfigResponse {
 export async function previewConfigExport(
   request: ExportConfigRequest
 ): Promise<ExportConfigResponse> {
-  return shellPreviewConfigExport(request);
+  return apiCall('preview_config_export', { request });
 }
 
 /**
- * Write generated MCP client config JSON to the given file path.
+ * Write generated MCP client config JSON to the given file path (desktop shell only).
  *
  * @returns Absolute path of the written file.
  */
@@ -48,14 +44,14 @@ export async function exportConfigToFile(
  * Default config file paths per client type (`cursor`, `vscode`, `claude`).
  */
 export async function getConfigPaths(): Promise<Record<string, string | null>> {
-  return shellGetConfigPaths();
+  return apiCall('get_config_paths');
 }
 
 /**
  * Whether a config file already exists at the default path for a client type.
  */
 export async function checkConfigExists(clientType: ExportClientType): Promise<boolean> {
-  return shellCheckConfigExists(clientType);
+  return apiCall('check_config_exists', { clientType });
 }
 
 /**
@@ -66,5 +62,5 @@ export async function checkConfigExists(clientType: ExportClientType): Promise<b
 export async function backupExistingConfig(
   clientType: ExportClientType
 ): Promise<string | null> {
-  return shellBackupExistingConfig(clientType);
+  return apiCall('backup_existing_config', { clientType });
 }
