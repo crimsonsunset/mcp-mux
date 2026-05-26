@@ -226,7 +226,8 @@ Prompts and resources: unchanged in Phases A–C — still materialized per gran
 
 | Payload shape | Applicable filter keys | Behavior |
 | ------------- | ---------------------- | -------- |
-| Plain text (`content[].text` non-JSON) | `max_bytes` only | Returns `{ returned, total, truncated, text }` envelope when over limit. `max_rows` / `fields` / `format` ignored. |
+| Plain text (`content[].text` non-JSON, non-YAML document) | `max_bytes` only | Returns `{ returned, total, truncated, text }` envelope when over limit. `max_rows` / `fields` / `format` ignored. |
+| YAML mapping/sequence in `content[].text` | `max_rows`, `fields`, `format`, `max_bytes` | Parsed via `yaml_serde` → `serde_json::Value`, then same shaping as JSON. Keys like `results[16]` normalize to `results`. |
 | Top-level JSON array | `max_rows`, `fields`, `format`, `max_bytes` | When `total > max_rows`: `{ returned, total, truncated, items: [...] }` |
 | JSON object with heavy array key (`issues`, `items`, `results`, …) | same | Metadata merged at object top-level; array under original key name |
 | JSON serialized inside text content block | same | Parsed then shaped; re-serialized into `text` |

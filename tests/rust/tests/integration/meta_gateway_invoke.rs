@@ -960,6 +960,141 @@ async fn invoke_filter_shapes_structured_insights_payload() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn invoke_filter_shapes_posthog_paginated_results_in_content_json() {
+    let results: Vec<Value> = (0..16)
+        .map(|i| {
+            json!({
+                "name": format!("Insight {i}"),
+                "short_id": format!("ins-{i}"),
+                "description": "noise"
+            })
+        })
+        .collect();
+    let payload = json!({
+        "count": 16,
+        "next": null,
+        "previous": null,
+        "results": results,
+    });
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": payload.to_string(),
+        })],
+        structured_content: None,
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("posthog-personal-gait_insights-list", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+
+    let tool = ServerFeature::tool(f.space_id, "posthog-personal-gait", "insights-list");
+    f.server_feature_repo.upsert(&tool).await.unwrap();
+    let mut fs = FeatureSet::new_custom("GAIT insights paginated", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: tool.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides
+        .enable(&f.session_id, "posthog-personal-gait");
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "posthog-personal-gait",
+                "tool": "insights-list",
+                "args": {},
+                "filter": { "max_rows": 3, "fields": ["name", "short_id"] }
+            }),
+        )
+        .await;
+
+    assert!(!result.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("returned"), Some(&json!(3)));
+    assert_eq!(body.get("total"), Some(&json!(16)));
+    assert_eq!(body.get("truncated"), Some(&json!(true)));
+    let sample = body.get("results").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sample.len(), 3);
+
+    let structured = result.structured_content.expect("structured mirrored");
+    assert_eq!(structured.get("returned"), Some(&json!(3)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_filter_shapes_posthog_paginated_results_in_content_yaml() {
+    let mut yaml = String::from(
+        "count: 16\nnext: null\nprevious: null\nresults[16]:\n",
+    );
+    for i in 0..16 {
+        yaml.push_str(&format!(
+            "  - name: Insight {i}\n    short_id: ins-{i}\n    description: noise\n"
+        ));
+    }
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": yaml,
+        })],
+        structured_content: None,
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("posthog-personal-gait_insights-list", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+
+    let tool = ServerFeature::tool(f.space_id, "posthog-personal-gait", "insights-list");
+    f.server_feature_repo.upsert(&tool).await.unwrap();
+    let mut fs = FeatureSet::new_custom("GAIT insights yaml", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: tool.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.session_overrides
+        .enable(&f.session_id, "posthog-personal-gait");
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "posthog-personal-gait",
+                "tool": "insights-list",
+                "args": {},
+                "filter": { "max_rows": 3, "fields": ["name", "short_id"] }
+            }),
+        )
+        .await;
+
+    assert!(!result.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("returned"), Some(&json!(3)));
+    assert_eq!(body.get("total"), Some(&json!(16)));
+    assert_eq!(body.get("truncated"), Some(&json!(true)));
+    let sample = body.get("results").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sample.len(), 3);
+
+    let structured = result.structured_content.expect("structured mirrored");
+    assert_eq!(structured.get("returned"), Some(&json!(3)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn invoke_filter_aggregates_multi_block_content() {
     let blocks: Vec<Value> = (0..8)
         .map(|i| {
