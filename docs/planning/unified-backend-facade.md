@@ -1,7 +1,7 @@
 # Unified Backend Facade (Option 4A)
 
-**Last Updated:** May 26, 2026
-**Status:** Planning
+**Last Updated:** May 26, 2026  
+**Status:** Planning — **partial prep on `feat/web-ui`** (facade tree not started; route split + shell behaviors landed pre-merge)  
 **Branch:** TBD — suggest `feat/backend-facade` off **`dev`** (after [`feat/web-ui`](./web-admin-remote-access.md) merges or rebases)
 **Base branch:** `dev`
 **Issue:** TBD
@@ -22,6 +22,21 @@ That produced real bugs in the browser:
 - Dev confusion: `:1420` (Vite) vs `:45819` (admin) — data path works only when admin is on + proxy configured
 
 **This is not “we need a second API.”** Data is ~already unified via `apiCall()`. The gap is **discipline and surface area**: UI must not import `@tauri-apps/*`; events and shell need explicit modules with documented web behavior.
+
+### Pre-facade work on `feat/web-ui` (May 26, 2026)
+
+Post-review commits did **not** create `lib/backend/` yet, but they reduce Phase 1/3/4 scope:
+
+| Item | Status | Notes |
+| ---- | ------ | ----- |
+| Split `fetch-api.ts` route map | ✅ Done | `lib/api/fetch-api.routes/*` + helpers/types; transport core ~180 lines |
+| `open_url` parity | ✅ Done | REST endpoint removed; `gateway.ts` branches on `isTauri()` |
+| Admin settings web UX | ✅ Partial | `SettingsPage` hides admin card when `!isTauri()` — still invoke-only |
+| Live gateway integration test | ✅ Done | `LiveGatewayRuntime` + `admin_api_live_gateway.rs` |
+| ESLint `@tauri-apps` boundary | ⬜ Not started | Phase 1 deliverable |
+| `lib/backend/` scaffold | ⬜ Not started | Phase 1 deliverable |
+
+**Estimated remaining effort after merge:** ~2–2.5 days (down from ~3 days).
 
 ---
 
@@ -66,7 +81,8 @@ features/, components/, hooks/ (non-backend)
         │
         ├── data/               ← today’s lib/api/* (all use apiCall)
         │     transport.ts      ← isTauri() + invoke vs fetchApi
-        │     fetch-api.ts
+        │     fetch-api.ts      ← HTTP transport (CSRF, retry)
+        │     fetch-api.routes/ ← per-resource routeFor switches
         │     spaces.ts, gateway.ts, …
         │
         ├── events/             ← useDomainEvents (+ web SSE) unified export
@@ -122,7 +138,7 @@ features/, components/, hooks/ (non-backend)
 | [`apps/desktop/src/lib/api/configExport.ts`](../../apps/desktop/src/lib/api/configExport.ts) | `apiCall` for preview/export where HTTP exists; file path via shell |
 | [`apps/desktop/src/lib/api/registry.ts`](../../apps/desktop/src/lib/api/registry.ts) | `set_server_enabled` → remove or `apiCall` |
 | [`apps/desktop/src/lib/api/settings.ts`](../../apps/desktop/src/lib/api/settings.ts) | Admin settings → shell; rest stays data |
-| [`apps/desktop/src/lib/api/gateway.ts`](../../apps/desktop/src/lib/api/gateway.ts) | `open_url` invoke branch → shell or unified apiCall |
+| [`apps/desktop/src/lib/api/gateway.ts`](../../apps/desktop/src/lib/api/gateway.ts) | `openUrl` already branches on `isTauri()` — move to `backend.shell` in Phase 3 |
 | [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Move under `backend/events/`; ensure Tauri adapter no-ops when `!isTauri()` |
 | [`apps/desktop/src/hooks/useWorkspaceEvents.ts`](../../apps/desktop/src/hooks/useWorkspaceEvents.ts) | Fold into events facade or re-export only from `backend/events` |
 | [`apps/desktop/src/hooks/useOAuthClientEvents.ts`](../../apps/desktop/src/hooks/useOAuthClientEvents.ts) | Same |
@@ -148,7 +164,8 @@ features/, components/, hooks/ (non-backend)
 **Work**
 
 - [ ] Create `lib/backend/` tree and `index.ts` re-exporting existing `lib/api` modules
-- [ ] Move `transport.ts` + `fetch-api.ts` into `backend/`; shim `lib/api/transport.ts` re-exports
+- [x] Split `fetch-api` route map into per-resource modules — **done on `feat/web-ui`; still at `lib/api/` until move**
+- [ ] Move `transport.ts` + `fetch-api.ts` + `fetch-api.routes/` into `backend/`; shim `lib/api/transport.ts` re-exports
 - [ ] Add ESLint `no-restricted-imports` for `@tauri-apps/*` outside `lib/backend/**`
 - [ ] Document the three-channel model in this doc’s Architecture section (link from `AGENTS.md` one line)
 
@@ -175,7 +192,9 @@ features/, components/, hooks/ (non-backend)
 
 - [ ] Implement `backend.shell` modules (dialogs, updater, icons, client-install, admin-settings)
 - [ ] Migrate `App.tsx`, `UpdateChecker`, `ServersPage`, `WorkspacesPage`, `ServerIcon`, `ServerInstallModal`
-- [ ] Web: hide or disable UI that calls shell-only actions (Connect IDE install, open logs folder, updater banner)
+- [x] Web: hide admin settings card when `!isTauri()` — **done on `feat/web-ui`**
+- [ ] Web: hide or disable remaining shell-only UI (Connect IDE install, open logs folder, updater banner)
+- [ ] Move `openUrl` (`gateway.ts`) into `backend.shell`
 
 **Outcome:** Grep `apps/desktop/src` for `@tauri-apps` — hits only under `lib/backend/**`.
 
@@ -189,6 +208,7 @@ features/, components/, hooks/ (non-backend)
 - [ ] `registry.ts` — remove dead `set_server_enabled` invoke
 - [ ] `oauth.ts` — single path per command via `apiCall`; shell for `flush_pending_deep_link`
 - [ ] `settings.ts` — admin settings via shell only
+- [x] Remove fake `open_url` REST route — **done on `feat/web-ui`**
 
 **Outcome:** Every command in parity matrix that is “REST” uses `apiCall` only; desktop-only rows call `shell` only.
 
@@ -234,7 +254,9 @@ features/, components/, hooks/ (non-backend)
 | File | Why |
 | ---- | --- |
 | [`apps/desktop/src/lib/api/transport.ts`](../../apps/desktop/src/lib/api/transport.ts) | Existing unified command switch |
+| [`apps/desktop/src/lib/api/fetch-api.routes/`](../../apps/desktop/src/lib/api/fetch-api.routes/) | Per-resource route map (split pre-facade on `feat/web-ui`) |
 | [`apps/desktop/src/hooks/useDomainEvents.ts`](../../apps/desktop/src/hooks/useDomainEvents.ts) | Dual Tauri/web hooks — primary consolidation target |
+| [`docs/planning/pr-2-web-admin-code-review.md`](./pr-2-web-admin-code-review.md) | Post-review remediation status — what landed before facade work |
 | [`docs/planning/web-admin-remote-access.md`](./web-admin-remote-access.md) | Parent feature — `command_bridge` + admin HTTP |
 | [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) | Desktop-only vs REST rows inform `shell` vs `data` |
 
@@ -252,3 +274,5 @@ features/, components/, hooks/ (non-backend)
 ## Reconciliation
 
 Update **Status** and **Branch** when work starts. Do not start until `feat/web-ui` merge path is clear — this doc is frontend-only and should rebase on the branch that contains `apiCall` + admin server.
+
+**May 26, 2026:** `feat/web-ui` post-review commits (`0c1a017`, `cc7bf54`, `558a319`) completed fetch-api route split, `open_url` shell parity, admin settings web hide, and live gateway tests. Facade Phase 1 ESLint + `lib/backend/` tree remain the first tasks on `feat/backend-facade`.

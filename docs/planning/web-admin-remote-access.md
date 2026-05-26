@@ -559,6 +559,18 @@ Per-phase minimum (accumulative — later phases run all prior checks):
 
 This doc is the source of truth for web admin mode. Phases 1–8 are **Complete** on branch `feat/web-ui` (May 26, 2026). Homelab operator checklist: enable admin in Settings, `pnpm build:web:admin`, tunnel `mux.joe-hassio.com` → `:45819`, CF Access allow rule for operator email.
 
+**Post-phase-8 hardening (May 26, 2026):** PR #2 code review remediation in three commits — see [`pr-2-web-admin-code-review.md`](./pr-2-web-admin-code-review.md). Key additions beyond Phases 1–8:
+
+| Area | Files / behavior |
+| ---- | ---------------- |
+| Security | `test-utils` feature gate, OAuth log fix, CSRF `parking_lot` + constant-time compare, CF Access error propagation |
+| Resilience | Event hub task abort on reload, SSE warn-and-skip, SPA 503 build-hint when `index.html` missing |
+| Tests | `admin_api_regression.rs`, `admin_api_live_gateway.rs`, `security-negative.spec.ts`, OAuth log unit test |
+| Transport | `fetch-api.routes/*` split; `open_url` REST removed (desktop Tauri / web `window.open`) |
+| Backend runtime | `LiveGatewayRuntime` wired to real `GatewayServer` for integration tests |
+
+**Test counts (post-hardening):** 34 Rust admin integration tests; 106 vitest transport rows.
+
 **Decision record (May 25, 2026):** Web admin mode on fork selected over screen sharing (immediate but not web UI), tunneling `:1420` (broken), and full "McpMux Cloud" multi-tenant SaaS (months of work). CF Access at edge replaces building login UI. Separate admin port (`45819`) keeps MCP gateway surface unchanged.
 
 **Decision record (May 25, 2026 — testing):** Expanded from five implementation phases to **eight phases** with tests baked into each phase. Added parity matrix artifact, `command_bridge` pilot before HTTP reads, dedicated SSE phase, and WDIO→Playwright admin catalog in Phase 8. No HTTP handler ships without dual-entry test; no transport refactor without vitest row.
