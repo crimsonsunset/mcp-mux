@@ -116,6 +116,7 @@ pub fn build_default_registry(
     registry.register(Box::new(tools::ListServersTool));
     registry.register(Box::new(tools::SearchToolsTool));
     registry.register(Box::new(tools::GetToolSchemaTool));
+    registry.register(Box::new(diagnose::DiagnoseServerTool));
     registry.register(Box::new(invoke::InvokeToolTool));
     registry.register(Box::new(disclosure::SearchResourcesTool));
     registry.register(Box::new(disclosure::ReadResourceTool));
