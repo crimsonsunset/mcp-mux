@@ -2,7 +2,7 @@
 
 **Last Updated:** May 26, 2026
 **Status:** ✅ Phases A–D implemented and manually QA complete — see [`meta-gateway-invoke-qa.md`](./meta-gateway-invoke-qa.md)
-**Branch:** `dev` on the personal fork (see [`fork-integration.md`](./fork-integration.md))
+**Branch:** `dev` on the personal fork
 **Base branch:** `feat/dynamic-mcp-toggle-meta-tools` on fork; upstream contribution is topic-stacked, not `main`
 **Issue:** Fork-only; upstream megapr [#155](https://github.com/mcpmux/mcp-mux/pull/155) closed — use #154 stack for meta-tools upstream
 **Depends on:** [`dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) (session overrides + meta-tool registry); benefits from workspace bindings / FeatureSets from PR #151
@@ -54,7 +54,7 @@ This doc defines that model for McpMux while preserving its product strengths: O
 | 10 | Rollout | **Hard cut — no legacy opt-out** | Non-surfaced backend tools never appear in `tools/list` and direct `call_tool` is rejected with a redirect to `mcpmux_invoke_tool`. **Exception:** FeatureSet members marked `surfaced: true` are promoted into `tools/list` and callable in one hop. No `expose_backend_tools_in_list` setting. Ship in one release; document migration in CHANGELOG. |
 | 11 | `mcpmux_list_all_tools` | **Keep as operator/diagnostic tool** — not the primary agent discovery path | Still useful for FeatureSet authoring and UI. Doc + descriptions steer agents to `search_tools`. Consider server_id filter arg in Phase A to avoid 855 KB dumps. |
 | 12 | Result shaping scope | **Phase B only on `invoke_tool`** — opt-in via explicit `filter`: `max_rows`, `max_bytes`, `fields`, `format: summary`. Omit filter → backend response as-is. | Agents pass `filter` when they know a tool returns large payloads. No default truncation. |
-| 13 | REST / OpenAPI capabilities | **Out of scope here** — Phase E / separate planning doc | [`web-admin-remote-access.md`](./web-admin-remote-access.md) covers admin REST, not REST→MCP capability YAML. No conflict; different layer. |
+| 13 | REST / OpenAPI capabilities | **Out of scope here** — Phase E / separate planning doc | [`docs/guide/gateway.mdx`](../guide/gateway.mdx) covers admin REST, not REST→MCP capability YAML. No conflict; different layer. |
 
 ---
 
@@ -329,7 +329,7 @@ Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts
 
 | Item | Reason |
 | ---- | ------ |
-| [`web-admin-remote-access.md`](./web-admin-remote-access.md) | Remote admin UI — parallel track, no overlap |
+| [`docs/guide/gateway.mdx`](../guide/gateway.mdx) | Remote admin UI — parallel track, no overlap |
 | Full abdullah 15-layer stack | Phase D picks winners after A+B prove value |
 | Removing `mcpmux_enable_server` | Still gates invoke eligibility; still needed when server not in binding |
 | Auto-enable server on failed invoke | Silent enable defeats audit trail — rejected in dynamic-toggle doc |
@@ -358,7 +358,7 @@ Prompts and resources: **hard cut in Phase D** — `resources/list` and `prompts
 - [`docs/planning/dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) — session overrides (complete)
 - [`docs/planning/tool-level-session-pin.md`](./tool-level-session-pin.md) — superseded; Phase F may revive as invoke ACL only if needed
 - [`docs/planning/server-account-clones.md`](./server-account-clones.md) — origin of 240-tool bloat evidence
-- [`docs/planning/web-admin-remote-access.md`](./web-admin-remote-access.md) — remote operator UI (orthogonal)
+- [`docs/guide/gateway.mdx`](../guide/gateway.mdx) — remote operator UI (orthogonal)
 - [MikkoParkkola/mcp-gateway](https://github.com/MikkoParkkola/mcp-gateway) — `gateway_search_tools` / `gateway_invoke` reference
 - [abdullah1854/MCPGateway](https://github.com/abdullah1854/MCPGateway) — `gateway_get_tool_schema` / result filtering reference
 
