@@ -99,6 +99,18 @@ impl CfAccessValidator {
     }
 
     /// Fetch team certs from Cloudflare and build a validator.
+    ///
+    /// CF's `/cdn-cgi/access/certs` endpoint returns three representations of
+    /// the same signing material:
+    /// - `keys` — JWKS format (`{kid, kty, alg, use, e, n}`) — standard JWT key
+    ///   format directly consumable by `DecodingKey::from_jwk`
+    /// - `public_cert` / `public_certs` — X.509 certificates in PEM form
+    ///
+    /// We use `keys` because `jsonwebtoken::DecodingKey::from_rsa_pem` does
+    /// NOT support X.509 certificate PEM — only PKCS#1 RSA Public Key or
+    /// PKCS#8 SubjectPublicKeyInfo. Feeding it a full X.509 cert produces a
+    /// malformed key that fails every signature verification with
+    /// `InvalidSignature`. JWKS sidesteps that entirely.
     pub async fn from_team_domain(
         team_domain: &str,
         audience: Option<String>,
@@ -118,15 +130,39 @@ impl CfAccessValidator {
             .json()
             .await
             .map_err(|e| CfAccessError::Config(format!("cert JSON parse failed: {e}")))?;
-        Self::from_pem_certs(body.public_certs, Some(issuer), audience)
+        if body.keys.is_empty() {
+            return Err(CfAccessError::Config(
+                "CF certs response has no JWKS keys".into(),
+            ));
+        }
+        let mut keys = Vec::with_capacity(body.keys.len());
+        for jwk in body.keys {
+            let key = DecodingKey::from_jwk(&jwk).map_err(|e| {
+                CfAccessError::Config(format!("invalid JWK from CF Access: {e}"))
+            })?;
+            keys.push(key);
+        }
+        Ok(Self {
+            keys,
+            issuer: Some(issuer),
+            audience,
+        })
     }
 
     /// Validate a JWT string and return decoded claims.
+    ///
+    /// `validate_aud` is gated on whether an audience is configured. The
+    /// `jsonwebtoken` crate defaults `validate_aud` to `true`, which rejects
+    /// tokens carrying an `aud` claim when the validator's audience set is
+    /// empty — even when the signature and issuer are valid. CF Access JWTs
+    /// always carry `aud` (the application UUID), so leaving the default in
+    /// place breaks every token when the operator has not pasted the AUD tag.
     pub fn validate(&self, token: &str) -> Result<CfAccessClaims, CfAccessError> {
         let header = decode_header(token).map_err(|e| CfAccessError::InvalidJwt(e.to_string()))?;
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.validate_exp = true;
+        validation.validate_aud = self.audience.is_some();
         if let Some(ref iss) = self.issuer {
             validation.set_issuer(&[iss.as_str()]);
         }
@@ -156,10 +192,14 @@ impl CfAccessValidator {
     }
 }
 
+/// Cloudflare Access `/cdn-cgi/access/certs` response shape.
+///
+/// We deserialize only `keys` (the JWKS) and ignore the X.509 `public_cert` /
+/// `public_certs` fields. See `from_team_domain` for why.
 #[derive(Debug, Deserialize)]
 struct CertsResponse {
     #[serde(default)]
-    public_certs: Vec<String>,
+    keys: Vec<jsonwebtoken::jwk::Jwk>,
 }
 
 /// Axum middleware: require valid CF Access JWT when enabled in config.

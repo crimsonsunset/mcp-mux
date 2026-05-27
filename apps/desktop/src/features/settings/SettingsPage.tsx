@@ -738,7 +738,7 @@ export function SettingsPage() {
                           />
                         </div>
 
-                        {adminWeb.trustCfAccess ? (
+                        {adminWeb.enabled ? (
                           <div>
                             <label
                               htmlFor="admin-cf-domain-input"
@@ -746,6 +746,10 @@ export function SettingsPage() {
                             >
                               Cloudflare team domain
                             </label>
+                            <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                              Set this before enabling Trust CF Access JWT. Just the team slug
+                              (e.g. <code>your-team</code>), not the full URL.
+                            </p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <input
                                 id="admin-cf-domain-input"
