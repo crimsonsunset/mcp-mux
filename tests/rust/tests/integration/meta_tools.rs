@@ -80,7 +80,10 @@ fn test_server_manager(
 ) -> Arc<ServerManager> {
     let credential_repo = Arc::new(MockCredentialRepository::new());
     let oauth_repo = Arc::new(MockOutboundOAuthRepository::new());
-    let token_service = Arc::new(TokenService::new(credential_repo.clone(), oauth_repo.clone()));
+    let token_service = Arc::new(TokenService::new(
+        credential_repo.clone(),
+        oauth_repo.clone(),
+    ));
     let oauth_manager = Arc::new(OutboundOAuthManager::new());
     let connection_service = Arc::new(ConnectionService::new(
         token_service,
@@ -241,11 +244,8 @@ impl Fixture {
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
         let (tx, event_rx) = broadcast::channel::<DomainEvent>(32);
         let log_manager = test_log_manager();
-        let server_manager = test_server_manager(
-            tx.clone(),
-            feature_service.clone(),
-            prefix_cache.clone(),
-        );
+        let server_manager =
+            test_server_manager(tx.clone(), feature_service.clone(), prefix_cache.clone());
 
         let registry = meta_tools::build_default_registry(
             client_repo.clone(),
@@ -1039,11 +1039,7 @@ async fn bare_registry(
     ));
     let (tx, rx) = broadcast::channel::<DomainEvent>(32);
     let log_manager = test_log_manager();
-    let server_manager = test_server_manager(
-        tx.clone(),
-        feature_service.clone(),
-        prefix_cache,
-    );
+    let server_manager = test_server_manager(tx.clone(), feature_service.clone(), prefix_cache);
     let registry = meta_tools::build_default_registry(
         client_repo,
         space_repo,
@@ -1167,11 +1163,7 @@ async fn master_switch_toggles_registry_visibility() {
     ));
     let (tx, _) = broadcast::channel::<DomainEvent>(16);
     let log_manager = test_log_manager();
-    let server_manager = test_server_manager(
-        tx.clone(),
-        feature_service.clone(),
-        prefix_cache,
-    );
+    let server_manager = test_server_manager(tx.clone(), feature_service.clone(), prefix_cache);
     let registry = meta_tools::build_default_registry(
         client_repo,
         space_repo,
@@ -1335,10 +1327,7 @@ async fn diagnose_no_arg_returns_only_unhealthy_servers() {
         servers[0].get("server_id").unwrap().as_str().unwrap(),
         "firebase"
     );
-    assert_eq!(
-        servers[0].get("health").unwrap().as_str().unwrap(),
-        "error"
-    );
+    assert_eq!(servers[0].get("health").unwrap().as_str().unwrap(), "error");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -1,7 +1,7 @@
 //! Admin HTTP write integration tests (Phase 6).
 
-use mcpmux_gateway::admin::command_bridge::{read as bridge_read, write as bridge_write};
 use mcpmux_gateway::admin::command_bridge::write::CreateSpaceBody;
+use mcpmux_gateway::admin::command_bridge::{read as bridge_read, write as bridge_write};
 use mcpmux_gateway::admin::AdminConfig;
 use serde_json::json;
 
@@ -83,10 +83,7 @@ async fn write_endpoints_match_bridge_for_spaces_and_settings() {
     .expect("bridge create space");
 
     let create_http = client
-        .post_response(
-            "/api/v1/spaces",
-            &json!({ "name": "HTTP Dual Space" }),
-        )
+        .post_response("/api/v1/spaces", &json!({ "name": "HTTP Dual Space" }))
         .await;
     assert_eq!(create_http.status(), 200);
 
@@ -119,7 +116,10 @@ async fn write_endpoints_match_bridge_for_spaces_and_settings() {
     assert_eq!(settings_bridge["ok"], true);
 
     let settings_http = client
-        .put_response("/api/v1/settings/meta-tools-enabled", &json!({ "enabled": false }))
+        .put_response(
+            "/api/v1/settings/meta-tools-enabled",
+            &json!({ "enabled": false }),
+        )
         .await;
     assert_eq!(settings_http.status(), 200);
 

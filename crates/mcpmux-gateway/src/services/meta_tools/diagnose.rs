@@ -70,9 +70,7 @@ pub fn parse_missing_required_inputs(installed: &InstalledServer) -> Vec<String>
         if !input.required {
             continue;
         }
-        let has_value = values
-            .get(&input.id)
-            .is_some_and(|v| !v.is_empty());
+        let has_value = values.get(&input.id).is_some_and(|v| !v.is_empty());
         if !has_value {
             missing.push(input.id.clone());
         }
@@ -125,7 +123,9 @@ fn build_config_view_from_definition(definition: &ServerDefinition) -> ConfigVie
     input_keys.dedup();
 
     match &definition.transport {
-        TransportConfig::Stdio { command, args, env, .. } => {
+        TransportConfig::Stdio {
+            command, args, env, ..
+        } => {
             let mut env_keys: Vec<String> = env.keys().cloned().collect();
             env_keys.sort();
 
@@ -419,7 +419,8 @@ impl MetaTool for DiagnoseServerTool {
 
             let tool_count = tool_counts.get(&server.server_id).copied().unwrap_or(0);
             servers.push(
-                build_server_diagnosis(&call, &space_id, server, runtime, tool_count, &args).await?,
+                build_server_diagnosis(&call, &space_id, server, runtime, tool_count, &args)
+                    .await?,
             );
         }
 
@@ -432,9 +433,7 @@ impl MetaTool for DiagnoseServerTool {
 
         let total_unhealthy = servers
             .iter()
-            .filter(|entry| {
-                entry.get("health").and_then(|v| v.as_str()) != Some("healthy")
-            })
+            .filter(|entry| entry.get("health").and_then(|v| v.as_str()) != Some("healthy"))
             .count();
 
         Ok(text_result(json!({

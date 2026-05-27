@@ -8,18 +8,19 @@ use mcpmux_core::{
     ApplicationServices, ApplicationServicesBuilder, EventBus, GatewayPortService, LogConfig,
     ServerDiscoveryService, ServerLogManager, SpaceRepository, SpaceService,
 };
+use mcpmux_gateway::admin::CSRF_HEADER;
 use mcpmux_gateway::admin::{
-    command_bridge::read as bridge_read,
-    build_admin_router, format_bridge_error_message, new_csrf_token_store, test_valid_jwt,
-    test_validator, AdminConfig, AdminState, AdminBridgeCtx, CF_ACCESS_JWT_HEADER,
-    StubGatewayRuntime, StubGatewayWriteRuntime, AdminEventHub, AdminUiEventBus,
+    build_admin_router, command_bridge::read as bridge_read, format_bridge_error_message,
+    new_csrf_token_store, test_valid_jwt, test_validator, AdminBridgeCtx, AdminConfig,
+    AdminEventHub, AdminState, AdminUiEventBus, StubGatewayRuntime, StubGatewayWriteRuntime,
+    CF_ACCESS_JWT_HEADER,
 };
 use mcpmux_storage::{
     Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
-    SqliteInboundMcpClientRepository, SqliteInstalledServerRepository, SqliteServerFeatureRepository,
-    SqliteSpaceRepository, SqliteWorkspaceAppearanceRepository, SqliteWorkspaceBindingRepository,
+    SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
+    SqliteServerFeatureRepository, SqliteSpaceRepository, SqliteWorkspaceAppearanceRepository,
+    SqliteWorkspaceBindingRepository,
 };
-use mcpmux_gateway::admin::CSRF_HEADER;
 use reqwest::{Client, RequestBuilder, Response};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -45,7 +46,8 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
     let settings_repo = Arc::new(SqliteAppSettingsRepository::new(db.clone()));
     let gateway_port_service = Arc::new(GatewayPortService::new(settings_repo.clone()));
     let workspace_binding_repository = Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
-    let workspace_appearance_repository = Arc::new(SqliteWorkspaceAppearanceRepository::new(db.clone()));
+    let workspace_appearance_repository =
+        Arc::new(SqliteWorkspaceAppearanceRepository::new(db.clone()));
     let server_feature_repository = Arc::new(SqliteServerFeatureRepository::new(db.clone()));
 
     let services = Arc::new(
@@ -60,7 +62,8 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
             .build()
             .expect("build ApplicationServices"),
     );
-    let space_service = SpaceService::with_feature_set_repository(space_repo, feature_set_repo.clone());
+    let space_service =
+        SpaceService::with_feature_set_repository(space_repo, feature_set_repo.clone());
     let data_dir = temp_dir.path().join("data");
     let spaces_dir = data_dir.join("spaces");
     std::fs::create_dir_all(&spaces_dir).expect("create spaces");
@@ -69,7 +72,10 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
         spaces_dir,
         data_dir: data_dir.clone(),
         gateway_port_service: gateway_port_service.clone(),
-        server_discovery: Arc::new(ServerDiscoveryService::new(data_dir.clone(), data_dir.join("spaces"))),
+        server_discovery: Arc::new(ServerDiscoveryService::new(
+            data_dir.clone(),
+            data_dir.join("spaces"),
+        )),
         settings_repository: settings_repo,
         workspace_binding_repository,
         workspace_appearance_repository,
@@ -424,7 +430,9 @@ async fn read_endpoints_match_bridge_for_core_p4_routes() {
         &harness,
         &client,
         "/api/v1/spaces",
-        bridge_read::list_spaces(&harness.bridge).await.expect("bridge list_spaces"),
+        bridge_read::list_spaces(&harness.bridge)
+            .await
+            .expect("bridge list_spaces"),
     )
     .await;
 

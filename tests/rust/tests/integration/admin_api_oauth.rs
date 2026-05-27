@@ -8,7 +8,9 @@ use mcpmux_gateway::admin::AdminConfig;
 use mcpmux_gateway::oauth::PkceChallenge;
 use mcpmux_gateway::oauth_token;
 use mcpmux_gateway::{GatewayState, PendingAuthorization};
-use mcpmux_storage::{Database, InboundClient, InboundClientRepository, JWT_SECRET_SIZE, RegistrationType};
+use mcpmux_storage::{
+    Database, InboundClient, InboundClientRepository, RegistrationType, JWT_SECRET_SIZE,
+};
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -251,9 +253,7 @@ async fn oauth_consent_approve_via_http_issues_token() {
     assert_eq!(approve.status(), 200);
     let approve_body: serde_json::Value = approve.json().await.expect("approve json");
     assert_eq!(approve_body["success"], true);
-    let redirect_url = approve_body["redirect_url"]
-        .as_str()
-        .expect("redirect url");
+    let redirect_url = approve_body["redirect_url"].as_str().expect("redirect url");
     let code = redirect_url
         .split("code=")
         .nth(1)

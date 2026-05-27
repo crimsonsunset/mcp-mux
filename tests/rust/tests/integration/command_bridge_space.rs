@@ -2,12 +2,8 @@
 
 use std::sync::Arc;
 
-use mcpmux_core::{
-    ApplicationServices, ApplicationServicesBuilder, EventBus, SpaceRepository,
-};
-use mcpmux_gateway::admin::command_bridge::space::{
-    self, SpaceBridgeCtx, UpdateSpaceInput,
-};
+use mcpmux_core::{ApplicationServices, ApplicationServicesBuilder, EventBus, SpaceRepository};
+use mcpmux_gateway::admin::command_bridge::space::{self, SpaceBridgeCtx, UpdateSpaceInput};
 use mcpmux_storage::{Database, SqliteSpaceRepository};
 use tempfile::TempDir;
 use tokio::sync::Mutex;

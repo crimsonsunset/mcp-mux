@@ -79,7 +79,9 @@ async fn assert_sse_matches_direct_emit(channel: &str, payload: serde_json::Valu
         .await
         .expect("SSE connect");
 
-    harness.event_hub.publish_test_event(channel, payload.clone());
+    harness
+        .event_hub
+        .publish_test_event(channel, payload.clone());
 
     let (got_channel, got_payload) = read_sse_frame(&mut sse)
         .await
@@ -250,7 +252,9 @@ async fn sse_meta_tool_invoked_matches_tauri_shape() {
         .expect("object payload")
         .remove("timestamp");
     let mut got = payload;
-    got.as_object_mut().expect("object payload").remove("timestamp");
+    got.as_object_mut()
+        .expect("object payload")
+        .remove("timestamp");
     assert_eq!(got, expected_payload);
 
     harness.shutdown();

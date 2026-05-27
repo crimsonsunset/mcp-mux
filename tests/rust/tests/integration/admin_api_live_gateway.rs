@@ -4,19 +4,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mcpmux_core::{
-    ApplicationServicesBuilder, EventBus, GatewayPortService, LogConfig,
-    ServerDiscoveryService, ServerLogManager, SpaceRepository, SpaceService,
+    ApplicationServicesBuilder, EventBus, GatewayPortService, LogConfig, ServerDiscoveryService,
+    ServerLogManager, SpaceRepository, SpaceService,
 };
 use mcpmux_gateway::admin::command_bridge::read as bridge_read;
 use mcpmux_gateway::admin::{
     AdminBridgeCtx, AdminConfig, LiveGatewayRuntime, StubGatewayWriteRuntime,
 };
-use mcpmux_gateway::{
-    DependenciesBuilder, GatewayConfig, GatewayServer, GatewayServerHandle,
-};
+use mcpmux_gateway::{DependenciesBuilder, GatewayConfig, GatewayServer, GatewayServerHandle};
 use mcpmux_storage::{
-    Database, SqliteAppSettingsRepository, SqliteCredentialRepository,
-    SqliteFeatureSetRepository, SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
+    Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
+    SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
     SqliteOutboundOAuthRepository, SqliteServerFeatureRepository, SqliteSpaceRepository,
     SqliteWorkspaceAppearanceRepository, SqliteWorkspaceBindingRepository,
 };
@@ -202,9 +200,7 @@ async fn live_gateway_port_settings_reflects_active_listen_url() {
     let bridge_settings = bridge_read::get_gateway_port_settings(&fixture.harness.bridge)
         .await
         .expect("port settings");
-    let active_port = bridge_settings["activePort"]
-        .as_u64()
-        .expect("active port");
+    let active_port = bridge_settings["activePort"].as_u64().expect("active port");
     assert!(fixture.listen_url.contains(&format!(":{active_port}")));
 
     fixture.shutdown();

@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mcpmux_gateway::admin::{
-    build_admin_router, new_csrf_token_store, AdminConfig, AdminEventHub, AdminState, AdminUiEventBus,
+    build_admin_router, new_csrf_token_store, AdminConfig, AdminEventHub, AdminState,
+    AdminUiEventBus,
 };
 
 use super::admin_api::{in_memory_services, AdminHarness};

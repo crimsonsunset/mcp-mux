@@ -1478,17 +1478,12 @@ async fn read_resource_routes_clone_server_not_inactive_parent() {
     f.session_overrides
         .enable(&f.session_id, "posthog-personal-gait");
 
-    let read = f
-        .call("mcpmux_read_resource", json!({ "uri": uri }))
-        .await;
+    let read = f.call("mcpmux_read_resource", json!({ "uri": uri })).await;
     let body = Fixture::result_json(&read);
     assert_eq!(body.get("uri"), Some(&json!(uri)));
     let contents = body.get("contents").unwrap().as_array().unwrap();
     assert_eq!(contents.len(), 1);
-    assert_eq!(
-        contents[0].get("text"),
-        Some(&json!("audit skill body"))
-    );
+    assert_eq!(contents[0].get("text"), Some(&json!("audit skill body")));
 }
 
 #[test]
