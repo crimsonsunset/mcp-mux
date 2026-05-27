@@ -12,11 +12,15 @@ use std::time::Duration;
 use futures::FutureExt;
 use mcpmux_core::{
     normalize_workspace_root, Client, DomainEvent, FeatureSet, FeatureSetMember,
-    FeatureSetRepository, InboundMcpClientRepository, InstalledServer, InstalledServerRepository,
-    MemberMode, MemberType, ServerFeature, ServerFeatureRepository, SpaceRepository,
-    WorkspaceBinding, WorkspaceBindingRepository,
+    FeatureSetRepository, InboundMcpClientRepository, InputDefinition, InstalledServer,
+    InstalledServerRepository, LogConfig, MemberMode, MemberType, ServerDefinition, ServerFeature,
+    ServerFeatureRepository, ServerLogManager, ServerSource, SpaceRepository, TransportConfig,
+    TransportMetadata, WorkspaceBinding, WorkspaceBindingRepository,
 };
-use mcpmux_gateway::pool::FeatureService;
+use mcpmux_gateway::pool::{
+    CachedFeatures, ConnectionService, FeatureService, OutboundOAuthManager, ServerKey,
+    ServerManager, TokenService,
+};
 use mcpmux_gateway::services::{
     meta_tools, ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher,
     FeatureSetResolverService, MetaToolRegistry, PrefixCacheService, SessionOverrideRegistry,
@@ -28,6 +32,7 @@ use mcpmux_storage::{
     SqliteServerFeatureRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
 };
 use serde_json::{json, Value};
+use tests::mocks::{MockCredentialRepository, MockOutboundOAuthRepository};
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
@@ -50,11 +55,116 @@ struct Fixture {
     fs_android_id: Uuid,
     github_tool_id: Uuid,
     event_rx: broadcast::Receiver<DomainEvent>,
+    server_manager: Arc<ServerManager>,
 }
 
 fn test_encryptor() -> Arc<FieldEncryptor> {
     let key = generate_master_key().expect("generate key");
     Arc::new(FieldEncryptor::new(&key).expect("create encryptor"))
+}
+
+fn test_log_manager() -> Arc<ServerLogManager> {
+    let base_dir = std::env::temp_dir().join(format!("mcpmux-meta-tools-logs-{}", Uuid::new_v4()));
+    Arc::new(ServerLogManager::new(LogConfig {
+        base_dir,
+        max_file_size: 1024 * 1024,
+        max_files: 5,
+        compress: false,
+    }))
+}
+
+fn test_server_manager(
+    event_tx: broadcast::Sender<DomainEvent>,
+    feature_service: Arc<FeatureService>,
+    prefix_cache: Arc<PrefixCacheService>,
+) -> Arc<ServerManager> {
+    let credential_repo = Arc::new(MockCredentialRepository::new());
+    let oauth_repo = Arc::new(MockOutboundOAuthRepository::new());
+    let token_service = Arc::new(TokenService::new(credential_repo.clone(), oauth_repo.clone()));
+    let oauth_manager = Arc::new(OutboundOAuthManager::new());
+    let connection_service = Arc::new(ConnectionService::new(
+        token_service,
+        oauth_manager,
+        credential_repo,
+        oauth_repo,
+        prefix_cache.clone(),
+    ));
+    Arc::new(ServerManager::new(
+        event_tx,
+        feature_service,
+        connection_service,
+        prefix_cache,
+    ))
+}
+
+fn stdio_definition_with_required_input(server_id: &str, input_id: &str) -> ServerDefinition {
+    ServerDefinition {
+        id: server_id.to_string(),
+        name: server_id.to_string(),
+        description: None,
+        alias: None,
+        auth: None,
+        icon: None,
+        transport: TransportConfig::Stdio {
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "pkg".to_string()],
+            env: Default::default(),
+            metadata: TransportMetadata {
+                inputs: vec![InputDefinition {
+                    id: input_id.to_string(),
+                    label: input_id.to_string(),
+                    r#type: "text".to_string(),
+                    required: true,
+                    secret: true,
+                    description: None,
+                    default: None,
+                    placeholder: None,
+                    obtain_url: None,
+                    obtain_instructions: None,
+                }],
+            },
+        },
+        categories: vec![],
+        publisher: None,
+        source: ServerSource::Bundled,
+        badges: vec![],
+        hosting_type: Default::default(),
+        license: None,
+        license_url: None,
+        installation: None,
+        capabilities: None,
+        sponsored: None,
+        media: None,
+        changelog_url: None,
+    }
+}
+
+async fn seed_diagnose_servers(f: &Fixture) {
+    let space_id = f.space_id.to_string();
+
+    let github_def = stdio_definition_with_required_input("github", "github_token");
+    let github = InstalledServer::new(&space_id, "github")
+        .with_definition(&github_def)
+        .with_input("github_token", "secret");
+    f.installed_server_repo.install(&github).await.unwrap();
+    f.server_manager
+        .set_connected(
+            &ServerKey::new(f.space_id, "github"),
+            CachedFeatures::default(),
+        )
+        .await;
+
+    let firebase_def = stdio_definition_with_required_input("firebase", "api_key");
+    let firebase = InstalledServer::new(&space_id, "firebase")
+        .with_definition(&firebase_def)
+        .with_input("api_key", "key");
+    f.installed_server_repo.install(&firebase).await.unwrap();
+    f.server_manager
+        .set_error(
+            &ServerKey::new(f.space_id, "firebase"),
+            "Connection refused".to_string(),
+        )
+        .await;
 }
 
 impl Fixture {
@@ -124,12 +234,18 @@ impl Fixture {
         let feature_service = Arc::new(FeatureService::new(
             server_feature_repo.clone(),
             feature_set_repo.clone(),
-            prefix_cache,
+            prefix_cache.clone(),
             session_overrides.clone(),
         ));
 
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
         let (tx, event_rx) = broadcast::channel::<DomainEvent>(32);
+        let log_manager = test_log_manager();
+        let server_manager = test_server_manager(
+            tx.clone(),
+            feature_service.clone(),
+            prefix_cache.clone(),
+        );
 
         let registry = meta_tools::build_default_registry(
             client_repo.clone(),
@@ -147,6 +263,8 @@ impl Fixture {
             broker.clone(),
             tx,
             None,
+            server_manager.clone(),
+            log_manager,
         );
 
         Self {
@@ -165,6 +283,7 @@ impl Fixture {
             fs_android_id,
             github_tool_id,
             event_rx,
+            server_manager,
         }
     }
 
@@ -849,6 +968,7 @@ async fn registry_advertises_every_default_tool_with_annotations() {
         "mcpmux_disable_server",
         "mcpmux_create_feature_set",
         "mcpmux_bind_current_workspace",
+        "mcpmux_diagnose_server",
     ] {
         assert!(names.iter().any(|n| n == expected), "missing {expected}");
     }
@@ -914,10 +1034,16 @@ async fn bare_registry(
     let feature_service = Arc::new(FeatureService::new(
         server_feature_repo.clone(),
         feature_set_repo.clone(),
-        prefix_cache,
+        prefix_cache.clone(),
         SessionOverrideRegistry::new(),
     ));
     let (tx, rx) = broadcast::channel::<DomainEvent>(32);
+    let log_manager = test_log_manager();
+    let server_manager = test_server_manager(
+        tx.clone(),
+        feature_service.clone(),
+        prefix_cache,
+    );
     let registry = meta_tools::build_default_registry(
         client_repo,
         space_repo,
@@ -934,6 +1060,8 @@ async fn bare_registry(
         Arc::new(ApprovalBroker::new()),
         tx.clone(),
         settings_repo,
+        server_manager,
+        log_manager,
     );
     (registry, client_id, tx, rx)
 }
@@ -1034,10 +1162,16 @@ async fn master_switch_toggles_registry_visibility() {
     let feature_service = Arc::new(FeatureService::new(
         server_feature_repo.clone(),
         feature_set_repo.clone(),
-        prefix_cache,
+        prefix_cache.clone(),
         SessionOverrideRegistry::new(),
     ));
     let (tx, _) = broadcast::channel::<DomainEvent>(16);
+    let log_manager = test_log_manager();
+    let server_manager = test_server_manager(
+        tx.clone(),
+        feature_service.clone(),
+        prefix_cache,
+    );
     let registry = meta_tools::build_default_registry(
         client_repo,
         space_repo,
@@ -1054,6 +1188,8 @@ async fn master_switch_toggles_registry_visibility() {
         Arc::new(ApprovalBroker::new()),
         tx,
         Some(settings_repo.clone()),
+        server_manager,
+        log_manager,
     );
 
     assert!(!registry.is_enabled().await, "initially disabled");
@@ -1155,4 +1291,137 @@ async fn session_override_additive_over_binding() {
         tools.iter().map(|t| t.server_id.as_str()).collect();
     assert!(servers.contains("github"));
     assert!(servers.contains("firebase"));
+}
+
+// ---------------------------------------------------------------------------
+// Diagnose server (mcpmux_diagnose_server)
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnose_server_registered_in_tools_list() {
+    let f = Fixture::new().await;
+    let names: Vec<_> = f
+        .registry
+        .list_as_tools()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "mcpmux_diagnose_server"),
+        "expected mcpmux_diagnose_server in {names:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnose_no_arg_returns_only_unhealthy_servers() {
+    let f = Fixture::new().await;
+    seed_diagnose_servers(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_diagnose_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    let servers = body.get("servers").unwrap().as_array().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(
+        servers[0].get("server_id").unwrap().as_str().unwrap(),
+        "firebase"
+    );
+    assert_eq!(
+        servers[0].get("health").unwrap().as_str().unwrap(),
+        "error"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnose_explicit_server_id_returns_target_regardless_of_health() {
+    let f = Fixture::new().await;
+    seed_diagnose_servers(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_diagnose_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "github" }),
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    let servers = body.get("servers").unwrap().as_array().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(
+        servers[0].get("server_id").unwrap().as_str().unwrap(),
+        "github"
+    );
+    assert_eq!(
+        servers[0].get("health").unwrap().as_str().unwrap(),
+        "healthy"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnose_include_logs_false_omits_logs_block() {
+    let f = Fixture::new().await;
+    seed_diagnose_servers(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_diagnose_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "firebase", "include_logs": false }),
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    let entry = &body.get("servers").unwrap().as_array().unwrap()[0];
+    assert!(entry.get("logs").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnose_surfaces_missing_required_inputs() {
+    let f = Fixture::new().await;
+    let space_id = f.space_id.to_string();
+
+    let def = stdio_definition_with_required_input("needs-setup", "github_token");
+    let server = InstalledServer::new(&space_id, "needs-setup").with_definition(&def);
+    f.installed_server_repo.install(&server).await.unwrap();
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_diagnose_server",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "needs-setup" }),
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    let entry = &body.get("servers").unwrap().as_array().unwrap()[0];
+    assert_eq!(
+        entry.get("health").unwrap().as_str().unwrap(),
+        "needs_setup"
+    );
+    let missing = entry
+        .get("missing_required_inputs")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0].as_str().unwrap(), "github_token");
 }

@@ -130,6 +130,7 @@ McpMux exposes a built-in `mcpmux_*` tool namespace for search → schema → in
 | `mcpmux_list_all_tools` | read | Full tool roster in the resolved Space (diagnostic) |
 | `mcpmux_list_feature_sets` | read | FeatureSets available in the resolved Space |
 | `mcpmux_list_servers` | read | Server-level manifest with status |
+| `mcpmux_diagnose_server` | read | Runtime status, config, missing inputs, and log tail for unhealthy servers |
 | `mcpmux_search_tools` | read | Search invokable tools with optional schema detail |
 | `mcpmux_get_tool_schema` | read | Load input schemas before invoke |
 | `mcpmux_invoke_tool` | read | Invoke a backend tool by server_id + tool name |

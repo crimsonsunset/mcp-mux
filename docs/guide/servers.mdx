@@ -125,7 +125,7 @@ When you need two PostHog workspaces, Firebase projects, or Gmail accounts in on
 
 Clones are independent installs: separate credentials, OAuth sessions, and tool prefixes. The source server is unchanged. You cannot clone a clone (max depth 1).
 
-When using [meta tools](/docs/feature-sets/) (`mcpmux_list_servers`), clone rows include an optional `cloned_from` field with the source server ID so an LLM can see lineage.
+When using [meta tools](/docs/feature-sets/) (`mcpmux_list_servers`, `mcpmux_diagnose_server`), clone rows include an optional `cloned_from` field with the source server ID so an LLM can see lineage.
 
 ## Connection Status
 
