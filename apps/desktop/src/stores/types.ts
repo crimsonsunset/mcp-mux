@@ -25,6 +25,8 @@ export interface AppState {
   activeNav: NavItem;
   /** Client ID to auto-select when navigating to Clients page */
   pendingClientId: string | null;
+  /** Status filter to pre-apply when navigating to My Servers */
+  pendingServersFilter: string | null;
 
   // UI state
   sidebarCollapsed: boolean;
@@ -49,6 +51,7 @@ export interface AppActions {
   // Navigation
   navigateTo: (nav: NavItem) => void;
   setPendingClientId: (id: string | null) => void;
+  setPendingServersFilter: (filter: string | null) => void;
 
   // UI
   toggleSidebar: () => void;

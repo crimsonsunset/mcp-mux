@@ -8,6 +8,7 @@ const initialState: AppState = {
   viewSpaceId: null,
   activeNav: 'home',
   pendingClientId: null,
+  pendingServersFilter: null,
   sidebarCollapsed: false,
   theme: 'system',
   analyticsEnabled: true,
@@ -76,6 +77,11 @@ export const useAppStore = create<AppStore>()(
       setPendingClientId: (id) =>
         set((state) => {
           state.pendingClientId = id;
+        }),
+
+      setPendingServersFilter: (filter) =>
+        set((state) => {
+          state.pendingServersFilter = filter;
         }),
 
       // UI

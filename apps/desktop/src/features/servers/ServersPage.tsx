@@ -45,7 +45,7 @@ import {
 import { resolveInstalledDisplayName } from './server-display-name.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
-import { useViewSpace, useNavigateTo } from '@/stores';
+import { useViewSpace, useNavigateTo, usePendingServersFilter, useSetPendingServersFilter } from '@/stores';
 import { useServerManager } from '@/hooks/useServerManager';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { useGatewayEvents, useDomainEvents } from '@/hooks/useDomainEvents';
@@ -213,7 +213,11 @@ export function ServersPage() {
   const [installedServers, setInstalledServers] = useState<ServerViewModelWithClone[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [transportFilter, setTransportFilter] = useState<TransportFilter>('all');
-  const [activeStatusFilters, setActiveStatusFilters] = useState<Set<StatusFilterKey>>(new Set());
+  const pendingServersFilter = usePendingServersFilter();
+  const setPendingServersFilter = useSetPendingServersFilter();
+  const [activeStatusFilters, setActiveStatusFilters] = useState<Set<StatusFilterKey>>(
+    pendingServersFilter ? new Set([pendingServersFilter as StatusFilterKey]) : new Set()
+  );
   const [gatewayRunning, setGatewayRunning] = useState(false);
   const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -311,6 +315,13 @@ export function ServersPage() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
   };
+
+  // Clear any pending filter that was consumed during initialisation
+  useEffect(() => {
+    if (pendingServersFilter) {
+      setPendingServersFilter(null);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load data on mount only
   useEffect(() => {
