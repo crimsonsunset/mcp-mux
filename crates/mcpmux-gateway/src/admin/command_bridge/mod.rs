@@ -3,7 +3,7 @@
 //! Each submodule mirrors a Tauri command group (`commands/*.rs`). Handlers
 //! delegate here so business logic is not duplicated across IPC and REST.
 
-pub mod space;
-pub mod read;
-pub mod write;
 pub mod oauth;
+pub mod read;
+pub mod space;
+pub mod write;

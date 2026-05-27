@@ -132,9 +132,11 @@ pub async fn remove_server_from_config(
     let servers = config.get_mut("mcpServers").and_then(|v| v.as_object_mut());
     if let Some(servers) = servers {
         if servers.remove(server_id).is_some() {
-            let new_content = serde_json::to_string_pretty(&config).context("Failed to serialize config")?;
-            std::fs::write(&config_path, new_content)
-                .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
+            let new_content =
+                serde_json::to_string_pretty(&config).context("Failed to serialize config")?;
+            std::fs::write(&config_path, new_content).with_context(|| {
+                format!("Failed to write config file: {}", config_path.display())
+            })?;
             info!(
                 "[command_bridge::space] Removed server '{}' from space '{}'",
                 server_id, space_id

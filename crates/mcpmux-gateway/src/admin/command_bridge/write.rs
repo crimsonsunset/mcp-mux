@@ -277,10 +277,7 @@ async fn maybe_remove_orphaned_icon(ctx: &AdminBridgeCtx, icon_ref: Option<&str>
         return Ok(());
     }
     let bindings = ctx.workspace_binding_repository.list().await?;
-    if bindings
-        .iter()
-        .any(|b| b.icon.as_deref() == Some(icon_ref))
-    {
+    if bindings.iter().any(|b| b.icon.as_deref() == Some(icon_ref)) {
         return Ok(());
     }
 
@@ -357,8 +354,7 @@ pub async fn remove_server_from_config(
     space_id: String,
     server_id: String,
 ) -> Result<Value> {
-    let removed =
-        space::remove_server_from_config(&space_ctx(ctx), &space_id, &server_id).await?;
+    let removed = space::remove_server_from_config(&space_ctx(ctx), &space_id, &server_id).await?;
     as_json(removed)
 }
 
@@ -368,12 +364,7 @@ pub async fn create_feature_set(ctx: &AdminBridgeCtx, body: CreateFeatureSetBody
     let set = ctx
         .services
         .permission()
-        .create_feature_set(
-            &body.space_id,
-            &body.name,
-            body.description,
-            body.icon,
-        )
+        .create_feature_set(&body.space_id, &body.name, body.description, body.icon)
         .await?;
     Ok(to_feature_set_response(set))
 }
@@ -412,9 +403,11 @@ pub async fn add_feature_set_member(
     let member_type = parse_member_type(&body.member_type);
     let mode = parse_member_mode(body.mode.as_deref());
 
-    if feature_set.members.iter().any(|m| {
-        m.member_type == member_type && m.member_id == body.member_id
-    }) {
+    if feature_set
+        .members
+        .iter()
+        .any(|m| m.member_type == member_type && m.member_id == body.member_id)
+    {
         return Err(anyhow!("Member already exists in this feature set"));
     }
     if member_type == MemberType::FeatureSet && body.member_id == feature_set_id {
@@ -542,9 +535,7 @@ pub async fn create_workspace_binding(
     binding.icon = normalize_icon(&body.icon);
 
     let appearance_to_migrate = if binding.icon.is_none() {
-        ctx.workspace_appearance_repository
-            .get(&normalized)
-            .await?
+        ctx.workspace_appearance_repository.get(&normalized).await?
     } else {
         None
     };
@@ -653,10 +644,7 @@ pub async fn delete_workspace_appearance(
     workspace_root: String,
 ) -> Result<Value> {
     let normalized = normalize_workspace_root(&workspace_root)?;
-    let previous = ctx
-        .workspace_appearance_repository
-        .get(&normalized)
-        .await?;
+    let previous = ctx.workspace_appearance_repository.get(&normalized).await?;
     ctx.workspace_appearance_repository
         .delete(&normalized)
         .await?;
@@ -709,10 +697,7 @@ pub async fn update_startup_settings(
         .set("startup.autostart_configured", "true")
         .await?;
     ctx.settings_repository
-        .set(
-            "startup.start_minimized",
-            &body.start_minimized.to_string(),
-        )
+        .set("startup.start_minimized", &body.start_minimized.to_string())
         .await?;
     ctx.settings_repository
         .set("ui.close_to_tray", &body.close_to_tray.to_string())
@@ -814,11 +799,7 @@ pub async fn install_server(ctx: &AdminBridgeCtx, body: InstallServerBody) -> Re
     as_json(installed)
 }
 
-pub async fn uninstall_server(
-    ctx: &AdminBridgeCtx,
-    id: String,
-    space_id: String,
-) -> Result<Value> {
+pub async fn uninstall_server(ctx: &AdminBridgeCtx, id: String, space_id: String) -> Result<Value> {
     let space_uuid = Uuid::parse_str(&space_id)?;
     ctx.services.server().uninstall(space_uuid, &id).await?;
     Ok(json!({ "ok": true }))
@@ -907,10 +888,7 @@ pub async fn restart_gateway(ctx: &AdminBridgeCtx, body: GatewayStartBody) -> Re
         .await
 }
 
-pub async fn disconnect_server(
-    ctx: &AdminBridgeCtx,
-    body: DisconnectServerBody,
-) -> Result<Value> {
+pub async fn disconnect_server(ctx: &AdminBridgeCtx, body: DisconnectServerBody) -> Result<Value> {
     ctx.gateway_writes
         .disconnect_server(body.server_id, body.space_id, body.logout)
         .await

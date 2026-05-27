@@ -20,7 +20,8 @@ pub trait GatewayRuntime: Send + Sync {
     async fn list_reported_workspace_roots(&self) -> Result<Value>;
     async fn list_meta_tool_grants(&self) -> Result<Value>;
     async fn get_oauth_clients(&self) -> Result<Value>;
-    async fn get_oauth_client_grants(&self, _client_id: String, _space_id: String) -> Result<Value>;
+    async fn get_oauth_client_grants(&self, _client_id: String, _space_id: String)
+        -> Result<Value>;
     async fn get_server_statuses(&self, _space_id: String) -> Result<Value>;
 }
 

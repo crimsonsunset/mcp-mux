@@ -176,9 +176,7 @@ pub async fn get_server_statuses(
     match bridge::get_server_statuses(&state.bridge, space_id.clone()).await {
         Ok(value) => Ok(ok(value)),
         Err(error) => {
-            warn!(
-                "[Admin] get_server_statuses failed for space {space_id}: {error:#}"
-            );
+            warn!("[Admin] get_server_statuses failed for space {space_id}: {error:#}");
             Err(ApiError::from_bridge(error))
         }
     }
@@ -405,7 +403,9 @@ pub async fn serve_workspace_icon(
             bytes,
         )
             .into_response(),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            StatusCode::NOT_FOUND.into_response()
+        }
         Err(err) => {
             warn!(
                 path = %path.display(),
@@ -427,7 +427,9 @@ pub async fn list_session_overrides(
         .map_err(ApiError::from_bridge)
 }
 
-pub async fn get_startup_settings(State(state): State<AdminState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_startup_settings(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
     bridge::get_startup_settings(&state.bridge)
         .await
         .map(ok)

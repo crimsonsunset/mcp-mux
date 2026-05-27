@@ -11,8 +11,10 @@ use crate::admin::command_bridge::write::{
     DisconnectServerBody, GatewayPortBody, GatewayStartBody, InstallServerBody, LogRetentionBody,
     MetaToolApprovalBody, MetaToolRevokeBody, MetaToolsEnabledBody, OAuthClientUpdateBody,
     OAuthGrantBody, SaveServerInputsBody, SaveSpaceConfigBody, ServerConnectionBody,
-    SessionOverridesBody, SessionOverridesRequireApprovalBody, SetMembersBody, SetServerDisplayNameBody, SetServerOAuthConnectedBody, StartupSettingsBody,
-    UninstallServerBody, UpdateFeatureSetBody, UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
+    SessionOverridesBody, SessionOverridesRequireApprovalBody, SetMembersBody,
+    SetServerDisplayNameBody, SetServerOAuthConnectedBody, StartupSettingsBody,
+    UninstallServerBody, UpdateFeatureSetBody, UploadIconBody, WorkspaceAppearanceBody,
+    WorkspaceBindingBody,
 };
 use crate::admin::handlers::error::ApiError;
 use crate::admin::router::AdminState;

@@ -13,7 +13,9 @@ use uuid::Uuid;
 use crate::admin::runtime::GatewayRuntime;
 use crate::pool::{ConnectionStatus, PoolService, ServerManager};
 use crate::server::{GatewayServer, GatewayState};
-use crate::services::{ApprovalBroker, GrantService, SessionOverrideRegistry, SessionRootsRegistry};
+use crate::services::{
+    ApprovalBroker, GrantService, SessionOverrideRegistry, SessionRootsRegistry,
+};
 
 /// Admin read runtime wired to a running MCP gateway.
 pub struct LiveGatewayRuntime {
@@ -126,11 +128,8 @@ impl GatewayRuntime for LiveGatewayRuntime {
     }
 
     async fn list_session_overrides(&self, session_id: Option<String>) -> Result<Value> {
-        let roots_by_session: HashMap<String, Vec<String>> = self
-            .session_roots
-            .list_all_sessions()
-            .into_iter()
-            .collect();
+        let roots_by_session: HashMap<String, Vec<String>> =
+            self.session_roots.list_all_sessions().into_iter().collect();
         let mut rows = self
             .session_overrides
             .list_all()
@@ -201,11 +200,7 @@ impl GatewayRuntime for LiveGatewayRuntime {
         Ok(json!(approved))
     }
 
-    async fn get_oauth_client_grants(
-        &self,
-        client_id: String,
-        space_id: String,
-    ) -> Result<Value> {
+    async fn get_oauth_client_grants(&self, client_id: String, space_id: String) -> Result<Value> {
         Ok(json!(
             self.grant_service
                 .get_grants_for_space(&client_id, &space_id)
@@ -214,8 +209,8 @@ impl GatewayRuntime for LiveGatewayRuntime {
     }
 
     async fn get_server_statuses(&self, space_id: String) -> Result<Value> {
-        let space_uuid = Uuid::parse_str(&space_id)
-            .map_err(|e| anyhow::anyhow!("Invalid space_id: {e}"))?;
+        let space_uuid =
+            Uuid::parse_str(&space_id).map_err(|e| anyhow::anyhow!("Invalid space_id: {e}"))?;
         let statuses = self.server_manager.get_all_statuses(space_uuid).await;
         let mut result = serde_json::Map::new();
         for (server_id, (status, flow_id, has_connected_before, message)) in statuses {

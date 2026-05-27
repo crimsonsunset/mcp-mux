@@ -49,7 +49,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/api/v1/csrf-token", get(get_csrf_token))
         .route("/api/v1/events", get(events::sse_events))
         .route("/api/v1/gateway/status", get(read::get_gateway_status))
-        .route("/api/v1/gateway/probe-start", get(read::probe_gateway_start))
+        .route(
+            "/api/v1/gateway/probe-start",
+            get(read::probe_gateway_start),
+        )
         .route(
             "/api/v1/gateway/pending-port-conflict",
             get(read::take_pending_port_conflict),
@@ -77,7 +80,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             post(write::refresh_oauth_tokens_on_startup),
         )
         .route("/api/v1/gateway/port", put(write::set_gateway_port))
-        .route("/api/v1/spaces", get(read::list_spaces).post(write::create_space))
+        .route(
+            "/api/v1/spaces",
+            get(read::list_spaces).post(write::create_space),
+        )
         .route(
             "/api/v1/spaces/{id}",
             get(read::get_space)
@@ -92,10 +98,16 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/spaces/{space_id}/config/servers/{server_id}",
             delete(write::remove_server_from_config),
         )
-        .route("/api/v1/servers/installed", get(read::list_installed_servers))
+        .route(
+            "/api/v1/servers/installed",
+            get(read::list_installed_servers),
+        )
         .route("/api/v1/servers/install", post(write::install_server))
         .route("/api/v1/servers/{id}", delete(write::uninstall_server))
-        .route("/api/v1/servers/{id}/inputs", put(write::save_server_inputs))
+        .route(
+            "/api/v1/servers/{id}/inputs",
+            put(write::save_server_inputs),
+        )
         .route(
             "/api/v1/servers/{id}/display-name",
             put(write::set_server_display_name),
@@ -138,14 +150,20 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/registry/definition/{server_id}",
             get(read::get_server_definition),
         )
-        .route("/api/v1/registry/ui-config", get(read::get_registry_ui_config))
+        .route(
+            "/api/v1/registry/ui-config",
+            get(read::get_registry_ui_config),
+        )
         .route(
             "/api/v1/registry/home-config",
             get(read::get_registry_home_config),
         )
         .route("/api/v1/registry/offline", get(read::is_registry_offline))
         .route("/api/v1/registry/refresh", post(write::refresh_registry))
-        .route("/api/v1/clients", get(read::list_clients).post(write::create_client))
+        .route(
+            "/api/v1/clients",
+            get(read::list_clients).post(write::create_client),
+        )
         .route(
             "/api/v1/clients/{id}",
             get(read::get_client).delete(write::delete_client),
@@ -215,11 +233,11 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/workspaces/icon-path",
             get(read::resolve_workspace_icon_path),
         )
+        .route("/api/v1/workspaces/icon", get(read::serve_workspace_icon))
         .route(
-            "/api/v1/workspaces/icon",
-            get(read::serve_workspace_icon),
+            "/api/v1/session-overrides",
+            get(read::list_session_overrides),
         )
-        .route("/api/v1/session-overrides", get(read::list_session_overrides))
         .route(
             "/api/v1/session-overrides/clear",
             post(write::clear_session_overrides),
@@ -281,7 +299,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/oauth/consent/reject",
             post(oauth::reject_oauth_consent),
         )
-        .route("/api/v1/meta-tools/grants", get(read::list_meta_tool_grants))
+        .route(
+            "/api/v1/meta-tools/grants",
+            get(read::list_meta_tool_grants),
+        )
         .route(
             "/api/v1/meta-tools/approval",
             post(write::respond_to_meta_tool_approval),
@@ -299,7 +320,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/server-features/by-type",
             get(read::list_server_features_by_type),
         )
-        .route("/api/v1/server-features/{id}", get(read::get_server_feature))
+        .route(
+            "/api/v1/server-features/{id}",
+            get(read::get_server_feature),
+        )
         .route(
             "/api/v1/servers/clones/available",
             get(read::is_clone_id_available),

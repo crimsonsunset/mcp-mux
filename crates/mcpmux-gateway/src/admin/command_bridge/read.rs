@@ -74,7 +74,9 @@ pub(crate) fn to_workspace_binding_response(binding: mcpmux_core::WorkspaceBindi
     })
 }
 
-pub(crate) fn to_workspace_appearance_response(appearance: mcpmux_core::WorkspaceAppearance) -> Value {
+pub(crate) fn to_workspace_appearance_response(
+    appearance: mcpmux_core::WorkspaceAppearance,
+) -> Value {
     json!({
         "workspace_root": appearance.workspace_root,
         "icon": appearance.icon,
@@ -204,7 +206,10 @@ pub async fn get_server_statuses(ctx: &AdminBridgeCtx, space_id: String) -> Resu
     ctx.gateway_runtime.get_server_statuses(space_id).await
 }
 
-pub async fn list_installed_servers(ctx: &AdminBridgeCtx, space_id: Option<String>) -> Result<Value> {
+pub async fn list_installed_servers(
+    ctx: &AdminBridgeCtx,
+    space_id: Option<String>,
+) -> Result<Value> {
     let servers = if let Some(space_id) = space_id {
         ctx.services.server().list_for_space(&space_id).await?
     } else {
@@ -240,7 +245,10 @@ pub async fn is_registry_offline(ctx: &AdminBridgeCtx) -> Result<Value> {
 pub async fn list_clients(ctx: &AdminBridgeCtx) -> Result<Value> {
     let clients = ctx.services.client().list().await?;
     Ok(Value::Array(
-        clients.into_iter().map(to_client_response).collect::<Vec<_>>(),
+        clients
+            .into_iter()
+            .map(to_client_response)
+            .collect::<Vec<_>>(),
     ))
 }
 
@@ -253,7 +261,9 @@ pub async fn get_client(ctx: &AdminBridgeCtx, id: String) -> Result<Value> {
 pub async fn list_feature_sets(ctx: &AdminBridgeCtx) -> Result<Value> {
     let sets = ctx.services.permission().list_feature_sets().await?;
     Ok(Value::Array(
-        sets.into_iter().map(to_feature_set_response).collect::<Vec<_>>(),
+        sets.into_iter()
+            .map(to_feature_set_response)
+            .collect::<Vec<_>>(),
     ))
 }
 
@@ -264,7 +274,9 @@ pub async fn list_feature_sets_by_space(ctx: &AdminBridgeCtx, space_id: String) 
         .list_feature_sets_for_space(&space_id)
         .await?;
     Ok(Value::Array(
-        sets.into_iter().map(to_feature_set_response).collect::<Vec<_>>(),
+        sets.into_iter()
+            .map(to_feature_set_response)
+            .collect::<Vec<_>>(),
     ))
 }
 
@@ -292,7 +304,10 @@ pub async fn list_workspace_bindings_for_space(
     space_id: String,
 ) -> Result<Value> {
     let space_id = Uuid::parse_str(&space_id)?;
-    let bindings = ctx.workspace_binding_repository.list_for_space(&space_id).await?;
+    let bindings = ctx
+        .workspace_binding_repository
+        .list_for_space(&space_id)
+        .await?;
     Ok(Value::Array(
         bindings
             .into_iter()
@@ -521,7 +536,11 @@ pub async fn get_startup_settings(ctx: &AdminBridgeCtx) -> Result<Value> {
 }
 
 pub async fn get_meta_tools_enabled(ctx: &AdminBridgeCtx) -> Result<Value> {
-    let enabled = match ctx.settings_repository.get("gateway.meta_tools_enabled").await {
+    let enabled = match ctx
+        .settings_repository
+        .get("gateway.meta_tools_enabled")
+        .await
+    {
         Ok(Some(value)) => !matches!(value.as_str(), "false" | "0"),
         _ => true,
     };
@@ -628,7 +647,10 @@ pub async fn list_server_features(
     space_id: String,
     include_unavailable: Option<bool>,
 ) -> Result<Value> {
-    let features = ctx.server_feature_repository.list_for_space(&space_id).await?;
+    let features = ctx
+        .server_feature_repository
+        .list_for_space(&space_id)
+        .await?;
     let features = if include_unavailable.unwrap_or(false) {
         features
     } else {
@@ -678,7 +700,8 @@ pub async fn list_server_features_by_type(
     feature_type: String,
     include_unavailable: Option<bool>,
 ) -> Result<Value> {
-    let parsed = FeatureType::parse(&feature_type).ok_or_else(|| anyhow!("Invalid feature type"))?;
+    let parsed =
+        FeatureType::parse(&feature_type).ok_or_else(|| anyhow!("Invalid feature type"))?;
     let features = ctx
         .server_feature_repository
         .list_for_server(&space_id, &server_id)
@@ -706,7 +729,9 @@ pub async fn list_server_features_by_type(
 pub async fn get_server_feature(ctx: &AdminBridgeCtx, id: String) -> Result<Value> {
     let id = Uuid::parse_str(&id)?;
     let feature = ctx.server_feature_repository.get(&id).await?;
-    Ok(feature.map(to_server_feature_response).unwrap_or(Value::Null))
+    Ok(feature
+        .map(to_server_feature_response)
+        .unwrap_or(Value::Null))
 }
 
 pub async fn is_clone_id_available(

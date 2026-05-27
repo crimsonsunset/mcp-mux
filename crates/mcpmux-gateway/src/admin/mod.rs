@@ -4,9 +4,9 @@
 //! separate loopback port (default `45819`), gated by Cloudflare Access
 //! when configured.
 
-mod config;
 pub mod bridge_context;
 pub mod command_bridge;
+mod config;
 pub mod event_hub;
 mod handlers;
 mod live_runtime;
@@ -17,22 +17,22 @@ mod server;
 pub mod ui_events;
 pub mod write_runtime;
 
-pub use config::{AdminConfig, CF_ACCESS_JWT_HEADER, DEFAULT_ADMIN_PORT};
 pub use bridge_context::AdminBridgeCtx;
+pub use config::{AdminConfig, CF_ACCESS_JWT_HEADER, DEFAULT_ADMIN_PORT};
 pub use event_hub::AdminEventHub;
-pub use ui_events::{map_domain_event_to_ui, AdminUiEventBus, UiEvent};
-pub use middleware::{CfAccessError, CfAccessValidator, CSRF_HEADER, new_csrf_token_store};
 #[cfg(any(test, feature = "test-utils"))]
 pub use handlers::error::format_bridge_error_message;
+pub use live_runtime::LiveGatewayRuntime;
+pub use middleware::{new_csrf_token_store, CfAccessError, CfAccessValidator, CSRF_HEADER};
+pub use router::{build_admin_router, AdminState};
 pub use runtime::GatewayRuntime;
 #[cfg(any(test, feature = "test-utils"))]
 pub use runtime::StubGatewayRuntime;
-pub use live_runtime::LiveGatewayRuntime;
+pub use server::{AdminServer, AdminServerHandle};
+pub use ui_events::{map_domain_event_to_ui, AdminUiEventBus, UiEvent};
 pub use write_runtime::GatewayWriteRuntime;
 #[cfg(any(test, feature = "test-utils"))]
 pub use write_runtime::StubGatewayWriteRuntime;
-pub use router::{build_admin_router, AdminState};
-pub use server::{AdminServer, AdminServerHandle};
 
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]
