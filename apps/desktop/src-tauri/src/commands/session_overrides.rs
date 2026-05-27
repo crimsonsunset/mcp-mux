@@ -97,8 +97,8 @@ pub async fn clear_session_overrides(
     );
 
     let payload = serde_json::json!({ "session_id": session_id });
-    let ui_bus = if let Some(admin) =
-        app_handle.try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
+    let ui_bus = if let Some(admin) = app_handle
+        .try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
     {
         Some(admin.read().await.ui_event_bus.clone())
     } else {

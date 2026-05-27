@@ -756,8 +756,8 @@ pub async fn grant_oauth_client_feature_set(
         "action": "grants_updated",
         "client_id": client_id,
     });
-    let ui_bus = if let Some(admin) =
-        app_handle.try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
+    let ui_bus = if let Some(admin) = app_handle
+        .try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
     {
         Some(admin.read().await.ui_event_bus.clone())
     } else {
@@ -796,8 +796,8 @@ pub async fn revoke_oauth_client_feature_set(
         "action": "grants_updated",
         "client_id": client_id,
     });
-    let ui_bus = if let Some(admin) =
-        app_handle.try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
+    let ui_bus = if let Some(admin) = app_handle
+        .try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
     {
         Some(admin.read().await.ui_event_bus.clone())
     } else {

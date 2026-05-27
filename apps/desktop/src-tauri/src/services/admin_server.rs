@@ -8,8 +8,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use mcpmux_core::service::app_settings_service::keys;
-use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
 use mcpmux_core::service::is_port_available;
+use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
 use mcpmux_gateway::admin::bridge_context::AdminBridgeCtx;
 use mcpmux_gateway::admin::event_hub::AdminEventHub;
 use mcpmux_gateway::admin::runtime::GatewayRuntime;
@@ -20,8 +20,8 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tauri::{AppHandle, Manager};
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 /// Tracks the running admin server and shared gateway liveness flag.
@@ -141,7 +141,10 @@ impl DesktopGatewayRuntime {
 
 #[async_trait]
 impl GatewayRuntime for DesktopGatewayRuntime {
-    async fn get_gateway_status(&self, space_id: Option<String>) -> anyhow::Result<serde_json::Value> {
+    async fn get_gateway_status(
+        &self,
+        space_id: Option<String>,
+    ) -> anyhow::Result<serde_json::Value> {
         let state = self.gateway_state.read().await;
         let active_sessions = if let Some(ref gateway_state) = state.gateway_state {
             gateway_state.read().await.sessions.len()
@@ -191,10 +194,12 @@ impl GatewayRuntime for DesktopGatewayRuntime {
         Ok(state
             .pending_port_conflict
             .take()
-            .map(|conflict| json!({
-                "preferredPort": conflict.preferred_port,
-                "source": conflict.source,
-            }))
+            .map(|conflict| {
+                json!({
+                    "preferredPort": conflict.preferred_port,
+                    "source": conflict.source,
+                })
+            })
             .unwrap_or(serde_json::Value::Null))
     }
 
@@ -501,7 +506,9 @@ pub async fn start_admin_server_if_enabled(
         workspace_appearance_repository: app_state.workspace_appearance_repository.clone(),
         server_feature_repository: app_state.server_feature_repository_core.clone(),
         server_log_manager: app_state.server_log_manager.clone(),
-        space_service: Arc::new(mcpmux_core::SpaceService::new(app_state.space_service.repository())),
+        space_service: Arc::new(mcpmux_core::SpaceService::new(
+            app_state.space_service.repository(),
+        )),
         gateway_runtime,
         gateway_writes,
         feature_set_repository: app_state.feature_set_repository.clone(),
@@ -560,10 +567,7 @@ pub async fn register_gateway_sse(
     gateway_state: &Arc<RwLock<mcpmux_gateway::GatewayState>>,
 ) {
     let tx = gateway_state.read().await.domain_event_sender();
-    admin_state
-        .event_hub
-        .register_gateway_events(tx)
-        .await;
+    admin_state.event_hub.register_gateway_events(tx).await;
 }
 
 /// Clear gateway domain event fan-in when the MCP gateway stops.

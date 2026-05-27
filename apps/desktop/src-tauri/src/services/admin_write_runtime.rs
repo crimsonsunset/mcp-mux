@@ -60,7 +60,8 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
 
     async fn stop_gateway(&self) -> anyhow::Result<Value> {
         stop_gateway(
-            self.app_handle.state::<std::sync::Arc<RwLock<GatewayAppState>>>(),
+            self.app_handle
+                .state::<std::sync::Arc<RwLock<GatewayAppState>>>(),
             self.app_handle.clone(),
             self.app_handle.state(),
         )
@@ -140,7 +141,11 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         Ok(json!({ "ok": true }))
     }
 
-    async fn disable_server_v2(&self, space_id: String, server_id: String) -> anyhow::Result<Value> {
+    async fn disable_server_v2(
+        &self,
+        space_id: String,
+        server_id: String,
+    ) -> anyhow::Result<Value> {
         disable_server_v2(
             space_id,
             server_id,
@@ -204,13 +209,9 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
     }
 
     async fn clear_session_overrides(&self, session_id: String) -> anyhow::Result<Value> {
-        clear_session_overrides(
-            session_id,
-            self.app_handle.state(),
-            self.app_handle.clone(),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+        clear_session_overrides(session_id, self.app_handle.state(), self.app_handle.clone())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
         Ok(json!({ "ok": true }))
     }
 

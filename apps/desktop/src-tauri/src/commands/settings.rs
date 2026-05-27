@@ -220,7 +220,9 @@ pub struct AdminWebSettings {
 
 /// Load web admin settings from the app settings store.
 #[tauri::command]
-pub async fn get_admin_web_settings(app_state: State<'_, AppState>) -> Result<AdminWebSettings, String> {
+pub async fn get_admin_web_settings(
+    app_state: State<'_, AppState>,
+) -> Result<AdminWebSettings, String> {
     let settings = AppSettingsService::new(app_state.settings_repository.clone());
     Ok(AdminWebSettings {
         enabled: settings.get_admin_enabled().await,
@@ -248,7 +250,9 @@ pub async fn update_admin_web_settings(
         return Err("Admin port must be between 1024 and 65535".to_string());
     }
     if settings.trust_cf_access && settings.cf_team_domain.trim().is_empty() {
-        return Err("Cloudflare team domain is required when Trust CF Access is enabled".to_string());
+        return Err(
+            "Cloudflare team domain is required when Trust CF Access is enabled".to_string(),
+        );
     }
 
     let store = AppSettingsService::new(app_state.settings_repository.clone());

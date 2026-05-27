@@ -18,7 +18,9 @@
 //! emitters in Rust is deferred; this module documents the contract only.
 
 use crate::commands::server_manager::ServerManagerState;
-use crate::services::admin_server::{set_gateway_running, AdminServerState, register_gateway_sse, clear_gateway_sse};
+use crate::services::admin_server::{
+    clear_gateway_sse, register_gateway_sse, set_gateway_running, AdminServerState,
+};
 use crate::services::ui_events::emit_ui_channel;
 use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
@@ -541,10 +543,7 @@ pub async fn start_gateway(
     // Subscribe to OAuth completions BEFORE spawn so we don't miss early
     // events emitted during initial auto-connect.
     let oauth_completion_rx = pool_service.oauth_manager().subscribe();
-    info!(
-        "[Gateway] Services resolved — port={}",
-        final_port
-    );
+    info!("[Gateway] Services resolved — port={}", final_port);
 
     // Meta-tool approval broker — attach a Tauri-event publisher so
     // incoming approval requests reach the React dialog.
@@ -586,16 +585,17 @@ pub async fn start_gateway(
     state.session_roots = Some(session_roots);
     state.session_overrides = Some(session_overrides);
     state.mcp_notifier = Some(mcp_notifier);
-    let ui_bus = if let Some(admin) = app_handle.try_state::<Arc<tokio::sync::RwLock<AdminServerState>>>() {
-        let admin_guard = admin.read().await;
-        set_gateway_running(&admin_guard, true);
-        if let Some(ref gw) = state.gateway_state {
-            register_gateway_sse(&admin_guard, gw).await;
-        }
-        Some(admin_guard.ui_event_bus.clone())
-    } else {
-        None
-    };
+    let ui_bus =
+        if let Some(admin) = app_handle.try_state::<Arc<tokio::sync::RwLock<AdminServerState>>>() {
+            let admin_guard = admin.read().await;
+            set_gateway_running(&admin_guard, true);
+            if let Some(ref gw) = state.gateway_state {
+                register_gateway_sse(&admin_guard, gw).await;
+            }
+            Some(admin_guard.ui_event_bus.clone())
+        } else {
+            None
+        };
     if let (Some(ref gw), Some(ref bus)) = (&state.gateway_state, &ui_bus) {
         gw.write().await.set_consent_ui_bus(bus.clone());
     }
