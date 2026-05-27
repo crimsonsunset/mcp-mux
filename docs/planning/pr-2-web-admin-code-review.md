@@ -1,7 +1,7 @@
 # PR #2 Code Review — feat: web admin mode (remote UI via HTTP)
 
 **Reviewed:** 2026-05-26  
-**Last reconciled:** 2026-05-26 (post-facade on `feat/web-ui`)  
+**Last reconciled:** 2026-05-27 (post-merge-prep CF Access smoke on `feat/web-ui`)  
 **PR:** fork PR #2 (web admin mode)  
 **Branch:** `feat/web-ui` → `dev`
 
@@ -50,6 +50,16 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 
 **Outcome:** The "dual hooks / scattered guards / stragglers" items called out in the original review and `unified-backend-facade.md` pre-facade table are addressed. `@/lib/backend` is the preferred import for new code.
 
+### Post-merge-prep CF Access smoke (May 27, 2026)
+
+End-to-end manual smoke against a real Cloudflare Tunnel + Access policy (`mux.joe-hassio.com` → `localhost:45819`) surfaced **two ship-blocker bugs** the original review missed because the CF cert-fetch path was never exercised against real Cloudflare during PR development.
+
+| Commit | Scope |
+| ------ | ----- |
+| `d18afdc` | CF Access JWT validation actually works end-to-end (see #22–#24 below) |
+
+The `from_team_domain` code path had **zero** integration tests against the real `/cdn-cgi/access/certs` endpoint, and any test fixtures used the wrong response shape. The "JWKS-based RS256" description in [What This PR Does](#-what-this-pr-does) is now factually true (was aspirational before — pre-fix, the validator parsed X.509 certs through an API that doesn't accept them).
+
 ### ✅ Strengths
 
 - The bridge / runtime trait split is genuinely good design. `GatewayRuntime` + `GatewayWriteRuntime` traits with `StubGatewayRuntime` for tests cleanly decouple admin HTTP from the live gateway's `Arc<RwLock<GatewayState>>`. Integration tests can spin up the full router with a stubbed runtime — that's why the 691-line `admin_api.rs` exists.
@@ -66,6 +76,8 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 2. **Authorization code logged at INFO level.** — **✅ Fixed** (redirect URL log removed; `tracing_test` unit test asserts no `code=mc_` in logs)
 3. **CF Access cert refresh is missing.** — **⬜ Open** (follow-up ticket: hourly refresh or refresh-on-`UnknownKeyId`)
 4. **`AdminEventHub::start()` leaks task handles on every restart.** — **✅ Fixed** (abort prior fan-in handles; regression test in `admin_api_regression.rs`)
+22. **`from_team_domain` cert parsing was broken twice.** — **✅ Fixed in `d18afdc`** — (a) deserialized `public_certs` as `Vec<String>` but CF returns `Vec<{kid, cert}>`; (b) even with correct shape, `DecodingKey::from_rsa_pem` cannot parse X.509 certificate PEM (only PKCS#1 / PKCS#8 SPKI). Silently built a malformed key, failed every verify with `InvalidSignature`. Switched to `keys` (JWKS) field via `DecodingKey::from_jwk`. **Ship-blocker; whole CF Access feature was dead on arrival.**
+23. **`Validation::new` defaults `validate_aud = true` rejects valid CF JWTs.** — **✅ Fixed in `d18afdc`** — when no audience is configured but the JWT carries an `aud` claim (CF Access always does), `jsonwebtoken` 9.x rejects the token even with a valid signature and issuer. Gate `validate_aud = self.audience.is_some()`. **Ship-blocker for any operator who hadn't pasted the optional AUD tag.**
 
 ### ⚠️ Major Concerns
 
@@ -75,6 +87,7 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 8. **`open_url` admin endpoint is a no-op echo.** — **✅ Fixed** (REST endpoint removed; `openUrl` lives in `backend/shell` — Tauri opener on desktop, `window.open` on web)
 9. **Admin settings card in web mode.** — **✅ Fixed** (`SettingsPage` returns `null` when `!isTauri()`)
 10. **`/api/v1/test/events/publish` in production.** — **✅ Fixed** (`#[cfg(feature = "test-utils")]` route registration)
+24. **CF team domain field unreachable through Settings UI.** — **✅ Fixed in `d18afdc`** — the input was rendered conditionally on `adminWeb.trustCfAccess`, but the toggle auto-persists on flip and the backend rejects with "team domain required" when the field is empty. State never updates → field never appears → no way out through the UI. Fix: render the field whenever web admin is enabled, so the operator can populate it *before* flipping the trust toggle. Required a SQL workaround on the running instance to unblock during testing.
 
 ### 🟡 Minor Issues / Nitpicks
 
@@ -92,13 +105,14 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 
 ### 🧪 Testing Considerations
 
-- **Manual smoke (still unchecked):** `pnpm validate`, `pnpm dev`, `pnpm build:web:admin`, `pnpm test:e2e:web:admin`, homelab tunnel — operator must run before merge claim.
+- **Manual smoke:** `pnpm validate` / `pnpm test:e2e:web:admin` still pending; **homelab tunnel ✅ done May 27** (`mux.joe-hassio.com` → CF Tunnel → `:45819`) — exposed #22, #23, #24.
 - **Event hub task leak (#4):** ✅ regression test in `admin_api_regression.rs`
 - **CF Access cert refresh (#3):** ⬜ still needs refresh task or `// TODO(refresh)` if deferred
 - **Gateway runtime:** ✅ `LiveGatewayRuntime` + `admin_api_live_gateway.rs` (2 tests: status parity, port settings) — supersedes original `DesktopGatewayRuntime` suggestion
 - **Negative Playwright specs:** ✅ `tests/e2e/specs/admin/security-negative.spec.ts` (CSRF 403, CF Access 401 with env skip)
 - **OAuth log test (#2):** ✅ `tracing_test` in `inbound_consent.rs`
 - **Test counts (post-remediation):** 34 Rust admin integration tests; 106 vitest transport rows (was 107; `open_url` row removed with endpoint)
+- **CF Access JWKS fetch (#22):** ⬜ **gap** — zero integration test against the real `/cdn-cgi/access/certs` JSON shape. Both #22 and #23 shipped because no test exercised `from_team_domain`. A recorded-fixture test that deserializes a real CF response and exercises validation against a synthetic JWT would catch the next regression.
 
 ### 📝 Before Merge Checklist
 
@@ -116,6 +130,12 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 - [x] Split `fetch-api.ts` into route modules (#11)
 - [x] Add negative Playwright specs (CSRF 403, CF Access 401)
 - [x] Add live gateway integration test (`LiveGatewayRuntime`)
+- [x] Fix `from_team_domain` cert parsing — use `keys` JWKS via `from_jwk` (#22)
+- [x] Gate `validate_aud` on audience configured (#23)
+- [x] Render CF team domain field independent of trust toggle (#24)
+- [x] `.gitignore` cloudflared tunnel credentials / configs
+- [x] End-to-end homelab smoke against real CF Tunnel + Access policy
+- [ ] Add integration test for `from_team_domain` against recorded `/cdn-cgi/access/certs` JSON + synthetic JWT (#22 follow-up)
 - [ ] Run the unchecked `pnpm validate` / `pnpm test:e2e:web:admin` boxes
 - [ ] Verify Windows compile of `apps/desktop/src-tauri` (CI is Linux per AGENTS.md — CF Access shipped JWT path runs on every platform)
 
@@ -129,10 +149,10 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 
 ### Overall Assessment
 
-**Verdict (post-remediation):** 🟢 **Approve**
+**Verdict (post-smoke, May 27):** 🟢 **Approve, with caveat**
 
-All four original critical items are fixed. Remaining open work (#3 JWKS refresh, CSRF rotation, #21 retry fragility, manual smoke tests) is acceptable follow-up or operator checklist — not merge blockers for the homelab threat model.
+All four original critical items plus the three smoke-discovered ship-blockers (#22, #23, #24) are fixed. Remaining open work (#3 JWKS refresh, #6 CSRF rotation, #21 retry fragility, #22 follow-up test, manual `pnpm validate`/`pnpm test:e2e:web:admin`) is acceptable follow-up or operator checklist — not merge blockers for the homelab threat model.
 
-The phased commit structure made review possible — web admin phases, review remediation, then facade Phases 1–5 are individually digestible.
+**Caveat for upstream:** the CF Access feature would not have functioned for any end user without `d18afdc`. Whoever lands this upstream should also land the #22 follow-up test (recorded CF certs response + synthetic JWT against `from_team_domain`) so the regression cannot recur. The phased commit structure made review possible — web admin phases, review remediation, facade Phases 1–5, and the post-smoke CF Access fix are each individually digestible.
 
-Sources: [`crates/mcpmux-gateway/src/admin/`](../../crates/mcpmux-gateway/src/admin/), [`oauth/inbound_consent.rs`](../../crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [`apps/desktop/src/lib/backend/`](../../apps/desktop/src/lib/backend/), [`docs/planning/unified-backend-facade.md`](./unified-backend-facade.md).
+Sources: [`crates/mcpmux-gateway/src/admin/`](../../crates/mcpmux-gateway/src/admin/), [`crates/mcpmux-gateway/src/admin/middleware/cf_access.rs`](../../crates/mcpmux-gateway/src/admin/middleware/cf_access.rs), [`oauth/inbound_consent.rs`](../../crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [`apps/desktop/src/lib/backend/`](../../apps/desktop/src/lib/backend/), [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx), [`docs/planning/unified-backend-facade.md`](./unified-backend-facade.md).
