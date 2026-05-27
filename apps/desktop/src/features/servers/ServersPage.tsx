@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { pickPath } from '@/lib/backend/shell';
+import { open } from '@tauri-apps/plugin-dialog';
 import {
   ChevronDown,
   ChevronRight,
@@ -44,8 +44,7 @@ import {
 } from './servers-page.helpers';
 import { resolveInstalledDisplayName } from './server-display-name.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
-import { getServerStatuses as fetchServerStatuses, logoutServer } from '@/lib/api/serverManager';
-import { disconnectServer } from '@/lib/api/gateway';
+import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
 import { useViewSpace, useNavigateTo } from '@/stores';
 import { useServerManager } from '@/hooks/useServerManager';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
@@ -934,6 +933,7 @@ export function ServersPage() {
 
   const performUninstall = async (serverIds: string[]) => {
     const { uninstallServer } = await import('@/lib/api/registry');
+    const { disconnectServer } = await import('@/lib/api/gateway');
 
     if (gatewayRunning && viewSpace) {
       for (const serverId of serverIds) {
@@ -1060,12 +1060,13 @@ export function ServersPage() {
     }
   };
 
-  /** Pause gateway connection; pass logout=true to also clear stored OAuth tokens. */
+  // Disconnect a server (with optional logout) - old gateway method
   const handleDisconnect = async (server: ServerViewModel, logout: boolean = false) => {
     if (!viewSpace) return;
     
     setActionLoading(`disconnect-${server.id}`);
     try {
+      const { disconnectServer } = await import('@/lib/api/gateway');
       await disconnectServer(server.id, viewSpace.id, logout);
       await loadData();
       // Clear features when disconnecting
@@ -1108,6 +1109,8 @@ export function ServersPage() {
       const isOAuthServer = server.auth?.type === 'oauth' || server.oauth_connected;
       
       if (isOAuthServer) {
+        // Clear tokens first
+        const { logoutServer } = await import('@/lib/api/serverManager');
         await logoutServer(viewSpace?.id ?? '', server.id);
         await loadData();
         // Auto-start OAuth flow (opens browser)
@@ -1458,7 +1461,6 @@ export function ServersPage() {
                           serverId={server.id}
                           enabled={server.enabled}
                           isLoading={enableLoading || disableLoading}
-                          disabled={enableLoading || disableLoading}
                           onToggle={(checked) => {
                             if (checked) {
                               handleEnableClick(server);
@@ -1805,8 +1807,8 @@ export function ServersPage() {
                             type="button"
                             className="btn btn-secondary shrink-0 px-2"
                             onClick={async () => {
-                              const selected = await pickPath({ multiple: false });
-                              if (typeof selected === 'string') handleChange(selected);
+                              const selected = await open({ multiple: false });
+                              if (selected) handleChange(selected);
                             }}
                           >
                             <FolderOpen className="w-4 h-4" />
@@ -1828,8 +1830,8 @@ export function ServersPage() {
                             type="button"
                             className="btn btn-secondary shrink-0 px-2"
                             onClick={async () => {
-                              const selected = await pickPath({ directory: true });
-                              if (typeof selected === 'string') handleChange(selected);
+                              const selected = await open({ directory: true });
+                              if (selected) handleChange(selected);
                             }}
                           >
                             <FolderOpen className="w-4 h-4" />

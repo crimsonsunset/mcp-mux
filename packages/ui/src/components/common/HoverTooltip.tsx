@@ -144,7 +144,8 @@ export function HoverTooltip({
     };
   }, [active, hidden, updateCoords]);
 
-  const showTooltip = active && !hidden && coords !== null;
+  const showCoords = active && !hidden ? coords : null;
+  const showTooltip = showCoords !== null;
 
   return (
     <div
@@ -168,8 +169,8 @@ export function HoverTooltip({
           showTooltip ? 'opacity-100' : 'opacity-0'
         )}
         style={
-          coords
-            ? { top: coords.top, left: coords.left }
+          showCoords
+            ? { top: showCoords.top, left: showCoords.left }
             : { top: -9999, left: -9999, visibility: 'hidden' as const }
         }
         data-testid={testId}
