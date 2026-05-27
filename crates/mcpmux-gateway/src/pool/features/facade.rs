@@ -198,26 +198,48 @@ impl FeatureService {
             return Ok(binding_features);
         }
 
-        // Bound FeatureSets: member filter is authoritative — session overrides
-        // only gate server activity, they do not expand to all server tools.
-        if !feature_set_ids.is_empty() {
-            return Ok(binding_features
+        let mut result: Vec<ServerFeature> = binding_features
+            .into_iter()
+            .filter(|f| !disabled.contains(&f.server_id))
+            .collect();
+
+        let binding_server_ids: HashSet<String> =
+            result.iter().map(|f| f.server_id.clone()).collect();
+
+        if feature_set_ids.is_empty() {
+            let mut active_servers = binding_server_ids;
+            active_servers.extend(
+                enabled
+                    .iter()
+                    .filter(|server_id| !disabled.contains(*server_id))
+                    .cloned(),
+            );
+
+            if active_servers.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let all_features = self
+                .resolution
+                .get_all_features_for_space(space_id, filter_type)
+                .await?;
+
+            return Ok(all_features
                 .into_iter()
-                .filter(|f| !disabled.contains(&f.server_id))
+                .filter(|f| f.is_available && active_servers.contains(&f.server_id))
                 .collect());
         }
 
-        // Unbound session (no FS): session-enabled servers expose all tools so
-        // meta tools can bootstrap before bind/grant.
-        let mut active_servers: HashSet<String> = binding_features
+        let extra_enabled: HashSet<String> = enabled
             .iter()
-            .map(|f| f.server_id.clone())
+            .filter(|server_id| {
+                !disabled.contains(*server_id) && !binding_server_ids.contains(*server_id)
+            })
+            .cloned()
             .collect();
-        active_servers.extend(enabled.iter().cloned());
-        active_servers.retain(|server_id| !disabled.contains(server_id));
 
-        if active_servers.is_empty() {
-            return Ok(Vec::new());
+        if extra_enabled.is_empty() {
+            return Ok(result);
         }
 
         let all_features = self
@@ -225,10 +247,13 @@ impl FeatureService {
             .get_all_features_for_space(space_id, filter_type)
             .await?;
 
-        Ok(all_features
-            .into_iter()
-            .filter(|f| f.is_available && active_servers.contains(&f.server_id))
-            .collect())
+        result.extend(
+            all_features
+                .into_iter()
+                .filter(|f| f.is_available && extra_enabled.contains(&f.server_id)),
+        );
+
+        Ok(result)
     }
 
     // Delegate to FeatureRoutingService (with type-specific helpers)
