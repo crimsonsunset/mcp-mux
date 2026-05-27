@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mcpmux_core::{
     DomainEvent, FeatureSetRepository, InboundMcpClientRepository, InstalledServerRepository,
-    ServerFeatureRepository, SpaceRepository, WorkspaceBindingRepository,
+    ServerFeatureRepository, ServerLogManager, SpaceRepository, WorkspaceBindingRepository,
 };
 use rmcp::model::{CallToolResult, Tool};
 use serde_json::Value;
@@ -20,7 +20,7 @@ use tokio::sync::broadcast;
 use super::approval::ApprovalBroker;
 use super::disclosure_backend::DisclosureBackend;
 use super::invoke_backend::InvokeToolBackend;
-use crate::pool::FeatureService;
+use crate::pool::{FeatureService, ServerManager};
 use crate::services::{
     FeatureSetResolverService, PromptDiscoveryService, ResourceDiscoveryService,
     SessionOverrideRegistry, SessionRootsRegistry, ToolDiscoveryService,
@@ -66,6 +66,10 @@ pub struct MetaToolContext {
     /// Optional because older dependency builders may not have wired it.
     /// When absent the switch defaults to ENABLED (matches the product default).
     pub settings_repo: Option<Arc<dyn mcpmux_core::AppSettingsRepository>>,
+    /// Runtime connection status for installed servers (pool orchestrator).
+    pub server_manager: Arc<ServerManager>,
+    /// Per-server log tail reader (`current.log`); same source as the desktop UI.
+    pub log_manager: Arc<ServerLogManager>,
 }
 
 /// Per-request metadata threaded through every tool call.
