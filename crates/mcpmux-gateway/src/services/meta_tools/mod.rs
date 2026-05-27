@@ -21,6 +21,7 @@
 //! (`mcpmux_`) so the handler can route them before feature-set filtering.
 
 pub mod approval;
+pub mod diagnose;
 pub mod diff;
 pub mod disclosure;
 pub mod disclosure_backend;
