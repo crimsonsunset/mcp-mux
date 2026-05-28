@@ -19,6 +19,19 @@ const MASTER_KEY_NAME: &str = "master-encryption-key";
 /// Key name for the JWT signing secret.
 const JWT_SIGNING_SECRET_NAME: &str = "jwt-signing-secret";
 
+/// Classify a keychain read as "entry present" vs "absent or storage unreachable".
+///
+/// `NoEntry` and `PlatformFailure` mean we can still use the file fallback on Linux/WSL.
+/// `NoStorageAccess` and other non-absent errors mean a stored entry likely exists but
+/// could not be unlocked — falling back to a file key would split encryption keys.
+pub(crate) fn credential_entry_present(read_result: Result<String, keyring::Error>) -> bool {
+    match read_result {
+        Ok(_) => true,
+        Err(keyring::Error::NoEntry) | Err(keyring::Error::PlatformFailure(_)) => false,
+        Err(_) => true,
+    }
+}
+
 /// Trait for providing the master encryption key.
 ///
 /// This abstraction allows for different key storage mechanisms:
@@ -101,7 +114,7 @@ impl MasterKeyProvider for KeychainKeyProvider {
     }
 
     fn key_exists(&self) -> bool {
-        self.entry.get_password().is_ok()
+        credential_entry_present(self.entry.get_password())
     }
 
     fn delete_key(&self) -> Result<()> {
@@ -236,7 +249,7 @@ impl JwtSecretProvider for KeychainJwtSecretProvider {
     }
 
     fn secret_exists(&self) -> bool {
-        self.entry.get_password().is_ok()
+        credential_entry_present(self.entry.get_password())
     }
 
     fn delete_secret(&self) -> Result<()> {
@@ -378,6 +391,18 @@ impl MasterKeyProvider for MemoryKeyProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_entry_present_distinguishes_absent_from_locked() {
+        assert!(credential_entry_present(Ok("secret".into())));
+        assert!(!credential_entry_present(Err(keyring::Error::NoEntry)));
+        assert!(!credential_entry_present(Err(keyring::Error::PlatformFailure(
+            "dbus unavailable".into()
+        ))));
+        assert!(credential_entry_present(Err(keyring::Error::NoStorageAccess(
+            "user cancelled unlock".into()
+        ))));
+    }
 
     #[test]
     fn test_memory_provider() {
