@@ -169,7 +169,7 @@ Optional loopback admin server: static SPA + REST `/api/v1/*` + SSE. Same SQLite
 
 **Service token on both hostnames:** The gateway (`mcp.*`) and admin (`mux.*`) Access applications each need the same service token under **Zero Trust → Access → Service auth**. A 302 to Cloudflare SSO on `mux.*` means the token is missing from that app's policy. When trust is on, the admin server also accepts matching `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers at the origin when `MCPMUX_CF_ACCESS_CLIENT_ID` and `MCPMUX_CF_ACCESS_CLIENT_SECRET` are set in the McpMux process environment (automation / tunnel smoke without a JWT).
 
-Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx) (generic placeholders). Operator-specific tunnel wiring lives in private homelab docs outside this repo.
+User-facing capability overview: [`docs/guide/remote-access.mdx`](guide/remote-access.mdx). Local gateway + web admin details: [`docs/guide/gateway.mdx`](guide/gateway.mdx). Operator-specific tunnel wiring lives in private homelab docs outside this repo.
 
 ### Commands
 

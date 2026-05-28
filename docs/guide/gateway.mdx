@@ -108,8 +108,15 @@ pnpm build:web:admin
 
 The Tauri app resolves `apps/desktop/dist` when the admin server starts. MCP clients should continue using `http://localhost:45818/mcp` (or a separate MCP tunnel hostname such as `mcp.example.com`) — do not mix admin UI traffic onto the MCP gateway port.
 
+## Remote access (optional)
+
+Remote MCP and tunneled web admin are **optional**. The gateway stays on loopback; you expose it with Cloudflare Tunnel (or similar) and Cloudflare Access at the edge.
+
+For a high-level capability map — two-hostname layout, auth layers, Settings knobs, and client config shape — see [Remote Access](/docs/remote-access/).
+
 ## Next Steps
 
+- [Remote Access](/docs/remote-access/) — optional HTTPS MCP and admin via tunnel + Access
 - [Set up Clients](/docs/clients/) to connect your AI applications
 - [Configure FeatureSets](/docs/feature-sets/) to control what each client can access
 - [Manage Servers](/docs/servers/) to add and configure backend MCP servers
