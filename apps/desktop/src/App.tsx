@@ -35,6 +35,7 @@ import { SpacesPage } from '@/features/spaces';
 import { WorkspacesPage } from '@/features/workspaces';
 import { SettingsPage } from '@/features/settings';
 import { DashboardPage } from '@/features/dashboard';
+import { StaleBuildBanner } from '@/components/StaleBuildBanner';
 import { AutoStartConflictResolver } from '@/features/gateway/AutoStartConflictResolver';
 import { WorkspaceBindingSheet } from '@/features/workspaces';
 import { MetaToolApprovalDialog } from '@/features/metaTools';
@@ -365,6 +366,7 @@ function AppContent() {
             </button>
           </div>
         )}
+        <StaleBuildBanner />
         {activeNav === 'home' && <DashboardPage />}
         {activeNav === 'registry' && <RegistryPage />}
         {activeNav === 'servers' && <ServersPage />}

@@ -130,6 +130,18 @@ fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Git short SHA the binary was compiled from (empty if git was unavailable at build time).
+///
+/// Used by the web-admin SPA to detect when the served static bundle was built from a
+/// different commit than the running backend — i.e. someone forgot to re-run
+/// `pnpm build:web:admin` after pulling new UI changes.
+#[tauri::command]
+fn get_build_info() -> serde_json::Value {
+    serde_json::json!({
+        "git_sha": env!("MCPMUX_BUILD_GIT_SHA"),
+    })
+}
+
 /// Get the on-disk bundle version (macOS only).
 ///
 /// After a Homebrew Cask upgrade, the `.app` bundle on disk has the new version
@@ -910,6 +922,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_version,
             get_bundle_version,
+            get_build_info,
             // Space commands
             commands::list_spaces,
             commands::get_space,

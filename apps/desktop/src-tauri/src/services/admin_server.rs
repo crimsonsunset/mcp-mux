@@ -515,6 +515,7 @@ pub async fn start_admin_server_if_enabled(
         auto_launch_enabled,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         bundle_version: get_bundle_version(),
+        build_git_sha: env!("MCPMUX_BUILD_GIT_SHA").to_string(),
     });
     let server = match AdminServer::new(
         config.clone(),

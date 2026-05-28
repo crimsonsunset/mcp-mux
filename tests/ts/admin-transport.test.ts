@@ -120,6 +120,7 @@ const P4_READ_ROUTES: Array<{
   },
   { command: 'get_version', method: 'GET', path: '/api/v1/app/version' },
   { command: 'get_bundle_version', method: 'GET', path: '/api/v1/app/bundle-version' },
+  { command: 'get_build_info', method: 'GET', path: '/api/v1/app/build-info' },
   { command: 'get_logs_path', method: 'GET', path: '/api/v1/app/logs-path' },
   {
     command: 'get_server_logs',

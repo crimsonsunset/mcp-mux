@@ -158,7 +158,7 @@ export function SettingsPage() {
       success(
         'Web admin updated',
         next.enabled
-          ? `Browse http://127.0.0.1:${next.port} (run pnpm build:web:admin if the page is blank).`
+          ? `Browse http://127.0.0.1:${next.port}. Run pnpm build:web:admin after UI changes, then hard-refresh.`
           : 'Web admin server stopped.'
       );
     } catch (err) {

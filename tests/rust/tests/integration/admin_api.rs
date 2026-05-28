@@ -96,6 +96,7 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
         auto_launch_enabled: Some(false),
         app_version: "0.0.0-test".to_string(),
         bundle_version: None,
+        build_git_sha: "test-sha".to_string(),
     });
 
     (services, bridge)
@@ -613,6 +614,16 @@ async fn read_endpoints_match_bridge_for_core_p4_routes() {
         bridge_read::get_bundle_version(&harness.bridge)
             .await
             .expect("bridge bundle version"),
+    )
+    .await;
+
+    assert_get_matches_bridge(
+        &harness,
+        &client,
+        "/api/v1/app/build-info",
+        bridge_read::get_build_info(&harness.bridge)
+            .await
+            .expect("bridge build info"),
     )
     .await;
 

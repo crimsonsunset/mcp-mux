@@ -139,6 +139,7 @@ impl LiveGatewayFixture {
             auto_launch_enabled: Some(false),
             app_version: "0.0.0-test".to_string(),
             bundle_version: None,
+            build_git_sha: "test-sha".to_string(),
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;

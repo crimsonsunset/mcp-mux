@@ -39,4 +39,6 @@ pub struct AdminBridgeCtx {
     pub app_version: String,
     /// Desktop bundle version when available (macOS app bundle).
     pub bundle_version: Option<String>,
+    /// Git short SHA compiled into the desktop binary (`MCPMUX_BUILD_GIT_SHA`).
+    pub build_git_sha: String,
 }

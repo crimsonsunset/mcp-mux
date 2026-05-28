@@ -1,6 +1,16 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { execSync } from 'node:child_process';
 import path from 'path';
+
+/** Git short SHA at build/dev-server start — compared against the backend in web-admin prod mode. */
+function getGitSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+}
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -9,6 +19,7 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   define: {
     'import.meta.env.VITE_ADMIN_WEB': JSON.stringify(process.env.VITE_ADMIN_WEB === 'true'),
+    'import.meta.env.VITE_BUILD_GIT_SHA': JSON.stringify(getGitSha()),
   },
   plugins: [react()],
 

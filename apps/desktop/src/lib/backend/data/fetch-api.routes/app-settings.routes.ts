@@ -11,6 +11,7 @@ export const appSettingsRoutes: Record<string, RouteHandler> = {
   }),
   get_version: () => ({ method: 'GET', path: '/api/v1/app/version' }),
   get_bundle_version: () => ({ method: 'GET', path: '/api/v1/app/bundle-version' }),
+  get_build_info: () => ({ method: 'GET', path: '/api/v1/app/build-info' }),
   get_logs_path: () => ({ method: 'GET', path: '/api/v1/app/logs-path' }),
   get_server_logs: (args) => ({
     method: 'GET',

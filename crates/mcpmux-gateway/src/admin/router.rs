@@ -261,6 +261,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/v1/app/version", get(read::get_version))
         .route("/api/v1/app/bundle-version", get(read::get_bundle_version))
+        .route("/api/v1/app/build-info", get(read::get_build_info))
         .route("/api/v1/app/logs-path", get(read::get_logs_path))
         .route(
             "/api/v1/logs/server/{server_id}",

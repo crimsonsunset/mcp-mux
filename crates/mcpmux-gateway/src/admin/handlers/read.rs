@@ -468,6 +468,13 @@ pub async fn get_bundle_version(State(state): State<AdminState>) -> Result<Json<
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_build_info(State(state): State<AdminState>) -> Result<Json<Value>, ApiError> {
+    bridge::get_build_info(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_logs_path(State(state): State<AdminState>) -> Result<Json<Value>, ApiError> {
     bridge::get_logs_path(&state.bridge)
         .await

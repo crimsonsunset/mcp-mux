@@ -573,6 +573,12 @@ pub async fn get_bundle_version(ctx: &AdminBridgeCtx) -> Result<Value> {
     as_json(ctx.bundle_version.clone())
 }
 
+pub async fn get_build_info(ctx: &AdminBridgeCtx) -> Result<Value> {
+    as_json(serde_json::json!({
+        "git_sha": ctx.build_git_sha,
+    }))
+}
+
 pub async fn get_logs_path(ctx: &AdminBridgeCtx) -> Result<Value> {
     as_json(ctx.data_dir.join("logs").to_string_lossy().to_string())
 }
