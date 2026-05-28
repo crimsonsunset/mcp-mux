@@ -211,11 +211,7 @@ fn handle_authorize_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url:
     );
 
     // Focus the main window
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    crate::main_window::show_main_window(app);
 }
 
 /// Handle server install deep link
@@ -246,11 +242,7 @@ fn handle_install_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &
     }
 
     // Focus the main window
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    crate::main_window::show_main_window(app);
 }
 
 /// Handle OAuth callback deep link (legacy - for outbound OAuth server connections)

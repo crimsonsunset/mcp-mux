@@ -166,16 +166,7 @@ pub(crate) async fn shutdown_gateway_handle(mut handle: mcpmux_gateway::GatewayS
 /// mcpmux app instead of the dialog rendering invisibly under another
 /// window.
 pub(crate) fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
-    use tauri::Manager;
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    // unminimize + show + set_focus together cover every state the user
-    // could have left the window in (minimized, hidden behind another
-    // app, hidden by user via the close-to-tray flow).
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
+    crate::main_window::show_main_window(app);
 }
 
 /// Wire the meta-tool approval broker to the desktop event bus so write
