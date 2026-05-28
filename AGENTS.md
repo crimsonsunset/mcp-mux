@@ -99,6 +99,15 @@ Anything that spawns a child process (stdio MCP servers, installers, etc.) **mus
 - `#[cfg(unix)]` only compiles on Unix; `#[cfg(windows)]` only on Windows. CI is Linux, so Windows-gated code is **not** linted in CI, and Unix-gated code is not linted on a Windows dev box.
 - When you touch platform-conditional code, check the *other* platform compiles before pushing — CI won't catch a Windows-only clippy regression.
 
+### macOS TCC permissions for child MCP servers
+
+macOS evaluates TCC (Privacy & Security) against the *responsible process* — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux app bundle, not the child. Two things must line up for a child server (e.g. `jsg-beeper-mcp` reading the AddressBook SQLite) to work:
+
+1. **`Info.plist` declares the usage description.** McpMux ships `apps/desktop/src-tauri/Info.plist` with `NSContactsUsageDescription`, `NSCalendarsUsageDescription`, `NSRemindersUsageDescription`, and `NSAppleEventsUsageDescription`. Tauri 2 auto-merges this with the bundler-generated plist. Add new keys here when an MCP server needs a new TCC class.
+2. **The bundle calls into the framework at least once.** Apple only lists apps in System Settings → Privacy & Security → *Category* once they've actually requested access. For Contacts this happens at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()`, which calls `CNContactStore.requestAccess(for: .contacts, ...)`. Without this call the panel stays empty and the user has no way to grant access.
+
+When you add a new TCC class (Photos / Location / etc.) follow the same pattern: usage description in `Info.plist` + a one-time framework call in `macos_permissions.rs` from the setup hook. Don't try to "trust the OS to prompt" — it won't, because the prompt is gated on the responsible process making the call itself.
+
 ### Secret handling
 
 - Never log tokens, API keys, headers with auth material, or raw OAuth responses. Use the existing sanitised-log helpers in `mcpmux-gateway`.

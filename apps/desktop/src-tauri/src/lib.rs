@@ -11,6 +11,7 @@ use tracing::{debug, error, info, warn};
 
 mod commands;
 mod macos_dock;
+mod macos_permissions;
 mod main_window;
 mod services;
 mod state;
@@ -276,6 +277,12 @@ pub fn run() {
             if commands::should_start_hidden() {
                 macos_dock::set_dock_visible(app.handle(), false);
             }
+
+            // Register McpMux with macOS TCC for resources that spawned MCP
+            // servers may need. Without this, the app never appears in
+            // Privacy & Security → Contacts and child reads of AddressBook
+            // hit a silent EPERM. Idempotent + non-blocking.
+            macos_permissions::ensure_contacts_registered();
 
             info!("Initializing application state...");
 

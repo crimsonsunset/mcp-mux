@@ -168,6 +168,15 @@ The pre-commit hook runs `cargo clippy --workspace -- -D warnings` locally, but 
 - `#[cfg(windows)]` code is only linted locally on Windows, not in CI
 - Always validate that platform-conditional code compiles correctly on both platforms before pushing
 
+### macOS TCC Permissions for Child MCP Servers
+
+macOS attributes TCC (Privacy & Security) decisions to the *responsible process* — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux bundle, not the child. Two things must line up for a child to read a TCC-protected resource (e.g. `jsg-beeper-mcp` reading `~/Library/Application Support/AddressBook`):
+
+1. **Usage description in `Info.plist`.** McpMux ships `apps/desktop/src-tauri/Info.plist` with `NSContactsUsageDescription`, `NSCalendarsUsageDescription`, `NSRemindersUsageDescription`, `NSAppleEventsUsageDescription`. Tauri 2 auto-merges this file into the bundle.
+2. **The bundle requests access at least once.** Apple only lists an app in System Settings → Privacy & Security → *Category* after it has called the corresponding framework. McpMux does this for Contacts at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()` (calls `CNContactStore.requestAccess(for: .contacts, ...)` through `objc2-contacts`).
+
+To add a new TCC class, follow the same two-step pattern. Don't expect the OS to "just prompt" — the prompt is gated on the responsible process making the call itself.
+
 ## CI
 
 GitHub Actions runs on push/PR to main: Rust format + clippy + check, ESLint + typecheck, cargo nextest, vitest, desktop E2E (Windows/macOS/Linux), web E2E (Playwright). Releases use release-please for semantic versioning with multi-platform Tauri builds.
