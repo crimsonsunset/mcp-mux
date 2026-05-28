@@ -788,7 +788,8 @@ pub async fn set_gateway_public_url(
     app_state: State<'_, AppState>,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<(), String> {
-    let normalized = mcpmux_gateway::normalize_public_url(&public_url).map_err(|e| e.to_string())?;
+    let normalized =
+        mcpmux_gateway::normalize_public_url(&public_url).map_err(|e| e.to_string())?;
     let settings = AppSettingsService::new(app_state.settings_repository.clone());
 
     if normalized.is_empty() {

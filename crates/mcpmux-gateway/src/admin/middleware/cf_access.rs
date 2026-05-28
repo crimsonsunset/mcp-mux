@@ -149,9 +149,8 @@ impl CfAccessValidator {
         }
         let mut keys = Vec::with_capacity(body.keys.len());
         for jwk in body.keys {
-            let key = DecodingKey::from_jwk(&jwk).map_err(|e| {
-                CfAccessError::Config(format!("invalid JWK from CF Access: {e}"))
-            })?;
+            let key = DecodingKey::from_jwk(&jwk)
+                .map_err(|e| CfAccessError::Config(format!("invalid JWK from CF Access: {e}")))?;
             keys.push(key);
         }
         Ok(Self {
@@ -374,7 +373,10 @@ mod tests {
 
         let mut headers = HeaderMap::new();
         headers.insert(CF_ACCESS_CLIENT_ID_HEADER, "svc-id".parse().unwrap());
-        headers.insert(CF_ACCESS_CLIENT_SECRET_HEADER, "svc-secret".parse().unwrap());
+        headers.insert(
+            CF_ACCESS_CLIENT_SECRET_HEADER,
+            "svc-secret".parse().unwrap(),
+        );
         assert!(service_token_matches(&headers));
 
         headers.insert(CF_ACCESS_CLIENT_SECRET_HEADER, "wrong".parse().unwrap());

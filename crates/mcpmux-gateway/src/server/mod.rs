@@ -280,9 +280,7 @@ impl GatewayServer {
         // - list_changed notifications delivered via SSE
         // Build via default() + setters so new non-exhaustive fields (e.g. allowed_hosts,
         // which defaults to localhost/127.0.0.1/::1) don't require us to enumerate them.
-        let public_url = tokio::task::block_in_place(|| {
-            state.blocking_read().public_url.clone()
-        });
+        let public_url = tokio::task::block_in_place(|| state.blocking_read().public_url.clone());
         let mut http_cfg = StreamableHttpServerConfig::default();
         http_cfg.stateful_mode = true;
         http_cfg.json_response = false;

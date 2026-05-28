@@ -127,10 +127,7 @@ impl GatewayState {
     /// Publish a consent request to the desktop webview and web admin SSE.
     pub fn notify_consent_request(&self, request_id: &str) {
         if let Some(ref hook) = self.consent_ui_hook {
-            info!(
-                "[OAuth] Notifying consent UI: request_id='{}'",
-                request_id
-            );
+            info!("[OAuth] Notifying consent UI: request_id='{}'", request_id);
             hook(request_id);
         } else {
             warn!(

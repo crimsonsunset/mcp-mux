@@ -28,11 +28,7 @@ pub struct AppState {
 
 async fn request_base_url(app_state: &AppState, headers: &HeaderMap) -> String {
     let state = app_state.gateway_state.read().await;
-    resolve_request_base_url(
-        headers,
-        &state.base_url,
-        state.public_url.as_deref(),
-    )
+    resolve_request_base_url(headers, &state.base_url, state.public_url.as_deref())
 }
 
 impl axum::extract::FromRef<AppState> for Arc<RwLock<GatewayState>> {
