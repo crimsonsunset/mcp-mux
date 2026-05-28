@@ -148,11 +148,14 @@ export async function subscribeOAuthConsentRequest(
   handler: (payload: OAuthConsentDeepLinkPayload) => void
 ): Promise<UnlistenFn | undefined> {
   if (!isTauri()) {
+    console.log('[OAuth] subscribeOAuthConsentRequest skipped — not Tauri');
     return undefined;
   }
+  console.log('[OAuth] Subscribing to Tauri event:', 'oauth-consent-request');
   const unlisten = await listen<OAuthConsentDeepLinkPayload>(
     'oauth-consent-request',
     (event) => {
+      console.log('[OAuth] Tauri consent event received:', event.payload);
       handler(event.payload);
     }
   );
@@ -169,28 +172,37 @@ export function subscribeOAuthConsentEvents(
   handler: (payload: OAuthConsentDeepLinkPayload) => void
 ): () => void {
   if (isTauri()) {
+    console.log('[OAuth] subscribeOAuthConsentEvents: using Tauri listener');
     let unlisten: UnlistenFn | undefined;
     void subscribeOAuthConsentRequest(handler).then((fn) => {
       unlisten = fn;
+      console.log('[OAuth] Tauri consent listener registered');
     });
     return () => {
+      console.log('[OAuth] Unsubscribing Tauri consent listener');
       unlisten?.();
     };
   }
 
+  console.log('[OAuth] subscribeOAuthConsentEvents: using SSE /api/v1/events');
   const source = new EventSource('/api/v1/events');
+  source.onopen = () => console.log('[OAuth] SSE connected');
+  source.onerror = (err) => console.warn('[OAuth] SSE error:', err);
   const onConsentRequest = (event: MessageEvent<string>) => {
+    console.log('[OAuth] SSE consent event raw:', event.data);
     try {
       const payload = JSON.parse(event.data) as OAuthConsentDeepLinkPayload;
       if (payload.requestId) {
+        console.log('[OAuth] SSE consent event parsed:', payload);
         handler(payload);
       }
     } catch {
-      // ignore malformed SSE frames
+      console.warn('[OAuth] SSE consent event: malformed payload');
     }
   };
   source.addEventListener('oauth-consent-request', onConsentRequest);
   return () => {
+    console.log('[OAuth] Closing SSE consent listener');
     source.removeEventListener('oauth-consent-request', onConsentRequest);
     source.close();
   };

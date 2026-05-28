@@ -57,14 +57,16 @@ async function loadConsentRequest(
   setModalState: (state: ModalState) => void,
   setProcessError: (error: string | null) => void
 ): Promise<void> {
+  console.log('[OAuth] loadConsentRequest start:', requestId);
   setModalState({ type: 'loading', requestId });
   setProcessError(null);
 
   try {
     const details = await getPendingConsent(requestId);
+    console.log('[OAuth] loadConsentRequest OK:', details.clientName, details.clientId);
     setModalState({ type: 'consent', details });
   } catch (err) {
-    console.error('[OAuth] Validation failed:', err);
+    console.error('[OAuth] loadConsentRequest failed:', err);
     const error = err as ConsentError;
     setModalState({ type: 'error', requestId, error });
   }
@@ -113,7 +115,9 @@ export function OAuthConsentModal() {
   }, [modalState.type]);
 
   useEffect(() => {
+    console.log('[OAuth] OAuthConsentModal mounting — subscribing to consent events');
     return subscribeOAuthConsentEvents((payload) => {
+      console.log('[OAuth] OAuthConsentModal handler fired:', payload);
       void loadConsentRequest(payload.requestId, setModalState, setProcessError);
     });
   }, []);

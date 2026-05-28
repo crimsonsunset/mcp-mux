@@ -8,7 +8,7 @@ use crate::admin::command_bridge::space::UpdateSpaceInput;
 use crate::admin::command_bridge::write as bridge;
 use crate::admin::command_bridge::write::{
     AddMemberBody, CloneServerBody, CreateClientBody, CreateFeatureSetBody, CreateSpaceBody,
-    DisconnectServerBody, GatewayPortBody, GatewayStartBody, InstallServerBody, LogRetentionBody,
+    DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody, InstallServerBody, LogRetentionBody,
     MetaToolApprovalBody, MetaToolRevokeBody, MetaToolsEnabledBody, OAuthClientUpdateBody,
     OAuthGrantBody, SaveServerInputsBody, SaveSpaceConfigBody, ServerConnectionBody,
     SessionOverridesBody, SessionOverridesRequireApprovalBody, SetMembersBody,
@@ -135,6 +135,16 @@ pub async fn set_gateway_port(
     Json(body): Json<GatewayPortBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::set_gateway_port(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn set_gateway_public_url(
+    State(state): State<AdminState>,
+    Json(body): Json<GatewayPublicUrlBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_gateway_public_url(&state.bridge, body)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

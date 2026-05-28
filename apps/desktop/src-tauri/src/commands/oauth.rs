@@ -63,7 +63,21 @@ pub fn route_or_buffer_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, u
                 *guard = Some(url.to_string());
             }
         }
-        _ => handle_deep_link(app, url),
+        Some(pending) => {
+            info!(
+                "[DeepLink] Webview ready — routing immediately: {} (ready={})",
+                url,
+                pending.webview_ready.load(Ordering::Acquire)
+            );
+            handle_deep_link(app, url);
+        }
+        None => {
+            warn!(
+                "[DeepLink] PendingInitialDeepLink state missing — routing anyway: {}",
+                url
+            );
+            handle_deep_link(app, url);
+        }
     }
 }
 
@@ -72,11 +86,14 @@ pub fn route_or_buffer_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, u
 /// any URL that arrived before mount.
 #[tauri::command]
 pub fn flush_pending_deep_link(app: tauri::AppHandle, pending: State<'_, PendingInitialDeepLink>) {
+    info!("[DeepLink] flush_pending_deep_link called — marking webview ready");
     pending.webview_ready.store(true, Ordering::Release);
     let buffered = pending.url.lock().ok().and_then(|mut g| g.take());
     if let Some(url) = buffered {
         info!("[DeepLink] Flushing buffered cold-start URL: {}", url);
         handle_deep_link(&app, &url);
+    } else {
+        info!("[DeepLink] flush_pending_deep_link: no buffered URL to drain");
     }
 }
 
@@ -187,6 +204,11 @@ fn handle_authorize_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url:
         error!("[DeepLink] Failed to emit consent event: {}", e);
         return;
     }
+
+    info!(
+        "[DeepLink] Emitted Tauri event '{}' for request_id='{}'",
+        OAUTH_CONSENT_EVENT, payload.request_id
+    );
 
     // Focus the main window
     if let Some(window) = app.get_webview_window("main") {
@@ -318,12 +340,27 @@ pub async fn get_pending_consent(
     request_id: String,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<ConsentRequestDetails, ConsentError> {
+    info!(
+        "[OAuth] Tauri get_pending_consent invoked: request_id='{}'",
+        request_id
+    );
     let app_state = gateway_state.read().await;
-    let gw_state = app_state
-        .gateway_state
-        .as_ref()
-        .ok_or_else(ConsentError::gateway_unavailable)?;
-    mcpmux_gateway::oauth::get_pending_consent(gw_state, request_id).await
+    let gw_state = app_state.gateway_state.as_ref().ok_or_else(|| {
+        warn!("[OAuth] get_pending_consent: gateway not running");
+        ConsentError::gateway_unavailable()
+    })?;
+    let result = mcpmux_gateway::oauth::get_pending_consent(gw_state, request_id.clone()).await;
+    match &result {
+        Ok(details) => info!(
+            "[OAuth] get_pending_consent OK: request_id='{}', client='{}'",
+            request_id, details.client_name
+        ),
+        Err(err) => warn!(
+            "[OAuth] get_pending_consent failed: request_id='{}', code='{}', message='{}'",
+            request_id, err.code, err.message
+        ),
+    }
+    result
 }
 
 /// Approve or deny an OAuth consent request (direct state access)

@@ -48,6 +48,7 @@ import {
   openLogsFolder,
   resetGatewayPort,
   setGatewayPort,
+  setGatewayPublicUrl,
   updateAdminWebSettings,
   updateStartupSettings,
   type AdminWebSettings,
@@ -96,8 +97,11 @@ export function SettingsPage() {
   // saved ≠ active, the user has to restart the gateway to apply.
   const [portSettings, setPortSettings] = useState<GatewayPortSettings | null>(null);
   const [portDraft, setPortDraft] = useState<string>('');
+  const [publicUrlDraft, setPublicUrlDraft] = useState<string>('');
   const [portError, setPortError] = useState<string | null>(null);
+  const [publicUrlError, setPublicUrlError] = useState<string | null>(null);
   const [savingPort, setSavingPort] = useState(false);
+  const [savingPublicUrl, setSavingPublicUrl] = useState(false);
   const [resettingPort, setResettingPort] = useState(false);
 
   const [adminWeb, setAdminWeb] = useState<AdminWebSettings | null>(null);
@@ -111,7 +115,9 @@ export function SettingsPage() {
       const s = await getGatewayPortSettings();
       setPortSettings(s);
       setPortDraft(String(s.configuredPort ?? s.defaultPort));
+      setPublicUrlDraft(s.publicUrl ?? '');
       setPortError(null);
+      setPublicUrlError(null);
     } catch (err) {
       console.error('Failed to load gateway port settings:', err);
     }
@@ -206,6 +212,25 @@ export function SettingsPage() {
       error('Failed to save port', msg);
     } finally {
       setSavingPort(false);
+    }
+  };
+
+  const handleSavePublicUrl = async () => {
+    setSavingPublicUrl(true);
+    try {
+      await setGatewayPublicUrl(publicUrlDraft);
+      await loadPortSettings();
+      setPublicUrlError(null);
+      success(
+        'Public gateway URL saved',
+        'Remote clients via Cloudflare Tunnel will use this URL for OAuth discovery.'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPublicUrlError(msg);
+      error('Failed to save public URL', msg);
+    } finally {
+      setSavingPublicUrl(false);
     }
   };
 
@@ -608,6 +633,62 @@ export function SettingsPage() {
                       data-testid="gateway-port-error"
                     >
                       {portError}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <Globe className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <label
+                    htmlFor="gateway-public-url-input"
+                    className="text-sm font-medium"
+                  >
+                    Public gateway URL
+                  </label>
+                  <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                    HTTPS hostname for remote MCP clients via Cloudflare Tunnel. OAuth discovery
+                    uses this when requests arrive with matching{' '}
+                    <span className="font-mono">X-Forwarded-Host</span>. Local clients keep using{' '}
+                    <span className="font-mono">localhost</span>.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <input
+                      id="gateway-public-url-input"
+                      type="url"
+                      placeholder="https://mcp.example.com"
+                      value={publicUrlDraft}
+                      onChange={(e) => {
+                        setPublicUrlDraft(e.target.value);
+                        if (publicUrlError) setPublicUrlError(null);
+                      }}
+                      disabled={savingPublicUrl}
+                      className="min-w-[16rem] flex-1 px-3 py-1.5 text-sm font-mono border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))] text-[rgb(var(--foreground))] focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                      data-testid="gateway-public-url-input"
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSavePublicUrl}
+                      disabled={
+                        savingPublicUrl ||
+                        publicUrlDraft.trim() === (portSettings.publicUrl ?? '')
+                      }
+                      data-testid="gateway-public-url-save-btn"
+                    >
+                      {savingPublicUrl ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Save
+                    </Button>
+                  </div>
+                  {publicUrlError ? (
+                    <p
+                      className="text-xs text-red-600 dark:text-red-400 mt-2"
+                      data-testid="gateway-public-url-error"
+                    >
+                      {publicUrlError}
                     </p>
                   ) : null}
                 </div>

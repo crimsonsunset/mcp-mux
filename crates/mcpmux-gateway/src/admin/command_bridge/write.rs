@@ -153,6 +153,12 @@ pub struct GatewayPortBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayPublicUrlBody {
+    pub public_url: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CloneServerBody {
     pub space_id: String,
     pub source_server_id: String,
@@ -904,6 +910,35 @@ pub async fn refresh_oauth_tokens_on_startup(ctx: &AdminBridgeCtx) -> Result<Val
 
 pub async fn set_gateway_port(ctx: &AdminBridgeCtx, body: GatewayPortBody) -> Result<Value> {
     ctx.gateway_writes.set_gateway_port(body.port).await
+}
+
+pub async fn set_gateway_public_url(
+    ctx: &AdminBridgeCtx,
+    body: GatewayPublicUrlBody,
+) -> Result<Value> {
+    let normalized = crate::public_base_url::normalize_public_url(&body.public_url)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let settings = mcpmux_core::AppSettingsService::new(ctx.settings_repository.clone());
+
+    if normalized.is_empty() {
+        settings.clear_gateway_public_url().await?;
+    } else {
+        settings.set_gateway_public_url(&normalized).await?;
+    }
+
+    let stored = if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized.clone())
+    };
+    if let Some(gateway_state) = ctx.gateway_writes.gateway_state().await {
+        let mut state = gateway_state.write().await;
+        state.set_public_url(stored.clone());
+    }
+
+    Ok(json!({
+        "publicUrl": stored,
+    }))
 }
 
 pub async fn enable_server_v2(ctx: &AdminBridgeCtx, body: ServerConnectionBody) -> Result<Value> {

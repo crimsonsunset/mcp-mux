@@ -305,6 +305,10 @@ fn build_approved_redirect(pending: &PendingAuthorization, code: &str) -> String
 
 /// Publish an `oauth-consent-request` UI event for web admin SSE subscribers.
 pub fn emit_consent_request(ui_bus: &AdminUiEventBus, request_id: &str) {
+    info!(
+        "[OAuth] Publishing SSE event '{}': request_id='{}'",
+        OAUTH_CONSENT_EVENT, request_id
+    );
     ui_bus.publish(
         OAUTH_CONSENT_EVENT,
         serde_json::json!({ "requestId": request_id }),

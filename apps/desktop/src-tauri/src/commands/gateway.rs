@@ -24,8 +24,9 @@ use crate::services::admin_server::{
 use crate::services::ui_events::emit_ui_channel;
 use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
-use mcpmux_core::DomainEvent;
-use mcpmux_gateway::admin::ui_events::map_domain_event_to_ui;
+use mcpmux_core::{AppSettingsService, DomainEvent};
+use mcpmux_gateway::admin::ui_events::{map_domain_event_to_ui, AdminUiEventBus};
+use mcpmux_gateway::oauth::OAUTH_CONSENT_EVENT;
 use mcpmux_gateway::{
     ConnectionContext, ConnectionResult, FeatureService, InstalledServerInfo, OAuthCompleteEvent,
     PoolService, ResolvedTransport, ServerKey, ServerManager,
@@ -103,6 +104,25 @@ pub struct GatewayAppState {
     pub session_overrides: Option<Arc<mcpmux_gateway::services::SessionOverrideRegistry>>,
     /// Per-session list_changed bridge — used when the UI clears overrides.
     pub mcp_notifier: Option<Arc<mcpmux_gateway::consumers::MCPNotifier>>,
+}
+
+/// Load the persisted public gateway URL for OAuth metadata.
+pub(crate) async fn load_gateway_public_url(app_state: &AppState) -> Option<String> {
+    AppSettingsService::new(app_state.settings_repository.clone())
+        .get_gateway_public_url()
+        .await
+}
+
+/// Apply the public gateway URL to a running gateway, if any.
+async fn apply_gateway_public_url(
+    gateway_state: &Arc<RwLock<GatewayAppState>>,
+    public_url: Option<String>,
+) {
+    let app = gateway_state.read().await;
+    if let Some(gw) = app.gateway_state.as_ref() {
+        let mut state = gw.write().await;
+        state.set_public_url(public_url);
+    }
 }
 
 /// Gracefully shuts down a running gateway and waits for the axum task
@@ -351,6 +371,30 @@ pub fn start_domain_event_bridge(
     });
 }
 
+/// Wire OAuth consent notifications to the desktop webview and admin SSE bus.
+pub async fn wire_consent_ui_notifications(
+    app_handle: &AppHandle,
+    gateway_state: &Arc<RwLock<mcpmux_gateway::GatewayState>>,
+    ui_bus: Option<Arc<AdminUiEventBus>>,
+) {
+    let app = app_handle.clone();
+    let ui_bus_for_hook = ui_bus.clone();
+    let hook: mcpmux_gateway::ConsentUiNotifier = Arc::new(move |request_id: &str| {
+        emit_ui_channel(
+            &app,
+            ui_bus_for_hook.as_deref(),
+            OAUTH_CONSENT_EVENT,
+            serde_json::json!({ "requestId": request_id }),
+        );
+    });
+
+    gateway_state.write().await.set_consent_ui_hook(hook);
+    info!(
+        "[Gateway] Consent UI wired (Tauri + SSE={})",
+        ui_bus.is_some()
+    );
+}
+
 /// Create Gateway dependencies from app state using DI builder pattern
 ///
 /// Centralizes dependency construction following Dependency Injection principles.
@@ -531,6 +575,11 @@ pub async fn start_gateway(
 
     // Get references to services before spawning
     let gw_state = server.state();
+    {
+        let public_url = load_gateway_public_url(&app_state).await;
+        let mut state = gw_state.write().await;
+        state.set_public_url(public_url);
+    }
     let pool_service = server.pool_service();
     let feature_service = server.feature_service();
     let event_emitter = server.event_emitter();
@@ -596,8 +645,8 @@ pub async fn start_gateway(
         } else {
             None
         };
-    if let (Some(ref gw), Some(ref bus)) = (&state.gateway_state, &ui_bus) {
-        gw.write().await.set_consent_ui_bus(bus.clone());
+    if let Some(ref gw) = state.gateway_state {
+        wire_consent_ui_notifications(&app_handle, gw, ui_bus.clone()).await;
     }
     info!(
         "[Gateway] Started — url={}, event_emitter={}, grant_service={}",
@@ -675,6 +724,7 @@ pub struct GatewayPortSettings {
     pub configured_port: Option<u16>,
     pub default_port: u16,
     pub active_port: Option<u16>,
+    pub public_url: Option<String>,
 }
 
 fn parse_port_from_url(url: &str) -> Option<u16> {
@@ -691,6 +741,7 @@ pub async fn get_gateway_port_settings(
     app_state: State<'_, AppState>,
 ) -> Result<GatewayPortSettings, String> {
     let configured_port = app_state.gateway_port_service.load_persisted_port().await;
+    let public_url = load_gateway_public_url(&app_state).await;
 
     let active_port = {
         let state = gateway_state.read().await;
@@ -701,6 +752,7 @@ pub async fn get_gateway_port_settings(
         configured_port,
         default_port: mcpmux_core::DEFAULT_GATEWAY_PORT,
         active_port,
+        public_url,
     })
 }
 
@@ -726,6 +778,39 @@ pub async fn set_gateway_port(port: u16, app_state: State<'_, AppState>) -> Resu
         .map_err(|e| e.to_string())?;
 
     info!("[Gateway] Persisted custom gateway port: {}", port);
+    Ok(())
+}
+
+/// Persist the public HTTPS URL used in OAuth metadata for tunnel clients.
+#[tauri::command]
+pub async fn set_gateway_public_url(
+    public_url: String,
+    app_state: State<'_, AppState>,
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+) -> Result<(), String> {
+    let normalized = mcpmux_gateway::normalize_public_url(&public_url).map_err(|e| e.to_string())?;
+    let settings = AppSettingsService::new(app_state.settings_repository.clone());
+
+    if normalized.is_empty() {
+        settings
+            .clear_gateway_public_url()
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        settings
+            .set_gateway_public_url(&normalized)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let stored = if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    };
+    apply_gateway_public_url(gateway_state.inner(), stored).await;
+
+    info!("[Gateway] Persisted public gateway URL");
     Ok(())
 }
 

@@ -16,6 +16,7 @@ pub mod mcp;
 pub mod oauth;
 pub mod permissions;
 pub mod pool;
+pub mod public_base_url;
 pub mod server;
 pub mod services;
 
@@ -23,9 +24,11 @@ pub use admin::{AdminConfig, AdminServer, AdminServerHandle, DEFAULT_ADMIN_PORT}
 pub use auth::AccessKeyAuth;
 pub use oauth::{OAuthConfig, OAuthManager, OAuthToken};
 pub use permissions::{PermissionFilter, PermissionSet};
+pub use public_base_url::{normalize_public_url, resolve_request_base_url};
 pub use server::{
-    oauth_token, AutoConnectResult, DependenciesBuilder, GatewayConfig, GatewayDependencies,
-    GatewayServer, GatewayServerHandle, GatewayState, PendingAuthorization, StartupOrchestrator,
+    oauth_token, AutoConnectResult, ConsentUiNotifier, DependenciesBuilder, GatewayConfig,
+    GatewayDependencies, GatewayServer, GatewayServerHandle, GatewayState, PendingAuthorization,
+    StartupOrchestrator,
 };
 
 // Pool module - SOLID architecture

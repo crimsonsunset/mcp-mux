@@ -81,6 +81,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/v1/gateway/port", put(write::set_gateway_port))
         .route(
+            "/api/v1/gateway/public-url",
+            put(write::set_gateway_public_url),
+        )
+        .route(
             "/api/v1/spaces",
             get(read::list_spaces).post(write::create_space),
         )
