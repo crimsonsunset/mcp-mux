@@ -32,6 +32,7 @@
     "test:e2e:video": "cross-env MCPMUX_REGISTRY_URL=http://localhost:8787 SAVE_ALL_VIDEOS=true pnpm exec wdio run tests/e2e/wdio.conf.ts",
     "test:e2e:web": "pnpm exec playwright test -c tests/e2e/playwright.config.ts",
     "test:e2e:web:admin": "pnpm exec playwright test -c tests/e2e/playwright.admin.config.ts",
+    "remote:smoke": "node scripts/remote-gateway-smoke.mjs",
     "test:e2e:web:headed": "pnpm exec playwright test -c tests/e2e/playwright.config.ts --headed",
     "test:ci": "pnpm test",
     "test:coverage": "cargo llvm-cov --workspace --html && vitest run -c tests/ts/vitest.config.ts --coverage",

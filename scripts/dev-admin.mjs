@@ -11,6 +11,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadRepoDotEnv } from './cf-access-env.mjs';
+
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ADMIN_PORT = Number.parseInt(process.env.MCPMUX_ADMIN_PORT ?? '45819', 10);
 const HEALTH_URL = `http://127.0.0.1:${ADMIN_PORT}/api/v1/health`;
@@ -76,6 +78,8 @@ async function main() {
     console.error('[dev-admin] Could not locate repo root.');
     process.exit(1);
   }
+
+  loadRepoDotEnv(REPO_ROOT);
 
   void waitThenOpenBrowser();
 

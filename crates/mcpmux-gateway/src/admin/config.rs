@@ -19,7 +19,10 @@ pub struct AdminConfig {
     pub port: u16,
     /// Require and validate `CF-Access-Jwt-Assertion` when true.
     ///
-    /// When enabled, **all** routes including `/api/v1/health` require a valid JWT.
+    /// When enabled, **all** routes including `/api/v1/health` require a valid JWT,
+    /// or matching `CF-Access-Client-Id` / `CF-Access-Client-Secret` service-token
+    /// headers when `MCPMUX_CF_ACCESS_CLIENT_ID` and `MCPMUX_CF_ACCESS_CLIENT_SECRET`
+    /// are set in the admin process environment.
     /// Cloudflare Tunnel origin health probes do not send `CF-Access-Jwt-Assertion`;
     /// do not rely on tunnel health checks against the admin origin — use an external
     /// monitor or a separate unauthenticated probe path if needed.

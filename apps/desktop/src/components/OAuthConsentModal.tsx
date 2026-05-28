@@ -78,9 +78,12 @@ type ModalState =
   | { type: 'error'; requestId: string; error: ConsentError }
   | { type: 'consent'; details: ConsentRequestDetails };
 
+/**
+ * Deliver the OAuth redirect without opening a dead browser tab for loopback URIs.
+ */
 async function openRedirectUrl(url: string): Promise<void> {
-  const { openExternal } = await import('@/lib/backend/shell');
-  await openExternal(url);
+  const { openUrl } = await import('@/lib/backend/shell');
+  await openUrl(url);
 }
 
 function getErrorMessage(error: ConsentError): string {
@@ -137,8 +140,14 @@ export function OAuthConsentModal() {
         client_alias: null,
       });
 
-      if (response.success && response.redirect_url) {
-        await openRedirectUrl(response.redirect_url);
+      if (response.success) {
+        if (response.redirect_url) {
+          try {
+            await openRedirectUrl(response.redirect_url);
+          } catch (redirectErr) {
+            console.warn('[OAuth] Redirect delivery failed after approve:', redirectErr);
+          }
+        }
         setModalState({ type: 'hidden' });
       } else {
         setProcessError(response.error || 'Failed to approve connection');
@@ -166,8 +175,14 @@ export function OAuthConsentModal() {
         client_alias: null,
       });
 
-      if (response.success && response.redirect_url) {
-        await openRedirectUrl(response.redirect_url);
+      if (response.success) {
+        if (response.redirect_url) {
+          try {
+            await openRedirectUrl(response.redirect_url);
+          } catch (redirectErr) {
+            console.warn('[OAuth] Redirect delivery failed after deny:', redirectErr);
+          }
+        }
         setModalState({ type: 'hidden' });
       } else {
         setProcessError(response.error || 'Failed to deny connection');

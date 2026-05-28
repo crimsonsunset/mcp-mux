@@ -165,9 +165,11 @@ Optional loopback admin server: static SPA + REST `/api/v1/*` + SSE. Same SQLite
 | Profile | Settings | Local URL | Playwright |
 | ------- | -------- | --------- | ---------- |
 | **Local fast** | Trust CF Access **off** | `http://127.0.0.1:45819` or HMR `http://127.0.0.1:1420` | No JWT env vars |
-| **Tunnel parity** | Trust CF Access **on** + team domain | Same loopback; tunnel adds JWT at edge | `MCPMUX_ADMIN_CF_JWT=<token>`; negative spec: `MCPMUX_ADMIN_CF_TRUST_ENABLED=1` without JWT |
+| **Tunnel parity** | Trust CF Access **on** + team domain | Same loopback; tunnel adds JWT at edge | Copy `.env.example` → `.env` with `MCPMUX_CF_ACCESS_*`; Playwright: `MCPMUX_ADMIN_CF_JWT` or service-token env vars; `pnpm remote:smoke` for gateway/admin health |
 
-Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx) (generic); full wiring in external homelab docs (`jsg-tech-check`).
+**Service token on both hostnames:** The gateway (`mcp.*`) and admin (`mux.*`) Access applications each need the same service token under **Zero Trust → Access → Service auth**. A 302 to Cloudflare SSO on `mux.*` means the token is missing from that app's policy. When trust is on, the admin server also accepts matching `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers at the origin when `MCPMUX_CF_ACCESS_CLIENT_ID` and `MCPMUX_CF_ACCESS_CLIENT_SECRET` are set in the McpMux process environment (automation / tunnel smoke without a JWT).
+
+Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx) (generic placeholders). Operator-specific tunnel wiring lives in private homelab docs outside this repo.
 
 ### Commands
 
@@ -177,6 +179,7 @@ Homelab hostname and tunnel layout: [`docs/guide/gateway.mdx`](guide/gateway.mdx
 | `pnpm dev:web:admin` | Prep ports, ensure backend, Vite with admin web flags |
 | `pnpm build:web:admin` | Production admin SPA → `apps/desktop/dist` |
 | `pnpm test:e2e:web:admin` | Playwright against `:45819` (needs running app + built dist) |
+| `pnpm remote:smoke` | Health + OAuth metadata over `MCPMUX_REMOTE_*` URLs (reads `.env`) |
 
 `predev` / `pnpm dev:stop` also free `:45819` (see `scripts/dev-env.mjs`).
 
@@ -369,5 +372,5 @@ open /Applications/McpMux.app
 
 - [`AGENTS.md`](../AGENTS.md) — build commands and project layout
 - [`CLAUDE.md`](../CLAUDE.md) — full dev environment reference
-- External homelab docs (`jsg-tech-check/docs/mcp-mux/`) — web admin architecture and parity matrix
+- Private homelab operator docs (outside this repo) — web admin architecture and parity matrix
 - [`docs/planning/unified-backend-facade.md`](planning/unified-backend-facade.md) — three-channel frontend boundary (data / events / shell)

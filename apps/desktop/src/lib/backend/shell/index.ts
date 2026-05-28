@@ -35,6 +35,19 @@ export function initTauriTestApi(): void {
 }
 
 /**
+ * Return true when the URL targets a loopback HTTP(S) OAuth callback.
+ */
+function isLocalhostHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    return isLocalhost && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Open a URL using the system's default handler.
  *
  * In web admin mode the browser opens the URL directly. Desktop uses Tauri
@@ -55,6 +68,10 @@ export async function openExternal(url: string): Promise<void> {
   try {
     await openUrl(url);
   } catch (err) {
+    if (isLocalhostHttpUrl(url)) {
+      console.warn('[Shell] Loopback OAuth callback unavailable — not opening browser:', err);
+      return;
+    }
     console.error('[Shell] openUrl failed:', err);
     if (isTauri()) {
       try {

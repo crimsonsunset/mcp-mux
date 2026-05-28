@@ -709,10 +709,20 @@ pub async fn open_url(url: String) -> Result<(), String> {
                 Ok(())
             }
             Err(e) => {
-                // Connection refused likely means the client's server closed
-                // This can happen if the user took too long to approve
-                error!("[OAuth] Failed to deliver callback: {}", e);
-                Err(format!("Failed to deliver OAuth callback. The application may have timed out waiting. Please try again. Error: {}", e))
+                // No listener on the loopback port — common for smoke clients and
+                // expired MCP client waits. Do not fall back to opening a browser tab.
+                if e.is_connect() || e.is_timeout() {
+                    warn!(
+                        "[OAuth] Loopback callback listener unavailable ({}); skipping browser redirect",
+                        e
+                    );
+                    Ok(())
+                } else {
+                    error!("[OAuth] Failed to deliver callback: {}", e);
+                    Err(format!(
+                        "Failed to deliver OAuth callback. Please try again. Error: {e}"
+                    ))
+                }
             }
         }
     } else {

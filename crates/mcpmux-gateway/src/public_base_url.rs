@@ -59,6 +59,15 @@ pub fn resolve_request_base_url(
         }
     }
 
+    // Bypassed CF Access paths reach the origin without JWT or forwarded-host
+    // headers, but cloudflared still sets Host to the public hostname.
+    if let Some(host) = header_value(headers, "host") {
+        let host = host.split(',').next().unwrap_or("").trim();
+        if host_matches_public(host, &public_host) {
+            return public.to_string();
+        }
+    }
+
     local_base_url.to_string()
 }
 
@@ -182,6 +191,20 @@ mod tests {
                 Some("https://mcp.example.com")
             ),
             "http://localhost:45818"
+        );
+    }
+
+    #[test]
+    fn resolve_uses_public_url_when_host_header_matches() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "mcp.example.com".parse().unwrap());
+        assert_eq!(
+            resolve_request_base_url(
+                &headers,
+                "http://localhost:45818",
+                Some("https://mcp.example.com")
+            ),
+            "https://mcp.example.com"
         );
     }
 

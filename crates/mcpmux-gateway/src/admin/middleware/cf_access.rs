@@ -1,7 +1,10 @@
 //! Cloudflare Access JWT validation for the admin HTTP server.
 //!
 //! When `trust_cf_access` is enabled, requests must include a valid
-//! `CF-Access-Jwt-Assertion` header signed by Cloudflare team certs.
+//! `CF-Access-Jwt-Assertion` header signed by Cloudflare team certs, or
+//! matching `CF-Access-Client-Id` / `CF-Access-Client-Secret` service-token
+//! headers when `MCPMUX_CF_ACCESS_CLIENT_ID` and `MCPMUX_CF_ACCESS_CLIENT_SECRET`
+//! are set in the environment.
 
 use axum::{
     extract::{Request, State},
@@ -12,6 +15,7 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tracing::debug;
 
@@ -20,6 +24,14 @@ use std::sync::Arc;
 
 use super::super::config::CF_ACCESS_JWT_HEADER;
 use super::super::router::AdminState;
+
+/// Service-token headers Cloudflare Access accepts at the edge.
+pub const CF_ACCESS_CLIENT_ID_HEADER: &str = "cf-access-client-id";
+pub const CF_ACCESS_CLIENT_SECRET_HEADER: &str = "cf-access-client-secret";
+
+/// Env vars for optional origin-side service-token auth (tunnel smoke / automation).
+pub const CF_ACCESS_CLIENT_ID_ENV: &str = "MCPMUX_CF_ACCESS_CLIENT_ID";
+pub const CF_ACCESS_CLIENT_SECRET_ENV: &str = "MCPMUX_CF_ACCESS_CLIENT_SECRET";
 
 #[cfg(any(test, feature = "test-utils"))]
 /// PEM-encoded RSA public key used only by test helpers.
@@ -231,8 +243,46 @@ pub async fn cf_access_middleware(
                 cf_access_unauthorized("invalid CF Access token")
             }
         },
+        None if service_token_matches(&headers) => {
+            debug!("CF Access service token accepted from env-configured credentials");
+            next.run(request).await
+        }
         None => cf_access_unauthorized("missing CF-Access-Jwt-Assertion"),
     }
+}
+
+/// Return true when request service-token headers match env-configured credentials.
+pub fn service_token_matches(headers: &HeaderMap) -> bool {
+    let Ok(expected_id) = std::env::var(CF_ACCESS_CLIENT_ID_ENV) else {
+        return false;
+    };
+    let Ok(expected_secret) = std::env::var(CF_ACCESS_CLIENT_SECRET_ENV) else {
+        return false;
+    };
+    if expected_id.is_empty() || expected_secret.is_empty() {
+        return false;
+    }
+
+    let Some(id) = header_value(headers, CF_ACCESS_CLIENT_ID_HEADER) else {
+        return false;
+    };
+    let Some(secret) = header_value(headers, CF_ACCESS_CLIENT_SECRET_HEADER) else {
+        return false;
+    };
+
+    constant_time_eq(id, &expected_id) && constant_time_eq(secret, &expected_secret)
+}
+
+fn header_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    left.as_bytes().ct_eq(right.as_bytes()).into()
 }
 
 fn cf_access_unauthorized(message: &str) -> Response {
@@ -315,5 +365,22 @@ mod tests {
         let err =
             CfAccessValidator::from_pem_certs(vec!["not-a-cert".into()], None, None).unwrap_err();
         assert!(matches!(err, CfAccessError::Config(_)));
+    }
+
+    #[test]
+    fn service_token_matches_env_headers() {
+        std::env::set_var(CF_ACCESS_CLIENT_ID_ENV, "svc-id");
+        std::env::set_var(CF_ACCESS_CLIENT_SECRET_ENV, "svc-secret");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CF_ACCESS_CLIENT_ID_HEADER, "svc-id".parse().unwrap());
+        headers.insert(CF_ACCESS_CLIENT_SECRET_HEADER, "svc-secret".parse().unwrap());
+        assert!(service_token_matches(&headers));
+
+        headers.insert(CF_ACCESS_CLIENT_SECRET_HEADER, "wrong".parse().unwrap());
+        assert!(!service_token_matches(&headers));
+
+        std::env::remove_var(CF_ACCESS_CLIENT_ID_ENV);
+        std::env::remove_var(CF_ACCESS_CLIENT_SECRET_ENV);
     }
 }

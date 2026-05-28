@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "predev": "node ../../scripts/dev-env.mjs prep",
-    "dev": "tauri dev",
+    "dev": "node ../../scripts/run-with-repo-env.mjs tauri dev",
     "build": "tauri build",
     "preview": "vite preview",
     "tauri": "tauri",
