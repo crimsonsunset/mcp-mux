@@ -18,7 +18,7 @@ pub use dependencies::{DependenciesBuilder, GatewayDependencies};
 pub use handlers::PendingAuthorization;
 pub use service_container::ServiceContainer;
 pub use startup::{AutoConnectResult, StartupOrchestrator, TokenRefreshResult};
-pub use state::{ClientSession, GatewayState};
+pub use state::{ClientSession, ConsentUiNotifier, GatewayState};
 
 use axum::{
     middleware,
@@ -236,7 +236,6 @@ impl GatewayServer {
         let app_state = AppState {
             gateway_state: state.clone(),
             services: Arc::new(self.services.clone()),
-            base_url: self.config.base_url(),
         };
 
         // Create MCP notifier (session-keyed fanout, consults the same
@@ -279,12 +278,19 @@ impl GatewayServer {
         // - list_changed notifications delivered via SSE
         // Build via default() + setters so new non-exhaustive fields (e.g. allowed_hosts,
         // which defaults to localhost/127.0.0.1/::1) don't require us to enumerate them.
+        let public_url = tokio::task::block_in_place(|| {
+            state.blocking_read().public_url.clone()
+        });
         let mut http_cfg = StreamableHttpServerConfig::default();
         http_cfg.stateful_mode = true;
         http_cfg.json_response = false;
         http_cfg.sse_keep_alive = Some(std::time::Duration::from_secs(30));
         http_cfg.sse_retry = Some(std::time::Duration::from_secs(3));
         http_cfg.cancellation_token = CancellationToken::new();
+        http_cfg.allowed_hosts = crate::public_base_url::streamable_http_allowed_hosts(
+            self.config.port,
+            public_url.as_deref(),
+        );
         let mcp_service = StreamableHttpService::new(
             move || {
                 debug!("[Gateway] Creating handler instance for MCP session");

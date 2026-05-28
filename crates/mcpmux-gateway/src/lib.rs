@@ -26,8 +26,8 @@ pub use oauth::{OAuthConfig, OAuthManager, OAuthToken};
 pub use permissions::{PermissionFilter, PermissionSet};
 pub use public_base_url::{normalize_public_url, resolve_request_base_url};
 pub use server::{
-    AutoConnectResult, DependenciesBuilder, GatewayConfig, GatewayDependencies, GatewayServer,
-    GatewayServerHandle, GatewayState, PendingAuthorization, StartupOrchestrator,
+    AutoConnectResult, ConsentUiNotifier, DependenciesBuilder, GatewayConfig, GatewayDependencies,
+    GatewayServer, GatewayServerHandle, GatewayState, PendingAuthorization, StartupOrchestrator,
 };
 
 // Pool module - SOLID architecture

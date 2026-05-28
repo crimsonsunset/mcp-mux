@@ -3,6 +3,7 @@
 //! Centralized MCP Server Management Desktop Application
 
 use mcpmux_core::branding;
+use mcpmux_core::AppSettingsService;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::sync::RwLock;
@@ -467,7 +468,7 @@ pub fn run() {
                     .with_log_manager(server_log_manager)
                     .with_database(db_for_gateway)
                     .with_state_dir(app_data_dir.clone())
-                    .with_settings_repo(settings_repo);
+                    .with_settings_repo(settings_repo.clone());
 
                 if let Some(secret) = jwt_secret {
                     deps_builder = deps_builder.with_jwt_secret(secret);
@@ -492,6 +493,13 @@ pub fn run() {
                 // Gateway auto-initializes all services and auto-connects enabled servers
                 let server = mcpmux_gateway::GatewayServer::new(config, dependencies);
                 let gw_inner_state = server.state();
+                {
+                    let public_url = AppSettingsService::new(settings_repo.clone())
+                        .get_gateway_public_url()
+                        .await;
+                    let mut state = gw_inner_state.write().await;
+                    state.set_public_url(public_url);
+                }
 
                 // Get services from gateway
                 let pool_service = server.pool_service();
@@ -549,6 +557,15 @@ pub fn run() {
                 state.grant_service = Some(grant_service);
                 state.approval_broker = Some(approval_broker);
                 state.session_roots = Some(session_roots);
+
+                if let Some(ref gw) = state.gateway_state {
+                    crate::commands::gateway::wire_consent_ui_notifications(
+                        &app_handle_for_sm,
+                        gw,
+                        None,
+                    )
+                    .await;
+                }
 
                 info!(
                     "Gateway auto-started successfully on {} - GrantService initialized: {}",
@@ -1004,6 +1021,7 @@ pub fn run() {
             commands::get_gateway_status,
             commands::get_gateway_port_settings,
             commands::set_gateway_port,
+            commands::set_gateway_public_url,
             commands::reset_gateway_port,
             commands::probe_gateway_start,
             commands::take_pending_port_conflict,

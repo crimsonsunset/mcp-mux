@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use mcpmux_core::branding;
@@ -17,13 +17,22 @@ use crate::auth::{create_access_token, create_refresh_token};
 use crate::oauth::{
     is_redirect_uri_allowed, process_dcr_request, DcrError, DcrRequest, DcrResponse,
 };
+use crate::public_base_url::resolve_request_base_url;
 
 /// App State structure holding both GatewayState and ServiceContainer
 #[derive(Clone)]
 pub struct AppState {
     pub gateway_state: Arc<RwLock<GatewayState>>,
     pub services: Arc<ServiceContainer>,
-    pub base_url: String,
+}
+
+async fn request_base_url(app_state: &AppState, headers: &HeaderMap) -> String {
+    let state = app_state.gateway_state.read().await;
+    resolve_request_base_url(
+        headers,
+        &state.base_url,
+        state.public_url.as_deref(),
+    )
 }
 
 impl axum::extract::FromRef<AppState> for Arc<RwLock<GatewayState>> {
@@ -68,15 +77,16 @@ pub struct OAuthServerMetadata {
 
 /// OAuth metadata endpoint (RFC 8414)
 pub async fn oauth_metadata(
-    axum::extract::State(app_state): axum::extract::State<AppState>,
+    State(app_state): State<AppState>,
+    headers: HeaderMap,
 ) -> Json<OAuthServerMetadata> {
     info!("[Gateway] OAuth metadata request - serving authorization server metadata");
-    let base = &app_state.base_url;
+    let base = request_base_url(&app_state, &headers).await;
     Json(OAuthServerMetadata {
-        issuer: base.to_string(),
-        authorization_endpoint: format!("{}/oauth/authorize", base),
-        token_endpoint: format!("{}/oauth/token", base),
-        registration_endpoint: format!("{}/oauth/register", base),
+        issuer: base.clone(),
+        authorization_endpoint: format!("{base}/oauth/authorize"),
+        token_endpoint: format!("{base}/oauth/token"),
+        registration_endpoint: format!("{base}/oauth/register"),
         response_types_supported: vec!["code".to_string()],
         grant_types_supported: vec![
             "authorization_code".to_string(),
@@ -103,13 +113,14 @@ pub struct ProtectedResourceMetadata {
 /// Protected resource metadata endpoint (RFC 9728)
 /// This tells MCP clients where to find the authorization server
 pub async fn resource_metadata(
-    axum::extract::State(app_state): axum::extract::State<AppState>,
+    State(app_state): State<AppState>,
+    headers: HeaderMap,
 ) -> Json<ProtectedResourceMetadata> {
     info!("[Gateway] Protected resource metadata request");
-    let base = &app_state.base_url;
+    let base = request_base_url(&app_state, &headers).await;
     Json(ProtectedResourceMetadata {
-        resource: format!("{}/mcp", base),
-        authorization_servers: vec![base.to_string()],
+        resource: format!("{base}/mcp"),
+        authorization_servers: vec![base],
         scopes_supported: Some(vec!["mcp".to_string(), "offline_access".to_string()]),
     })
 }
@@ -301,6 +312,15 @@ pub async fn oauth_authorize(
                 expires_at,
                 consent_token: Some(consent_token),
             },
+        );
+        gateway_state.notify_consent_request(&request_id);
+        info!(
+            "[OAuth] Pending authorization stored: request_id='{}', client_id='{}', \
+             pending_count={}, expires_at={}",
+            request_id,
+            params.client_id,
+            gateway_state.pending_authorizations.len(),
+            expires_at
         );
     }
 

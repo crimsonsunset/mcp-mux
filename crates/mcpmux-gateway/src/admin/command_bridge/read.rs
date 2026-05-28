@@ -202,9 +202,10 @@ pub async fn take_pending_port_conflict(ctx: &AdminBridgeCtx) -> Result<Value> {
 
 pub async fn get_gateway_port_settings(ctx: &AdminBridgeCtx) -> Result<Value> {
     let mut value = ctx.gateway_runtime.get_gateway_port_settings().await?;
-    // ponytail: get_gateway_public_url lands in Phase 5; return null for now
+    let settings = mcpmux_core::AppSettingsService::new(ctx.settings_repository.clone());
+    let public_url = settings.get_gateway_public_url().await;
     if let Some(obj) = value.as_object_mut() {
-        obj.insert("publicUrl".to_string(), json!(null));
+        obj.insert("publicUrl".to_string(), json!(public_url));
     }
     Ok(value)
 }
