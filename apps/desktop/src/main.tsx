@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { initTauriTestApi } from '@/lib/backend/shell';
+import '@/lib/monaco-setup';
 import App from './App';
 import './index.css';
 
