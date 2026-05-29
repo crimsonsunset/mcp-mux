@@ -207,6 +207,8 @@ Do **not** open a PR until all automated checks pass and the production build is
 - [`docs/planning/meta-gateway-invoke.md`](./meta-gateway-invoke.md) — search → schema → invoke surface that discovery (Phase 1) extends.
 - [`docs/planning/dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) — the session-override feature being removed in Phase 3.
 - [`docs/planning/tool-level-session-pin.md`](./tool-level-session-pin.md) — prior deferral; subsumed by Decision 1 (FeatureSet-of-one is the tool-level unit).
+- [`docs/planning/search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) — **Phase 6 follow-on** (same branch): root-race fix, inactive-scan SQL rewrite, per-session active index cache; surfaced during QA of Phases 1–5.
+- [`docs/planning/consent-model-qa-runbook.md`](./consent-model-qa-runbook.md) — manual QA runbook for all five phases, including testing space setup and agent prompts.
 - Stale `/start-ticket` command (user-level, `~/.cursor/commands/start-ticket.md`) — references a pre-McpMux `user-mcp-jira` server; the local-config half of the original incident, fixed outside this repo.
 
 ---

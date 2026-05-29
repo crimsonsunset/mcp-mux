@@ -417,7 +417,14 @@ impl GatewayServer {
     ) -> anyhow::Result<()> {
         let addr = self.config.addr();
 
-        info!("[Gateway] Starting on {}", addr);
+        info!(
+            "[Gateway] Starting on {} | sha: {} | branch: {} | committed: {} | built: {}",
+            addr,
+            env!("MCPMUX_GIT_SHA"),
+            env!("MCPMUX_GIT_BRANCH"),
+            env!("MCPMUX_COMMIT_TIME"),
+            env!("MCPMUX_BUILD_TIME"),
+        );
         info!(
             "[Gateway] CORS: {}",
             if self.config.enable_cors {
