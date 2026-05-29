@@ -857,13 +857,34 @@ impl MetaTool for BindCurrentWorkspaceTool {
             .map(|fs| fs.name)
             .unwrap_or_else(|| fs_id.to_string());
 
+        let binding_repo = call.ctx.binding_repo.clone();
+        let fs_id_str = fs_id.to_string();
+
+        // Dedup before consent: repeat binds must not re-prompt the user.
+        if let Some(existing) = binding_repo
+            .list()
+            .await?
+            .into_iter()
+            .find(|b| b.workspace_root == normalized)
+        {
+            if existing.feature_set_ids.iter().any(|id| id == &fs_id_str) {
+                return Ok(text_result(json!({
+                    "ok": true,
+                    "binding_id": existing.id,
+                    "workspace_root": normalized,
+                    "feature_set_id": fs_id,
+                    "feature_set_ids": existing.feature_set_ids,
+                    "already_bound": true,
+                })));
+            }
+        }
+
         let summary = format!(
             "Append FeatureSet '{fs_name}' to workspace '{normalized}' binding \
              (existing bundles preserved). Affects every future connection that \
              reports this path."
         );
 
-        let binding_repo = call.ctx.binding_repo.clone();
         let event_tx = call.ctx.domain_event_tx.clone();
         with_approval(
             &call,
