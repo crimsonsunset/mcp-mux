@@ -1,7 +1,7 @@
 //! Feature Resolution Service - SRP: Feature set resolution & permissions
 
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
 
@@ -221,8 +221,11 @@ impl FeatureResolutionService {
         space_id: &str,
         invokable_keys: &HashSet<(String, String)>,
     ) -> Result<Vec<InactiveDiscoveryEntry>> {
-        let mut by_key: std::collections::HashMap<(String, String), InactiveDiscoveryEntry> =
-            std::collections::HashMap::new();
+        let all_features = self.feature_repo.list_for_space(space_id).await?;
+        let features_by_id: HashMap<String, ServerFeature> = all_features
+            .iter()
+            .map(|feature| (feature.id.to_string(), feature.clone()))
+            .collect();
 
         let sets = self.feature_set_repo.list_by_space(space_id).await?;
         let mut sets: Vec<_> = sets.into_iter().filter(|fs| !fs.is_deleted).collect();
@@ -233,29 +236,118 @@ impl FeatureResolutionService {
                 .then_with(|| a.name.cmp(&b.name))
         });
 
-        for fs in sets {
-            let tools = self
-                .resolve_feature_sets(
-                    space_id,
-                    std::slice::from_ref(&fs.id),
-                    Some(FeatureType::Tool),
-                )
-                .await?;
-            for feature in tools {
-                let key = (feature.server_id.clone(), feature.feature_name.clone());
-                if invokable_keys.contains(&key) {
-                    continue;
-                }
-                by_key.entry(key).or_insert(InactiveDiscoveryEntry {
-                    feature,
-                    bindable_feature_set_id: fs.id.clone(),
-                });
+        let mut by_key: HashMap<(String, String), InactiveDiscoveryEntry> = HashMap::new();
+
+        // Pass 1: flat `feature` include members (hot path — equivalent to the JOIN scan).
+        for fs in &sets {
+            Self::collect_inactive_from_flat_includes(
+                &mut by_key,
+                &features_by_id,
+                fs,
+                invokable_keys,
+            );
+        }
+
+        // Pass 2: nested FeatureSet members and exclude rules (rare composed bundles).
+        for fs in &sets {
+            if !Self::feature_set_needs_resolution_pass(fs) {
+                continue;
             }
+            let mut allowed_feature_ids: HashSet<String> = HashSet::new();
+            let mut excluded_feature_ids: HashSet<String> = HashSet::new();
+            self.resolve_members(
+                fs,
+                &all_features,
+                &mut allowed_feature_ids,
+                &mut excluded_feature_ids,
+            )
+            .await?;
+            Self::merge_inactive_from_feature_ids(
+                &mut by_key,
+                &features_by_id,
+                &allowed_feature_ids,
+                &excluded_feature_ids,
+                &fs.id,
+                invokable_keys,
+            );
         }
 
         let mut entries: Vec<_> = by_key.into_values().collect();
+        for entry in &mut entries {
+            let prefix = self
+                .prefix_cache
+                .get_prefix_for_server(space_id, &entry.feature.server_id)
+                .await;
+            entry.feature.server_alias = Some(prefix);
+        }
         entries.sort_by_key(|entry| entry.feature.qualified_name());
         Ok(entries)
+    }
+
+    /// Whether a FeatureSet needs the second-pass member-resolution walk.
+    fn feature_set_needs_resolution_pass(feature_set: &FeatureSet) -> bool {
+        feature_set.members.iter().any(|member| {
+            member.member_type == MemberType::FeatureSet
+                || (member.member_type == MemberType::Feature && member.mode == MemberMode::Exclude)
+        })
+    }
+
+    /// Collect inactive tools from flat `feature` include members on one FeatureSet.
+    fn collect_inactive_from_flat_includes(
+        by_key: &mut HashMap<(String, String), InactiveDiscoveryEntry>,
+        features_by_id: &HashMap<String, ServerFeature>,
+        feature_set: &FeatureSet,
+        invokable_keys: &HashSet<(String, String)>,
+    ) {
+        for member in &feature_set.members {
+            if member.member_type != MemberType::Feature || member.mode != MemberMode::Include {
+                continue;
+            }
+            let Some(feature) = features_by_id.get(&member.member_id) else {
+                continue;
+            };
+            if !feature.is_available || feature.feature_type != FeatureType::Tool {
+                continue;
+            }
+            let key = (feature.server_id.clone(), feature.feature_name.clone());
+            if invokable_keys.contains(&key) {
+                continue;
+            }
+            by_key.entry(key).or_insert_with(|| InactiveDiscoveryEntry {
+                feature: feature.clone(),
+                bindable_feature_set_id: feature_set.id.clone(),
+            });
+        }
+    }
+
+    /// Merge inactive tools from resolved feature IDs; first FeatureSet row wins.
+    fn merge_inactive_from_feature_ids(
+        by_key: &mut HashMap<(String, String), InactiveDiscoveryEntry>,
+        features_by_id: &HashMap<String, ServerFeature>,
+        allowed_feature_ids: &HashSet<String>,
+        excluded_feature_ids: &HashSet<String>,
+        bindable_feature_set_id: &str,
+        invokable_keys: &HashSet<(String, String)>,
+    ) {
+        for feature_id in allowed_feature_ids {
+            if excluded_feature_ids.contains(feature_id) {
+                continue;
+            }
+            let Some(feature) = features_by_id.get(feature_id) else {
+                continue;
+            };
+            if !feature.is_available || feature.feature_type != FeatureType::Tool {
+                continue;
+            }
+            let key = (feature.server_id.clone(), feature.feature_name.clone());
+            if invokable_keys.contains(&key) {
+                continue;
+            }
+            by_key.entry(key).or_insert_with(|| InactiveDiscoveryEntry {
+                feature: feature.clone(),
+                bindable_feature_set_id: bindable_feature_set_id.to_string(),
+            });
+        }
     }
 
     async fn resolve_members(

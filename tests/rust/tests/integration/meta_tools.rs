@@ -42,6 +42,7 @@ struct Fixture {
     #[allow(dead_code)]
     client_repo: Arc<dyn InboundMcpClientRepository>,
     feature_set_repo: Arc<dyn FeatureSetRepository>,
+    server_feature_repo: Arc<dyn ServerFeatureRepository>,
     binding_repo: Arc<dyn WorkspaceBindingRepository>,
     installed_server_repo: Arc<dyn InstalledServerRepository>,
     session_roots: Arc<SessionRootsRegistry>,
@@ -268,6 +269,7 @@ impl Fixture {
             broker,
             client_repo,
             feature_set_repo,
+            server_feature_repo,
             binding_repo,
             installed_server_repo,
             session_roots,
@@ -571,6 +573,85 @@ async fn search_include_inactive_no_bundle_suggests_author_in_mux() {
     assert!(
         hint.contains("create a bundle") || hint.contains("Feature Sets"),
         "expected author-bundle hint, got: {hint}"
+    );
+}
+
+/// Seed a PostHog-scale bundle (`tool_count` tools on one server) for inactive-scan perf tests.
+async fn seed_large_inactive_bundle(f: &Fixture, server_id: &str, tool_count: usize) -> String {
+    let space_id = f.space_id.to_string();
+    let features: Vec<ServerFeature> = (0..tool_count)
+        .map(|i| ServerFeature::tool(&space_id, server_id, format!("capture_event_{i}")))
+        .collect();
+    f.server_feature_repo.upsert_many(&features).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("PostHog clone", space_id.clone());
+    for feature in &features {
+        fs.members.push(FeatureSetMember {
+            id: Uuid::new_v4().to_string(),
+            feature_set_id: fs.id.clone(),
+            member_type: MemberType::Feature,
+            member_id: feature.id.to_string(),
+            mode: MemberMode::Include,
+            surfaced: false,
+        });
+    }
+    let fs_id = fs.id.clone();
+    f.feature_set_repo.create(&fs).await.unwrap();
+    fs_id
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_include_inactive_large_bundle_completes_under_two_seconds() {
+    let f = Fixture::new().await;
+    let tool_count = 450;
+    seed_large_inactive_bundle(&f, "posthog", tool_count).await;
+
+    let start = std::time::Instant::now();
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "include_inactive": true, "limit": 100 }),
+        )
+        .await
+        .unwrap();
+    let elapsed = start.elapsed();
+
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("scope"), Some(&json!("active_and_inactive")));
+    assert!(
+        body.get("total").and_then(|v| v.as_u64()).unwrap_or(0) >= tool_count as u64,
+        "expected at least {tool_count} inactive tools"
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "inactive scan took {elapsed:?}, expected < 2s"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_include_inactive_large_set_suggests_server_id_filter() {
+    let f = Fixture::new().await;
+    seed_large_inactive_bundle(&f, "analytics", 51).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "include_inactive": true, "limit": 10 }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        hint.contains("server_id"),
+        "expected server_id filter hint, got: {hint}"
     );
 }
 

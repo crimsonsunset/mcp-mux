@@ -467,6 +467,9 @@ impl MetaTool for SearchToolsTool {
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
+        let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
+        let mut inactive_tool_count = 0usize;
+
         if include_inactive {
             let inactive = call
                 .ctx
@@ -474,6 +477,7 @@ impl MetaTool for SearchToolsTool {
                 .list_inactive_discovery_tools(&space_id.to_string(), &resolved.feature_set_ids)
                 .await
                 .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+            inactive_tool_count = inactive.len();
             let inactive_index =
                 crate::services::tool_discovery::ToolDiscoveryService::build_inactive_index(
                     &inactive,
@@ -494,7 +498,7 @@ impl MetaTool for SearchToolsTool {
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
             &index,
             call.args.get("query").and_then(|v| v.as_str()),
-            call.args.get("server_id").and_then(|v| v.as_str()),
+            server_id_filter,
             detail_level,
             limit,
             call.args.get("cursor").and_then(|v| v.as_str()),
@@ -506,6 +510,10 @@ impl MetaTool for SearchToolsTool {
             "total": result.total,
             "scope": if include_inactive { "active_and_inactive" } else { "active_only" },
         });
+
+        if include_inactive && inactive_tool_count > 50 && server_id_filter.is_none() {
+            payload["hint"] = json!("Narrow with `server_id` for faster results.");
+        }
 
         if !include_inactive && result.total == 0 {
             payload["hint"] = json!(
