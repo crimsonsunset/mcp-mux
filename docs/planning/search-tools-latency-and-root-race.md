@@ -208,6 +208,7 @@ Cache is `DashMap` (same concurrency primitive used by `SessionRootsRegistry` al
 - [`feature-set-consent-model.md`](./feature-set-consent-model.md) — the PR this extends; Phases 1–5 already on `docs/feature-set-consent-model`
 - [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md) — related startup perf work (tiered connect, binding-priority warm) — separate PR
 - [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) — original `search_tools` design; TF-IDF ranking introduced in Phase D
+- [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md) — relevance rework (token-overlap + embedding rerank) that layers onto this doc's Phase 8 per-session cache
 
 ---
 
