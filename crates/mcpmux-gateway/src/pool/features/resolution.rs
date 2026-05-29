@@ -235,7 +235,11 @@ impl FeatureResolutionService {
 
         for fs in sets {
             let tools = self
-                .resolve_feature_sets(space_id, std::slice::from_ref(&fs.id), Some(FeatureType::Tool))
+                .resolve_feature_sets(
+                    space_id,
+                    std::slice::from_ref(&fs.id),
+                    Some(FeatureType::Tool),
+                )
                 .await?;
             for feature in tools {
                 let key = (feature.server_id.clone(), feature.feature_name.clone());
@@ -250,11 +254,7 @@ impl FeatureResolutionService {
         }
 
         let mut entries: Vec<_> = by_key.into_values().collect();
-        entries.sort_by(|a, b| {
-            a.feature
-                .qualified_name()
-                .cmp(&b.feature.qualified_name())
-        });
+        entries.sort_by_key(|entry| entry.feature.qualified_name());
         Ok(entries)
     }
 
