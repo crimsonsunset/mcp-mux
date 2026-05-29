@@ -11,6 +11,13 @@ use mcpmux_core::{
     ServerFeatureRepository,
 };
 
+/// A catalog tool visible in discovery but not invokable until its FeatureSet is bound.
+#[derive(Debug, Clone)]
+pub struct InactiveDiscoveryEntry {
+    pub feature: ServerFeature,
+    pub bindable_feature_set_id: String,
+}
+
 /// Helper to apply include/exclude mode (DRY)
 fn apply_mode_to_set(
     mode: MemberMode,
@@ -203,6 +210,52 @@ impl FeatureResolutionService {
             }
         }
         Ok(())
+    }
+
+    /// Tools granted by some FeatureSet in the Space but not in `invokable_keys`.
+    ///
+    /// Used by meta-tool discovery (`include_inactive`); first matching FeatureSet
+    /// wins when multiple bundles contain the same tool.
+    pub async fn list_inactive_tools_for_discovery(
+        &self,
+        space_id: &str,
+        invokable_keys: &HashSet<(String, String)>,
+    ) -> Result<Vec<InactiveDiscoveryEntry>> {
+        let mut by_key: std::collections::HashMap<(String, String), InactiveDiscoveryEntry> =
+            std::collections::HashMap::new();
+
+        let sets = self.feature_set_repo.list_by_space(space_id).await?;
+        let mut sets: Vec<_> = sets.into_iter().filter(|fs| !fs.is_deleted).collect();
+        // Prefer custom bundles over the auto-seeded Default when both grant the same tool.
+        sets.sort_by(|a, b| {
+            a.is_builtin
+                .cmp(&b.is_builtin)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+
+        for fs in sets {
+            let tools = self
+                .resolve_feature_sets(space_id, std::slice::from_ref(&fs.id), Some(FeatureType::Tool))
+                .await?;
+            for feature in tools {
+                let key = (feature.server_id.clone(), feature.feature_name.clone());
+                if invokable_keys.contains(&key) {
+                    continue;
+                }
+                by_key.entry(key).or_insert(InactiveDiscoveryEntry {
+                    feature,
+                    bindable_feature_set_id: fs.id.clone(),
+                });
+            }
+        }
+
+        let mut entries: Vec<_> = by_key.into_values().collect();
+        entries.sort_by(|a, b| {
+            a.feature
+                .qualified_name()
+                .cmp(&b.feature.qualified_name())
+        });
+        Ok(entries)
     }
 
     async fn resolve_members(

@@ -111,7 +111,6 @@ pub fn build_default_registry(
 
     let mut registry = MetaToolRegistry::new(ctx);
     // Reads — no approval needed.
-    registry.register(Box::new(tools::ListAllToolsTool));
     registry.register(Box::new(tools::ListFeatureSetsTool));
     registry.register(Box::new(tools::ListServersTool));
     registry.register(Box::new(tools::SearchToolsTool));

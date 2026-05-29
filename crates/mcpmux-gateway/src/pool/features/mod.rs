@@ -12,7 +12,7 @@ mod routing;
 pub use conversion::{convert_to_feature, resource_to_feature};
 pub use discovery::FeatureDiscoveryService;
 pub use facade::FeatureService;
-pub use resolution::FeatureResolutionService;
+pub use resolution::{FeatureResolutionService, InactiveDiscoveryEntry};
 pub use routing::FeatureRoutingService;
 
 use mcpmux_core::ServerFeature;

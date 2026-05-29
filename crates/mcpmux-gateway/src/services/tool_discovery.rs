@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use mcpmux_core::{FeatureType, ServerFeature, ServerFeatureRepository};
+
+use crate::pool::InactiveDiscoveryEntry;
 use serde_json::{json, Value};
 
 use super::discovery_rank::filter_and_rank;
@@ -41,6 +43,9 @@ pub struct ToolIndexEntry {
     pub description: Option<String>,
     pub input_schema: Option<Value>,
     pub is_available: bool,
+    /// `inactive` when matched via `include_inactive` discovery widening.
+    pub status: Option<String>,
+    pub bindable_feature_set_id: Option<String>,
 }
 
 /// Paginated search output.
@@ -90,11 +95,35 @@ impl ToolDiscoveryService {
                 description: f.description.clone(),
                 input_schema: extract_input_schema(f.raw_json.as_ref()),
                 is_available: f.is_available,
+                status: None,
+                bindable_feature_set_id: None,
             })
             .collect();
 
         index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         Ok(index)
+    }
+
+    /// Build index entries for tools that exist in a FeatureSet but are not invokable yet.
+    pub fn build_inactive_index(entries: &[InactiveDiscoveryEntry]) -> Vec<ToolIndexEntry> {
+        let mut index: Vec<ToolIndexEntry> = entries
+            .iter()
+            .map(|entry| {
+                let f = &entry.feature;
+                ToolIndexEntry {
+                    server_id: f.server_id.clone(),
+                    feature_name: f.feature_name.clone(),
+                    qualified_name: f.qualified_name(),
+                    description: f.description.clone(),
+                    input_schema: extract_input_schema(f.raw_json.as_ref()),
+                    is_available: f.is_available,
+                    status: Some("inactive".to_string()),
+                    bindable_feature_set_id: Some(entry.bindable_feature_set_id.clone()),
+                }
+            })
+            .collect();
+        index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        index
     }
 
     /// Search the index with optional query, server filter, and pagination.
@@ -177,6 +206,12 @@ fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
         "qualified_name": entry.qualified_name,
         "available": entry.is_available,
     });
+    if let Some(status) = &entry.status {
+        obj["status"] = json!(status);
+    }
+    if let Some(fs_id) = &entry.bindable_feature_set_id {
+        obj["bindable_feature_set_id"] = json!(fs_id);
+    }
     match detail_level {
         DetailLevel::Name => {}
         DetailLevel::Description | DetailLevel::Schema => {

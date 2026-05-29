@@ -12,6 +12,8 @@ use super::{
     CachedFeatures, FeatureDiscoveryService, FeatureResolutionService, FeatureRoutingService,
 };
 
+pub use super::resolution::InactiveDiscoveryEntry;
+
 /// Unified facade providing all feature operations (Facade pattern)
 pub struct FeatureService {
     discovery: Arc<FeatureDiscoveryService>,
@@ -87,6 +89,26 @@ impl FeatureService {
     ) -> Result<Vec<ServerFeature>> {
         self.resolution
             .get_all_features_for_space(space_id, filter_type)
+            .await
+    }
+
+    /// Catalog tools in the Space that require binding a FeatureSet before invoke.
+    pub async fn list_inactive_discovery_tools(
+        &self,
+        space_id: &str,
+        feature_set_ids: &[String],
+        session_id: Option<&str>,
+    ) -> Result<Vec<InactiveDiscoveryEntry>> {
+        let invokable = self
+            .get_invokable_tools_for_grants(space_id, feature_set_ids, session_id)
+            .await?;
+        let invokable_keys: HashSet<(String, String)> = invokable
+            .iter()
+            .filter(|f| f.feature_type == FeatureType::Tool)
+            .map(|f| (f.server_id.clone(), f.feature_name.clone()))
+            .collect();
+        self.resolution
+            .list_inactive_tools_for_discovery(space_id, &invokable_keys)
             .await
     }
 

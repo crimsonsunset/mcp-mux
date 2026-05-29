@@ -401,7 +401,7 @@ async fn invoke_denied_when_server_inactive() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_empty_when_server_inactive() {
+async fn search_empty_when_server_inactive_until_widened() {
     let f = Fixture::new().await;
     let search = f
         .call(
@@ -411,26 +411,33 @@ async fn search_empty_when_server_inactive() {
         .await;
     let body = Fixture::result_json(&search);
     assert_eq!(body.get("total"), Some(&json!(0)));
-}
+    assert!(body
+        .get("hint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .contains("include_inactive"));
 
-#[tokio::test(flavor = "multi_thread")]
-async fn list_all_tools_filters_by_server_id() {
-    let f = Fixture::new().await;
-
-    let other = ServerFeature::tool(f.space_id, "firebase", "deploy");
-    f.server_feature_repo.upsert(&other).await.unwrap();
-
-    let all = f.call("mcpmux_list_all_tools", json!({})).await;
-    let all_body = Fixture::result_json(&all);
-    assert_eq!(all_body.get("tools").unwrap().as_array().unwrap().len(), 2);
-
-    let filtered = f
-        .call("mcpmux_list_all_tools", json!({ "server_id": "github" }))
+    let widened = f
+        .call(
+            "mcpmux_search_tools",
+            json!({
+                "query": "list",
+                "server_id": "github",
+                "include_inactive": true
+            }),
+        )
         .await;
-    let filtered_body = Fixture::result_json(&filtered);
-    let tools = filtered_body.get("tools").unwrap().as_array().unwrap();
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].get("server_id"), Some(&json!("github")));
+    let wide_body = Fixture::result_json(&widened);
+    assert!(wide_body.get("total").and_then(|v| v.as_u64()).unwrap_or(0) >= 1);
+    let tool = wide_body
+        .get("tools")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .first()
+        .unwrap();
+    assert_eq!(tool.get("status"), Some(&json!("inactive")));
+    assert!(tool.get("bindable_feature_set_id").and_then(|v| v.as_str()).is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -458,7 +465,11 @@ async fn registry_lists_new_meta_tools() {
     assert!(names.iter().any(|n| n == "mcpmux_search_prompts"));
     assert!(names.iter().any(|n| n == "mcpmux_fetch_prompt"));
     assert!(names.iter().any(|n| n == "mcpmux_diagnose_server"));
-    assert_eq!(names.len(), 15);
+    assert!(
+        !names.iter().any(|n| n == "mcpmux_list_all_tools"),
+        "list_all_tools removed from agent registry"
+    );
+    assert_eq!(names.len(), 14);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -714,63 +725,6 @@ async fn direct_backend_call_gate_allows_surfaced_only() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_all_tools_marks_invokable_against_acl() {
-    let f = Fixture::new().await;
-
-    let list_issues = f
-        .server_feature_repo
-        .list_for_space(&f.space_id.to_string())
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|feat| feat.feature_name == "list_issues")
-        .unwrap();
-
-    let mut create_issue = ServerFeature::tool(f.space_id, "github", "create_issue");
-    create_issue.description = Some("Create an issue".into());
-    f.server_feature_repo.upsert(&create_issue).await.unwrap();
-
-    let mut partial_fs = FeatureSet::new_custom("Partial GitHub", f.space_id.to_string());
-    partial_fs.members.push(FeatureSetMember {
-        id: Uuid::new_v4().to_string(),
-        feature_set_id: partial_fs.id.clone(),
-        member_type: MemberType::Feature,
-        member_id: list_issues.id.to_string(),
-        mode: MemberMode::Include,
-        surfaced: false,
-    });
-    f.feature_set_repo.create(&partial_fs).await.unwrap();
-    f.grant_feature_set(&partial_fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
-    let result = f
-        .call("mcpmux_list_all_tools", json!({ "server_id": "github" }))
-        .await;
-    let body = Fixture::result_json(&result);
-    assert_eq!(
-        body.get("total_installed").and_then(|v| v.as_u64()),
-        Some(2)
-    );
-    assert_eq!(
-        body.get("total_invokable").and_then(|v| v.as_u64()),
-        Some(1)
-    );
-
-    let tools = body.get("tools").unwrap().as_array().unwrap();
-    let list_row = tools
-        .iter()
-        .find(|t| t.get("qualified_name") == Some(&json!("github_list_issues")))
-        .expect("list_issues in catalog");
-    let create_row = tools
-        .iter()
-        .find(|t| t.get("qualified_name") == Some(&json!("github_create_issue")))
-        .expect("create_issue in catalog");
-    assert_eq!(list_row.get("invokable"), Some(&json!(true)));
-    assert_eq!(create_row.get("invokable"), Some(&json!(false)));
-    assert_eq!(list_row.get("server_available"), Some(&json!(true)));
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn get_tool_schema_accepts_string_array() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
@@ -870,56 +824,6 @@ async fn invoke_max_bytes_truncates_json_array_without_max_rows() {
     assert!(!result.is_error.unwrap_or(true));
     let body = Fixture::result_json(&result);
     assert_eq!(body.get("truncated"), Some(&json!(true)));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_all_tools_invokable_uses_server_id_not_prefix_alias() {
-    let f = Fixture::new().await;
-
-    let mut gait_tool = ServerFeature::tool(f.space_id, "posthog-personal-gait", "projects-get");
-    gait_tool.description = Some("Get PostHog project".into());
-    f.server_feature_repo.upsert(&gait_tool).await.unwrap();
-
-    let mut gait_fs = FeatureSet::new_custom("GAIT PostHog", f.space_id.to_string());
-    gait_fs.members.push(FeatureSetMember {
-        id: Uuid::new_v4().to_string(),
-        feature_set_id: gait_fs.id.clone(),
-        member_type: MemberType::Feature,
-        member_id: gait_tool.id.to_string(),
-        mode: MemberMode::Include,
-        surfaced: false,
-    });
-    f.feature_set_repo.create(&gait_fs).await.unwrap();
-    f.grant_feature_set(&gait_fs.id).await;
-
-    f.prefix_cache
-        .assign_prefix_runtime(
-            &f.space_id.to_string(),
-            "posthog-personal-gait",
-            Some("posthog-personal"),
-        )
-        .await;
-    f.session_overrides
-        .enable(&f.session_id, "posthog-personal-gait");
-
-    let result = f
-        .call(
-            "mcpmux_list_all_tools",
-            json!({ "server_id": "posthog-personal-gait" }),
-        )
-        .await;
-    let body = Fixture::result_json(&result);
-    assert_eq!(
-        body.get("total_invokable").and_then(|v| v.as_u64()),
-        Some(1)
-    );
-
-    let tools = body.get("tools").unwrap().as_array().unwrap();
-    let row = tools
-        .iter()
-        .find(|t| t.get("qualified_name") == Some(&json!("posthog-personal-gait_projects-get")))
-        .expect("catalog row present");
-    assert_eq!(row.get("invokable"), Some(&json!(true)));
 }
 
 #[tokio::test(flavor = "multi_thread")]

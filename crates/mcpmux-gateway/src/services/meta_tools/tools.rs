@@ -97,12 +97,14 @@ fn derive_server_status(
 }
 
 // ---------------------------------------------------------------------------
-// mcpmux_list_all_tools — read
+// mcpmux_list_all_tools — read (not registered on the agent surface; desktop/admin only)
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub struct ListAllToolsTool;
 
 #[async_trait]
+#[allow(dead_code)]
 impl MetaTool for ListAllToolsTool {
     fn name(&self) -> &'static str {
         "mcpmux_list_all_tools"
@@ -198,8 +200,9 @@ impl MetaTool for ListFeatureSetsTool {
     fn description(&self) -> &'static str {
         "List every FeatureSet defined in the caller's resolved Space — \
          built-ins and custom. Each entry carries `id`, `name`, `description`, \
-         `type`, and `is_builtin`. Use before composing a new FeatureSet so \
-         you don't recreate one that already fits."
+         `type`, `is_builtin`, and `status` (`active` when bound to this \
+         workspace, `inactive` when available to bind). Use inactive entries' \
+         `id` with mcpmux_bind_current_workspace."
     }
 
     fn input_schema(&self) -> Value {
@@ -207,6 +210,7 @@ impl MetaTool for ListFeatureSetsTool {
     }
 
     async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
+        let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
         let space = call
             .ctx
@@ -214,6 +218,7 @@ impl MetaTool for ListFeatureSetsTool {
             .get(&space_id)
             .await?
             .ok_or_else(|| MetaToolError::Internal("space missing".into()))?;
+        let bound_ids: HashSet<String> = resolved.feature_set_ids.iter().cloned().collect();
         let sets = call
             .ctx
             .feature_set_repo
@@ -223,12 +228,18 @@ impl MetaTool for ListFeatureSetsTool {
             .iter()
             .filter(|fs| !fs.is_deleted)
             .map(|fs| {
+                let status = if bound_ids.contains(&fs.id) {
+                    "active"
+                } else {
+                    "inactive"
+                };
                 json!({
                     "id": fs.id,
                     "name": fs.name,
                     "description": fs.description,
                     "type": fs.feature_set_type,
                     "is_builtin": fs.is_builtin,
+                    "status": status,
                 })
             })
             .collect();
@@ -253,9 +264,9 @@ impl MetaTool for ListServersTool {
     fn description(&self) -> &'static str {
         "List every MCP server installed in the caller's resolved Space with \
          a coarse status per server: enabled_via_binding, enabled_via_session, \
-         disabled_via_session, or inactive. Clone installs include optional \
-         `cloned_from` (source server_id). Use before enable/disable to see \
-         current routing state without loading every tool."
+         disabled_via_session, or inactive. Inactive servers include \
+         `bindable_feature_set_ids` for mcpmux_bind_current_workspace. Clone \
+         installs include optional `cloned_from` (source server_id)."
     }
 
     fn input_schema(&self) -> Value {
@@ -319,6 +330,24 @@ impl MetaTool for ListServersTool {
             })
             .collect();
 
+        let inactive_by_server: HashMap<String, HashSet<String>> = call
+            .ctx
+            .feature_service
+            .list_inactive_discovery_tools(
+                &space_id.to_string(),
+                &resolved.feature_set_ids,
+                call.session_id,
+            )
+            .await
+            .map_err(|e| MetaToolError::Internal(e.to_string()))?
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, entry| {
+                acc.entry(entry.feature.server_id.clone())
+                    .or_default()
+                    .insert(entry.bindable_feature_set_id);
+                acc
+            });
+
         let mut by_server: HashMap<String, (Option<String>, usize)> = HashMap::new();
         for feature in &features {
             if feature.feature_type != FeatureType::Tool {
@@ -359,6 +388,13 @@ impl MetaTool for ListServersTool {
                 {
                     entry["cloned_from"] = json!(cloned_from);
                 }
+                if status == "inactive" {
+                    if let Some(fs_ids) = inactive_by_server.get(&id) {
+                        let mut ids: Vec<_> = fs_ids.iter().cloned().collect();
+                        ids.sort();
+                        entry["bindable_feature_set_ids"] = json!(ids);
+                    }
+                }
                 entry
             })
             .collect();
@@ -386,8 +422,10 @@ impl MetaTool for SearchToolsTool {
     }
 
     fn description(&self) -> &'static str {
-        "Search invokable backend tools in the caller's resolved Space. \
-         Supports query substring match, optional server_id filter, \
+        "Search backend tools in the caller's resolved Space. By default only \
+         invokable (active/bound) tools match. Set include_inactive: true to \
+         also match tools in unbound FeatureSets (annotated with status and \
+         bindable_feature_set_id). Supports query, server_id filter, \
          detail_level (name | description | schema), and pagination."
     }
 
@@ -397,6 +435,11 @@ impl MetaTool for SearchToolsTool {
             "properties": {
                 "query": { "type": "string" },
                 "server_id": { "type": "string" },
+                "include_inactive": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, include tools from FeatureSets not bound to this workspace (inactive matches carry bindable_feature_set_id)"
+                },
                 "detail_level": {
                     "type": "string",
                     "enum": ["name", "description", "schema"],
@@ -425,6 +468,12 @@ impl MetaTool for SearchToolsTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(20) as usize;
 
+        let include_inactive = call
+            .args
+            .get("include_inactive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         let invokable = call
             .ctx
             .feature_service
@@ -436,12 +485,40 @@ impl MetaTool for SearchToolsTool {
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
-        let index = call
+        let mut index = call
             .ctx
             .tool_discovery
             .build_index(&space_id.to_string(), &invokable)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+
+        if include_inactive {
+            let inactive = call
+                .ctx
+                .feature_service
+                .list_inactive_discovery_tools(
+                    &space_id.to_string(),
+                    &resolved.feature_set_ids,
+                    call.session_id,
+                )
+                .await
+                .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+            let inactive_index =
+                crate::services::tool_discovery::ToolDiscoveryService::build_inactive_index(
+                    &inactive,
+                );
+            let active_keys: HashSet<(String, String)> = index
+                .iter()
+                .map(|e| (e.server_id.clone(), e.feature_name.clone()))
+                .collect();
+            for entry in inactive_index {
+                let key = (entry.server_id.clone(), entry.feature_name.clone());
+                if !active_keys.contains(&key) {
+                    index.push(entry);
+                }
+            }
+            index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        }
 
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
             &index,
@@ -456,12 +533,14 @@ impl MetaTool for SearchToolsTool {
             "tools": result.tools,
             "next_cursor": result.next_cursor,
             "total": result.total,
+            "scope": if include_inactive { "active_and_inactive" } else { "active_only" },
         });
 
-        if result.total == 0 {
+        if !include_inactive && result.total == 0 {
             payload["hint"] = json!(
-                "No invokable tools matched. Verify FeatureSet grants include tool members, \
-                 or use mcpmux_enable_server when the server is inactive."
+                "No active tools matched. Retry with include_inactive: true to discover \
+                 bindable capability, or call mcpmux_list_feature_sets then \
+                 mcpmux_bind_current_workspace with a feature_set_id."
             );
         }
 
