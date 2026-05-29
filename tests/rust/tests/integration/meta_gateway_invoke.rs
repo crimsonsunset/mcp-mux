@@ -429,7 +429,10 @@ async fn search_empty_when_server_inactive_until_widened() {
         .first()
         .unwrap();
     assert_eq!(tool.get("status"), Some(&json!("inactive")));
-    assert!(tool.get("bindable_feature_set_id").and_then(|v| v.as_str()).is_some());
+    assert!(tool
+        .get("bindable_feature_set_id")
+        .and_then(|v| v.as_str())
+        .is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]

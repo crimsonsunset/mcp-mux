@@ -471,10 +471,7 @@ impl MetaTool for SearchToolsTool {
             let inactive = call
                 .ctx
                 .feature_service
-                .list_inactive_discovery_tools(
-                    &space_id.to_string(),
-                    &resolved.feature_set_ids,
-                )
+                .list_inactive_discovery_tools(&space_id.to_string(), &resolved.feature_set_ids)
                 .await
                 .map_err(|e| MetaToolError::Internal(e.to_string()))?;
             let inactive_index =
@@ -829,48 +826,42 @@ impl MetaTool for BindCurrentWorkspaceTool {
                     .into_iter()
                     .find(|b| b.workspace_root == normalized);
 
-                let (binding_id, feature_set_ids, already_bound) =
-                    if let Some(mut binding) = existing {
-                        binding.space_id = space_id;
-                        let already_bound = binding
-                            .feature_set_ids
-                            .iter()
-                            .any(|id| id == &fs_id_str);
-                        if !already_bound {
-                            binding.feature_set_ids.push(fs_id_str.clone());
-                            binding.updated_at = chrono::Utc::now();
-                            binding_repo.update(&binding).await?;
-                            emit_workspace_binding_changed(&event_tx, space_id, &normalized);
-                        }
-                        info!(
-                            %space_id,
-                            binding_id = %binding.id,
-                            workspace_root = %normalized,
-                            feature_set_id = %fs_id,
-                            already_bound,
-                            feature_set_count = binding.feature_set_ids.len(),
-                            "[meta_tools] bind_current_workspace updated existing binding",
-                        );
-                        (
-                            binding.id,
-                            binding.feature_set_ids.clone(),
-                            already_bound,
-                        )
-                    } else {
-                        let binding =
-                            WorkspaceBinding::new(normalized.clone(), space_id, fs_id_str.clone());
-                        let binding_id = binding.id;
-                        let feature_set_ids = binding.feature_set_ids.clone();
-                        binding_repo.create(&binding).await?;
-                        info!(
-                            %space_id,
-                            binding_id = %binding_id,
-                            workspace_root = %normalized,
-                            feature_set_id = %fs_id,
-                            "[meta_tools] bind_current_workspace created binding",
-                        );
-                        (binding_id, feature_set_ids, false)
-                    };
+                let (binding_id, feature_set_ids, already_bound) = if let Some(mut binding) =
+                    existing
+                {
+                    binding.space_id = space_id;
+                    let already_bound = binding.feature_set_ids.iter().any(|id| id == &fs_id_str);
+                    if !already_bound {
+                        binding.feature_set_ids.push(fs_id_str.clone());
+                        binding.updated_at = chrono::Utc::now();
+                        binding_repo.update(&binding).await?;
+                        emit_workspace_binding_changed(&event_tx, space_id, &normalized);
+                    }
+                    info!(
+                        %space_id,
+                        binding_id = %binding.id,
+                        workspace_root = %normalized,
+                        feature_set_id = %fs_id,
+                        already_bound,
+                        feature_set_count = binding.feature_set_ids.len(),
+                        "[meta_tools] bind_current_workspace updated existing binding",
+                    );
+                    (binding.id, binding.feature_set_ids.clone(), already_bound)
+                } else {
+                    let binding =
+                        WorkspaceBinding::new(normalized.clone(), space_id, fs_id_str.clone());
+                    let binding_id = binding.id;
+                    let feature_set_ids = binding.feature_set_ids.clone();
+                    binding_repo.create(&binding).await?;
+                    info!(
+                        %space_id,
+                        binding_id = %binding_id,
+                        workspace_root = %normalized,
+                        feature_set_id = %fs_id,
+                        "[meta_tools] bind_current_workspace created binding",
+                    );
+                    (binding_id, feature_set_ids, false)
+                };
 
                 emit_tools_list_changed(&event_tx, space_id);
                 Ok(text_result(json!({

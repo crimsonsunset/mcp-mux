@@ -396,12 +396,12 @@ mod tests {
     fn credential_entry_present_distinguishes_absent_from_locked() {
         assert!(credential_entry_present(Ok("secret".into())));
         assert!(!credential_entry_present(Err(keyring::Error::NoEntry)));
-        assert!(!credential_entry_present(Err(keyring::Error::PlatformFailure(
-            "dbus unavailable".into()
-        ))));
-        assert!(credential_entry_present(Err(keyring::Error::NoStorageAccess(
-            "user cancelled unlock".into()
-        ))));
+        assert!(!credential_entry_present(Err(
+            keyring::Error::PlatformFailure("dbus unavailable".into())
+        )));
+        assert!(credential_entry_present(Err(
+            keyring::Error::NoStorageAccess("user cancelled unlock".into())
+        )));
     }
 
     #[test]

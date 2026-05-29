@@ -366,12 +366,7 @@ impl MetaTool for InvokeToolTool {
             .as_ref()
             .ok_or_else(|| MetaToolError::Internal("invoke routing not configured".into()))?;
         match backend
-            .call_tool(
-                space_id,
-                &resolved.feature_set_ids,
-                &qualified_name,
-                args,
-            )
+            .call_tool(space_id, &resolved.feature_set_ids, &qualified_name, args)
             .await
         {
             Ok(result) => {

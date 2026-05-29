@@ -25,8 +25,8 @@ use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
 use mcpmux_core::{AppSettingsService, DomainEvent};
 use mcpmux_gateway::admin::ui_events::{map_domain_event_to_ui, AdminUiEventBus};
-use mcpmux_gateway::services::meta_tools::META_TOOL_APPROVAL_EVENT;
 use mcpmux_gateway::oauth::OAUTH_CONSENT_EVENT;
+use mcpmux_gateway::services::meta_tools::META_TOOL_APPROVAL_EVENT;
 use mcpmux_gateway::{
     ConnectionContext, ConnectionResult, FeatureService, InstalledServerInfo, OAuthCompleteEvent,
     PoolService, ResolvedTransport, ServerKey, ServerManager,

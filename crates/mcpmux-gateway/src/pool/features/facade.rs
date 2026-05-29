@@ -168,7 +168,8 @@ impl FeatureService {
         space_id: &str,
         feature_set_ids: &[String],
     ) -> Result<Vec<ServerFeature>> {
-        self.get_resources_for_grants(space_id, feature_set_ids).await
+        self.get_resources_for_grants(space_id, feature_set_ids)
+            .await
     }
 
     /// Resources promoted into client `resources/list` (surfaced only).

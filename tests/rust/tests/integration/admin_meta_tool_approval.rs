@@ -64,7 +64,11 @@ impl GatewayWriteRuntime for BrokerWriteRuntime {
         Err(anyhow::anyhow!("Gateway not running"))
     }
 
-    async fn enable_server_v2(&self, _space_id: String, _server_id: String) -> anyhow::Result<Value> {
+    async fn enable_server_v2(
+        &self,
+        _space_id: String,
+        _server_id: String,
+    ) -> anyhow::Result<Value> {
         Err(anyhow::anyhow!("Gateway not running"))
     }
 
@@ -84,7 +88,11 @@ impl GatewayWriteRuntime for BrokerWriteRuntime {
         Err(anyhow::anyhow!("Gateway not running"))
     }
 
-    async fn retry_connection(&self, _space_id: String, _server_id: String) -> anyhow::Result<Value> {
+    async fn retry_connection(
+        &self,
+        _space_id: String,
+        _server_id: String,
+    ) -> anyhow::Result<Value> {
         Err(anyhow::anyhow!("Gateway not running"))
     }
 
@@ -149,7 +157,9 @@ impl GatewayWriteRuntime for BrokerWriteRuntime {
         Err(anyhow::anyhow!("Gateway not running"))
     }
 
-    async fn gateway_state(&self) -> Option<Arc<tokio::sync::RwLock<mcpmux_gateway::GatewayState>>> {
+    async fn gateway_state(
+        &self,
+    ) -> Option<Arc<tokio::sync::RwLock<mcpmux_gateway::GatewayState>>> {
         None
     }
 }
@@ -187,9 +197,7 @@ async fn admin_http_approve_resolves_pending_bind_approval() {
     .await;
 
     let ui_bus = harness.event_hub.ui_event_bus();
-    broker
-        .set_publisher(sse_only_publisher(ui_bus))
-        .await;
+    broker.set_publisher(sse_only_publisher(ui_bus)).await;
 
     let mut client = AdminClient::new(&harness.base_url, None);
     client.fetch_csrf_token().await;
@@ -261,26 +269,27 @@ async fn admin_http_deny_resolves_pending_bind_approval() {
     .await;
 
     let ui_bus = harness.event_hub.ui_event_bus();
-    broker
-        .set_publisher(sse_only_publisher(ui_bus))
-        .await;
+    broker.set_publisher(sse_only_publisher(ui_bus)).await;
 
     let mut client = AdminClient::new(&harness.base_url, None);
     client.fetch_csrf_token().await;
 
     let broker_wait = broker.clone();
-    let approval_task = tokio::spawn(async move { broker_wait.request_approval(
-        "cursor-client",
-        "mcpmux_bind_current_workspace",
-        ApprovalPayload {
-            tool_name: "mcpmux_bind_current_workspace".into(),
-            summary: "Bind test".into(),
-            diff: None,
-            raw_args: json!({}),
-            affects_other_clients: false,
-        },
-    )
-    .await });
+    let approval_task = tokio::spawn(async move {
+        broker_wait
+            .request_approval(
+                "cursor-client",
+                "mcpmux_bind_current_workspace",
+                ApprovalPayload {
+                    tool_name: "mcpmux_bind_current_workspace".into(),
+                    summary: "Bind test".into(),
+                    diff: None,
+                    raw_args: json!({}),
+                    affects_other_clients: false,
+                },
+            )
+            .await
+    });
 
     tokio::time::sleep(Duration::from_millis(30)).await;
     let request_id = broker.list_pending_ids()[0].clone();

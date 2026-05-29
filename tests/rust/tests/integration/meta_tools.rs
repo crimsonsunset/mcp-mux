@@ -485,10 +485,7 @@ async fn search_include_inactive_surfaces_bindable_github() {
         .find(|t| t.get("qualified_name") == Some(&json!("github_create_issue")))
         .expect("inactive github tool in results");
     assert_eq!(tool.get("status"), Some(&json!("inactive")));
-    assert_eq!(
-        tool.get("bindable_feature_set_id"),
-        Some(&json!(fs_id))
-    );
+    assert_eq!(tool.get("bindable_feature_set_id"), Some(&json!(fs_id)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1008,16 +1005,12 @@ async fn bind_current_workspace_layers_onto_existing_binding() {
     assert_eq!(bindings[0].id, starter.id, "must reuse existing binding id");
     assert_eq!(bindings[0].workspace_root, normalized);
     assert_eq!(bindings[0].feature_set_ids.len(), 2);
-    assert!(
-        bindings[0]
-            .feature_set_ids
-            .contains(&f.fs_android_id.to_string())
-    );
-    assert!(
-        bindings[0]
-            .feature_set_ids
-            .contains(&fs_full_id.to_string())
-    );
+    assert!(bindings[0]
+        .feature_set_ids
+        .contains(&f.fs_android_id.to_string()));
+    assert!(bindings[0]
+        .feature_set_ids
+        .contains(&fs_full_id.to_string()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1097,10 +1090,7 @@ async fn bind_current_workspace_second_session_inherits_binding() {
         .await
         .unwrap();
     assert!(
-        resolved
-            .feature_set_ids
-            .iter()
-            .any(|id| id == &fs_id),
+        resolved.feature_set_ids.iter().any(|id| id == &fs_id),
         "second session should resolve the bound FeatureSet"
     );
 

@@ -86,7 +86,8 @@ impl AppState {
         let db = Database::open(&db_path)?;
 
         // Re-encrypt any credentials written under the file fallback key (macOS keychain prompt dismissed)
-        if let Err(e) = mcpmux_storage::migrate_file_key_encrypted_fields(&db, &data_dir, &encryptor)
+        if let Err(e) =
+            mcpmux_storage::migrate_file_key_encrypted_fields(&db, &data_dir, &encryptor)
         {
             warn!("File-key credential migration skipped: {}", e);
         }
