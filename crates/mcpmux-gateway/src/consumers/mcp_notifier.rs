@@ -455,6 +455,9 @@ impl MCPNotifier {
                     workspace_root = %workspace_root,
                     "[MCPNotifier] 📨 WorkspaceBindingChanged - notifying all clients in space"
                 );
+                self.feature_set_resolver
+                    .session_roots()
+                    .evict_search_cache_for_workspace_root(&workspace_root);
                 self.notify_all_list_changed(space_id, true).await;
             }
             DomainEvent::WorkspaceAppearanceChanged { workspace_root } => {

@@ -13,7 +13,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::approval::{ApprovalPayload, ApprovalScope};
-use super::registry::{MetaTool, MetaToolCall, MetaToolError};
+use super::registry::{feature_set_ids_fingerprint, MetaTool, MetaToolCall, MetaToolError};
 use crate::services::ResolvedFeatureSet;
 
 /// Fire a `FeatureSetMembersChanged` event so MCPNotifier pushes a
@@ -387,6 +387,41 @@ impl MetaTool for ListServersTool {
     }
 }
 
+/// Build the active tool index from DB grants (no cache write).
+async fn build_active_index(
+    call: &MetaToolCall<'_>,
+    space_id: &Uuid,
+    resolved: &ResolvedFeatureSet,
+) -> Result<Vec<crate::services::ToolIndexEntry>, MetaToolError> {
+    let invokable = call
+        .ctx
+        .feature_service
+        .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
+        .await
+        .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+
+    call.ctx
+        .tool_discovery
+        .build_index(&space_id.to_string(), &invokable)
+        .await
+        .map_err(|e| MetaToolError::Internal(e.to_string()))
+}
+
+/// Build the active index and store it in the per-session search cache.
+async fn build_and_cache_active_index(
+    call: &MetaToolCall<'_>,
+    space_id: &Uuid,
+    resolved: &ResolvedFeatureSet,
+    fingerprint: u64,
+    session_id: &str,
+) -> Result<Vec<crate::services::ToolIndexEntry>, MetaToolError> {
+    let index = build_active_index(call, space_id, resolved).await?;
+    call.ctx
+        .search_cache
+        .insert(session_id.to_string(), (fingerprint, index.clone()));
+    Ok(index)
+}
+
 // ---------------------------------------------------------------------------
 // mcpmux_search_tools — read
 // ---------------------------------------------------------------------------
@@ -453,19 +488,30 @@ impl MetaTool for SearchToolsTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let invokable = call
-            .ctx
-            .feature_service
-            .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
-            .await
-            .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-
-        let mut index = call
-            .ctx
-            .tool_discovery
-            .build_index(&space_id.to_string(), &invokable)
-            .await
-            .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+        let fingerprint = feature_set_ids_fingerprint(&resolved.feature_set_ids);
+        let mut index = if let Some(session_id) = call.session_id {
+            if let Some(entry) = call.ctx.search_cache.get(session_id) {
+                let (cached_fp, cached_index) = entry.value();
+                if *cached_fp == fingerprint {
+                    cached_index.clone()
+                } else {
+                    drop(entry);
+                    build_and_cache_active_index(
+                        &call,
+                        &space_id,
+                        &resolved,
+                        fingerprint,
+                        session_id,
+                    )
+                    .await?
+                }
+            } else {
+                build_and_cache_active_index(&call, &space_id, &resolved, fingerprint, session_id)
+                    .await?
+            }
+        } else {
+            build_active_index(&call, &space_id, &resolved).await?
+        };
 
         let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
         let mut inactive_tool_count = 0usize;

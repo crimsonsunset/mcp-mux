@@ -34,6 +34,9 @@ impl DetailLevel {
     }
 }
 
+/// In-memory active tool index for a resolved binding (search cache value).
+pub type ToolIndex = Vec<ToolIndexEntry>;
+
 /// One searchable tool entry in the Space index.
 #[derive(Debug, Clone)]
 pub struct ToolIndexEntry {

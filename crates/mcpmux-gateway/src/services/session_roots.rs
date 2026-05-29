@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use mcpmux_core::normalize_workspace_root;
 
+use super::tool_discovery::ToolIndex;
+
 /// Thread-safe registry mapping `mcp-session-id` to the caller's reported
 /// workspace roots, plus the most recently resolved feature-set id so the
 /// gateway can tell when a session's resolution flips and emit a per-peer
@@ -59,6 +61,9 @@ pub struct SessionRootsRegistry {
     /// result landed — exactly the bug that left Claude Code's
     /// VS Code extension showing only the meta tools.
     probe_lock: DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
+    /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext).
+    search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
 }
 
 impl SessionRootsRegistry {
@@ -69,7 +74,13 @@ impl SessionRootsRegistry {
             roots_capable: DashMap::new(),
             last_probe: DashMap::new(),
             probe_lock: DashMap::new(),
+            search_cache: Arc::new(DashMap::new()),
         })
+    }
+
+    /// Shared per-session `search_tools` active index cache.
+    pub fn search_cache(&self) -> Arc<DashMap<String, (u64, ToolIndex)>> {
+        self.search_cache.clone()
     }
 
     /// Get (or create) the per-session probe lock. The returned Arc is
@@ -144,6 +155,21 @@ impl SessionRootsRegistry {
         self.roots_capable.remove(session_id);
         self.last_probe.remove(session_id);
         self.probe_lock.remove(session_id);
+        self.search_cache.remove(session_id);
+    }
+
+    /// Evict cached active indexes for sessions reporting `workspace_root`.
+    pub fn evict_search_cache_for_workspace_root(&self, workspace_root: &str) {
+        let normalized = normalize_workspace_root(workspace_root);
+        let session_ids: Vec<String> = self
+            .map
+            .iter()
+            .filter(|entry| entry.value().iter().any(|root| root == &normalized))
+            .map(|entry| entry.key().clone())
+            .collect();
+        for session_id in session_ids {
+            self.search_cache.remove(&session_id);
+        }
     }
 
     /// Compare-and-set the session's resolved feature-set id. Returns `true`

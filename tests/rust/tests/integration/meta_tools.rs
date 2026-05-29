@@ -656,6 +656,94 @@ async fn search_include_inactive_large_set_suggests_server_id_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn search_tools_second_call_hits_active_index_cache() {
+    let f = Fixture::new().await;
+    bind_github_only_to_session_root(&f).await;
+
+    let args = json!({ "query": "issue" });
+    let result1 = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            args.clone(),
+        )
+        .await
+        .unwrap();
+    let body1 = Fixture::result_json(&result1);
+    assert!(
+        body1.get("total").and_then(|v| v.as_u64()).unwrap_or(0) >= 1,
+        "first search should return active tools: {body1}"
+    );
+    assert!(f.registry.search_cache_contains(&f.session_id));
+
+    f.server_feature_repo
+        .delete(&f.github_tool_id)
+        .await
+        .unwrap();
+
+    let result2 = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            args,
+        )
+        .await
+        .unwrap();
+    let body2 = Fixture::result_json(&result2);
+    assert!(
+        body2.get("total").and_then(|v| v.as_u64()).unwrap_or(0) >= 1,
+        "cache hit should return cached tools despite DB deletion: {body2}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_cache_evicted_on_workspace_binding_changed() {
+    let f = Fixture::new().await;
+    let root = "/tmp/mcpmux-list-servers-test";
+    bind_github_only_to_session_root(&f).await;
+
+    f.registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "issue" }),
+        )
+        .await
+        .unwrap();
+    assert!(f.registry.search_cache_contains(&f.session_id));
+
+    f.session_roots.evict_search_cache_for_workspace_root(root);
+
+    assert!(!f.registry.search_cache_contains(&f.session_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_cache_evicted_on_session_disconnect() {
+    let f = Fixture::new().await;
+    bind_github_only_to_session_root(&f).await;
+
+    f.registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "issue" }),
+        )
+        .await
+        .unwrap();
+    assert!(f.registry.search_cache_contains(&f.session_id));
+
+    f.session_roots.remove(&f.session_id);
+
+    assert!(!f.registry.search_cache_contains(&f.session_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn bind_does_not_promote_tools_into_advertised_list() {
     let f = Fixture::new().await;
     let meta_count = f.registry.list_as_tools().len();

@@ -81,6 +81,7 @@ pub fn build_default_registry(
     let prompt_discovery = std::sync::Arc::new(crate::services::PromptDiscoveryService::new(
         server_feature_repo.clone(),
     ));
+    let search_cache = session_roots.search_cache();
     let ctx = MetaToolContext {
         client_repo,
         space_repo,
@@ -101,6 +102,7 @@ pub fn build_default_registry(
         settings_repo,
         server_manager,
         log_manager,
+        search_cache,
     };
 
     let mut registry = MetaToolRegistry::new(ctx);
