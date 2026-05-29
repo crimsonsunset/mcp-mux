@@ -9,7 +9,7 @@ use mcpmux_core::{
 };
 use mcpmux_gateway::admin::command_bridge::read as bridge_read;
 use mcpmux_gateway::admin::{
-    AdminBridgeCtx, AdminConfig, LiveGatewayRuntime, StubGatewayWriteRuntime,
+    AdminBridgeCtx, AdminConfig, BackendBuildStamp, LiveGatewayRuntime, StubGatewayWriteRuntime,
 };
 use mcpmux_gateway::{DependenciesBuilder, GatewayConfig, GatewayServer, GatewayServerHandle};
 use mcpmux_storage::{
@@ -139,7 +139,10 @@ impl LiveGatewayFixture {
             auto_launch_enabled: Some(false),
             app_version: "0.0.0-test".to_string(),
             bundle_version: None,
-            build_git_sha: "test-sha".to_string(),
+            backend_build: BackendBuildStamp {
+                git_sha: "test-sha".to_string(),
+                ..Default::default()
+            },
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;

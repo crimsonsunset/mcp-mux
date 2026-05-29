@@ -142,6 +142,9 @@ fn get_version() -> String {
 fn get_build_info() -> serde_json::Value {
     serde_json::json!({
         "git_sha": env!("MCPMUX_BUILD_GIT_SHA"),
+        "git_branch": env!("MCPMUX_BUILD_GIT_BRANCH"),
+        "commit_time": env!("MCPMUX_BUILD_COMMIT_TIME"),
+        "build_time": env!("MCPMUX_BUILD_TIME"),
     })
 }
 

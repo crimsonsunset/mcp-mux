@@ -16,9 +16,12 @@ export async function getBundleVersion(): Promise<string | null> {
   return apiCall('get_bundle_version');
 }
 
-/** Git SHA the running backend was compiled from. */
+/** Git/build metadata the running backend was compiled from. */
 export interface BuildInfo {
   git_sha: string;
+  git_branch: string;
+  commit_time: string;
+  build_time: string;
 }
 
 /**

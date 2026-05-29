@@ -198,13 +198,13 @@ Paste the JSON for each call.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Bind triggers approval dialog (Tauri and/or browser) | ✅ | | Dialog appeared on first call |
+| Bind triggers approval dialog (Tauri and/or browser) | ✅ | | Dialog appeared, approved with "Allow once" |
 | After approval: response confirms success | ✅ | | `ok: true`, `already_bound: false` |
 | Prior binding FS IDs still present (append, not replace) | ✅ | | `feature_set_ids: [bundle:core, bundle:design]` — both present |
-| Second bind same UUID → `already_bound: true` | | ❌ | **BUG**: triggered a second dialog instead of short-circuiting; dedup check runs post-approval not pre-approval |
-| Default search now finds the previously inactive tools | ✅ | | 30 canva tools now `scope: active_only`, `available: true` |
+| Second bind same UUID → `already_bound: true` | ✅ | | No dialog — returned `already_bound: true` immediately; dedup check fires pre-approval |
+| Default search now finds the previously inactive tools | ✅ | | 30 canva tools, `scope: active_only`, `available: true` |
 
-Record: first bind `feature_set_ids: ["15109e39-…core", "4397fd99-…design"]`, FS count 1→2. Second bind raised consent dialog again — denied by user, returned `approval_denied` instead of `already_bound: true`.
+Record: first bind `feature_set_ids: ["15109e39-…core", "4397fd99-…design"]`, FS count 1→2. Second bind short-circuited correctly with `already_bound: true`, no consent prompt raised.
 
 ---
 
@@ -224,11 +224,11 @@ Paste the exact error strings verbatim.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `mcpmux_enable_server` does not exist / call fails | ☐ | ☐ | |
-| Direct call on inactive tool errors with `bind_feature_set` hint | ☐ | ☐ | |
-| Error message points to `mcpmux_bind_current_workspace`, not `enable_server` | ☐ | ☐ | |
+| `mcpmux_enable_server` does not exist / call fails | ✅ | | `Tool not found` — not in surface |
+| Direct call on inactive tool errors with `bind_feature_set` hint | ✅ | | `"server 'wakatime' is inactive → mcpmux_bind_current_workspace with a FeatureSet that includes this server"` |
+| Error message points to `mcpmux_bind_current_workspace`, not `enable_server` | ✅ | | `enable_server` not mentioned anywhere in the error |
 
-Record: exact error strings.
+Record: step 2 tested via `mcpmux_invoke_tool` on `wakatime` (inactive, no bound feature set) — error verbatim: `"server 'wakatime' is inactive → mcpmux_bind_current_workspace with a FeatureSet that includes this server"`
 
 ---
 
@@ -248,10 +248,10 @@ If no uncovered tool exists in this Space, SKIP with reason.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `mcpmux_create_feature_set` absent | ☐ | ☐ | confirmed in Section A |
-| Uncovered-tool hint points to McpMux UI | ☐ | ☐ | or SKIP |
+| `mcpmux_create_feature_set` absent | ✅ | | Confirmed in Section A |
+| Uncovered-tool hint points to McpMux UI | ✅ | | `"Matching tools exist in this Space but no FeatureSet contains them. Ask the user to create a bundle in the McpMux desktop or web UI (Workspaces → Feature Sets), then mcpmux_bind_current_workspace with the new feature_set_id."` |
 
-Record: hint text or SKIP reason.
+Record: query `"cloudflare"` — server installed but no FeatureSet covers it. Hint correctly directs to UI bundle creation, not agent-side tool.
 
 ---
 
@@ -472,9 +472,9 @@ Record: pre/post-rebind results for J2, post-reconnect result for J3.
 | ------- | ------ | -------- |
 | A Surface | ✅ PASS | 11 tools, all removed tools absent, extra `mcpmux_diagnose_server` present (not a concern) |
 | B Discovery | ✅ PASS | All 4 calls passed on sha 16d5fff; hint fires correctly on `total: 0`; inactive rows carry `bindable_feature_set_id` |
-| C Bind/layer | ⚠️ PASS w/ BUG | Layering and approval flow work; second bind on already-bound FS raises dialog instead of returning `already_bound: true` |
-| D Removed paths | | |
-| E Human-only | | |
+| C Bind/layer | ✅ PASS | Layering intact; `already_bound: true` short-circuits before consent prompt; canva tools active post-bind |
+| D Removed paths | ✅ PASS | `enable_server` absent; inactive invoke error correctly points to `mcpmux_bind_current_workspace` |
+| E Human-only | ✅ PASS | `create_feature_set` absent; uncovered-tool hint correctly points to McpMux UI |
 | F Web approval | | |
 | G Invoke | | |
 | H Root-race | | |

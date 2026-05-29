@@ -12,7 +12,8 @@ use mcpmux_gateway::admin::CSRF_HEADER;
 use mcpmux_gateway::admin::{
     build_admin_router, command_bridge::read as bridge_read, format_bridge_error_message,
     new_csrf_token_store, test_valid_jwt, test_validator, AdminBridgeCtx, AdminConfig,
-    AdminEventHub, AdminState, AdminUiEventBus, StubGatewayRuntime, StubGatewayWriteRuntime,
+    AdminEventHub, AdminState, AdminUiEventBus, BackendBuildStamp, StubGatewayRuntime,
+    StubGatewayWriteRuntime,
     CF_ACCESS_JWT_HEADER,
 };
 use mcpmux_storage::{
@@ -96,7 +97,10 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
         auto_launch_enabled: Some(false),
         app_version: "0.0.0-test".to_string(),
         bundle_version: None,
-        build_git_sha: "test-sha".to_string(),
+        backend_build: BackendBuildStamp {
+            git_sha: "test-sha".to_string(),
+            ..Default::default()
+        },
     });
 
     (services, bridge)

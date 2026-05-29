@@ -556,7 +556,10 @@ pub async fn get_bundle_version(ctx: &AdminBridgeCtx) -> Result<Value> {
 
 pub async fn get_build_info(ctx: &AdminBridgeCtx) -> Result<Value> {
     as_json(serde_json::json!({
-        "git_sha": ctx.build_git_sha,
+        "git_sha": ctx.backend_build.git_sha,
+        "git_branch": ctx.backend_build.git_branch,
+        "commit_time": ctx.backend_build.commit_time,
+        "build_time": ctx.backend_build.build_time,
     }))
 }
 
