@@ -32,7 +32,7 @@ mod tools;
 
 pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
-    ApprovalScope,
+    ApprovalScope, META_TOOL_APPROVAL_EVENT,
 };
 pub use diff::ToolDiff;
 pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};

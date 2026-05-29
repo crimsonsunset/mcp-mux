@@ -46,8 +46,7 @@ export function MetaToolApprovalDialog() {
 
   useBackendEventSubscription<ApprovalRequest>(
     'meta-tool-approval-request',
-    enqueueApproval,
-    { sse: false }
+    enqueueApproval
   );
 
   const respond = useCallback(

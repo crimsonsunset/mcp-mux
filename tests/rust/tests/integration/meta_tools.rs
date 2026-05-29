@@ -24,6 +24,7 @@ use mcpmux_gateway::pool::{
 use mcpmux_gateway::services::{
     meta_tools, ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher,
     FeatureSetResolverService, MetaToolRegistry, PrefixCacheService, SessionRootsRegistry,
+    META_TOOL_APPROVAL_EVENT,
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
@@ -303,6 +304,26 @@ impl Fixture {
         // set_publisher is async; drive it synchronously via a current-runtime block_on
         // is unavailable here, so we spawn and detach — publisher is in place before
         // any request is made because tokio::test is single-threaded by default.
+        let b = self.broker.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                b.set_publisher(publisher).await;
+            });
+        });
+    }
+
+    /// Attach a publisher that fans approval requests into the admin SSE bus.
+    fn attach_sse_publisher(&self, ui_bus: Arc<mcpmux_gateway::admin::AdminUiEventBus>) {
+        let publisher: ApprovalPublisher = Arc::new(move |req| {
+            let bus = ui_bus.clone();
+            async move {
+                if let Ok(payload) = serde_json::to_value(&req) {
+                    bus.publish(META_TOOL_APPROVAL_EVENT, payload);
+                }
+                true
+            }
+            .boxed()
+        });
         let b = self.broker.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
@@ -730,6 +751,148 @@ async fn write_rejected_on_deny_leaves_state_unchanged() {
             json!({ "feature_set_id": f.fs_android_id.to_string() }),
         )
         .await;
+    assert!(Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("error").unwrap().as_str().unwrap(),
+        "approval_denied"
+    );
+
+    let after_bindings = f.binding_repo.list().await.unwrap().len();
+    assert_eq!(after_bindings, before_bindings);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bind_approval_surfaces_on_admin_sse_and_approve_writes_binding() {
+    let f = Fixture::new().await;
+    let ui_bus = Arc::new(mcpmux_gateway::admin::AdminUiEventBus::new());
+    let mut sse_rx = ui_bus.subscribe();
+    f.attach_sse_publisher(ui_bus);
+
+    let input = if cfg!(windows) {
+        "D:\\Projects\\WebAdmin\\"
+    } else {
+        "/proj/web-admin-bind"
+    };
+    f.session_roots.set(&f.session_id, [input]);
+
+    let registry = f.registry.clone();
+    let client_id = f.client_id.clone();
+    let session_id = f.session_id.clone();
+    let fs_id = f.fs_android_id.to_string();
+    let broker = f.broker.clone();
+
+    let bind_task = tokio::spawn(async move {
+        registry
+            .call(
+                "mcpmux_bind_current_workspace",
+                &client_id,
+                Some(&session_id),
+                json!({ "feature_set_id": fs_id }),
+            )
+            .await
+    });
+
+    let ui_event = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match sse_rx.recv().await {
+                Ok(ev) if ev.channel == META_TOOL_APPROVAL_EVENT => return ev.payload,
+                Ok(_) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    panic!("SSE bus closed before approval request");
+                }
+            }
+        }
+    })
+    .await
+    .expect("approval request on admin SSE");
+
+    let request_id = ui_event
+        .get("request_id")
+        .and_then(|v| v.as_str())
+        .expect("request_id in SSE payload");
+    broker.respond(
+        request_id,
+        &f.client_id,
+        "mcpmux_bind_current_workspace",
+        ApprovalDecision::AllowOnce,
+    );
+
+    let result = bind_task.await.expect("bind task").expect("bind call");
+    assert!(!Fixture::is_error(&result));
+
+    let bindings = f.binding_repo.list_for_space(&f.space_id).await.unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0].workspace_root, normalize_workspace_root(input));
+    assert_eq!(
+        bindings[0].feature_set_ids,
+        vec![f.fs_android_id.to_string()]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bind_deny_via_admin_sse_leaves_state_unchanged() {
+    let f = Fixture::new().await;
+    let ui_bus = Arc::new(mcpmux_gateway::admin::AdminUiEventBus::new());
+    let mut sse_rx = ui_bus.subscribe();
+    f.attach_sse_publisher(ui_bus);
+
+    let before_bindings = f.binding_repo.list().await.unwrap().len();
+    let input = if cfg!(windows) {
+        "D:\\Projects\\WebDenied\\"
+    } else {
+        "/proj/web-admin-deny"
+    };
+    f.session_roots.set(&f.session_id, [input]);
+
+    let registry = f.registry.clone();
+    let client_id = f.client_id.clone();
+    let session_id = f.session_id.clone();
+    let fs_id = f.fs_android_id.to_string();
+    let broker = f.broker.clone();
+
+    let bind_task = tokio::spawn(async move {
+        registry
+            .call(
+                "mcpmux_bind_current_workspace",
+                &client_id,
+                Some(&session_id),
+                json!({ "feature_set_id": fs_id }),
+            )
+            .await
+    });
+
+    let ui_event = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match sse_rx.recv().await {
+                Ok(ev) if ev.channel == META_TOOL_APPROVAL_EVENT => return ev.payload,
+                Ok(_) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    panic!("SSE bus closed before approval request");
+                }
+            }
+        }
+    })
+    .await
+    .expect("approval request on admin SSE");
+
+    let request_id = ui_event
+        .get("request_id")
+        .and_then(|v| v.as_str())
+        .expect("request_id in SSE payload");
+    broker.respond(
+        request_id,
+        &f.client_id,
+        "mcpmux_bind_current_workspace",
+        ApprovalDecision::Deny,
+    );
+
+    let result = match bind_task.await.expect("bind task") {
+        Ok(r) => r,
+        Err(e) => e.into_call_tool_result(),
+    };
     assert!(Fixture::is_error(&result));
     let body = Fixture::result_json(&result);
     assert_eq!(

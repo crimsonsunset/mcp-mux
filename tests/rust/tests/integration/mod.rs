@@ -13,6 +13,7 @@ mod admin_api_live_gateway;
 mod admin_api_oauth;
 mod admin_api_regression;
 mod admin_api_write;
+mod admin_meta_tool_approval;
 mod admin_sse_events;
 mod command_bridge_space;
 mod feature_routing;

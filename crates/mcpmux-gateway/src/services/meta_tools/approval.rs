@@ -35,6 +35,9 @@ use uuid::Uuid;
 
 use super::MetaToolError;
 
+/// Tauri / admin SSE channel for pending meta-tool approval dialogs.
+pub const META_TOOL_APPROVAL_EVENT: &str = "meta-tool-approval-request";
+
 /// Default timeout for a single approval prompt.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 

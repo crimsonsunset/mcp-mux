@@ -25,6 +25,7 @@ use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
 use mcpmux_core::{AppSettingsService, DomainEvent};
 use mcpmux_gateway::admin::ui_events::{map_domain_event_to_ui, AdminUiEventBus};
+use mcpmux_gateway::services::meta_tools::META_TOOL_APPROVAL_EVENT;
 use mcpmux_gateway::oauth::OAUTH_CONSENT_EVENT;
 use mcpmux_gateway::{
     ConnectionContext, ConnectionResult, FeatureService, InstalledServerInfo, OAuthCompleteEvent,
@@ -166,37 +167,38 @@ pub(crate) fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     crate::main_window::show_main_window(app);
 }
 
-/// Wire the meta-tool approval broker to the desktop event bus so write
-/// tools (e.g. `mcpmux_bind_current_workspace`) can prompt the React
-/// dialog. Both the manual `start_gateway` command and the lib.rs
-/// auto-start path must call this — without it the broker stays
-/// publisher-less and every write surfaces as
+/// Wire the meta-tool approval broker to the desktop event bus and admin SSE
+/// so write tools (e.g. `mcpmux_bind_current_workspace`) can prompt the React
+/// dialog in both the Tauri shell and the web admin SPA. Both the manual
+/// `start_gateway` command and the lib.rs auto-start path must call this —
+/// without it the broker stays publisher-less and every write surfaces as
 /// `approval_required: no desktop attached to mcpmux gateway`.
 pub(crate) async fn attach_approval_publisher<R: tauri::Runtime>(
     approval_broker: &Arc<mcpmux_gateway::services::ApprovalBroker>,
     app_handle: tauri::AppHandle<R>,
+    ui_bus: Option<Arc<AdminUiEventBus>>,
 ) {
     let publisher: mcpmux_gateway::services::meta_tools::ApprovalPublisher = Arc::new(move |req| {
         let app_handle = app_handle.clone();
+        let ui_bus = ui_bus.clone();
         Box::pin(async move {
-            // Bring the window forward BEFORE emitting so the dialog
-            // animates into a visible window — otherwise it'd render
-            // behind whatever the user is currently focused on.
             focus_main_window(&app_handle);
-            // Emit the request; the React layer owns rendering +
-            // collecting the user's decision. Failure to emit means
-            // no desktop frontend is listening — broker maps that to
-            // "approval_required" to the calling tool.
-            match app_handle.emit("meta-tool-approval-request", &req) {
-                Ok(()) => true,
-                Err(e) => {
+            let payload = serde_json::to_value(&req).unwrap_or_else(|_| serde_json::json!({}));
+            let tauri_ok = app_handle
+                .emit(META_TOOL_APPROVAL_EVENT, &req)
+                .inspect_err(|e| {
                     tracing::warn!(
                         error = %e,
-                        "[meta-tool] failed to emit approval request"
+                        "[meta-tool] failed to emit approval request to Tauri"
                     );
-                    false
-                }
+                })
+                .is_ok();
+            if let Some(ref bus) = ui_bus {
+                bus.publish(META_TOOL_APPROVAL_EVENT, payload);
             }
+            // Web admin (SSE) counts as an attached approver even when the
+            // desktop webview is not focused or the user is in an external browser.
+            tauri_ok || ui_bus.is_some()
         })
     });
     approval_broker.set_publisher(publisher).await;
@@ -581,10 +583,9 @@ pub async fn start_gateway(
     let oauth_completion_rx = pool_service.oauth_manager().subscribe();
     info!("[Gateway] Services resolved — port={}", final_port);
 
-    // Meta-tool approval broker — attach a Tauri-event publisher so
-    // incoming approval requests reach the React dialog.
+    // Meta-tool approval broker — attach after ui_bus is known so web SSE
+    // subscribers receive bind prompts alongside the desktop dialog.
     let approval_broker = server.approval_broker();
-    attach_approval_publisher(&approval_broker, app_handle.clone()).await;
 
     // Start domain event bridge (clean architecture)
     start_domain_event_bridge(&app_handle, gw_state.clone());
@@ -617,7 +618,7 @@ pub async fn start_gateway(
     state.feature_service = Some(feature_service);
     state.event_emitter = Some(event_emitter);
     state.grant_service = Some(grant_service);
-    state.approval_broker = Some(approval_broker);
+    state.approval_broker = Some(approval_broker.clone());
     state.session_roots = Some(session_roots);
     state.mcp_notifier = Some(mcp_notifier);
     let ui_bus =
@@ -634,6 +635,7 @@ pub async fn start_gateway(
     if let Some(ref gw) = state.gateway_state {
         wire_consent_ui_notifications(&app_handle, gw, ui_bus.clone()).await;
     }
+    attach_approval_publisher(&approval_broker, app_handle.clone(), ui_bus.clone()).await;
     info!(
         "[Gateway] Started — url={}, event_emitter={}, grant_service={}",
         url,

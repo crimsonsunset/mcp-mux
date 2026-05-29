@@ -29,7 +29,7 @@ pub use grant_service::GrantService;
 pub use meta_tools::{
     is_meta_tool, routing_as_invoke_backend, ApprovalBroker, ApprovalDecision, ApprovalPayload,
     ApprovalPublisher, ApprovalRequest, ApprovalScope, InvokeToolBackend, MetaToolRegistry,
-    MCPMUX_PREFIX,
+    META_TOOL_APPROVAL_EVENT, MCPMUX_PREFIX,
 };
 pub use notification_emitter::NotificationEmitter;
 pub use prefix_cache::PrefixCacheService;

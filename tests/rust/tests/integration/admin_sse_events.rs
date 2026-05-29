@@ -271,3 +271,23 @@ async fn sse_oauth_client_changed_matches_tauri_shape() {
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sse_meta_tool_approval_request_matches_tauri_shape() {
+    assert_sse_matches_direct_emit(
+        mcpmux_gateway::services::META_TOOL_APPROVAL_EVENT,
+        serde_json::json!({
+            "request_id": "req-1",
+            "client_id": "cursor",
+            "payload": {
+                "tool_name": "mcpmux_bind_current_workspace",
+                "summary": "Bind FeatureSet 'android-dev'",
+                "diff": null,
+                "raw_args": { "feature_set_id": "fs-1" },
+                "affects_other_clients": true,
+            },
+            "expires_at_unix_secs": 1_700_000_000_u64,
+        }),
+    )
+    .await;
+}
