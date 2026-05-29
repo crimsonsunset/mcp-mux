@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useCallback, useMemo, useState } from 'react';
+import { useBackendEventSubscription } from '@/lib/backend/events';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
 import { respondToMetaToolApproval } from '@/lib/api/metaTools';
@@ -40,17 +40,15 @@ export function MetaToolApprovalDialog() {
   const [queue, setQueue] = useState<ApprovalRequest[]>([]);
   const current = queue[0];
 
-  useEffect(() => {
-    const unlistenPromise = listen<ApprovalRequest>(
-      'meta-tool-approval-request',
-      (event) => {
-        setQueue((prev) => [...prev, event.payload]);
-      }
-    );
-    return () => {
-      unlistenPromise.then((fn) => fn()).catch(() => {});
-    };
+  const enqueueApproval = useCallback((payload: ApprovalRequest) => {
+    setQueue((prev) => [...prev, payload]);
   }, []);
+
+  useBackendEventSubscription<ApprovalRequest>(
+    'meta-tool-approval-request',
+    enqueueApproval,
+    { sse: false }
+  );
 
   const respond = useCallback(
     async (decision: Decision) => {

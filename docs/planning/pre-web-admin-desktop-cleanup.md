@@ -6,7 +6,7 @@
 **Base branch:** `dev` (fork)
 **Issue:** TBD — file after planning review
 **Depends on:** None
-**Blocks:** [Web Admin Mode (Remote UI via HTTP)](./web-admin-remote-access.md) — do not start admin HTTP work until this doc is complete
+**Blocks:** [Web Admin Mode (Remote UI via HTTP)](../guide/gateway.mdx) — do not start admin HTTP work until this doc is complete
 **Source audit:** [web-admin-parity-matrix.md](./web-admin-parity-matrix.md) (May 25, 2026 invoke + event scan)
 
 ---
@@ -29,7 +29,7 @@ Building `command_bridge` + REST on top of this duplicates bugs and guarantees p
 
 | # | Decision | Choice | Rationale |
 | - | -------- | ------ | --------- |
-| 1 | Gate web admin | **This cleanup is a hard prerequisite** for [web-admin-remote-access.md](./web-admin-remote-access.md) | One IPC contract → one bridge → one HTTP map. |
+| 1 | Gate web admin | **This cleanup is a hard prerequisite** for [gateway guide](../guide/gateway.mdx) | One IPC contract → one bridge → one HTTP map. |
 | 2 | Server enable/disable | **Standardize on `*_server_v2` + ServerManager** for UI-driven connect/disconnect | `enable_server_v2` is what ServersPage / `useServerManager` use; `set_server_enabled` path is legacy and unused in live UI. |
 | 3 | Server disconnect semantics | **Keep both commands, document roles** — `disconnect_server` (logout / token clear) vs `disconnect_server_v2` (pause, preserve creds) | Different UX on ServersPage; do not merge into one ambiguous endpoint. Wire dead `disconnectServerV2` or remove wrapper. |
 | 4 | Config export | **Wire FE to `preview_config_export` + `export_config_to_file`** — delete `export_config` invoke | Backend already has the correct API; `gateway.ts` export helper is stale. |
@@ -131,7 +131,7 @@ Web admin SSE must subscribe to **both** paths (or fan-in at emit time in a foll
 
 | Item | Reason |
 | ---- | ------ |
-| Admin HTTP / `command_bridge` / SSE implementation | Blocked on this doc — [web-admin-remote-access.md](./web-admin-remote-access.md) |
+| Admin HTTP / `command_bridge` / SSE implementation | Blocked on this doc — [gateway guide](../guide/gateway.mdx) |
 | Wire `search_servers` (registry uses client-side filter in `registryStore`) | Deferred — parity matrix |
 | Wire full config-export UI (`preview_config_export`, `get_config_paths`, `check_config_exists`, `backup_existing_config`) | Deferred — `configExport.ts` module only in Phase 1 |
 | Wire `seed_server_features`, `generate_gateway_config` | Deferred — no FE consumer |
@@ -139,7 +139,7 @@ Web admin SSE must subscribe to **both** paths (or fan-in at emit time in a foll
 | Expose backend `feature_members` commands over future HTTP | Deferred — batch `feature_set` APIs are the UI contract |
 | Merge EventBus + direct `app.emit` into single Rust emitter | Deferred — web-admin SSE fan-in |
 | `window.__TAURI_TEST_API__` gating in `main.tsx` | E2E harness; optional hardening later |
-| Playwright `.spec.ts` / WDIO parity strategy | [web-admin-remote-access.md](./web-admin-remote-access.md) — not desktop cleanup |
+| Playwright `.spec.ts` / WDIO parity strategy | [gateway guide](../guide/gateway.mdx) — not desktop cleanup |
 | Multi-tenant / web auth | Web admin concern |
 | Rewriting ServerManager architecture | Consolidate call sites only |
 
@@ -181,7 +181,7 @@ Web admin SSE must subscribe to **both** paths (or fan-in at emit time in a foll
 | [`apps/desktop/src/hooks/useMetaToolEvents.ts`](../../apps/desktop/src/hooks/useMetaToolEvents.ts) | **New** — `meta-tool-invoked` |
 | [`apps/desktop/src/features/workspaces/WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) | Remove dead listeners; use `useWorkspaceEvents` |
 | [`apps/desktop/src-tauri/src/commands/feature_members.rs`](../../apps/desktop/src-tauri/src/commands/feature_members.rs) | Module doc: deferred — no FE wrapper; batch APIs preferred |
-| [`docs/planning/web-admin-remote-access.md`](./web-admin-remote-access.md) | Depends on this doc; SSE channel count → 16 |
+| [`docs/guide/gateway.mdx`](../guide/gateway.mdx) | Depends on this doc; SSE channel count → 16 |
 | [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md) | Re-scan invokes + channels; mark E2E-only / deferred rows |
 
 ## Files to delete
@@ -282,7 +282,7 @@ Five phases. Each phase ends with **`pnpm validate`** green and relevant WDIO sm
 - [x] Complete [Audit checklist](#audit-checklist-may-25-2026) sign-off column
 - [x] `pnpm validate` — Rust fmt/clippy/check + desktop lint pass; `@mcpmux/ui` HoverTooltip pre-existing failure documented
 - [ ] WDIO smoke: `spaces`, `server-lifecycle`, `workspaces`, `clients`, `gateway` specs — skipped (`MCPMUX_REGISTRY_URL` unset)
-- [x] Update [web-admin-remote-access.md](./web-admin-remote-access.md): **Depends on** this doc complete; Phase 1 matrix scaffolding can start
+- [x] Update [gateway guide](../guide/gateway.mdx): **Depends on** this doc complete; Phase 1 matrix scaffolding can start
 - [x] Mark this doc **Status: Complete** with branch + date
 
 **Outcome:** Web admin implementation can start on `feat/web-admin` with a trustworthy IPC/event contract. Parity matrix has zero fix-mismatch rows and complete SSE channel list.
@@ -321,7 +321,7 @@ Five phases. Each phase ends with **`pnpm validate`** green and relevant WDIO sm
 
 ## Related documentation
 
-- [Web Admin Mode (Remote UI via HTTP)](./web-admin-remote-access.md) — blocked until this cleanup ships
+- [Web Admin Mode (Remote UI via HTTP)](../guide/gateway.mdx) — blocked until this cleanup ships
 - [web-admin-parity-matrix.md](./web-admin-parity-matrix.md) — re-scan after cleanup
 - [workspace-binding-icons.md](./workspace-binding-icons.md) — documents `workspace-binding-changed` reuse for appearance events
 
@@ -386,8 +386,8 @@ Complete sign-off in Phase 5. Every row must be **Fixed**, **Removed**, or **Def
 | # | Finding | Where tracked |
 | - | ------- | ------------- |
 | O1 | `window.__TAURI_TEST_API__` always exposed in `main.tsx` | Out of scope table |
-| O2 | Playwright mocks Tauri — not real parity | [web-admin-remote-access.md](./web-admin-remote-access.md) |
-| O3 | WDIO as behavioral catalog for admin E2E | [web-admin-remote-access.md](./web-admin-remote-access.md) Phase 8 |
+| O2 | Playwright mocks Tauri — not real parity | [gateway guide](../guide/gateway.mdx) |
+| O3 | WDIO as behavioral catalog for admin E2E | [gateway guide](../guide/gateway.mdx) Phase 8 |
 | O4 | Merge EventBus + direct emit in Rust | Web admin SSE implementation |
 | O5 | Desktop-only invokes (`open_space_config_file`, `add_to_vscode`, `flush_pending_deep_link`, …) | Parity matrix N/A rows — wrap in `lib/api` where applicable (Phase 3) |
 
@@ -408,7 +408,7 @@ Complete sign-off in Phase 5. Every row must be **Fixed**, **Removed**, or **Def
 
 ## Reconciliation
 
-This doc is the gate for web admin work. **Status: Complete** on branch `fix/pre-web-admin-cleanup` (May 25, 2026). [web-admin-remote-access.md](./web-admin-remote-access.md) **Depends on** updated to allow Phase 1 matrix scaffolding.
+This doc is the gate for web admin work. **Status: Complete** on branch `fix/pre-web-admin-cleanup` (May 25, 2026). [gateway guide](../guide/gateway.mdx) **Depends on** updated to allow Phase 1 matrix scaffolding.
 
 **Decision record (May 25, 2026):** Parity matrix scan found broken invokes, dual server stacks, scattered IPC, and incomplete event channel documentation. User chose to fix desktop contract before any admin HTTP implementation — avoids building REST on top of latent bugs.
 

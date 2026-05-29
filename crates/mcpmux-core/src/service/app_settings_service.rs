@@ -22,6 +22,16 @@ pub mod keys {
         pub const PORT: &str = "gateway.port";
         /// Auto-start gateway on app launch (bool)
         pub const AUTO_START: &str = "gateway.auto_start";
+        /// Enable web admin HTTP server (bool, default false)
+        pub const ADMIN_ENABLED: &str = "gateway.admin_enabled";
+        /// Web admin listen port (u16, default 45819)
+        pub const ADMIN_PORT: &str = "gateway.admin_port";
+        /// Require Cloudflare Access JWT on admin routes (bool)
+        pub const ADMIN_TRUST_CF_ACCESS: &str = "gateway.admin_trust_cf_access";
+        /// Cloudflare team domain for Access cert fetch (string)
+        pub const ADMIN_CF_TEAM_DOMAIN: &str = "gateway.admin_cf_team_domain";
+        /// Public HTTPS URL for remote MCP clients (string, e.g. https://mcp.example.com)
+        pub const PUBLIC_URL: &str = "gateway.public_url";
     }
 
     /// OAuth callback settings namespace
@@ -188,6 +198,99 @@ impl AppSettingsService {
                 if auto_start { "true" } else { "false" },
             )
             .await
+    }
+
+    /// Default web admin port.
+    pub const DEFAULT_ADMIN_PORT: u16 = 45819;
+
+    /// Whether the web admin HTTP server is enabled (default: false).
+    pub async fn get_admin_enabled(&self) -> bool {
+        self.get_string(keys::gateway::ADMIN_ENABLED)
+            .await
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    }
+
+    /// Set web admin enabled flag.
+    pub async fn set_admin_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        info!("[Settings] Setting admin_enabled to {}", enabled);
+        self.repository
+            .set(
+                keys::gateway::ADMIN_ENABLED,
+                if enabled { "true" } else { "false" },
+            )
+            .await
+    }
+
+    /// Configured web admin port (default [`DEFAULT_ADMIN_PORT`]).
+    pub async fn get_admin_port(&self) -> u16 {
+        self.get_typed(keys::gateway::ADMIN_PORT)
+            .await
+            .unwrap_or(Self::DEFAULT_ADMIN_PORT)
+    }
+
+    /// Persist web admin listen port.
+    pub async fn set_admin_port(&self, port: u16) -> anyhow::Result<()> {
+        info!("[Settings] Setting admin port to {}", port);
+        self.repository
+            .set(keys::gateway::ADMIN_PORT, &port.to_string())
+            .await
+    }
+
+    /// Whether admin routes require a valid CF Access JWT (default: false).
+    pub async fn get_admin_trust_cf_access(&self) -> bool {
+        self.get_string(keys::gateway::ADMIN_TRUST_CF_ACCESS)
+            .await
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    }
+
+    /// Cloudflare team domain for Access JWT validation.
+    pub async fn get_admin_cf_team_domain(&self) -> Option<String> {
+        self.get_string(keys::gateway::ADMIN_CF_TEAM_DOMAIN)
+            .await
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Set whether admin routes require a valid CF Access JWT.
+    pub async fn set_admin_trust_cf_access(&self, enabled: bool) -> anyhow::Result<()> {
+        info!("[Settings] Setting admin_trust_cf_access to {}", enabled);
+        self.repository
+            .set(
+                keys::gateway::ADMIN_TRUST_CF_ACCESS,
+                if enabled { "true" } else { "false" },
+            )
+            .await
+    }
+
+    /// Persist Cloudflare team domain for Access JWT validation (empty clears).
+    pub async fn set_admin_cf_team_domain(&self, domain: Option<&str>) -> anyhow::Result<()> {
+        let value = domain.unwrap_or("").trim();
+        info!("[Settings] Setting admin_cf_team_domain");
+        self.repository
+            .set(keys::gateway::ADMIN_CF_TEAM_DOMAIN, value)
+            .await
+    }
+
+    /// Public HTTPS URL advertised in OAuth metadata for tunnel clients.
+    pub async fn get_gateway_public_url(&self) -> Option<String> {
+        self.get_string(keys::gateway::PUBLIC_URL)
+            .await
+            .filter(|value| !value.is_empty())
+    }
+
+    /// Persist the public gateway URL (empty clears).
+    pub async fn set_gateway_public_url(&self, url: &str) -> anyhow::Result<()> {
+        info!("[Settings] Setting gateway public_url");
+        self.repository
+            .set(keys::gateway::PUBLIC_URL, url.trim())
+            .await
+    }
+
+    /// Clear the configured public gateway URL.
+    pub async fn clear_gateway_public_url(&self) -> anyhow::Result<()> {
+        info!("[Settings] Clearing gateway public_url");
+        self.repository.delete(keys::gateway::PUBLIC_URL).await
     }
 
     // =========================================================================

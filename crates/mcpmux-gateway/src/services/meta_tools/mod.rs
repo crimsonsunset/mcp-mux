@@ -21,6 +21,7 @@
 //! (`mcpmux_`) so the handler can route them before feature-set filtering.
 
 pub mod approval;
+pub mod diagnose;
 pub mod diff;
 pub mod disclosure;
 pub mod disclosure_backend;
@@ -74,6 +75,8 @@ pub fn build_default_registry(
     approval_broker: std::sync::Arc<ApprovalBroker>,
     domain_event_tx: tokio::sync::broadcast::Sender<mcpmux_core::DomainEvent>,
     settings_repo: Option<std::sync::Arc<dyn mcpmux_core::AppSettingsRepository>>,
+    server_manager: std::sync::Arc<crate::pool::ServerManager>,
+    log_manager: std::sync::Arc<mcpmux_core::ServerLogManager>,
 ) -> std::sync::Arc<MetaToolRegistry> {
     let tool_discovery =
         std::sync::Arc::new(ToolDiscoveryService::new(server_feature_repo.clone()));
@@ -102,6 +105,8 @@ pub fn build_default_registry(
         approval_broker,
         domain_event_tx,
         settings_repo,
+        server_manager,
+        log_manager,
     };
 
     let mut registry = MetaToolRegistry::new(ctx);
@@ -111,6 +116,7 @@ pub fn build_default_registry(
     registry.register(Box::new(tools::ListServersTool));
     registry.register(Box::new(tools::SearchToolsTool));
     registry.register(Box::new(tools::GetToolSchemaTool));
+    registry.register(Box::new(diagnose::DiagnoseServerTool));
     registry.register(Box::new(invoke::InvokeToolTool));
     registry.register(Box::new(disclosure::SearchResourcesTool));
     registry.register(Box::new(disclosure::ReadResourceTool));

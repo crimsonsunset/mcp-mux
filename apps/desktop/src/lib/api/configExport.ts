@@ -1,4 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { exportConfigToFile as shellExportConfigToFile } from '@/lib/backend/shell';
+
+import { apiCall } from './transport';
 
 /** Supported MCP client config export targets. */
 export type ExportClientType = 'cursor' | 'vscode' | 'claude';
@@ -23,11 +26,11 @@ export interface ExportConfigResponse {
 export async function previewConfigExport(
   request: ExportConfigRequest
 ): Promise<ExportConfigResponse> {
-  return invoke('preview_config_export', { request });
+  return apiCall('preview_config_export', { request });
 }
 
 /**
- * Write generated MCP client config JSON to the given file path.
+ * Write generated MCP client config JSON to the given file path (desktop shell only).
  *
  * @returns Absolute path of the written file.
  */
@@ -35,21 +38,21 @@ export async function exportConfigToFile(
   request: ExportConfigRequest,
   path: string
 ): Promise<string> {
-  return invoke('export_config_to_file', { request, path });
+  return shellExportConfigToFile(request, path);
 }
 
 /**
  * Default config file paths per client type (`cursor`, `vscode`, `claude`).
  */
 export async function getConfigPaths(): Promise<Record<string, string | null>> {
-  return invoke('get_config_paths');
+  return apiCall('get_config_paths');
 }
 
 /**
  * Whether a config file already exists at the default path for a client type.
  */
 export async function checkConfigExists(clientType: ExportClientType): Promise<boolean> {
-  return invoke('check_config_exists', { clientType });
+  return apiCall('check_config_exists', { clientType });
 }
 
 /**
@@ -60,5 +63,5 @@ export async function checkConfigExists(clientType: ExportClientType): Promise<b
 export async function backupExistingConfig(
   clientType: ExportClientType
 ): Promise<string | null> {
-  return invoke('backup_existing_config', { clientType });
+  return apiCall('backup_existing_config', { clientType });
 }

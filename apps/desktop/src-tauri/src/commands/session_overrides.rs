@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use mcpmux_gateway::services::SessionOverrideEntry;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Manager, State};
 use tokio::sync::RwLock;
 use tracing::info;
 
 use super::gateway::GatewayAppState;
+use crate::services::ui_events::emit_ui_channel;
 
 /// Per-session override state surfaced to the Workspaces inspector.
 #[derive(Debug, Clone, Serialize)]
@@ -95,12 +96,20 @@ pub async fn clear_session_overrides(
         session_id
     );
 
-    if let Err(e) = app_handle.emit(
+    let payload = serde_json::json!({ "session_id": session_id });
+    let ui_bus = if let Some(admin) = app_handle
+        .try_state::<std::sync::Arc<tokio::sync::RwLock<crate::services::AdminServerState>>>()
+    {
+        Some(admin.read().await.ui_event_bus.clone())
+    } else {
+        None
+    };
+    emit_ui_channel(
+        &app_handle,
+        ui_bus.as_deref(),
         "session-overrides-changed",
-        serde_json::json!({ "session_id": session_id }),
-    ) {
-        tracing::warn!("[session_overrides] failed to emit session-overrides-changed: {e}");
-    }
+        payload,
+    );
 
     Ok(())
 }

@@ -10,8 +10,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ServerStatusResponse,
-  ServerStatusEvent,
-  AuthProgressEvent,
   FeaturesUpdatedEvent,
   getServerStatuses,
   enableServer,
@@ -19,12 +17,17 @@ import {
   startAuth,
   cancelAuth,
   retryConnection,
-  onServerStatus,
-  onAuthProgress,
-  onFeaturesUpdated,
   getConnectButtonLabel,
   getServerAction,
+  ConnectionStatus,
 } from "../lib/api/serverManager";
+import { listServerFeaturesByServer } from "../lib/api/serverFeatures";
+import {
+  useDomainEvents,
+  type ServerAuthProgressPayload,
+  type ServerFeaturesRefreshedPayload,
+  type ServerStatusChangedPayload,
+} from "./useDomainEvents";
 
 interface UseServerManagerOptions {
   spaceId: string;
@@ -68,6 +71,35 @@ interface UseServerManagerResult {
   refresh: () => Promise<void>;
 }
 
+/**
+ * Normalize backend status strings to the UI ConnectionStatus union.
+ */
+function normalizeConnectionStatus(status: string): ConnectionStatus {
+  if (status === "auth_required") {
+    return "oauth_required";
+  }
+  return status as ConnectionStatus;
+}
+
+/**
+ * Map a REST/Tauri status payload into ServerStatusResponse.
+ */
+function toServerStatusResponse(
+  serverId: string,
+  payload: Pick<
+    ServerStatusResponse,
+    "status" | "flow_id" | "has_connected_before" | "message"
+  > & { status: string }
+): ServerStatusResponse {
+  return {
+    server_id: serverId,
+    status: normalizeConnectionStatus(payload.status),
+    flow_id: payload.flow_id,
+    has_connected_before: payload.has_connected_before,
+    message: payload.message ?? null,
+  };
+}
+
 export function useServerManager({
   spaceId,
   onFeaturesChange,
@@ -83,6 +115,7 @@ export function useServerManager({
   // Stable ref for onFeaturesChange to avoid re-subscribing on every render
   const onFeaturesChangeRef = useRef(onFeaturesChange);
   onFeaturesChangeRef.current = onFeaturesChange;
+  const { subscribe } = useDomainEvents();
 
   // Fetch initial statuses
   const refresh = useCallback(async () => {
@@ -92,9 +125,20 @@ export function useServerManager({
       setLoading(true);
       setError(null);
       const result = await getServerStatuses(spaceId);
-      setStatuses(result);
+      const normalized = Object.fromEntries(
+        Object.entries(result).map(([serverId, status]) => [
+          serverId,
+          toServerStatusResponse(serverId, status),
+        ])
+      );
+      console.log(
+        `[useServerManager] Loaded ${Object.keys(normalized).length} server statuses for space ${spaceId}`
+      );
+      setStatuses(normalized);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[useServerManager] Failed to load statuses for space ${spaceId}:`, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -122,86 +166,79 @@ export function useServerManager({
     }
   }, [refresh]);
 
-  // Subscribe to events
+  // Subscribe to domain events (Tauri IPC on desktop, SSE on web admin)
   useEffect(() => {
     if (!spaceId) return;
 
-    const unsubscribers: Array<() => void> = [];
-
-    // Event listeners are async (Tauri listen() returns a Promise).
-    // Events emitted between the initial getServerStatuses fetch and listener
-    // activation are lost. Track when all listeners are ready, then re-fetch
-    // statuses to catch any events missed during the gap.
-    const listenerPromises: Array<Promise<() => void>> = [];
-
-    // Status changes
-    const statusPromise = onServerStatus((event: ServerStatusEvent) => {
-      if (event.space_id !== spaceId) return;
-
-      setStatuses((prev) => {
-        const existing = prev[event.server_id];
-        // Ignore events from older flows (race condition prevention)
-        if (existing && existing.flow_id > event.flow_id) {
-          return prev;
-        }
-
-        return {
-          ...prev,
-          [event.server_id]: {
-            server_id: event.server_id,
-            status: event.status,
-            flow_id: event.flow_id,
-            has_connected_before: event.has_connected_before,
-            message: event.message || null,
-          },
-        };
-      });
-
-      // Clear auth progress when leaving Authenticating state
-      if (event.status !== "authenticating") {
-        setAuthProgress((prev) => {
-          const next = { ...prev };
-          delete next[event.server_id];
-          return next;
-        });
-      }
-    });
-    statusPromise.then((unlisten) => unsubscribers.push(unlisten));
-    listenerPromises.push(statusPromise);
-
-    // Auth progress
-    const authPromise = onAuthProgress((event: AuthProgressEvent) => {
-      if (event.space_id !== spaceId) return;
-
-      setAuthProgress((prev) => ({
-        ...prev,
-        [event.server_id]: event.remaining_seconds,
-      }));
-    });
-    authPromise.then((unlisten) => unsubscribers.push(unlisten));
-    listenerPromises.push(authPromise);
-
-    // Features updated (always subscribe, use ref to call latest callback)
-    const featuresPromise = onFeaturesUpdated(
-      (event: FeaturesUpdatedEvent) => {
+    const unsubs = [
+      subscribe("server-status-changed", (event: ServerStatusChangedPayload) => {
         if (event.space_id !== spaceId) return;
-        onFeaturesChangeRef.current?.(event);
-      }
-    );
-    featuresPromise.then((unlisten) => unsubscribers.push(unlisten));
-    listenerPromises.push(featuresPromise);
 
-    // Once all listeners are active, re-fetch statuses to close the gap
-    // between the initial fetch and listener activation (startup race fix)
-    Promise.all(listenerPromises).then(() => {
-      refresh();
-    });
+        setStatuses((prev) => {
+          const existing = prev[event.server_id];
+          const flowId = event.flow_id;
+          if (existing && existing.flow_id > flowId) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            [event.server_id]: toServerStatusResponse(event.server_id, {
+              status: event.status,
+              flow_id: flowId,
+              has_connected_before: event.has_connected_before,
+              message: event.message ?? null,
+            }),
+          };
+        });
+
+        if (event.status !== "authenticating") {
+          setAuthProgress((prev) => {
+            const next = { ...prev };
+            delete next[event.server_id];
+            return next;
+          });
+        }
+      }),
+      subscribe("server-auth-progress", (event: ServerAuthProgressPayload) => {
+        if (event.space_id !== spaceId) return;
+
+        setAuthProgress((prev) => ({
+          ...prev,
+          [event.server_id]: event.remaining_seconds,
+        }));
+      }),
+      subscribe("server-features-refreshed", (event: ServerFeaturesRefreshedPayload) => {
+        if (event.space_id !== spaceId) return;
+
+        void (async () => {
+          const allFeatures = await listServerFeaturesByServer(
+            event.space_id,
+            event.server_id
+          );
+          const features = {
+            tools: allFeatures.filter((f) => f.feature_type === "tool"),
+            prompts: allFeatures.filter((f) => f.feature_type === "prompt"),
+            resources: allFeatures.filter((f) => f.feature_type === "resource"),
+          };
+          onFeaturesChangeRef.current?.({
+            type: "features_updated",
+            space_id: event.space_id,
+            server_id: event.server_id,
+            features,
+            added: event.added,
+            removed: event.removed,
+          });
+        })();
+      }),
+    ];
+
+    refresh();
 
     return () => {
-      unsubscribers.forEach((fn) => fn());
+      unsubs.forEach((unsub) => unsub());
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spaceId]);
+  }, [spaceId, subscribe, refresh]);
 
   // Actions
   const enable = useCallback(

@@ -7,7 +7,7 @@
 
 use axum::{
     body::Body,
-    http::{Request, Response, StatusCode},
+    http::{header, Request, Response, StatusCode},
     middleware::Next,
     response::IntoResponse,
 };
@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::auth::validate_token;
 use crate::logging::TraceContext;
+use crate::public_base_url::resolve_request_base_url;
 use crate::server::ServiceContainer;
 
 /// OAuth middleware for MCP endpoints using rmcp
@@ -46,7 +47,8 @@ pub async fn mcp_oauth_middleware(
 
     let Some(auth_value) = auth_header else {
         warn!(trace_id = %trace_id, "Missing Authorization header");
-        return unauthorized_response("Missing Authorization header");
+        return unauthorized_response(request.headers(), &services, "Missing Authorization header")
+            .await;
     };
 
     // Extract Bearer token
@@ -54,7 +56,12 @@ pub async fn mcp_oauth_middleware(
         Some(t) => t,
         None => {
             warn!(trace_id = %trace_id, "Authorization header must use Bearer scheme");
-            return unauthorized_response("Authorization header must use Bearer scheme");
+            return unauthorized_response(
+                request.headers(),
+                &services,
+                "Authorization header must use Bearer scheme",
+            )
+            .await;
         }
     };
 
@@ -78,7 +85,7 @@ pub async fn mcp_oauth_middleware(
         Some(claims) => claims,
         None => {
             warn!(trace_id = %trace_id, "Token verification failed");
-            return unauthorized_response("Invalid token");
+            return unauthorized_response(request.headers(), &services, "Invalid token").await;
         }
     };
 
@@ -168,14 +175,25 @@ pub async fn mcp_oauth_middleware(
     response
 }
 
-/// Generate unauthorized response
-fn unauthorized_response(message: &str) -> Response<Body> {
+/// Generate unauthorized response with OAuth protected-resource metadata (RFC 9728).
+async fn unauthorized_response(
+    headers: &axum::http::HeaderMap,
+    services: &Arc<ServiceContainer>,
+    message: &str,
+) -> Response<Body> {
+    let (local_base_url, public_url) = {
+        let state = services.gateway_state.read().await;
+        (state.base_url.clone(), state.public_url.clone())
+    };
+    let base_url = resolve_request_base_url(headers, &local_base_url, public_url.as_deref());
+    let resource_metadata_url = format!("{base_url}/.well-known/oauth-protected-resource");
+    let www_authenticate = format!(
+        r#"Bearer realm="McpMux Gateway", error="invalid_token", resource_metadata="{resource_metadata_url}""#
+    );
+
     (
         StatusCode::UNAUTHORIZED,
-        [(
-            "WWW-Authenticate",
-            r#"Bearer realm="McpMux Gateway", error="invalid_token""#,
-        )],
+        [(header::WWW_AUTHENTICATE, www_authenticate)],
         message.to_string(),
     )
         .into_response()

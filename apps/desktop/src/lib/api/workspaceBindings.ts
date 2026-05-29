@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { apiCall } from './transport';
 
 /**
  * A WorkspaceBinding maps one normalized filesystem path to one or more
@@ -36,7 +37,7 @@ export interface WorkspaceBindingInput {
 
 /** List every binding (sorted by workspace_root). */
 export async function listWorkspaceBindings(): Promise<WorkspaceBinding[]> {
-  return invoke('list_workspace_bindings');
+  return apiCall('list_workspace_bindings');
 }
 
 /**
@@ -46,7 +47,7 @@ export async function listWorkspaceBindings(): Promise<WorkspaceBinding[]> {
  * tab instead of waiting for the one-shot prompt.
  */
 export async function listReportedWorkspaceRoots(): Promise<string[]> {
-  return invoke('list_reported_workspace_roots');
+  return apiCall('list_reported_workspace_roots');
 }
 
 /**
@@ -60,14 +61,14 @@ export async function listReportedWorkspaceRoots(): Promise<string[]> {
  * "don't nag yet" from "here's a real error".
  */
 export async function validateWorkspaceRoot(path: string): Promise<string> {
-  return invoke('validate_workspace_root', { path });
+  return apiCall('validate_workspace_root', { path });
 }
 
 /** List bindings whose target Space is the given one. */
 export async function listWorkspaceBindingsForSpace(
   spaceId: string
 ): Promise<WorkspaceBinding[]> {
-  return invoke('list_workspace_bindings_for_space', { spaceId });
+  return apiCall('list_workspace_bindings_for_space', { spaceId });
 }
 
 /**
@@ -77,7 +78,7 @@ export async function listWorkspaceBindingsForSpace(
 export async function createWorkspaceBinding(
   input: WorkspaceBindingInput
 ): Promise<WorkspaceBinding> {
-  return invoke('create_workspace_binding', { input });
+  return apiCall('create_workspace_binding', { input });
 }
 
 /** Update any axis of an existing binding. */
@@ -85,12 +86,12 @@ export async function updateWorkspaceBinding(
   id: string,
   input: WorkspaceBindingInput
 ): Promise<WorkspaceBinding> {
-  return invoke('update_workspace_binding', { id, input });
+  return apiCall('update_workspace_binding', { id, input });
 }
 
 /** Delete a binding by id. */
 export async function deleteWorkspaceBinding(id: string): Promise<void> {
-  return invoke('delete_workspace_binding', { id });
+  return apiCall('delete_workspace_binding', { id });
 }
 
 /** Convenience: build a `WorkspaceBindingInput` from a binding-shaped object. */
@@ -177,5 +178,5 @@ export interface WorkspaceEffectiveFeatures {
 export async function getWorkspaceEffectiveFeatures(
   workspaceRoot: string
 ): Promise<WorkspaceEffectiveFeatures> {
-  return invoke('get_workspace_effective_features', { workspaceRoot });
+  return apiCall('get_workspace_effective_features', { workspaceRoot });
 }

@@ -13,7 +13,7 @@ export {
   useServerAuthProgress,
   useClientEvents,
   useGatewayEvents,
-} from './useDomainEvents';
+} from '@/lib/backend/events';
 
 export type {
   DomainEventChannel,
@@ -28,34 +28,33 @@ export type {
   ClientGrantChangedPayload,
   GatewayChangedPayload,
   MCPNotificationPayload,
-} from './useDomainEvents';
+} from '@/lib/backend/events';
 
 export {
   useWorkspaceEvents,
   useWorkspaceEventListener,
-} from './useWorkspaceEvents';
+} from '@/lib/backend/events';
 
 export type {
   WorkspaceEventChannel,
   WorkspaceBindingChangedPayload,
   WorkspaceNeedsBindingPayload,
-} from './useWorkspaceEvents';
+} from '@/lib/backend/events';
 
 export {
   useOAuthClientEvents,
   useOAuthClientEventListener,
-} from './useOAuthClientEvents';
+} from '@/lib/backend/events';
 
-export type { OAuthClientChangedPayload } from './useOAuthClientEvents';
+export type { OAuthClientChangedPayload } from '@/lib/backend/events';
 
 export {
   useMetaToolEvents,
   useMetaToolEventListener,
-} from './useMetaToolEvents';
+} from '@/lib/backend/events';
 
 // Server management
 export { useServerManager } from './useServerManager';
 
 // Space management
 export { useSpaces } from './useSpaces';
-

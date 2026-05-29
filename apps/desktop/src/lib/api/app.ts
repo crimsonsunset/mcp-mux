@@ -1,10 +1,11 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { apiCall } from './transport';
 
 /**
  * Read the running application version from the Rust backend.
  */
 export async function getVersion(): Promise<string> {
-  return invoke('get_version');
+  return apiCall('get_version');
 }
 
 /**
@@ -12,5 +13,17 @@ export async function getVersion(): Promise<string> {
  * (e.g. after a Homebrew Cask upgrade). Returns null on non-macOS platforms.
  */
 export async function getBundleVersion(): Promise<string | null> {
-  return invoke('get_bundle_version');
+  return apiCall('get_bundle_version');
+}
+
+/** Git SHA the running backend was compiled from. */
+export interface BuildInfo {
+  git_sha: string;
+}
+
+/**
+ * Read build metadata from the Rust backend (git SHA stamped at compile time).
+ */
+export async function getBuildInfo(): Promise<BuildInfo> {
+  return apiCall('get_build_info');
 }

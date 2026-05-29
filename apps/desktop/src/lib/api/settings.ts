@@ -1,4 +1,11 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import {
+  getAdminWebSettings as shellGetAdminWebSettings,
+  openLogsFolder as shellOpenLogsFolder,
+  updateAdminWebSettings as shellUpdateAdminWebSettings,
+} from '@/lib/backend/shell';
+
+import { apiCall } from './transport';
 
 /** Startup and system tray settings. */
 export interface StartupSettings {
@@ -12,53 +19,83 @@ export interface GatewayPortSettings {
   configuredPort: number | null;
   defaultPort: number;
   activePort: number | null;
+  publicUrl: string | null;
+}
+
+/** Web admin HTTP server settings (loopback remote UI). */
+export interface AdminWebSettings {
+  enabled: boolean;
+  port: number;
+  trustCfAccess: boolean;
+  cfTeamDomain: string;
 }
 
 /**
  * Load startup and system tray preferences.
  */
 export async function getStartupSettings(): Promise<StartupSettings> {
-  return invoke('get_startup_settings');
+  return apiCall('get_startup_settings');
 }
 
 /**
  * Persist startup and system tray preferences.
  */
 export async function updateStartupSettings(settings: StartupSettings): Promise<void> {
-  return invoke('update_startup_settings', { settings });
+  return apiCall('update_startup_settings', { settings });
 }
 
 /**
  * Load gateway port settings (configured override, default, active).
  */
 export async function getGatewayPortSettings(): Promise<GatewayPortSettings> {
-  return invoke('get_gateway_port_settings');
+  return apiCall('get_gateway_port_settings');
 }
 
 /**
  * Persist a custom gateway port. Takes effect on the next gateway start.
  */
 export async function setGatewayPort(port: number): Promise<void> {
-  return invoke('set_gateway_port', { port });
+  return apiCall('set_gateway_port', { port });
 }
 
 /**
  * Clear the persisted gateway port override.
  */
 export async function resetGatewayPort(): Promise<void> {
-  return invoke('reset_gateway_port');
+  return apiCall('reset_gateway_port');
+}
+
+/**
+ * Persist the public HTTPS URL advertised in OAuth metadata for tunnel clients.
+ */
+export async function setGatewayPublicUrl(publicUrl: string): Promise<void> {
+  return apiCall('set_gateway_public_url', { publicUrl });
 }
 
 /**
  * Resolve the on-disk application logs directory path.
  */
 export async function getLogsPath(): Promise<string> {
-  return invoke('get_logs_path');
+  return apiCall('get_logs_path');
 }
 
 /**
  * Open the application logs folder in the system file manager.
  */
 export async function openLogsFolder(): Promise<void> {
-  return invoke('open_logs_folder');
+  return shellOpenLogsFolder();
+}
+
+/**
+ * Load web admin mode settings (desktop only — controls :45819 server).
+ */
+export async function getAdminWebSettings(): Promise<AdminWebSettings> {
+  return shellGetAdminWebSettings();
+}
+
+/**
+ * Persist web admin settings and restart the admin HTTP server.
+ */
+export async function updateAdminWebSettings(settings: AdminWebSettings): Promise<void> {
+  return shellUpdateAdminWebSettings(settings);
 }

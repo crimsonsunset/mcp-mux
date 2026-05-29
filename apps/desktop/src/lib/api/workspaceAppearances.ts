@@ -1,4 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { fileSrcFromAbsolutePath } from '@/lib/backend/shell';
+import { apiCall, isTauri } from './transport';
 
 /** Persisted per-root icon used before a binding exists. */
 export interface WorkspaceAppearance {
@@ -14,27 +16,41 @@ export interface WorkspaceAppearanceInput {
 
 /** List all saved workspace appearances. */
 export async function listWorkspaceAppearances(): Promise<WorkspaceAppearance[]> {
-  return invoke('list_workspace_appearances');
+  return apiCall('list_workspace_appearances');
 }
 
 /** Upsert appearance for a normalized workspace root. */
 export async function upsertWorkspaceAppearance(
   input: WorkspaceAppearanceInput
 ): Promise<WorkspaceAppearance> {
-  return invoke('upsert_workspace_appearance', { input });
+  return apiCall('upsert_workspace_appearance', { input });
 }
 
 /** Delete appearance for a workspace root. */
 export async function deleteWorkspaceAppearance(workspaceRoot: string): Promise<void> {
-  return invoke('delete_workspace_appearance', { workspaceRoot });
+  return apiCall('delete_workspace_appearance', { workspaceRoot });
 }
 
 /** Copy a source image into app data and return local: ref. */
 export async function uploadWorkspaceIcon(sourcePath: string): Promise<string> {
-  return invoke('upload_workspace_icon', { sourcePath });
+  return apiCall('upload_workspace_icon', { sourcePath });
 }
 
 /** Resolve a local:workspace-icons ref to an absolute file path. */
 export async function resolveWorkspaceIconPath(iconRef: string): Promise<string | null> {
-  return invoke('resolve_workspace_icon_path', { iconRef });
+  return apiCall('resolve_workspace_icon_path', { iconRef });
+}
+
+/**
+ * Resolve a local icon ref to a displayable URL (Tauri asset URL or admin HTTP path).
+ */
+export async function resolveWorkspaceIconDisplaySrc(iconRef: string): Promise<string | null> {
+  if (!iconRef.startsWith('local:')) {
+    return null;
+  }
+  if (!isTauri()) {
+    return `/api/v1/workspaces/icon?iconRef=${encodeURIComponent(iconRef)}`;
+  }
+  const absolutePath = await resolveWorkspaceIconPath(iconRef);
+  return fileSrcFromAbsolutePath(absolutePath);
 }

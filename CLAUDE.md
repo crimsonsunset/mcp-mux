@@ -33,6 +33,9 @@ All commands run from `mcp-mux/`:
 pnpm setup              # First-time dev environment setup (PowerShell)
 pnpm dev                # Tauri desktop app dev mode (Rust + React hot-reload)
 pnpm dev:web            # Web UI only (Vite, no Rust)
+pnpm dev:admin          # Tauri dev + web admin enabled for session
+pnpm dev:web:admin      # Vite with admin HTTP transport (fetch + SSE)
+pnpm build:web:admin    # Production SPA build for admin static serving
 pnpm build              # Production Tauri build (all platforms)
 ```
 
@@ -50,6 +53,7 @@ pnpm test:e2e           # WebDriver IO desktop E2E (needs MCPMUX_REGISTRY_URL)
 pnpm test:e2e:file      # Single E2E spec: pnpm test:e2e:file -- tests/e2e/specs/foo.ts
 pnpm test:e2e:grep      # E2E by name: pnpm test:e2e:grep -- "test name"
 pnpm test:e2e:web       # Playwright web UI E2E
+pnpm test:e2e:web:admin # Playwright admin catalog against real :45819
 pnpm test:coverage      # cargo llvm-cov + vitest coverage
 ```
 
@@ -80,10 +84,12 @@ Key patterns: event-driven architecture (EventBus), repository pattern (trait-ba
 ### Frontend Architecture
 
 - **Entry**: `apps/desktop/src/main.tsx` -> `App.tsx`
+- **Backend facade**: import `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. See `AGENTS.md` Frontend Notes. Deprecated `@/lib/api/*` shims re-export the same surface.
 - **State**: Zustand store (`stores/appStore.ts`)
-- **Hooks**: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (Rust event listeners), `useDataSync` (data synchronization)
+- **Hooks**: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (via `backend/events`), `useDataSync` (data synchronization)
 - **UI**: React 19 + Tailwind CSS + Lucide icons + Monaco Editor (config editing)
 - **Path aliases**: `@/` -> `src/`, `@mcpmux/ui` -> shared UI package
+- **Web admin dev**: `pnpm dev:admin` / `pnpm dev:web:admin` — admin API on `:45819`; `pnpm dev:stop` frees ports. See `AGENTS.md` Build & Dev Commands.
 
 ### Data Flow
 
@@ -161,6 +167,15 @@ The pre-commit hook runs `cargo clippy --workspace -- -D warnings` locally, but 
 - `#[cfg(unix)]` code is only linted in CI, not on a Windows dev machine
 - `#[cfg(windows)]` code is only linted locally on Windows, not in CI
 - Always validate that platform-conditional code compiles correctly on both platforms before pushing
+
+### macOS TCC Permissions for Child MCP Servers
+
+macOS attributes TCC (Privacy & Security) decisions to the *responsible process* — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux bundle, not the child. Two things must line up for a child to read a TCC-protected resource (e.g. `jsg-beeper-mcp` reading `~/Library/Application Support/AddressBook`):
+
+1. **Usage description in `Info.plist`.** McpMux ships `apps/desktop/src-tauri/Info.plist` with `NSContactsUsageDescription`, `NSCalendarsUsageDescription`, `NSRemindersUsageDescription`, `NSAppleEventsUsageDescription`. Tauri 2 auto-merges this file into the bundle.
+2. **The bundle requests access at least once.** Apple only lists an app in System Settings → Privacy & Security → *Category* after it has called the corresponding framework. McpMux does this for Contacts at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()` (calls `CNContactStore.requestAccess(for: .contacts, ...)` through `objc2-contacts`).
+
+To add a new TCC class, follow the same two-step pattern. Don't expect the OS to "just prompt" — the prompt is gated on the responsible process making the call itself.
 
 ## CI
 

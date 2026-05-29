@@ -4,11 +4,12 @@
 //! between Tauri commands.
 
 use mcpmux_core::{
-    AppSettingsRepository, AppSettingsService, CredentialRepository, FeatureSetRepository,
-    GatewayPortService, InboundMcpClientRepository, InstalledServerRepository, LogConfig,
-    OutboundOAuthRepository, ServerDiscoveryService,
-    ServerFeatureRepository as CoreServerFeatureRepository, ServerLogManager, SpaceRepository,
-    SpaceService, WorkspaceAppearanceRepository, WorkspaceBindingRepository,
+    AppSettingsRepository, AppSettingsService, ApplicationServices, ApplicationServicesBuilder,
+    CredentialRepository, EventBus, FeatureSetRepository, GatewayPortService,
+    InboundMcpClientRepository, InstalledServerRepository, LogConfig, OutboundOAuthRepository,
+    ServerDiscoveryService, ServerFeatureRepository as CoreServerFeatureRepository,
+    ServerLogManager, SpaceRepository, SpaceService, WorkspaceAppearanceRepository,
+    WorkspaceBindingRepository,
 };
 use mcpmux_storage::{
     Database, FieldEncryptor, SqliteAppSettingsRepository, SqliteCredentialRepository,
@@ -19,7 +20,7 @@ use mcpmux_storage::{
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Global application state accessible from commands.
 pub struct AppState {
@@ -83,6 +84,13 @@ impl AppState {
         info!("Opening database at {:?}", db_path);
 
         let db = Database::open(&db_path)?;
+
+        // Re-encrypt any credentials written under the file fallback key (macOS keychain prompt dismissed)
+        if let Err(e) = mcpmux_storage::migrate_file_key_encrypted_fields(&db, &data_dir, &encryptor)
+        {
+            warn!("File-key credential migration skipped: {}", e);
+        }
+
         let db = Arc::new(Mutex::new(db));
 
         // Initialize repositories
@@ -195,5 +203,21 @@ impl AppState {
     /// Get the path to a specific space's config file
     pub fn space_config_path(&self, space_id: &str) -> PathBuf {
         mcpmux_core::get_space_config_path(&self.spaces_dir, space_id)
+    }
+
+    /// Build shared `ApplicationServices` for command bridge and admin HTTP.
+    pub fn build_application_services(
+        &self,
+        event_bus: Arc<EventBus>,
+    ) -> anyhow::Result<ApplicationServices> {
+        ApplicationServicesBuilder::new()
+            .with_event_bus(event_bus)
+            .with_space_repo(self.space_service.repository())
+            .with_installed_server_repo(self.installed_server_repository.clone())
+            .with_feature_set_repo(self.feature_set_repository.clone())
+            .with_server_feature_repo(self.server_feature_repository_core.clone())
+            .with_client_repo(self.client_repository.clone())
+            .with_credential_repo(self.credential_repository.clone())
+            .build()
     }
 }

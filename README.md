@@ -130,6 +130,7 @@ McpMux exposes a built-in `mcpmux_*` tool namespace for search → schema → in
 | `mcpmux_list_all_tools` | read | Full tool roster in the resolved Space (diagnostic) |
 | `mcpmux_list_feature_sets` | read | FeatureSets available in the resolved Space |
 | `mcpmux_list_servers` | read | Server-level manifest with status |
+| `mcpmux_diagnose_server` | read | Runtime status, config, missing inputs, and log tail for unhealthy servers |
 | `mcpmux_search_tools` | read | Search invokable tools with optional schema detail |
 | `mcpmux_get_tool_schema` | read | Load input schemas before invoke |
 | `mcpmux_invoke_tool` | read | Invoke a backend tool by server_id + tool name |
@@ -223,10 +224,14 @@ Or download directly from [GitHub Releases](https://github.com/mcpmux/mcp-mux/re
 
 ```bash
 pnpm setup    # First-time: install dependencies
-pnpm dev      # Start development
+pnpm dev      # Start development (Tauri + Vite HMR)
 pnpm build    # Production build
 pnpm test     # Run all tests
 ```
+
+**Web admin (browser UI over HTTP):** `pnpm dev:admin` or `pnpm dev:web:admin` — see [`AGENTS.md`](AGENTS.md) for dev commands and port layout (`:1420` / `:45818` / `:45819`).
+
+**Remote access (optional):** MCP and web admin can be exposed via Cloudflare Tunnel + Access on separate hostnames (`45818` / `45819` stay loopback). User-facing overview: [`docs/guide/remote-access.mdx`](docs/guide/remote-access.mdx).
 
 **Prerequisites:** Rust 1.75+, Node.js 18+, pnpm 9+. Linux also needs `gnome-keyring libsecret-1-dev librsvg2-dev pkg-config`.
 

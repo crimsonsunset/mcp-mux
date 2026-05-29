@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { apiCall } from './transport';
 
 /**
  * Server log entry from the backend.
@@ -19,7 +20,7 @@ export async function getServerLogs(
   limit?: number,
   levelFilter?: string
 ): Promise<ServerLogEntry[]> {
-  return invoke('get_server_logs', {
+  return apiCall('get_server_logs', {
     serverId,
     limit,
     levelFilter,
@@ -30,21 +31,21 @@ export async function getServerLogs(
  * Clear logs for a server.
  */
 export async function clearServerLogs(serverId: string): Promise<void> {
-  return invoke('clear_server_logs', { serverId });
+  return apiCall('clear_server_logs', { serverId });
 }
 
 /**
  * Get the log file path for a server (for external viewers).
  */
 export async function getServerLogFile(serverId: string): Promise<string> {
-  return invoke('get_server_log_file', { serverId });
+  return apiCall('get_server_log_file', { serverId });
 }
 
 /**
  * Get log retention period in days (0 = keep forever).
  */
 export async function getLogRetentionDays(): Promise<number> {
-  return invoke('get_log_retention_days');
+  return apiCall('get_log_retention_days');
 }
 
 /**
@@ -52,6 +53,6 @@ export async function getLogRetentionDays(): Promise<number> {
  * Triggers an immediate cleanup with the new setting.
  */
 export async function setLogRetentionDays(days: number): Promise<void> {
-  return invoke('set_log_retention_days', { days });
+  return apiCall('set_log_retention_days', { days });
 }
 

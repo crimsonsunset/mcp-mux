@@ -81,6 +81,12 @@ By making a contribution to this project, I certify that:
 - Follow existing code patterns
 - Keep changes focused and minimal
 
+### Frontend imports (desktop app)
+
+UI code under `apps/desktop/src` should import from `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. ESLint enforces this. Deprecated `@/lib/api/*` shims remain for backward compat. See [`AGENTS.md`](AGENTS.md) Frontend Notes.
+
+**Web admin dev:** `pnpm dev:admin` or `pnpm dev:web:admin` — admin API on `:45819`. Run `pnpm dev:stop` before restart if ports are busy.
+
 ## Questions?
 
 Open a discussion or issue if you need help.

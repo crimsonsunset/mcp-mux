@@ -54,6 +54,7 @@
 pub mod crypto;
 mod database;
 pub mod keychain;
+mod key_migration;
 #[cfg(windows)]
 pub mod keychain_dpapi;
 #[cfg(not(windows))]
@@ -70,6 +71,7 @@ pub use keychain::{
 pub use keychain_dpapi::{DpapiJwtSecretProvider, DpapiKeyProvider};
 #[cfg(not(windows))]
 pub use keychain_file::{FileJwtSecretProvider, FileKeyProvider};
+pub use key_migration::migrate_file_key_encrypted_fields;
 pub use repositories::*;
 
 /// Default database file name.
@@ -101,13 +103,29 @@ pub fn create_key_provider(
     {
         // Try OS keychain first, fall back to file-based storage if unavailable
         match KeychainKeyProvider::new() {
-            Ok(provider) => match provider.get_or_create_key() {
-                Ok(_) => return Ok(Box::new(provider)),
-                Err(e) => tracing::warn!(
-                    "OS keychain unavailable ({e}), using file-based key storage. \
-                     For better security, install gnome-keyring or another Secret Service provider."
-                ),
-            },
+            Ok(provider) => {
+                // If a key already lives in the keychain, always use it. Falling back to
+                // the file key on transient errors (e.g. user dismissing the macOS prompt)
+                // encrypts credentials with a different key than the next successful unlock.
+                if provider.key_exists() {
+                    return Ok(Box::new(provider));
+                }
+                match provider.get_or_create_key() {
+                    Ok(_) => return Ok(Box::new(provider)),
+                    Err(e) => {
+                        if provider.key_exists() {
+                            return Err(anyhow::anyhow!(
+                                "OS keychain entry exists but could not be unlocked; \
+                                 approve keychain access instead of using the file fallback key: {e}"
+                            ));
+                        }
+                        tracing::warn!(
+                            "OS keychain unavailable ({e}), using file-based key storage. \
+                             For better security, install gnome-keyring or another Secret Service provider."
+                        );
+                    }
+                }
+            }
             Err(e) => {
                 tracing::warn!("OS keychain unavailable ({e}), using file-based key storage.")
             }
@@ -131,12 +149,25 @@ pub fn create_jwt_secret_provider(
     #[cfg(not(windows))]
     {
         match KeychainJwtSecretProvider::new() {
-            Ok(provider) => match provider.get_or_create_secret() {
-                Ok(_) => return Ok(Box::new(provider)),
-                Err(e) => tracing::warn!(
-                    "OS keychain unavailable for JWT secret ({e}), using file-based storage."
-                ),
-            },
+            Ok(provider) => {
+                if provider.secret_exists() {
+                    return Ok(Box::new(provider));
+                }
+                match provider.get_or_create_secret() {
+                    Ok(_) => return Ok(Box::new(provider)),
+                    Err(e) => {
+                        if provider.secret_exists() {
+                            return Err(anyhow::anyhow!(
+                                "OS keychain JWT secret exists but could not be unlocked; \
+                                 approve keychain access instead of using the file fallback secret: {e}"
+                            ));
+                        }
+                        tracing::warn!(
+                            "OS keychain unavailable for JWT secret ({e}), using file-based storage."
+                        );
+                    }
+                }
+            }
             Err(e) => tracing::warn!(
                 "OS keychain unavailable for JWT secret ({e}), using file-based storage."
             ),

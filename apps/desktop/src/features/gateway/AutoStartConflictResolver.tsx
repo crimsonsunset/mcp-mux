@@ -1,8 +1,5 @@
 import { useEffect } from 'react';
-import {
-  takePendingPortConflict,
-  getGatewayStatus,
-} from '@/lib/api/gateway';
+import { getGatewayStatus, takePendingPortConflict } from '@/lib/backend';
 import { useGatewayControl } from './useGatewayControl';
 
 /**

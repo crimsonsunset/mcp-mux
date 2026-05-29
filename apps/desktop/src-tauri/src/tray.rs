@@ -9,10 +9,11 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Emitter, Runtime,
 };
 use tracing::{debug, info};
 
+use crate::main_window;
 use crate::state::AppState;
 
 /// Tray icon status
@@ -62,10 +63,7 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             {
                 // Left click - show main window
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                main_window::show_main_window(app);
             }
         })
         .build(app)?;
@@ -104,10 +102,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event_id: &str) {
             handle_switch_space(app, space_id);
         }
         "open" => {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            main_window::show_main_window(app);
         }
         "quit" => {
             info!("Quit requested from tray");
@@ -124,10 +119,7 @@ fn handle_switch_space<R: Runtime>(app: &AppHandle<R>, space_id: &str) {
     info!("Switching to space: {}", space_id);
 
     // Show window and emit event to frontend
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    main_window::show_main_window(app);
     let _ = app.emit("tray:switch-space", space_id);
 }
 

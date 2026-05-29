@@ -6,6 +6,10 @@ license.workspace = true
 publish = false
 description = "McpMux Gateway - MCP proxy server with OAuth and aggregation"
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 # Async runtime
 tokio.workspace = true
@@ -17,7 +21,8 @@ async-stream = "0.3"
 # Web framework
 axum.workspace = true
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+jsonwebtoken = "9"
 http = "1.1"
 http-body-util.workspace = true
 
@@ -48,12 +53,14 @@ base64 = "0.22"
 sha2 = "0.10"
 hmac = "0.12"
 rand = "0.8"
+subtle = "2.6"
 url = "2.5"
 urlencoding = "2.1"
 zeroize = "1.8"
 which = "7.0"
 open = "5.3"
 dirs = "5.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 # MCP SDK
 rmcp.workspace = true
@@ -67,3 +74,4 @@ mcpmux-storage.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
+tracing-test = "0.2"

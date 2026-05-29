@@ -2,7 +2,7 @@
 
 **Last Updated:** May 26, 2026  
 **Branch:** `dev`  
-**Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md), [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md)
+**Related:** [`meta-gateway-invoke.md`](./meta-gateway-invoke.md)
 
 One-session checklist for validating Phases A–D (search → schema → invoke, result shaping, FeatureSet ACL + surfaced tools, resource/prompt hard cut).
 
@@ -369,7 +369,7 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 | Phase D — resource/prompt hard cut | ☑ Pass ☐ Fail ☐ Skipped |
 | Overall | ☑ Ship ☐ Block |
 
-**Phase D evidence:** [`meta-gateway-invoke-gait-qa-v2.md`](./meta-gateway-invoke-gait-qa-v2.md) Run 2 (§0–§7 pass; §8–§9 SKIP). §14 surfaced one-hop optional — not run in GAIT binding.
+**Phase D evidence:** Manual QA §12–§14 in this runbook (§0–§7 pass; §8–§9 optional). §14 surfaced one-hop optional — not run in all bindings.
 
 **Blockers / issues filed:**
 

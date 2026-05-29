@@ -134,6 +134,32 @@ impl Fixture {
 
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
         let (tx, _event_rx) = broadcast::channel::<DomainEvent>(32);
+        let log_manager = Arc::new(mcpmux_core::ServerLogManager::new(mcpmux_core::LogConfig {
+            base_dir: std::env::temp_dir().join(format!("mcpmux-invoke-logs-{}", Uuid::new_v4())),
+            max_file_size: 1024 * 1024,
+            max_files: 5,
+            compress: false,
+        }));
+        let credential_repo = Arc::new(tests::mocks::MockCredentialRepository::new());
+        let oauth_repo = Arc::new(tests::mocks::MockOutboundOAuthRepository::new());
+        let token_service = Arc::new(mcpmux_gateway::pool::TokenService::new(
+            credential_repo.clone(),
+            oauth_repo.clone(),
+        ));
+        let oauth_manager = Arc::new(mcpmux_gateway::pool::OutboundOAuthManager::new());
+        let connection_service = Arc::new(mcpmux_gateway::pool::ConnectionService::new(
+            token_service,
+            oauth_manager,
+            credential_repo,
+            oauth_repo,
+            prefix_cache.clone(),
+        ));
+        let server_manager = Arc::new(mcpmux_gateway::pool::ServerManager::new(
+            tx.clone(),
+            feature_service.clone(),
+            connection_service,
+            prefix_cache.clone(),
+        ));
 
         let registry = meta_tools::build_default_registry(
             client_repo,
@@ -151,6 +177,8 @@ impl Fixture {
             broker,
             tx,
             None,
+            server_manager,
+            log_manager,
         );
 
         Self {
@@ -429,7 +457,8 @@ async fn registry_lists_new_meta_tools() {
     assert!(names.iter().any(|n| n == "mcpmux_read_resource"));
     assert!(names.iter().any(|n| n == "mcpmux_search_prompts"));
     assert!(names.iter().any(|n| n == "mcpmux_fetch_prompt"));
-    assert_eq!(names.len(), 14);
+    assert!(names.iter().any(|n| n == "mcpmux_diagnose_server"));
+    assert_eq!(names.len(), 15);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1449,17 +1478,12 @@ async fn read_resource_routes_clone_server_not_inactive_parent() {
     f.session_overrides
         .enable(&f.session_id, "posthog-personal-gait");
 
-    let read = f
-        .call("mcpmux_read_resource", json!({ "uri": uri }))
-        .await;
+    let read = f.call("mcpmux_read_resource", json!({ "uri": uri })).await;
     let body = Fixture::result_json(&read);
     assert_eq!(body.get("uri"), Some(&json!(uri)));
     let contents = body.get("contents").unwrap().as_array().unwrap();
     assert_eq!(contents.len(), 1);
-    assert_eq!(
-        contents[0].get("text"),
-        Some(&json!("audit skill body"))
-    );
+    assert_eq!(contents[0].get("text"), Some(&json!("audit skill body")));
 }
 
 #[test]

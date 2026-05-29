@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { apiCall } from './transport';
 
 /** Session-scoped server enable/disable overrides from meta tools. */
 export interface SessionOverride {
@@ -13,24 +14,24 @@ export interface SessionOverride {
 export async function listSessionOverrides(
   sessionId?: string
 ): Promise<SessionOverride[]> {
-  return invoke('list_session_overrides', { sessionId: sessionId ?? null });
+  return apiCall('list_session_overrides', sessionId ? { sessionId } : {});
 }
 
 /** Drop all overrides for a session and refresh its tool list. */
 export async function clearSessionOverrides(sessionId: string): Promise<void> {
-  return invoke('clear_session_overrides', { sessionId });
+  return apiCall('clear_session_overrides', { sessionId });
 }
 
 /** Whether session-scope enable/disable meta tools require approval. Default false. */
 export async function getSessionOverridesRequireApproval(): Promise<boolean> {
-  return invoke('get_session_overrides_require_approval');
+  return apiCall('get_session_overrides_require_approval');
 }
 
 /** Persist the session-override approval gate. */
 export async function setSessionOverridesRequireApproval(
   requireApproval: boolean
 ): Promise<void> {
-  return invoke('set_session_overrides_require_approval', { requireApproval });
+  return apiCall('set_session_overrides_require_approval', { requireApproval });
 }
 
 /**

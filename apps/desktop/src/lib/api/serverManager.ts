@@ -1,3 +1,4 @@
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 /**
  * Server Manager API — event-driven connection lifecycle (ServerManager path).
  *
@@ -18,8 +19,9 @@
  * wrapper unless a dedicated UI action needs ServerManager pause semantics.
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listenWhenTauri, type UnlistenFn } from '@/lib/backend/shell';
+
+import { apiCall } from "./transport";
 
 /**
  * Connection status - matches backend ConnectionStatus enum
@@ -112,7 +114,7 @@ export type ServerEvent =
 export async function getServerStatuses(
   spaceId: string
 ): Promise<Record<string, ServerStatusResponse>> {
-  return invoke<Record<string, ServerStatusResponse>>("get_server_statuses", {
+  return apiCall<Record<string, ServerStatusResponse>>('get_server_statuses', {
     spaceId,
   });
 }
@@ -130,7 +132,7 @@ export async function enableServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("enable_server_v2", { spaceId, serverId });
+  return apiCall("enable_server_v2", { spaceId, serverId });
 }
 
 /**
@@ -140,7 +142,7 @@ export async function disableServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("disable_server_v2", { spaceId, serverId });
+  return apiCall("disable_server_v2", { spaceId, serverId });
 }
 
 /**
@@ -153,7 +155,7 @@ export async function startAuth(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("start_auth_v2", { spaceId, serverId });
+  return apiCall("start_auth_v2", { spaceId, serverId });
 }
 
 /**
@@ -163,7 +165,7 @@ export async function cancelAuth(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("cancel_auth_v2", { spaceId, serverId });
+  return apiCall("cancel_auth_v2", { spaceId, serverId });
 }
 
 /**
@@ -173,7 +175,7 @@ export async function retryConnection(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("retry_connection", { spaceId, serverId });
+  return apiCall("retry_connection", { spaceId, serverId });
 }
 
 /**
@@ -187,7 +189,7 @@ export async function logoutServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("logout_server", { spaceId, serverId });
+  return apiCall("logout_server", { spaceId, serverId });
 }
 
 // ============================================================================
@@ -203,7 +205,7 @@ export async function logoutServer(
 export async function onServerStatus(
   callback: (event: ServerStatusEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<{
+  const unlisten = await listenWhenTauri<{
     space_id: string;
     server_id: string;
     status: ConnectionStatus;
@@ -216,6 +218,7 @@ export async function onServerStatus(
       ...event.payload,
     });
   });
+  return unlisten ?? (() => {});
 }
 
 /**
@@ -227,7 +230,7 @@ export async function onServerStatus(
 export async function onAuthProgress(
   callback: (event: AuthProgressEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<{
+  const unlisten = await listenWhenTauri<{
     space_id: string;
     server_id: string;
     remaining_seconds: number;
@@ -238,6 +241,7 @@ export async function onAuthProgress(
       ...event.payload,
     });
   });
+  return unlisten ?? (() => {});
 }
 
 /**
@@ -249,7 +253,7 @@ export async function onAuthProgress(
 export async function onFeaturesUpdated(
   callback: (event: FeaturesUpdatedEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<{
+  const unlisten = await listenWhenTauri<{
     space_id: string;
     server_id: string;
     added: string[];
@@ -271,6 +275,7 @@ export async function onFeaturesUpdated(
       removed,
     });
   });
+  return unlisten ?? (() => {});
 }
 
 // ============================================================================

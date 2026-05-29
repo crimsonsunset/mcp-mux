@@ -92,3 +92,14 @@ apps/desktop/src-tauri/target/release/bundle/
 debug/
 *.dSYM/
 
+# Cloudflare Tunnel (never commit tunnel credentials or local configs)
+.cloudflared/
+cloudflared/
+cloudflared.yml
+cloudflared.yaml
+tunnel.yml
+tunnel.yaml
+*.cloudflared.json
+*-cloudflared.json
+*-tunnel.json
+

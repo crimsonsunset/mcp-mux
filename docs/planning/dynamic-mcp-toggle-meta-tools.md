@@ -6,7 +6,7 @@
 **Base branch:** `feat/workspace-root-routing` ([upstream PR #151](https://github.com/mcpmux/mcp-mux/pull/151))
 **Issue:** TBD — file after planning review
 **Depends on:** [PR #151](https://github.com/mcpmux/mcp-mux/pull/151) merging or being consumed via fork (provides the `mcpmux_*` namespace, `MetaToolRegistry`, `ApprovalBroker`, `FeatureSetResolverService`, per-peer `list_changed`, `SessionRootsRegistry`)
-**Unblocks:** [`jsg-tech-check` homelab MCP strategy](../../../jsg-tech-check/docs/setup/home-lab-overview.md#mcp-strategy--current-state)
+**Unblocks:** Homelab MCP strategy — per-project server subsets without editing client config files (operator doc archived outside this repo)
 
 ---
 
@@ -299,7 +299,7 @@ Optional (slow / env-dependent): `pnpm test:e2e`, `pnpm test:e2e:web`.
 - [mcpmux/mcp-mux PR #151](https://github.com/mcpmux/mcp-mux/pull/151) — workspace-root-driven FeatureSet routing + the `mcpmux_*` meta-tool namespace this PR builds on. Must merge (or be consumed via fork) first.
 - [`docs/planning/issue-52-secret-text-input-syntax.md`](./issue-52-secret-text-input-syntax.md) — sibling planning doc; same conventions used here. Independent feature, no functional overlap.
 - [`docs/planning/server-account-clones.md`](./server-account-clones.md) — multi-account installs via UI clone; branched after meta-tools + gateway fixes.
-- [`jsg-tech-check` homelab plan](../../../jsg-tech-check/docs/setup/home-lab-overview.md#mcp-strategy--current-state) — the consuming use case. The "Personal vs Work" Spaces + bundled `set-times-app` / `sync2hire-platform` model leans on bindings; this doc adds the "no, actually just enable this one MCP for the next 10 minutes" escape valve.
+- External homelab MCP strategy doc (archived outside this repo) — the consuming use case. Separate Personal vs Work Spaces with per-project bundles leans on bindings; this doc adds the "no, actually just enable this one MCP for the next 10 minutes" escape valve.
 - [MCP spec — Tools `list_changed`](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) — the protocol mechanism that makes the post-write tool-list refresh observable mid-conversation. Already wired by PR #151.
 
 ---

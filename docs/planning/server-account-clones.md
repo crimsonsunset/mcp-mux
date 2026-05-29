@@ -6,7 +6,7 @@
 **Base branch:** `main`
 **Issue:** TBD — file after planning review
 **Depends on:** None (orthogonal to session meta-tools; benefits from but does not require PR #154)
-**Unblocks:** Personal MCP migration (`jsg-tech-check/docs/setup/mcpmux-server-migration.md`) — Gmail, Sheets, PostHog ×2, Firebase ×4, and other single-account stdio servers
+**Unblocks:** Personal MCP migration (external migration tracker) — multi-account stdio servers (email, sheets, analytics, etc.)
 
 ---
 
@@ -194,7 +194,7 @@ Multi-account need?
 
 - [x] `mcpmux_list_servers` returns optional `cloned_from` for clone rows
 - [x] `docs/guide/servers.mdx` section: "Multiple accounts" — decision tree (Spaces / native param / clone)
-- [ ] Migration doc update in `jsg-tech-check` with concrete clone targets (PostHog, Gmail, Sheets, Firebase) — out of repo; deferred
+- [ ] Migration doc update (external tracker) with concrete clone targets — out of repo; deferred
 
 **Outcome:** LLM manifest shows clone lineage. Docs explain when to clone vs use a Space. Migration checklist has explicit suffix naming convention.
 
@@ -257,7 +257,7 @@ Multi-account need?
 - [`docs/planning/dynamic-mcp-toggle-meta-tools.md`](./dynamic-mcp-toggle-meta-tools.md) — session enable works with clone `server_id`s once user knows the suffixed name; Phase 3 links them.
 - [`docs/guide/servers.mdx`](../../docs/guide/servers.mdx) — server management baseline; gets multi-account section in Phase 3.
 - [`docs/guide/spaces.mdx`](../../docs/guide/spaces.mdx) — primary pattern for context-level account separation.
-- Personal migration tracker: `jsg-tech-check/docs/setup/mcpmux-server-migration.md` — consuming checklist for PostHog, Gmail, Sheets, Firebase clones.
+- External migration tracker (archived outside this repo) — consuming checklist for multi-account server clones.
 
 ---
 
@@ -267,4 +267,4 @@ This doc is the source of truth for server account clones. When implementation s
 
 **Decision record (May 23, 2026):** Option 2 (UI-assisted clone) selected over status quo, first-class instances (deferred Phase 5), per-client credential override (rejected), and wrapper meta-servers (rejected). Brainstorm source: Cursor session on multi-account MCP patterns.
 
-**May 23, 2026 closeout:** Phases 1–4 implemented and verified in dev. Consumed by [mcpmux-server-migration.md](../../../jsg-tech-check/docs/setup/mcpmux-server-migration.md) Phase B2 (clone sprint). Phase 5 remains optional until clone ID sprawl or FeatureSet grouping pain justifies schema migration.
+**May 23, 2026 closeout:** Phases 1–4 implemented and verified in dev. Consumed by external migration tracker Phase B2 (clone sprint). Phase 5 remains optional until clone ID sprawl or FeatureSet grouping pain justifies schema migration.

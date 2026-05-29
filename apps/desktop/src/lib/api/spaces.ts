@@ -1,4 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { openSpaceConfigFile as shellOpenSpaceConfigFile } from '@/lib/backend/shell';
+
+import { apiCall } from './transport';
 
 /**
  * A Space represents an isolated environment with its own credentials and
@@ -19,15 +22,15 @@ export interface Space {
 }
 
 export async function listSpaces(): Promise<Space[]> {
-  return invoke('list_spaces');
+  return apiCall('list_spaces');
 }
 
 export async function getSpace(id: string): Promise<Space | null> {
-  return invoke('get_space', { id });
+  return apiCall('get_space', { id });
 }
 
 export async function createSpace(name: string, icon?: string): Promise<Space> {
-  return invoke('create_space', { name, icon });
+  return apiCall('create_space', { name, icon });
 }
 
 /** Partial update payload for a Space. */
@@ -41,19 +44,19 @@ export interface UpdateSpaceInput {
  * Update a Space's display metadata (name, icon, description).
  */
 export async function updateSpace(id: string, input: UpdateSpaceInput): Promise<Space> {
-  return invoke('update_space', { id, input });
+  return apiCall('update_space', { id, input });
 }
 
 export async function deleteSpace(id: string): Promise<void> {
-  return invoke('delete_space', { id });
+  return apiCall('delete_space', { id });
 }
 
 export async function readSpaceConfig(spaceId: string): Promise<string> {
-  return invoke('read_space_config', { spaceId });
+  return apiCall('read_space_config', { spaceId });
 }
 
 export async function saveSpaceConfig(spaceId: string, content: string): Promise<void> {
-  return invoke('save_space_config', { spaceId, content });
+  return apiCall('save_space_config', { spaceId, content });
 }
 
 /**
@@ -61,9 +64,9 @@ export async function saveSpaceConfig(spaceId: string, content: string): Promise
  * Returns true if the server was found and removed, false if it wasn't in the config.
  */
 export async function removeServerFromConfig(spaceId: string, serverId: string): Promise<boolean> {
-  return invoke('remove_server_from_config', { spaceId, serverId });
+  return apiCall('remove_server_from_config', { spaceId, serverId });
 }
 
 export async function openSpaceConfigFile(spaceId: string): Promise<void> {
-  return invoke('open_space_config_file', { spaceId });
+  return shellOpenSpaceConfigFile(spaceId);
 }

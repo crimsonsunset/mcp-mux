@@ -7,9 +7,8 @@
  * - null/undefined
  */
 
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useState } from 'react';
-import { resolveWorkspaceIconPath } from '@/lib/api/workspaceAppearances';
+import { resolveWorkspaceIconDisplaySrc } from '@/lib/api/workspaceAppearances';
 
 interface ServerIconProps {
   icon: string | null | undefined;
@@ -19,55 +18,53 @@ interface ServerIconProps {
   fallback?: string;
 }
 
+/**
+ * Renders a server icon from a remote URL, local file reference, emoji, or fallback.
+ */
 export function ServerIcon({ icon, className = 'w-9 h-9 object-contain', fallback = '📦' }: ServerIconProps) {
-  const [failed, setFailed] = useState(false);
-  const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
   const isLocalRef = icon?.startsWith('local:') ?? false;
   const isRemoteUrl = icon?.startsWith('http') ?? false;
+  const [failedIcon, setFailedIcon] = useState<string | null>(null);
+  const [localResolved, setLocalResolved] = useState<{ icon: string; src: string | null } | null>(
+    null
+  );
+  const hasFailed = icon != null && failedIcon === icon;
+  const localSrc =
+    localResolved != null && localResolved.icon === icon ? localResolved.src : null;
+  const resolvedSrc = isRemoteUrl && icon ? icon : isLocalRef ? localSrc : null;
 
   useEffect(() => {
-    let cancelled = false;
-    setFailed(false);
-    if (!icon) {
-      setResolvedSrc(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (isRemoteUrl) {
-      setResolvedSrc(icon);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!isLocalRef) {
-      setResolvedSrc(null);
-      return () => {
-        cancelled = true;
-      };
+    if (!icon || !isLocalRef) {
+      return;
     }
 
-    setResolvedSrc(null);
-    void resolveWorkspaceIconPath(icon)
-      .then((absolutePath) => {
-        if (cancelled) return;
-        setResolvedSrc(absolutePath ? convertFileSrc(absolutePath) : null);
+    const localIcon = icon;
+    let cancelled = false;
+    void resolveWorkspaceIconDisplaySrc(localIcon)
+      .then((src) => {
+        if (cancelled) {
+          return;
+        }
+        setLocalResolved({ icon: localIcon, src });
       })
       .catch(() => {
-        if (cancelled) return;
-        setFailed(true);
+        if (cancelled) {
+          return;
+        }
+        setFailedIcon(localIcon);
       });
+
     return () => {
       cancelled = true;
     };
-  }, [icon, isLocalRef, isRemoteUrl]);
+  }, [icon, isLocalRef]);
 
   const shouldRenderImage = useMemo(
     () => isRemoteUrl || isLocalRef,
     [isLocalRef, isRemoteUrl]
   );
 
-  if (!icon || failed) {
+  if (!icon || hasFailed) {
     return <span data-testid="server-icon-fallback">{fallback}</span>;
   }
 
@@ -81,7 +78,7 @@ export function ServerIcon({ icon, className = 'w-9 h-9 object-contain', fallbac
         alt=""
         className={className}
         data-testid="server-icon-img"
-        onError={() => setFailed(true)}
+        onError={() => setFailedIcon(icon)}
       />
     );
   }

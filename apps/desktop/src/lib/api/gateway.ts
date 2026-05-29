@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { apiCall } from './transport';
 
 /**
  * Gateway lifecycle and pool disconnect API.
@@ -28,7 +29,7 @@ export interface GatewayStatus {
  * Get gateway status.
  */
 export async function getGatewayStatus(spaceId?: string): Promise<GatewayStatus> {
-  return invoke('get_gateway_status', { spaceId });
+  return apiCall('get_gateway_status', { spaceId });
 }
 
 /**
@@ -48,7 +49,7 @@ export interface GatewayStartProbe {
  * Does not start anything — used by the UI to decide whether to prompt.
  */
 export async function probeGatewayStart(port?: number): Promise<GatewayStartProbe> {
-  return invoke('probe_gateway_start', { port });
+  return apiCall('probe_gateway_start', { port });
 }
 
 /**
@@ -68,7 +69,7 @@ export interface PendingPortConflict {
  * double-mount.
  */
 export async function takePendingPortConflict(): Promise<PendingPortConflict | null> {
-  return invoke('take_pending_port_conflict');
+  return apiCall('take_pending_port_conflict');
 }
 
 /**
@@ -101,7 +102,7 @@ export async function startGateway(opts?: {
   port?: number;
   allowDynamicFallback?: boolean;
 }): Promise<string> {
-  return invoke('start_gateway', {
+  return apiCall('start_gateway', {
     port: opts?.port,
     allowDynamicFallback: opts?.allowDynamicFallback,
   });
@@ -111,7 +112,7 @@ export async function startGateway(opts?: {
  * Stop the gateway server.
  */
 export async function stopGateway(): Promise<void> {
-  return invoke('stop_gateway');
+  return apiCall('stop_gateway');
 }
 
 /**
@@ -121,7 +122,7 @@ export async function restartGateway(opts?: {
   port?: number;
   allowDynamicFallback?: boolean;
 }): Promise<string> {
-  return invoke('restart_gateway', {
+  return apiCall('restart_gateway', {
     port: opts?.port,
     allowDynamicFallback: opts?.allowDynamicFallback,
   });
@@ -145,14 +146,14 @@ export interface BackendStatus {
  * @param logout - When true, also clear stored OAuth tokens (credential logout)
  */
 export async function disconnectServer(serverId: string, spaceId: string, logout?: boolean): Promise<void> {
-  return invoke('disconnect_server', { serverId, spaceId, logout });
+  return apiCall('disconnect_server', { serverId, spaceId, logout });
 }
 
 /**
  * List all connected backend servers.
  */
 export async function listConnectedServers(): Promise<BackendStatus[]> {
-  return invoke('list_connected_servers');
+  return apiCall('list_connected_servers');
 }
 
 /**
@@ -171,7 +172,7 @@ export interface BulkConnectResult {
  * This is typically called on gateway startup.
  */
 export async function connectAllEnabledServers(): Promise<BulkConnectResult> {
-  return invoke('connect_all_enabled_servers');
+  return apiCall('connect_all_enabled_servers');
 }
 
 /**
@@ -187,7 +188,7 @@ export interface PoolStats {
  * Get server pool statistics.
  */
 export async function getPoolStats(): Promise<PoolStats> {
-  return invoke('get_pool_stats');
+  return apiCall('get_pool_stats');
 }
 
 /**
@@ -199,22 +200,17 @@ export interface RefreshResult {
   refresh_failed: number;
 }
 
+let refreshOAuthOnStartupPromise: Promise<RefreshResult> | null = null;
+
 /**
  * Refresh OAuth tokens on startup for all installed HTTP servers.
  * This should be called during app initialization before connecting to servers.
  */
 export async function refreshOAuthTokensOnStartup(): Promise<RefreshResult> {
-  return invoke('refresh_oauth_tokens_on_startup');
-}
-
-/**
- * Open a URL using the system's default handler.
- * 
- * This is needed for custom protocol URLs (like `cursor://`) that
- * the webview's opener plugin may not be allowed to open directly.
- */
-export async function openUrl(url: string): Promise<void> {
-  return invoke('open_url', { url });
+  if (!refreshOAuthOnStartupPromise) {
+    refreshOAuthOnStartupPromise = apiCall<RefreshResult>('refresh_oauth_tokens_on_startup');
+  }
+  return refreshOAuthOnStartupPromise;
 }
 
 // OAuth client CRUD and grants live in `oauth.ts`. Re-export for existing imports.

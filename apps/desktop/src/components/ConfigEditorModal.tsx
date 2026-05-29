@@ -8,6 +8,8 @@ import { useToast, ToastContainer } from '@mcpmux/ui';
 import USER_SPACE_CONFIG_SCHEMA from '../../../../schemas/user-space.schema.json';
 import { RequestServerCTA } from './Contribute';
 
+const EDITOR_MOUNT_TIMEOUT_MS = 10_000;
+
 interface ConfigEditorModalProps {
   spaceId: string;
   spaceName: string;
@@ -23,6 +25,8 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
   const [isValidJson, setIsValidJson] = useState(true);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [editorReady, setEditorReady] = useState(false);
+  const [editorMounted, setEditorMounted] = useState(false);
+  const [editorLoadFailed, setEditorLoadFailed] = useState(false);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const { toasts, success, error: showError } = useToast();
@@ -35,8 +39,26 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
 
   useEffect(() => {
     loadConfig();
+    setEditorMounted(false);
+    setEditorLoadFailed(false);
   }, [spaceId]);
 
+  useEffect(() => {
+    if (isLoading || !editorReady || editorMounted || editorLoadFailed) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setEditorLoadFailed(true);
+      setError('Editor failed to load. You can still edit JSON below, or restart the app.');
+    }, EDITOR_MOUNT_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [isLoading, editorReady, editorMounted, editorLoadFailed]);
+
+  /**
+   * Load the space JSON config from disk.
+   */
   const loadConfig = async () => {
     try {
       setIsLoading(true);
@@ -86,12 +108,25 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     }
   };
 
+  /**
+   * Format JSON via Monaco or plain parse/stringify when the editor failed to load.
+   */
   const handleFormat = useCallback(() => {
     if (editorRef.current) {
-      // Use Monaco's built-in formatter
       editorRef.current.getAction('editor.action.formatDocument')?.run();
+      return;
     }
-  }, []);
+
+    try {
+      const parsed = JSON.parse(content);
+      setContent(JSON.stringify(parsed, null, 2));
+      setIsValidJson(true);
+      setValidationErrors([]);
+    } catch (e) {
+      setIsValidJson(false);
+      setError(`Cannot format invalid JSON: ${(e as Error).message}`);
+    }
+  }, [content]);
 
   // Configure Monaco before mount to set up JSON schema validation
   const handleEditorBeforeMount = (monaco: Monaco) => {
@@ -111,12 +146,14 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     });
   };
 
-  const handleEditorMount = (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
-    editorRef.current = editor;
+  /**
+   * Mount handler — marks Monaco ready and focuses the editor.
+   */
+  const handleEditorMount = (mountedEditor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+    editorRef.current = mountedEditor;
     monacoRef.current = monaco;
-    
-    // Focus editor on mount
-    editor.focus();
+    setEditorMounted(true);
+    mountedEditor.focus();
   };
 
   const handleEditorValidation = (markers: editor.IMarker[]) => {
@@ -125,13 +162,29 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     setIsValidJson(markers.length === 0);
   };
 
+  /**
+   * Sync editor content and clear stale parse errors on edit.
+   */
   const handleContentChange = (newValue: string | undefined) => {
-    if (newValue !== undefined) {
-      setContent(newValue);
-      // Clear any manual errors when content changes
-      if (error && (error.startsWith('Invalid JSON') || error.startsWith('Cannot format'))) {
-        setError(null);
+    if (newValue === undefined) {
+      return;
+    }
+
+    setContent(newValue);
+
+    if (editorLoadFailed) {
+      try {
+        JSON.parse(newValue);
+        setIsValidJson(true);
+        setValidationErrors([]);
+      } catch (e) {
+        setIsValidJson(false);
+        setValidationErrors([(e as Error).message]);
       }
+    }
+
+    if (error && (error.startsWith('Invalid JSON') || error.startsWith('Cannot format'))) {
+      setError(null);
     }
   };
 
@@ -230,10 +283,17 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
 
         {/* Editor Area */}
         <div className="flex-1 relative min-h-0 bg-[#1e1e1e]">
-          {(isLoading || !editorReady) ? (
+          {isLoading || !editorReady ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-[rgb(var(--muted))]" />
             </div>
+          ) : editorLoadFailed ? (
+            <textarea
+              value={content}
+              onChange={(e) => handleContentChange(e.target.value)}
+              className="w-full h-full resize-none bg-[#1e1e1e] text-[#d4d4d4] font-mono text-sm p-3 focus:outline-none"
+              spellCheck={false}
+            />
           ) : (
             <Editor
               height="100%"

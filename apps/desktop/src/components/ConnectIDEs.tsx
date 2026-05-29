@@ -8,6 +8,7 @@ import windsurfIcon from '@/assets/client-icons/windsurf.svg';
 import jetbrainsIcon from '@/assets/client-icons/jetbrains.svg';
 import androidStudioIcon from '@/assets/client-icons/android-studio.svg';
 import { addToVscode, addToCursor } from '@/lib/api/clientInstall';
+import { isTauri } from '@/lib/backend/shell';
 
 type GridAction = 'deep_link' | 'copy_command' | 'copy_config';
 
@@ -44,7 +45,7 @@ export function ConnectIDEsGrid({ gatewayUrl, gatewayRunning }: ConnectIDEsGridP
 
   const mcpUrl = `${gatewayUrl}/mcp`;
 
-  const entries: GridEntry[] = [
+  const allEntries: GridEntry[] = [
     {
       id: 'vscode',
       name: 'VS Code',
@@ -128,6 +129,7 @@ export function ConnectIDEsGrid({ gatewayUrl, gatewayRunning }: ConnectIDEsGridP
         'and follow its reload instructions. Approve on this page when it connects.',
     },
   ];
+  const entries = allEntries.filter((entry) => isTauri() || entry.action !== 'deep_link');
 
   // Close popover on outside click
   useEffect(() => {

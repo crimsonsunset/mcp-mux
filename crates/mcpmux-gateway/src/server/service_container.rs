@@ -145,6 +145,8 @@ impl ServiceContainer {
             approval_broker.clone(),
             domain_event_tx.clone(),
             deps.settings_repo.clone(),
+            server_manager.clone(),
+            deps.log_manager.clone(),
         );
 
         // Space resolver — currently just exposes the active Space, but

@@ -1,4 +1,10 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { flushPendingDeepLink } from '@/lib/backend/shell';
+
+import { apiCall } from './transport';
+
+/** Desktop-only: replay a buffered OAuth consent deep link after listeners attach. */
+export { flushPendingDeepLink };
 
 /** Inbound client registration type (per MCP spec 2025-11-25). */
 export type RegistrationType = 'cimd' | 'dcr' | 'preregistered';
@@ -69,7 +75,7 @@ export interface ConsentApprovalResponse {
  * Validate a pending OAuth consent request and load authoritative details.
  */
 export async function getPendingConsent(requestId: string): Promise<ConsentRequestDetails> {
-  return invoke('get_pending_consent', { requestId });
+  return apiCall('get_pending_consent', { requestId });
 }
 
 /**
@@ -78,22 +84,15 @@ export async function getPendingConsent(requestId: string): Promise<ConsentReque
 export async function approveOAuthConsent(
   request: ConsentApprovalRequest
 ): Promise<ConsentApprovalResponse> {
-  return invoke('approve_oauth_consent', { request });
-}
-
-/**
- * Flush a cold-start deep link buffered on the Rust side after the consent
- * listener is subscribed.
- */
-export async function flushPendingDeepLink(): Promise<void> {
-  return invoke('flush_pending_deep_link');
+  const command = request.approved ? 'approve_oauth_consent' : 'reject_oauth_consent';
+  return apiCall(command, { request });
 }
 
 /**
  * List all registered OAuth clients.
  */
 export async function listOAuthClients(): Promise<OAuthClient[]> {
-  return invoke('get_oauth_clients');
+  return apiCall('get_oauth_clients');
 }
 
 /**
@@ -103,14 +102,14 @@ export async function updateOAuthClient(
   clientId: string,
   settings: UpdateClientRequest
 ): Promise<OAuthClient> {
-  return invoke('update_oauth_client', { clientId, settings });
+  return apiCall('update_oauth_client', { clientId, settings });
 }
 
 /**
  * Delete an OAuth client registration.
  */
 export async function deleteOAuthClient(clientId: string): Promise<void> {
-  return invoke('delete_oauth_client', { clientId });
+  return apiCall('delete_oauth_client', { clientId });
 }
 
 /**
@@ -120,7 +119,7 @@ export async function getOAuthClientGrants(
   clientId: string,
   spaceId: string
 ): Promise<string[]> {
-  return invoke('get_oauth_client_grants', { clientId, spaceId });
+  return apiCall('get_oauth_client_grants', { clientId, spaceId });
 }
 
 /**
@@ -131,7 +130,7 @@ export async function grantOAuthClientFeatureSet(
   spaceId: string,
   featureSetId: string
 ): Promise<void> {
-  return invoke('grant_oauth_client_feature_set', {
+  return apiCall('grant_oauth_client_feature_set', {
     clientId,
     spaceId,
     featureSetId,
@@ -146,7 +145,7 @@ export async function revokeOAuthClientFeatureSet(
   spaceId: string,
   featureSetId: string
 ): Promise<void> {
-  return invoke('revoke_oauth_client_feature_set', {
+  return apiCall('revoke_oauth_client_feature_set', {
     clientId,
     spaceId,
     featureSetId,

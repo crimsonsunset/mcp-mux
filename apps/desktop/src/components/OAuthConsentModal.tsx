@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import {
   Button,
@@ -20,11 +19,11 @@ import {
 import { resolveKnownClientKey } from '@/lib/clientIcons';
 import {
   approveOAuthConsent,
-  flushPendingDeepLink,
   getPendingConsent,
   type ConsentError,
   type ConsentRequestDetails,
 } from '@/lib/api/oauth';
+import { subscribeOAuthConsentEvents } from '@/lib/backend/shell';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';
@@ -50,26 +49,41 @@ interface OAuthDeepLinkPayload {
   requestId: string;
 }
 
+/**
+ * Load consent details for a request id and transition modal state.
+ */
+async function loadConsentRequest(
+  requestId: string,
+  setModalState: (state: ModalState) => void,
+  setProcessError: (error: string | null) => void
+): Promise<void> {
+  console.log('[OAuth] loadConsentRequest start:', requestId);
+  setModalState({ type: 'loading', requestId });
+  setProcessError(null);
+
+  try {
+    const details = await getPendingConsent(requestId);
+    console.log('[OAuth] loadConsentRequest OK:', details.clientName, details.clientId);
+    setModalState({ type: 'consent', details });
+  } catch (err) {
+    console.error('[OAuth] loadConsentRequest failed:', err);
+    const error = err as ConsentError;
+    setModalState({ type: 'error', requestId, error });
+  }
+}
+
 type ModalState =
   | { type: 'hidden' }
   | { type: 'loading'; requestId: string }
   | { type: 'error'; requestId: string; error: ConsentError }
   | { type: 'consent'; details: ConsentRequestDetails };
 
+/**
+ * Deliver the OAuth redirect without opening a dead browser tab for loopback URIs.
+ */
 async function openRedirectUrl(url: string): Promise<void> {
-  try {
-    const { openUrl } = await import('@/lib/api/gateway');
-    await openUrl(url);
-  } catch (err) {
-    console.error('[OAuth] openUrl failed:', err);
-    try {
-      const { openUrl: openUrlPlugin } = await import('@tauri-apps/plugin-opener');
-      await openUrlPlugin(url);
-    } catch (pluginErr) {
-      console.error('[OAuth] Plugin opener also failed:', pluginErr);
-      window.location.href = url;
-    }
-  }
+  const { openUrl } = await import('@/lib/backend/shell');
+  await openUrl(url);
 }
 
 function getErrorMessage(error: ConsentError): string {
@@ -104,36 +118,11 @@ export function OAuthConsentModal() {
   }, [modalState.type]);
 
   useEffect(() => {
-    const unlistenPromise = listen<OAuthDeepLinkPayload>(
-      'oauth-consent-request',
-      async (event) => {
-        const requestId = event.payload.requestId;
-        setModalState({ type: 'loading', requestId });
-        setProcessError(null);
-
-        try {
-          const details = await getPendingConsent(requestId);
-          setModalState({ type: 'consent', details });
-        } catch (err) {
-          console.error('[OAuth] Validation failed:', err);
-          const error = err as ConsentError;
-          setModalState({ type: 'error', requestId, error });
-        }
-      }
-    );
-
-    // Once the listener is subscribed, flush any cold-start URL buffered on
-    // the Rust side (see PendingInitialDeepLink). Rust will re-fire
-    // `oauth-consent-request` which the listener above then catches.
-    unlistenPromise.then(() => {
-      flushPendingDeepLink().catch((err) => {
-        console.warn('[OAuth] flush_pending_deep_link failed:', err);
-      });
+    console.log('[OAuth] OAuthConsentModal mounting — subscribing to consent events');
+    return subscribeOAuthConsentEvents((payload) => {
+      console.log('[OAuth] OAuthConsentModal handler fired:', payload);
+      void loadConsentRequest(payload.requestId, setModalState, setProcessError);
     });
-
-    return () => {
-      unlistenPromise.then((fn) => fn());
-    };
   }, []);
 
   const handleApprove = async () => {
@@ -151,8 +140,14 @@ export function OAuthConsentModal() {
         client_alias: null,
       });
 
-      if (response.success && response.redirect_url) {
-        await openRedirectUrl(response.redirect_url);
+      if (response.success) {
+        if (response.redirect_url) {
+          try {
+            await openRedirectUrl(response.redirect_url);
+          } catch (redirectErr) {
+            console.warn('[OAuth] Redirect delivery failed after approve:', redirectErr);
+          }
+        }
         setModalState({ type: 'hidden' });
       } else {
         setProcessError(response.error || 'Failed to approve connection');
@@ -180,8 +175,14 @@ export function OAuthConsentModal() {
         client_alias: null,
       });
 
-      if (response.success && response.redirect_url) {
-        await openRedirectUrl(response.redirect_url);
+      if (response.success) {
+        if (response.redirect_url) {
+          try {
+            await openRedirectUrl(response.redirect_url);
+          } catch (redirectErr) {
+            console.warn('[OAuth] Redirect delivery failed after deny:', redirectErr);
+          }
+        }
         setModalState({ type: 'hidden' });
       } else {
         setProcessError(response.error || 'Failed to deny connection');

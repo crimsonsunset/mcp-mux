@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { useOAuthClientEventListener } from '@/hooks/useOAuthClientEvents';
+import { useClientEvents, useOAuthClientEventListener } from '@/lib/backend/events';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
 import claudeIcon from '@/assets/client-icons/claude.svg';
@@ -172,23 +171,17 @@ export default function ClientsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingClientId, isLoading, clients]);
 
-  useEffect(() => {
-    const unlistenDomain = listen<{
-      action: string;
-      client_id: string;
-      client_name?: string;
-    }>('client-changed', (event) => {
+  useClientEvents(
+    useCallback((_channel, payload) => {
       refreshClients();
-      if (event.payload.action === 'reconnected') {
-        const name = event.payload.client_name || event.payload.client_id;
+      if (payload.action === 'reconnected') {
+        const name =
+          (typeof payload.client_name === 'string' ? payload.client_name : null) ||
+          (typeof payload.client_id === 'string' ? payload.client_id : 'Client');
         info('Client reconnected', name);
       }
-    });
-    return () => {
-      unlistenDomain.then((fn) => fn());
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    }, [refreshClients, info])
+  );
 
   useOAuthClientEventListener(
     useCallback(() => {

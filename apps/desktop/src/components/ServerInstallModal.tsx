@@ -10,8 +10,8 @@
  * 4. On confirm, call install_server command
  */
 
-import { useState, useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useState, useEffect, useCallback } from 'react';
+import { useBackendEventSubscription } from '@/lib/backend/events';
 import { Download, Check, X, AlertCircle, Loader2, Info } from 'lucide-react';
 import {
   Button,
@@ -53,62 +53,61 @@ export function ServerInstallModal() {
 
   const viewSpace = useViewSpace();
 
-  // Listen for deep link events
-  useEffect(() => {
-    const unlisten = listen<ServerInstallDeepLinkPayload>(
-      'server-install-request',
-      async (event) => {
-        const { serverId } = event.payload;
-        console.log('[Install] Deep link received for server:', serverId);
+  const handleInstallRequest = useCallback(
+    async (payload: ServerInstallDeepLinkPayload) => {
+      const { serverId } = payload;
+      console.log('[Install] Deep link received for server:', serverId);
 
-        setModalState({ type: 'loading', serverId });
-        setInstallError(null);
-        setIsInstalling(false);
+      setModalState({ type: 'loading', serverId });
+      setInstallError(null);
+      setIsInstalling(false);
 
-        try {
-          const [spacesResult, serverDef] = await Promise.all([
-            listSpaces(),
-            getServerDefinition(serverId),
-          ]);
+      try {
+        const [spacesResult, serverDef] = await Promise.all([
+          listSpaces(),
+          getServerDefinition(serverId),
+        ]);
 
-          setSpaces(spacesResult);
+        setSpaces(spacesResult);
 
-          // Default to current view space
-          const defaultSpaceId = viewSpace?.id ?? spacesResult[0]?.id ?? null;
-          setSelectedSpaceId(defaultSpaceId);
+        const defaultSpaceId = viewSpace?.id ?? spacesResult[0]?.id ?? null;
+        setSelectedSpaceId(defaultSpaceId);
 
-          if (!serverDef) {
-            setModalState({
-              type: 'error',
-              serverId,
-              message: `Server "${serverId}" was not found in the registry.`,
-            });
-            return;
-          }
-
-          // Check if already installed in the default space
-          let alreadyInstalled = false;
-          if (defaultSpaceId) {
-            const installed = await listInstalledServers(defaultSpaceId);
-            alreadyInstalled = installed.some((s) => s.server_id === serverId);
-          }
-
-          setModalState({ type: 'ready', server: serverDef, alreadyInstalled });
-        } catch (err) {
-          console.error('[Install] Failed to load server details:', err);
+        if (!serverDef) {
           setModalState({
             type: 'error',
             serverId,
-            message: String(err),
+            message: `Server "${serverId}" was not found in the registry.`,
           });
+          return;
         }
-      }
-    );
 
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [viewSpace?.id]);
+        let alreadyInstalled = false;
+        if (defaultSpaceId) {
+          const installed = await listInstalledServers(defaultSpaceId);
+          alreadyInstalled = installed.some((s) => s.server_id === serverId);
+        }
+
+        setModalState({ type: 'ready', server: serverDef, alreadyInstalled });
+      } catch (err) {
+        console.error('[Install] Failed to load server details:', err);
+        setModalState({
+          type: 'error',
+          serverId,
+          message: String(err),
+        });
+      }
+    },
+    [viewSpace?.id]
+  );
+
+  useBackendEventSubscription<ServerInstallDeepLinkPayload>(
+    'server-install-request',
+    (payload) => {
+      void handleInstallRequest(payload);
+    },
+    { sse: false }
+  );
 
   // Re-check install status when space selection changes
   useEffect(() => {

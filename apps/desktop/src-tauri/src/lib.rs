@@ -3,12 +3,16 @@
 //! Centralized MCP Server Management Desktop Application
 
 use mcpmux_core::branding;
+use mcpmux_core::AppSettingsService;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 mod commands;
+mod macos_dock;
+mod macos_permissions;
+mod main_window;
 mod services;
 mod state;
 mod tray;
@@ -18,6 +22,7 @@ use commands::oauth::{route_or_buffer_deep_link, PendingInitialDeepLink};
 
 use commands::gateway::{GatewayAppState, PendingPortConflict};
 use commands::server_manager::ServerManagerState;
+use services::admin_server::{start_admin_server_if_enabled, AdminServerState};
 use state::AppState;
 
 /// Application identifier - read from tauri.conf.json at build time
@@ -126,6 +131,18 @@ fn init_tracing() -> tracing_appender::non_blocking::WorkerGuard {
 #[tauri::command]
 fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Git short SHA the binary was compiled from (empty if git was unavailable at build time).
+///
+/// Used by the web-admin SPA to detect when the served static bundle was built from a
+/// different commit than the running backend — i.e. someone forgot to re-run
+/// `pnpm build:web:admin` after pulling new UI changes.
+#[tauri::command]
+fn get_build_info() -> serde_json::Value {
+    serde_json::json!({
+        "git_sha": env!("MCPMUX_BUILD_GIT_SHA"),
+    })
 }
 
 /// Get the on-disk bundle version (macOS only).
@@ -245,19 +262,7 @@ pub fn run() {
                 }
             }
 
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(e) = window.show() {
-                    warn!("Failed to show window: {}", e);
-                }
-                if let Err(e) = window.unminimize() {
-                    warn!("Failed to unminimize window: {}", e);
-                }
-                if let Err(e) = window.set_focus() {
-                    warn!("Failed to focus window: {}", e);
-                }
-            } else {
-                warn!("Main window not found");
-            }
+            main_window::show_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -269,6 +274,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            if commands::should_start_hidden() {
+                macos_dock::set_dock_visible(app.handle(), false);
+            }
+
+            // Register McpMux with macOS TCC for resources that spawned MCP
+            // servers may need. Without this, the app never appears in
+            // Privacy & Security → Contacts and child reads of AddressBook
+            // hit a silent EPERM. Idempotent + non-blocking.
+            macos_permissions::ensure_contacts_registered();
+
             info!("Initializing application state...");
 
             // Get data directory (Local, not Roaming - machine-specific data)
@@ -333,8 +348,17 @@ pub fn run() {
                 event_sender,
             );
 
+            let application_services = Arc::new(
+                app_state
+                    .build_application_services(event_bus.clone())
+                    .expect("build ApplicationServices"),
+            );
+            app.manage(application_services);
+
             let managed_app_service = Arc::new(RwLock::new(Some(server_app_service)));
             app.manage(managed_app_service);
+
+            let admin_server_state = Arc::new(RwLock::new(AdminServerState::default()));
 
             // Create gateway state and auto-start gateway
             let gateway_state = Arc::new(RwLock::new(GatewayAppState::default()));
@@ -440,7 +464,7 @@ pub fn run() {
                     .with_log_manager(server_log_manager)
                     .with_database(db_for_gateway)
                     .with_state_dir(app_data_dir.clone())
-                    .with_settings_repo(settings_repo);
+                    .with_settings_repo(settings_repo.clone());
 
                 if let Some(secret) = jwt_secret {
                     deps_builder = deps_builder.with_jwt_secret(secret);
@@ -465,6 +489,13 @@ pub fn run() {
                 // Gateway auto-initializes all services and auto-connects enabled servers
                 let server = mcpmux_gateway::GatewayServer::new(config, dependencies);
                 let gw_inner_state = server.state();
+                {
+                    let public_url = AppSettingsService::new(settings_repo.clone())
+                        .get_gateway_public_url()
+                        .await;
+                    let mut state = gw_inner_state.write().await;
+                    state.set_public_url(public_url);
+                }
 
                 // Get services from gateway
                 let pool_service = server.pool_service();
@@ -491,8 +522,8 @@ pub fn run() {
                 let oauth_completion_rx = pool_service.oauth_manager().subscribe();
 
                 info!(
-                    "[Gateway] Auto-start services resolved — port={}, server_manager={:p}",
-                    final_port, &*server_manager_arc
+                    "[Gateway] Auto-start services resolved — port={}",
+                    final_port
                 );
 
                 // Wire ServerManager into state + spawn OAuth handler +
@@ -523,29 +554,77 @@ pub fn run() {
                 state.approval_broker = Some(approval_broker);
                 state.session_roots = Some(session_roots);
 
+                let ui_bus = if let Some(admin) =
+                    app_handle_for_sm.try_state::<Arc<RwLock<services::AdminServerState>>>()
+                {
+                    let admin_guard = admin.read().await;
+                    services::admin_server::set_gateway_running(&admin_guard, true);
+                    if let Some(ref gw) = state.gateway_state {
+                        services::admin_server::register_gateway_sse(&admin_guard, gw).await;
+                    }
+                    Some(admin_guard.ui_event_bus.clone())
+                } else {
+                    None
+                };
+
+                if let Some(ref gw) = state.gateway_state {
+                    crate::commands::gateway::wire_consent_ui_notifications(
+                        &app_handle_for_sm,
+                        gw,
+                        ui_bus.clone(),
+                    )
+                    .await;
+                }
+
+                if let Some(ref bus) = ui_bus {
+                    services::ui_events::emit_ui_channel(
+                        &app_handle_for_sm,
+                        Some(bus.as_ref()),
+                        "gateway-changed",
+                        serde_json::json!({
+                            "action": "started",
+                            "url": url,
+                            "port": final_port,
+                        }),
+                    );
+                } else {
+                    let _ = app_handle_for_sm.emit(
+                        "gateway-changed",
+                        serde_json::json!({
+                            "action": "started",
+                            "url": url,
+                            "port": final_port,
+                        }),
+                    );
+                }
+
                 info!(
                     "Gateway auto-started successfully on {} - GrantService initialized: {}",
                     url,
                     state.grant_service.is_some()
                 );
-
-                // Broadcast the started event to the webview. Must happen
-                // even on auto-start so the status-bar footer and every
-                // other subscriber reflect the running gateway.
-                if let Err(e) = app_handle_for_sm.emit(
-                    "gateway-changed",
-                    serde_json::json!({
-                        "action": "started",
-                        "url": url,
-                        "port": final_port,
-                    }),
-                ) {
-                    warn!("[Gateway] Failed to emit gateway-changed(started): {}", e);
-                }
             });
 
-            app.manage(gateway_state);
-            app.manage(server_manager_state);
+            app.manage(gateway_state.clone());
+            app.manage(server_manager_state.clone());
+            app.manage(admin_server_state.clone());
+
+            // Web admin HTTP server (optional, settings-gated)
+            {
+                let app_handle_admin = app.handle().clone();
+                let event_bus_admin = event_bus.clone();
+                let admin_state_spawn = admin_server_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    start_admin_server_if_enabled(
+                        app_handle_admin,
+                        admin_state_spawn,
+                        gateway_state.clone(),
+                        server_manager_state.clone(),
+                        event_bus_admin,
+                    )
+                    .await;
+                });
+            }
 
             // Start file watcher for user space config files (hot-reload)
             {
@@ -658,9 +737,7 @@ pub fn run() {
                                 Ok(Some(value)) if value == "true" => {
                                     // Close to tray - hide window instead of closing
                                     info!("[Window] Close requested, hiding to tray");
-                                    if let Some(window) = app_handle_clone.get_webview_window("main") {
-                                        let _ = window.hide();
-                                    }
+                                    main_window::hide_main_window_to_tray(&app_handle_clone);
                                 }
                                 Ok(Some(value)) if value == "false" => {
                                     // Actually close the app
@@ -670,9 +747,7 @@ pub fn run() {
                                 _ => {
                                     // Default behavior: close to tray
                                     info!("[Window] Close requested (default), hiding to tray");
-                                    if let Some(window) = app_handle_clone.get_webview_window("main") {
-                                        let _ = window.hide();
-                                    }
+                                    main_window::hide_main_window_to_tray(&app_handle_clone);
                                 }
                             }
                         });
@@ -685,7 +760,7 @@ pub fn run() {
                 // Check if app should start hidden (auto-launch with --hidden flag)
                 if commands::should_start_hidden() {
                     info!("[Window] Starting hidden (--hidden flag present)");
-                    let _ = main_window.hide();
+                    main_window::hide_main_window_to_tray(app.handle());
                 }
             }
 
@@ -844,6 +919,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_version,
             get_bundle_version,
+            get_build_info,
             // Space commands
             commands::list_spaces,
             commands::get_space,
@@ -940,6 +1016,7 @@ pub fn run() {
             commands::get_gateway_status,
             commands::get_gateway_port_settings,
             commands::set_gateway_port,
+            commands::set_gateway_public_url,
             commands::reset_gateway_port,
             commands::probe_gateway_start,
             commands::take_pending_port_conflict,
@@ -987,6 +1064,8 @@ pub fn run() {
             // Startup settings commands
             commands::get_startup_settings,
             commands::update_startup_settings,
+            commands::get_admin_web_settings,
+            commands::update_admin_web_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building McpMux application")

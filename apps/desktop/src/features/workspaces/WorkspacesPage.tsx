@@ -5,7 +5,7 @@ import {
   type WorkspaceEventChannel,
 } from '@/hooks';
 import { useMetaToolEventListener } from '@/hooks/useMetaToolEvents';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { pickPath } from '@/lib/backend/shell';
 import {
   AlertCircle,
   Check,
@@ -922,15 +922,19 @@ function InspectorPanel({
   /** Live icon edits from the binding form (before autosave lands in entry state). */
   onIconChange?: (icon: string | null) => void;
 }) {
-  const [liveIcon, setLiveIcon] = useState<string | null>(resolvedIcon);
+  const [editedIcon, setEditedIcon] = useState<string | null | undefined>(undefined);
+  const [prevResolvedIcon, setPrevResolvedIcon] = useState(resolvedIcon);
 
-  useEffect(() => {
-    setLiveIcon(resolvedIcon);
-  }, [resolvedIcon, entry?.id]);
+  if (resolvedIcon !== prevResolvedIcon) {
+    setPrevResolvedIcon(resolvedIcon);
+    setEditedIcon(undefined);
+  }
+
+  const liveIcon = editedIcon !== undefined ? editedIcon : resolvedIcon;
 
   const handleIconChange = useCallback(
     (icon: string | null) => {
-      setLiveIcon(icon);
+      setEditedIcon(icon);
       onIconChange?.(icon);
     },
     [onIconChange]
@@ -2241,7 +2245,7 @@ function BindingForm({
                   size="sm"
                   onClick={async () => {
                     try {
-                      const picked = await openDialog({
+                      const picked = await pickPath({
                         directory: false,
                         multiple: false,
                         title: 'Pick an icon image',
@@ -2314,7 +2318,7 @@ function BindingForm({
                 // Linux). The selected path is absolute already, so we
                 // just hand it off and let the live validator normalize.
                 try {
-                  const picked = await openDialog({
+                  const picked = await pickPath({
                     directory: true,
                     multiple: false,
                     title: 'Pick a workspace folder',

@@ -95,6 +95,14 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
   };
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
     loadLogs();
   }, [serverId, levelFilter]);
 

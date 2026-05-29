@@ -64,6 +64,11 @@ vi.mock('@/hooks/useDataSync', () => ({
   useDataSync: vi.fn(),
 }));
 
+vi.mock('@/hooks/useMetaToolEvents', () => ({
+  useMetaToolEventListener: vi.fn(),
+  useMetaToolEvents: vi.fn(() => ({ subscribe: vi.fn(() => vi.fn()) })),
+}));
+
 type GatewayPayload = { action: string; url?: string; port?: number };
 let gatewayEventCallbacks: ((payload: GatewayPayload) => void)[] = [];
 
@@ -118,6 +123,15 @@ vi.mock('@/lib/api/featureSets', () => ({
 }));
 vi.mock('@/lib/api/registry', () => ({
   listInstalledServers: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('@/lib/api/workspaceBindings', () => ({
+  listWorkspaceBindings: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('@/lib/api/serverManager', () => ({
+  getServerStatuses: vi.fn().mockResolvedValue({}),
+}));
+vi.mock('@/lib/api/spaces', () => ({
+  listSpaces: vi.fn().mockResolvedValue([]),
 }));
 
 // Mock window API for WindowButton

@@ -31,6 +31,7 @@ import {
   Network,
   RotateCcw,
   AlertCircle,
+  Globe,
 } from 'lucide-react';
 import { useAppStore, useTheme, useAnalyticsEnabled } from '@/stores';
 import { UpdateChecker } from './UpdateChecker';
@@ -40,13 +41,17 @@ import {
   setSessionOverridesRequireApproval,
 } from '@/lib/api/sessionOverrides';
 import {
+  getAdminWebSettings,
   getGatewayPortSettings,
   getLogsPath,
   getStartupSettings,
   openLogsFolder,
   resetGatewayPort,
   setGatewayPort,
+  setGatewayPublicUrl,
+  updateAdminWebSettings,
   updateStartupSettings,
+  type AdminWebSettings,
   type GatewayPortSettings,
   type StartupSettings,
 } from '@/lib/api/settings';
@@ -54,6 +59,7 @@ import { getLogRetentionDays, setLogRetentionDays as saveLogRetentionDays } from
 import { MetaToolAuditLog, MetaToolGrantsPanel } from '@/features/metaTools';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { CONTRIBUTE, openExternal } from '@/lib/contribute';
+import { isTauri } from '@/lib/api/transport';
 
 export function SettingsPage() {
   const theme = useTheme();
@@ -91,16 +97,27 @@ export function SettingsPage() {
   // saved ≠ active, the user has to restart the gateway to apply.
   const [portSettings, setPortSettings] = useState<GatewayPortSettings | null>(null);
   const [portDraft, setPortDraft] = useState<string>('');
+  const [publicUrlDraft, setPublicUrlDraft] = useState<string>('');
   const [portError, setPortError] = useState<string | null>(null);
+  const [publicUrlError, setPublicUrlError] = useState<string | null>(null);
   const [savingPort, setSavingPort] = useState(false);
+  const [savingPublicUrl, setSavingPublicUrl] = useState(false);
   const [resettingPort, setResettingPort] = useState(false);
+
+  const [adminWeb, setAdminWeb] = useState<AdminWebSettings | null>(null);
+  const [adminPortDraft, setAdminPortDraft] = useState('45819');
+  const [adminCfDomainDraft, setAdminCfDomainDraft] = useState('');
+  const [loadingAdminWeb, setLoadingAdminWeb] = useState(true);
+  const [savingAdminWeb, setSavingAdminWeb] = useState(false);
 
   const loadPortSettings = async () => {
     try {
       const s = await getGatewayPortSettings();
       setPortSettings(s);
       setPortDraft(String(s.configuredPort ?? s.defaultPort));
+      setPublicUrlDraft(s.publicUrl ?? '');
       setPortError(null);
+      setPublicUrlError(null);
     } catch (err) {
       console.error('Failed to load gateway port settings:', err);
     }
@@ -109,6 +126,57 @@ export function SettingsPage() {
   useEffect(() => {
     loadPortSettings();
   }, []);
+
+  const loadAdminWebSettings = async () => {
+    try {
+      const s = await getAdminWebSettings();
+      setAdminWeb(s);
+      setAdminPortDraft(String(s.port));
+      setAdminCfDomainDraft(s.cfTeamDomain);
+    } catch (err) {
+      console.error('Failed to load web admin settings:', err);
+    } finally {
+      setLoadingAdminWeb(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isTauri()) {
+      setLoadingAdminWeb(false);
+      return;
+    }
+    loadAdminWebSettings();
+  }, []);
+
+  const persistAdminWeb = async (next: AdminWebSettings) => {
+    setSavingAdminWeb(true);
+    try {
+      await updateAdminWebSettings(next);
+      setAdminWeb(next);
+      setAdminPortDraft(String(next.port));
+      setAdminCfDomainDraft(next.cfTeamDomain);
+      success(
+        'Web admin updated',
+        next.enabled
+          ? `Browse http://127.0.0.1:${next.port}. Run pnpm build:web:admin after UI changes, then hard-refresh.`
+          : 'Web admin server stopped.'
+      );
+    } catch (err) {
+      error('Failed to save web admin settings', String(err));
+    } finally {
+      setSavingAdminWeb(false);
+    }
+  };
+
+  const handleSaveAdminPort = async () => {
+    if (!adminWeb) return;
+    const parsed = validatePort(adminPortDraft);
+    if ('error' in parsed) {
+      error('Invalid admin port', parsed.error);
+      return;
+    }
+    await persistAdminWeb({ ...adminWeb, port: parsed.port });
+  };
 
   const validatePort = (raw: string): { port: number } | { error: string } => {
     const trimmed = raw.trim();
@@ -144,6 +212,25 @@ export function SettingsPage() {
       error('Failed to save port', msg);
     } finally {
       setSavingPort(false);
+    }
+  };
+
+  const handleSavePublicUrl = async () => {
+    setSavingPublicUrl(true);
+    try {
+      await setGatewayPublicUrl(publicUrlDraft);
+      await loadPortSettings();
+      setPublicUrlError(null);
+      success(
+        'Public gateway URL saved',
+        'Remote clients via Cloudflare Tunnel will use this URL for OAuth discovery.'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPublicUrlError(msg);
+      error('Failed to save public URL', msg);
+    } finally {
+      setSavingPublicUrl(false);
     }
   };
 
@@ -342,8 +429,8 @@ export function SettingsPage() {
           <p className="text-[rgb(var(--muted))]">Configure McpMux preferences.</p>
         </div>
 
-      {/* Updates Section */}
-      <UpdateChecker />
+      {/* Updates Section — desktop shell only */}
+      {isTauri() ? <UpdateChecker /> : null}
 
       {/* Startup & System Tray Section - always show toggles so e2e and slow backends see the section */}
       <Card data-testid="settings-startup-section">
@@ -551,6 +638,62 @@ export function SettingsPage() {
                 </div>
               </div>
 
+              <div className="flex items-start gap-3">
+                <Globe className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <label
+                    htmlFor="gateway-public-url-input"
+                    className="text-sm font-medium"
+                  >
+                    Public gateway URL
+                  </label>
+                  <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                    HTTPS hostname for remote MCP clients via Cloudflare Tunnel. OAuth discovery
+                    uses this when requests arrive with matching{' '}
+                    <span className="font-mono">X-Forwarded-Host</span>. Local clients keep using{' '}
+                    <span className="font-mono">localhost</span>.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <input
+                      id="gateway-public-url-input"
+                      type="url"
+                      placeholder="https://mcp.example.com"
+                      value={publicUrlDraft}
+                      onChange={(e) => {
+                        setPublicUrlDraft(e.target.value);
+                        if (publicUrlError) setPublicUrlError(null);
+                      }}
+                      disabled={savingPublicUrl}
+                      className="min-w-[16rem] flex-1 px-3 py-1.5 text-sm font-mono border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))] text-[rgb(var(--foreground))] focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                      data-testid="gateway-public-url-input"
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSavePublicUrl}
+                      disabled={
+                        savingPublicUrl ||
+                        publicUrlDraft.trim() === (portSettings.publicUrl ?? '')
+                      }
+                      data-testid="gateway-public-url-save-btn"
+                    >
+                      {savingPublicUrl ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Save
+                    </Button>
+                  </div>
+                  {publicUrlError ? (
+                    <p
+                      className="text-xs text-red-600 dark:text-red-400 mt-2"
+                      data-testid="gateway-public-url-error"
+                    >
+                      {publicUrlError}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
               {portSettings.activePort !== null &&
               portSettings.configuredPort !== null &&
               portSettings.configuredPort !== portSettings.activePort ? (
@@ -579,6 +722,151 @@ export function SettingsPage() {
                     Restart gateway
                   </Button>
                 </div>
+              ) : null}
+
+              {isTauri() ? (
+              <div
+                className="border-t border-[rgb(var(--border))] pt-4 mt-2"
+                data-testid="settings-web-admin-section"
+              >
+                <div className="flex items-start gap-3">
+                  <Globe className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-4">
+                    <div>
+                      <p className="text-sm font-medium">Web admin mode</p>
+                      <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                        Serves the UI + REST API on loopback for remote access (e.g. Cloudflare
+                        Tunnel). Use{' '}
+                        <span className="font-mono">http://127.0.0.1:{adminPortDraft}</span> — not
+                        the Vite dev URL on :1420 unless admin is enabled and proxied.
+                      </p>
+                    </div>
+
+                    {loadingAdminWeb || adminWeb === null ? (
+                      <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading…
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Enable web admin</p>
+                            <p className="text-xs text-[rgb(var(--muted))]">
+                              Starts HTTP server on this Mac (default port 45819).
+                            </p>
+                          </div>
+                          <Switch
+                            checked={adminWeb.enabled}
+                            disabled={savingAdminWeb}
+                            onCheckedChange={(enabled) =>
+                              persistAdminWeb({ ...adminWeb, enabled })
+                            }
+                            data-testid="settings-admin-enabled-switch"
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="admin-port-input"
+                            className="text-sm font-medium"
+                          >
+                            Admin port
+                          </label>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <input
+                              id="admin-port-input"
+                              type="number"
+                              inputMode="numeric"
+                              min={1024}
+                              max={65535}
+                              value={adminPortDraft}
+                              onChange={(e) => setAdminPortDraft(e.target.value)}
+                              disabled={savingAdminWeb || !adminWeb.enabled}
+                              className="w-28 px-3 py-1.5 text-sm font-mono border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))]"
+                              data-testid="settings-admin-port-input"
+                            />
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={handleSaveAdminPort}
+                              disabled={
+                                savingAdminWeb ||
+                                !adminWeb.enabled ||
+                                adminPortDraft.trim() === String(adminWeb.port)
+                              }
+                              data-testid="settings-admin-port-save-btn"
+                            >
+                              Save port
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Trust Cloudflare Access JWT</p>
+                            <p className="text-xs text-[rgb(var(--muted))]">
+                              Required for tunnel exposure; disable for local-only testing.
+                            </p>
+                          </div>
+                          <Switch
+                            checked={adminWeb.trustCfAccess}
+                            disabled={savingAdminWeb || !adminWeb.enabled}
+                            onCheckedChange={(trustCfAccess) =>
+                              persistAdminWeb({ ...adminWeb, trustCfAccess })
+                            }
+                            data-testid="settings-admin-cf-access-switch"
+                          />
+                        </div>
+
+                        {adminWeb.enabled ? (
+                          <div>
+                            <label
+                              htmlFor="admin-cf-domain-input"
+                              className="text-sm font-medium"
+                            >
+                              Cloudflare team domain
+                            </label>
+                            <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                              Set this before enabling Trust CF Access JWT. Just the team slug
+                              (e.g. <code>your-team</code>), not the full URL.
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <input
+                                id="admin-cf-domain-input"
+                                type="text"
+                                placeholder="your-team.cloudflareaccess.com"
+                                value={adminCfDomainDraft}
+                                onChange={(e) => setAdminCfDomainDraft(e.target.value)}
+                                disabled={savingAdminWeb || !adminWeb.enabled}
+                                className="flex-1 min-w-[12rem] px-3 py-1.5 text-sm border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))]"
+                                data-testid="settings-admin-cf-domain-input"
+                              />
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() =>
+                                  persistAdminWeb({
+                                    ...adminWeb,
+                                    cfTeamDomain: adminCfDomainDraft.trim(),
+                                  })
+                                }
+                                disabled={
+                                  savingAdminWeb ||
+                                  !adminWeb.enabled ||
+                                  adminCfDomainDraft.trim() === adminWeb.cfTeamDomain
+                                }
+                              >
+                                Save domain
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
               ) : null}
             </div>
           )}
@@ -791,20 +1079,22 @@ export function SettingsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleOpenLogs}
-                disabled={openingLogs}
-                data-testid="open-logs-btn"
-              >
-                {openingLogs ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <FolderOpen className="h-4 w-4 mr-2" />
-                )}
-                Open Logs Folder
-              </Button>
+              {isTauri() ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleOpenLogs}
+                  disabled={openingLogs}
+                  data-testid="open-logs-btn"
+                >
+                  {openingLogs ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                  )}
+                  Open Logs Folder
+                </Button>
+              ) : null}
             </div>
             <div className="border-t border-[rgb(var(--border))] pt-4">
               <div className="flex items-center justify-between gap-4">
