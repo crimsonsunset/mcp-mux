@@ -742,6 +742,9 @@ impl ServerHandler for McpMuxGatewayHandler {
             // Note: client_id is the OAuth client identity (a URL for DCR-
             // registered clients like Claude, a UUID for others). The meta-
             // tool registry treats it as an opaque string identity key.
+            self.ensure_roots_probed(&context.peer, session_id, &oauth_ctx.client_id)
+                .await;
+
             let args: serde_json::Value = params
                 .arguments
                 .map(|a| serde_json::to_value(a).unwrap_or(serde_json::Value::Null))

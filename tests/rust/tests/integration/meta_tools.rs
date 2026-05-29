@@ -459,6 +459,69 @@ async fn search_default_empty_suggests_widen_or_bind() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn search_tools_first_meta_call_resolves_bound_workspace() {
+    let f = Fixture::new().await;
+    let root = "/tmp/mcpmux-root-race-first-search";
+    let fs_id = github_only_fs(&f).await;
+
+    f.session_roots.set_roots_capable(&f.session_id, true);
+    let binding = WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, fs_id.clone());
+    f.binding_repo.create(&binding).await.unwrap();
+    // Outcome of ensure_roots_probed before meta-tool dispatch (no prior tools/list).
+    f.session_roots.set(&f.session_id, [root]);
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("scope"), Some(&json!("active_only")));
+    assert!(
+        body.get("total").and_then(|v| v.as_u64()).unwrap_or(0) >= 1,
+        "bound workspace should surface active tools on first search: {body}"
+    );
+    let tools = body.get("tools").unwrap().as_array().unwrap();
+    assert!(
+        tools
+            .iter()
+            .any(|t| t.get("qualified_name") == Some(&json!("github_create_issue"))),
+        "expected bound github tool in first search_tools result: {tools:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_pending_roots_returns_empty_active_only() {
+    let f = Fixture::new().await;
+    let root = "/tmp/mcpmux-root-race-pending";
+    let fs_id = github_only_fs(&f).await;
+
+    f.session_roots.set_roots_capable(&f.session_id, true);
+    let binding = WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, fs_id);
+    f.binding_repo.create(&binding).await.unwrap();
+    // Binding exists but roots not probed yet — PendingRoots → empty grants.
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("total"), Some(&json!(0)));
+    assert_eq!(body.get("scope"), Some(&json!("active_only")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_include_inactive_surfaces_bindable_github() {
     let f = Fixture::new().await;
     let fs_id = github_only_fs(&f).await;
