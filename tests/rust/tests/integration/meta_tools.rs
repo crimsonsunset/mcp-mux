@@ -1015,7 +1015,7 @@ async fn bind_current_workspace_creates_binding_with_normalized_root() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bind_current_workspace_updates_existing_binding_for_same_root() {
+async fn bind_current_workspace_layers_onto_existing_binding() {
     let f = Fixture::new().await;
     f.attach_auto_publisher(ApprovalDecision::AllowOnce);
     let input = if cfg!(windows) {
@@ -1060,7 +1060,114 @@ async fn bind_current_workspace_updates_existing_binding_for_same_root() {
     assert_eq!(bindings.len(), 1, "must not insert a second binding row");
     assert_eq!(bindings[0].id, starter.id, "must reuse existing binding id");
     assert_eq!(bindings[0].workspace_root, normalized);
-    assert_eq!(bindings[0].feature_set_ids, vec![fs_full_id.to_string()]);
+    assert_eq!(bindings[0].feature_set_ids.len(), 2);
+    assert!(
+        bindings[0]
+            .feature_set_ids
+            .contains(&f.fs_android_id.to_string())
+    );
+    assert!(
+        bindings[0]
+            .feature_set_ids
+            .contains(&fs_full_id.to_string())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bind_current_workspace_rebind_is_idempotent() {
+    let f = Fixture::new().await;
+    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
+    let input = if cfg!(windows) {
+        "D:\\Projects\\Android\\Rebind\\"
+    } else {
+        "/home/me/projects/android/rebind/"
+    };
+    f.session_roots.set(&f.session_id, [input]);
+    let fs_id = github_only_fs(&f).await;
+    let args = json!({ "feature_set_id": fs_id });
+
+    f.registry
+        .call(
+            "mcpmux_bind_current_workspace",
+            &f.client_id,
+            Some(&f.session_id),
+            args.clone(),
+        )
+        .await
+        .unwrap();
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_bind_current_workspace",
+            &f.client_id,
+            Some(&f.session_id),
+            args,
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("already_bound"), Some(&json!(true)));
+
+    let bindings = f.binding_repo.list_for_space(&f.space_id).await.unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0].feature_set_ids, vec![fs_id]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bind_current_workspace_second_session_inherits_binding() {
+    let f = Fixture::new().await;
+    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
+    let input = if cfg!(windows) {
+        "D:\\Projects\\Android\\Persist\\"
+    } else {
+        "/home/me/projects/android/persist/"
+    };
+    f.session_roots.set_roots_capable(&f.session_id, true);
+    f.session_roots.set(&f.session_id, [input]);
+    let fs_id = github_only_fs(&f).await;
+
+    f.registry
+        .call(
+            "mcpmux_bind_current_workspace",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "feature_set_id": fs_id }),
+        )
+        .await
+        .unwrap();
+
+    let new_session = "sess-bind-inherit";
+    f.session_roots.set_roots_capable(new_session, true);
+    f.session_roots.set(new_session, [input]);
+
+    let resolved = f
+        .registry
+        .context()
+        .resolver
+        .resolve(Some(new_session), Some(&f.client_id))
+        .await
+        .unwrap();
+    assert!(
+        resolved
+            .feature_set_ids
+            .iter()
+            .any(|id| id == &fs_id),
+        "second session should resolve the bound FeatureSet"
+    );
+
+    let tools = f
+        .feature_service
+        .get_tools_for_grants(
+            &f.space_id.to_string(),
+            &resolved.feature_set_ids,
+            Some(new_session),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].server_id, "github");
 }
 
 #[tokio::test(flavor = "multi_thread")]

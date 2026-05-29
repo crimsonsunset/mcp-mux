@@ -813,14 +813,73 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .any(|feature| feature.qualified_name() == params.name.as_ref());
 
             if !is_surfaced {
-                let message = crate::pool::format_direct_call_redirect(
-                    &params.name,
-                    &server_id,
-                    &actual_tool_name,
-                );
+                let invokable = self
+                    .services
+                    .pool_services
+                    .feature_service
+                    .get_invokable_tools_for_grants(&space_id_str, &feature_set_ids, session_id)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to get invokable tools: {}", e),
+                            None,
+                        )
+                    })?;
+                let is_invokable = invokable.iter().any(|feature| {
+                    feature.qualified_name() == params.name.as_ref() && feature.is_available
+                });
+
+                let message = if !is_invokable {
+                    let inactive = self
+                        .services
+                        .pool_services
+                        .feature_service
+                        .list_inactive_discovery_tools(
+                            &space_id_str,
+                            &feature_set_ids,
+                            session_id,
+                        )
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("Failed to list inactive tools: {}", e),
+                                None,
+                            )
+                        })?;
+                    if let Some(entry) = inactive.iter().find(|candidate| {
+                        candidate.feature.qualified_name() == params.name.as_ref()
+                    }) {
+                        format!(
+                            "Tool '{}' is inactive for this workspace → \
+                             mcpmux_bind_current_workspace({{ \"feature_set_id\": \"{}\" }}) \
+                             (discover bundles via mcpmux_search_tools with include_inactive: true \
+                             or mcpmux_list_feature_sets)",
+                            params.name, entry.bindable_feature_set_id
+                        )
+                    } else {
+                        format!(
+                            "Tool '{}' is not invokable with current grants → \
+                             mcpmux_search_tools({{ \"include_inactive\": true }}) then \
+                             mcpmux_bind_current_workspace with the bindable feature_set_id",
+                            params.name
+                        )
+                    }
+                } else {
+                    crate::pool::format_direct_call_redirect(
+                        &params.name,
+                        &server_id,
+                        &actual_tool_name,
+                    )
+                };
+
+                let error_code = if is_invokable {
+                    "use_invoke_tool"
+                } else {
+                    "bind_feature_set"
+                };
                 return Ok(CallToolResult::error(vec![Content::text(
                     serde_json::json!({
-                        "error": "use_invoke_tool",
+                        "error": error_code,
                         "message": message,
                     })
                     .to_string(),

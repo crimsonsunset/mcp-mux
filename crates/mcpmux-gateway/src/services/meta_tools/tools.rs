@@ -201,8 +201,8 @@ impl MetaTool for ListFeatureSetsTool {
         "List every FeatureSet defined in the caller's resolved Space — \
          built-ins and custom. Each entry carries `id`, `name`, `description`, \
          `type`, `is_builtin`, and `status` (`active` when bound to this \
-         workspace, `inactive` when available to bind). Use inactive entries' \
-         `id` with mcpmux_bind_current_workspace."
+         workspace, `inactive` when available to bind). To activate capability, \
+         call mcpmux_bind_current_workspace with an inactive entry's `id`."
     }
 
     fn input_schema(&self) -> Value {
@@ -265,8 +265,9 @@ impl MetaTool for ListServersTool {
         "List every MCP server installed in the caller's resolved Space with \
          a coarse status per server: enabled_via_binding, enabled_via_session, \
          disabled_via_session, or inactive. Inactive servers include \
-         `bindable_feature_set_ids` for mcpmux_bind_current_workspace. Clone \
-         installs include optional `cloned_from` (source server_id)."
+         `bindable_feature_set_ids` — pass one to mcpmux_bind_current_workspace \
+         to activate persistently. Clone installs include optional `cloned_from` \
+         (source server_id)."
     }
 
     fn input_schema(&self) -> Value {
@@ -425,8 +426,9 @@ impl MetaTool for SearchToolsTool {
         "Search backend tools in the caller's resolved Space. By default only \
          invokable (active/bound) tools match. Set include_inactive: true to \
          also match tools in unbound FeatureSets (annotated with status and \
-         bindable_feature_set_id). Supports query, server_id filter, \
-         detail_level (name | description | schema), and pagination."
+         bindable_feature_set_id — activate via mcpmux_bind_current_workspace). \
+         Supports query, server_id filter, detail_level (name | description | \
+         schema), and pagination."
     }
 
     fn input_schema(&self) -> Value {
@@ -1161,11 +1163,12 @@ impl MetaTool for BindCurrentWorkspaceTool {
     }
 
     fn description(&self) -> &'static str {
-        "Persistently bind the caller's first reported workspace root to the \
-         given FeatureSet inside the caller's resolved Space. Every future \
-         connection that reports the same root (or a subdirectory) will \
-         resolve to this FeatureSet. Requires user approval and the calling \
-         client MUST have declared MCP roots."
+        "Canonical activation path: persistently append an existing FeatureSet \
+         onto the caller's workspace binding (layers with existing bundles, \
+         deduped). Use after mcpmux_search_tools (include_inactive: true) or \
+         mcpmux_list_feature_sets to obtain feature_set_id. Every future \
+         connection reporting the same root inherits the binding. Requires \
+         approval; the client MUST have declared MCP roots."
     }
 
     fn input_schema(&self) -> Value {
@@ -1206,8 +1209,9 @@ impl MetaTool for BindCurrentWorkspaceTool {
             .unwrap_or_else(|| fs_id.to_string());
 
         let summary = format!(
-            "Bind workspace '{normalized}' in this Space to FeatureSet '{fs_name}'. \
-             Affects every future connection that reports this path."
+            "Append FeatureSet '{fs_name}' to workspace '{normalized}' binding \
+             (existing bundles preserved). Affects every future connection that \
+             reports this path."
         );
 
         let binding_repo = call.ctx.binding_repo.clone();
@@ -1227,34 +1231,48 @@ impl MetaTool for BindCurrentWorkspaceTool {
                     .into_iter()
                     .find(|b| b.workspace_root == normalized);
 
-                let binding_id = if let Some(mut binding) = existing {
-                    binding.space_id = space_id;
-                    binding.feature_set_ids = vec![fs_id_str.clone()];
-                    binding.updated_at = chrono::Utc::now();
-                    binding_repo.update(&binding).await?;
-                    emit_workspace_binding_changed(&event_tx, space_id, &normalized);
-                    info!(
-                        %space_id,
-                        binding_id = %binding.id,
-                        workspace_root = %normalized,
-                        feature_set_id = %fs_id,
-                        "[meta_tools] bind_current_workspace updated existing binding",
-                    );
-                    binding.id
-                } else {
-                    let binding =
-                        WorkspaceBinding::new(normalized.clone(), space_id, fs_id_str.clone());
-                    let binding_id = binding.id;
-                    binding_repo.create(&binding).await?;
-                    info!(
-                        %space_id,
-                        binding_id = %binding_id,
-                        workspace_root = %normalized,
-                        feature_set_id = %fs_id,
-                        "[meta_tools] bind_current_workspace created binding",
-                    );
-                    binding_id
-                };
+                let (binding_id, feature_set_ids, already_bound) =
+                    if let Some(mut binding) = existing {
+                        binding.space_id = space_id;
+                        let already_bound = binding
+                            .feature_set_ids
+                            .iter()
+                            .any(|id| id == &fs_id_str);
+                        if !already_bound {
+                            binding.feature_set_ids.push(fs_id_str.clone());
+                            binding.updated_at = chrono::Utc::now();
+                            binding_repo.update(&binding).await?;
+                            emit_workspace_binding_changed(&event_tx, space_id, &normalized);
+                        }
+                        info!(
+                            %space_id,
+                            binding_id = %binding.id,
+                            workspace_root = %normalized,
+                            feature_set_id = %fs_id,
+                            already_bound,
+                            feature_set_count = binding.feature_set_ids.len(),
+                            "[meta_tools] bind_current_workspace updated existing binding",
+                        );
+                        (
+                            binding.id,
+                            binding.feature_set_ids.clone(),
+                            already_bound,
+                        )
+                    } else {
+                        let binding =
+                            WorkspaceBinding::new(normalized.clone(), space_id, fs_id_str.clone());
+                        let binding_id = binding.id;
+                        let feature_set_ids = binding.feature_set_ids.clone();
+                        binding_repo.create(&binding).await?;
+                        info!(
+                            %space_id,
+                            binding_id = %binding_id,
+                            workspace_root = %normalized,
+                            feature_set_id = %fs_id,
+                            "[meta_tools] bind_current_workspace created binding",
+                        );
+                        (binding_id, feature_set_ids, false)
+                    };
 
                 emit_tools_list_changed(&event_tx, space_id);
                 Ok(text_result(json!({
@@ -1262,6 +1280,8 @@ impl MetaTool for BindCurrentWorkspaceTool {
                     "binding_id": binding_id,
                     "workspace_root": normalized,
                     "feature_set_id": fs_id,
+                    "feature_set_ids": feature_set_ids,
+                    "already_bound": already_bound,
                 })))
             },
         )
