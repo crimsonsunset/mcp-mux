@@ -570,16 +570,6 @@ async fn read_endpoints_match_bridge_for_core_p4_routes() {
     assert_get_matches_bridge(
         &harness,
         &client,
-        "/api/v1/session-overrides",
-        bridge_read::list_session_overrides(&harness.bridge, None)
-            .await
-            .expect("bridge list session overrides"),
-    )
-    .await;
-
-    assert_get_matches_bridge(
-        &harness,
-        &client,
         "/api/v1/settings/startup",
         bridge_read::get_startup_settings(&harness.bridge)
             .await

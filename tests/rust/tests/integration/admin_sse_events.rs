@@ -271,12 +271,3 @@ async fn sse_oauth_client_changed_matches_tauri_shape() {
     )
     .await;
 }
-
-#[tokio::test(flavor = "multi_thread")]
-async fn sse_session_overrides_changed_matches_tauri_shape() {
-    assert_sse_matches_direct_emit(
-        "session-overrides-changed",
-        serde_json::json!({ "session_id": "sess-1" }),
-    )
-    .await;
-}

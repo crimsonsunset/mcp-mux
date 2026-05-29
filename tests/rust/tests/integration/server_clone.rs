@@ -8,7 +8,7 @@ use mcpmux_core::{
     ServerDefinition, ServerDiscoveryService, ServerFeature, ServerFeatureRepository, ServerSource,
     SpaceRepository, TransportConfig, TransportMetadata,
 };
-use mcpmux_gateway::{FeatureService, PrefixCacheService, SessionOverrideRegistry};
+use mcpmux_gateway::{FeatureService, PrefixCacheService};
 use mcpmux_storage::{
     generate_master_key, FieldEncryptor, SqliteInstalledServerRepository,
     SqliteServerFeatureRepository, SqliteSpaceRepository,
@@ -54,7 +54,6 @@ impl CloneFixture {
             feature_repo.clone(),
             Arc::new(tests::mocks::MockFeatureSetRepository::new()),
             prefix_cache.clone(),
-            SessionOverrideRegistry::new(),
         ));
 
         let service = ServerAppService::new(

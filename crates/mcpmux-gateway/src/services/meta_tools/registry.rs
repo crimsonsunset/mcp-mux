@@ -23,17 +23,12 @@ use super::invoke_backend::InvokeToolBackend;
 use crate::pool::{FeatureService, ServerManager};
 use crate::services::{
     FeatureSetResolverService, PromptDiscoveryService, ResourceDiscoveryService,
-    SessionOverrideRegistry, SessionRootsRegistry, ToolDiscoveryService,
+    SessionRootsRegistry, ToolDiscoveryService,
 };
 
 /// App-settings key that toggles the entire `mcpmux_*` namespace.
 /// Present + "false" → hidden; missing or anything else → enabled.
 pub const META_TOOLS_ENABLED_KEY: &str = "gateway.meta_tools_enabled";
-
-/// When `"true"`, session-scope enable/disable routes through the approval
-/// broker. Default (missing / unparseable): auto-allow.
-pub const SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY: &str =
-    "gateway.session_overrides_require_approval";
 
 /// Context injected into every meta-tool invocation.
 ///
@@ -57,7 +52,6 @@ pub struct MetaToolContext {
     /// Backend read/fetch path — required for `mcpmux_read_resource` / `mcpmux_fetch_prompt`.
     pub disclosure_backend: Option<Arc<dyn DisclosureBackend>>,
     pub session_roots: Arc<SessionRootsRegistry>,
-    pub session_overrides: Arc<SessionOverrideRegistry>,
     pub approval_broker: Arc<ApprovalBroker>,
     /// Broadcast domain events (e.g. ToolsChanged) so MCPNotifier can push
     /// `tools/list_changed` to connected peers after a write mutates state.
@@ -84,7 +78,7 @@ pub struct MetaToolCall<'a> {
     pub args: Value,
     pub ctx: &'a MetaToolContext,
     /// Write tools set this before returning `Ok` to override the default
-    /// `"allow_once"` audit decision (e.g. `"session_override"`).
+    /// `"allow_once"` audit decision (e.g. workspace bind).
     pub audit_decision: Arc<Mutex<Option<&'static str>>>,
 }
 

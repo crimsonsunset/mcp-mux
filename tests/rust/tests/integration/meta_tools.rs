@@ -23,8 +23,7 @@ use mcpmux_gateway::pool::{
 };
 use mcpmux_gateway::services::{
     meta_tools, ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher,
-    FeatureSetResolverService, MetaToolRegistry, PrefixCacheService, SessionOverrideRegistry,
-    SessionRootsRegistry,
+    FeatureSetResolverService, MetaToolRegistry, PrefixCacheService, SessionRootsRegistry,
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
@@ -45,7 +44,6 @@ struct Fixture {
     binding_repo: Arc<dyn WorkspaceBindingRepository>,
     installed_server_repo: Arc<dyn InstalledServerRepository>,
     session_roots: Arc<SessionRootsRegistry>,
-    session_overrides: Arc<SessionOverrideRegistry>,
     feature_service: Arc<FeatureService>,
     space_id: Uuid,
     /// Opaque client identity (UUID-as-string here; in production for DCR
@@ -222,7 +220,6 @@ impl Fixture {
         client_repo.create(&client).await.unwrap();
 
         let session_roots = SessionRootsRegistry::new();
-        let session_overrides = SessionOverrideRegistry::new();
         let session_id = "sess-meta".to_string();
 
         let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
@@ -238,7 +235,6 @@ impl Fixture {
             server_feature_repo.clone(),
             feature_set_repo.clone(),
             prefix_cache.clone(),
-            session_overrides.clone(),
         ));
 
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
@@ -259,7 +255,6 @@ impl Fixture {
             None,
             None,
             session_roots.clone(),
-            session_overrides.clone(),
             broker.clone(),
             tx,
             None,
@@ -275,7 +270,6 @@ impl Fixture {
             binding_repo,
             installed_server_repo,
             session_roots,
-            session_overrides,
             feature_service,
             space_id,
             client_id,
@@ -484,11 +478,7 @@ async fn bind_does_not_promote_tools_into_advertised_list() {
 
     let advertised = f
         .feature_service
-        .get_advertised_tools_for_grants(
-            &f.space_id.to_string(),
-            &[fs_id],
-            Some(&f.session_id),
-        )
+        .get_advertised_tools_for_grants(&f.space_id.to_string(), &[fs_id])
         .await
         .unwrap();
     assert!(
@@ -511,6 +501,21 @@ fn server_status(body: &Value, server_id: &str) -> String {
         .as_str()
         .unwrap()
         .to_string()
+}
+
+async fn github_only_fs(f: &Fixture) -> String {
+    let mut fs = FeatureSet::new_custom("GitHub only", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: f.github_tool_id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    let id = fs.id.clone();
+    f.feature_set_repo.create(&fs).await.unwrap();
+    id
 }
 
 async fn bind_github_only_to_session_root(f: &Fixture) -> String {
@@ -600,28 +605,6 @@ async fn list_servers_shows_enabled_via_binding() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_servers_shows_session_override_statuses() {
-    let f = Fixture::new().await;
-    bind_github_only_to_session_root(&f).await;
-    f.session_overrides.enable(&f.session_id, "firebase");
-    f.session_overrides.disable(&f.session_id, "github");
-
-    let result = f
-        .registry
-        .call(
-            "mcpmux_list_servers",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({}),
-        )
-        .await
-        .unwrap();
-    let body = Fixture::result_json(&result);
-    assert_eq!(server_status(&body, "github"), "disabled_via_session");
-    assert_eq!(server_status(&body, "firebase"), "enabled_via_session");
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn list_servers_includes_cloned_from_for_clone_installs() {
     let f = Fixture::new().await;
     let space_id = f.space_id.to_string();
@@ -679,53 +662,6 @@ async fn list_servers_includes_cloned_from_for_clone_installs() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn enable_server_adds_tools_on_next_list() {
-    let f = Fixture::new().await;
-    let result = f
-        .registry
-        .call(
-            "mcpmux_enable_server",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({ "server_id": "github" }),
-        )
-        .await
-        .unwrap();
-    assert!(!Fixture::is_error(&result));
-
-    let tools = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &[], Some(&f.session_id))
-        .await
-        .unwrap();
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].server_id, "github");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn disable_server_removes_tools_from_list() {
-    let f = Fixture::new().await;
-    f.session_overrides.enable(&f.session_id, "github");
-
-    f.registry
-        .call(
-            "mcpmux_disable_server",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({ "server_id": "github" }),
-        )
-        .await
-        .unwrap();
-
-    let tools = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &[], Some(&f.session_id))
-        .await
-        .unwrap();
-    assert!(tools.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn enable_server_workspace_persists_on_binding() {
     let f = Fixture::new().await;
     f.attach_auto_publisher(ApprovalDecision::AllowOnce);
@@ -737,7 +673,7 @@ async fn enable_server_workspace_persists_on_binding() {
             "mcpmux_enable_server",
             &f.client_id,
             Some(&f.session_id),
-            json!({ "server_id": "firebase", "scope": "workspace" }),
+            json!({ "server_id": "firebase" }),
         )
         .await
         .unwrap();
@@ -754,14 +690,9 @@ async fn enable_server_workspace_persists_on_binding() {
         .unwrap();
     assert_eq!(binding.feature_set_ids.len(), 2);
 
-    let new_session = "sess-restart-sim";
     let tools = f
         .feature_service
-        .get_tools_for_grants(
-            &f.space_id.to_string(),
-            &binding.feature_set_ids,
-            Some(new_session),
-        )
+        .get_tools_for_grants(&f.space_id.to_string(), &binding.feature_set_ids)
         .await
         .unwrap();
     let servers: std::collections::HashSet<_> =
@@ -781,7 +712,7 @@ async fn disable_server_workspace_removes_server_all_from_binding() {
             "mcpmux_enable_server",
             &f.client_id,
             Some(&f.session_id),
-            json!({ "server_id": "firebase", "scope": "workspace" }),
+            json!({ "server_id": "firebase" }),
         )
         .await
         .unwrap();
@@ -791,7 +722,7 @@ async fn disable_server_workspace_removes_server_all_from_binding() {
             "mcpmux_disable_server",
             &f.client_id,
             Some(&f.session_id),
-            json!({ "server_id": "firebase", "scope": "workspace" }),
+            json!({ "server_id": "firebase" }),
         )
         .await
         .unwrap();
@@ -807,7 +738,7 @@ async fn disable_server_workspace_removes_server_all_from_binding() {
 
     let tools = f
         .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &binding.feature_set_ids, None)
+        .get_tools_for_grants(&f.space_id.to_string(), &binding.feature_set_ids)
         .await
         .unwrap();
     assert_eq!(tools.len(), 1);
@@ -825,40 +756,10 @@ async fn enable_server_workspace_requires_binding() {
     let result = f
         .call_tool_as_handler_would(
             "mcpmux_enable_server",
-            json!({ "server_id": "github", "scope": "workspace" }),
+            json!({ "server_id": "github" }),
         )
         .await;
     assert!(Fixture::is_error(&result));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn enable_server_emits_session_override_audit_decision() {
-    let mut f = Fixture::new().await;
-    f.registry
-        .call(
-            "mcpmux_enable_server",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({ "server_id": "github" }),
-        )
-        .await
-        .unwrap();
-
-    let evt = tokio::time::timeout(Duration::from_millis(200), f.event_rx.recv())
-        .await
-        .expect("receive within 200ms")
-        .expect("event");
-    match evt {
-        DomainEvent::MetaToolInvoked {
-            tool_name,
-            decision,
-            ..
-        } => {
-            assert_eq!(tool_name, "mcpmux_enable_server");
-            assert_eq!(decision, "session_override");
-        }
-        other => panic!("unexpected event: {other:?}"),
-    }
 }
 
 // `describe_resolution` and `describe_workspace` were both removed at the
@@ -1159,11 +1060,7 @@ async fn bind_current_workspace_second_session_inherits_binding() {
 
     let tools = f
         .feature_service
-        .get_tools_for_grants(
-            &f.space_id.to_string(),
-            &resolved.feature_set_ids,
-            Some(new_session),
-        )
+        .get_tools_for_grants(&f.space_id.to_string(), &resolved.feature_set_ids)
         .await
         .unwrap();
     assert_eq!(tools.len(), 1);
@@ -1276,7 +1173,6 @@ async fn bare_registry(
         server_feature_repo.clone(),
         feature_set_repo.clone(),
         prefix_cache.clone(),
-        SessionOverrideRegistry::new(),
     ));
     let (tx, rx) = broadcast::channel::<DomainEvent>(32);
     let log_manager = test_log_manager();
@@ -1293,7 +1189,6 @@ async fn bare_registry(
         None,
         None,
         SessionRootsRegistry::new(),
-        SessionOverrideRegistry::new(),
         Arc::new(ApprovalBroker::new()),
         tx.clone(),
         settings_repo,
@@ -1400,7 +1295,6 @@ async fn master_switch_toggles_registry_visibility() {
         server_feature_repo.clone(),
         feature_set_repo.clone(),
         prefix_cache.clone(),
-        SessionOverrideRegistry::new(),
     ));
     let (tx, _) = broadcast::channel::<DomainEvent>(16);
     let log_manager = test_log_manager();
@@ -1417,7 +1311,6 @@ async fn master_switch_toggles_registry_visibility() {
         None,
         None,
         SessionRootsRegistry::new(),
-        SessionOverrideRegistry::new(),
         Arc::new(ApprovalBroker::new()),
         tx,
         Some(settings_repo.clone()),
@@ -1444,87 +1337,6 @@ async fn master_switch_toggles_registry_visibility() {
 // Silence unused-import warnings from helper imports that only some tests exercise.
 #[allow(dead_code)]
 fn _unused(_: ApprovalPayload) {}
-
-// ============================================================================
-// Session override composition (Phase 1)
-// ============================================================================
-
-async fn github_only_fs(f: &Fixture) -> String {
-    let mut fs = FeatureSet::new_custom("GitHub only", f.space_id.to_string());
-    fs.members.push(FeatureSetMember {
-        id: Uuid::new_v4().to_string(),
-        feature_set_id: fs.id.clone(),
-        member_type: MemberType::Feature,
-        member_id: f.github_tool_id.to_string(),
-        mode: MemberMode::Include,
-        surfaced: false,
-    });
-    let id = fs.id.clone();
-    f.feature_set_repo.create(&fs).await.unwrap();
-    id
-}
-
-#[tokio::test]
-async fn session_override_deny_bootstrap_enables_server() {
-    let f = Fixture::new().await;
-    f.session_overrides.enable(&f.session_id, "github");
-
-    let tools = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &[], Some(&f.session_id))
-        .await
-        .unwrap();
-
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].server_id, "github");
-    assert_eq!(tools[0].feature_name, "create_issue");
-}
-
-#[tokio::test]
-async fn session_override_disable_mutes_bound_server() {
-    let f = Fixture::new().await;
-    let fs_id = github_only_fs(&f).await;
-
-    let before = f
-        .feature_service
-        .get_tools_for_grants(
-            &f.space_id.to_string(),
-            &[fs_id.clone()],
-            Some(&f.session_id),
-        )
-        .await
-        .unwrap();
-    assert_eq!(before.len(), 1);
-
-    f.session_overrides.disable(&f.session_id, "github");
-
-    let after = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &[fs_id], Some(&f.session_id))
-        .await
-        .unwrap();
-    assert!(after.is_empty());
-}
-
-#[tokio::test]
-async fn session_override_additive_over_binding() {
-    let f = Fixture::new().await;
-    let fs_id = github_only_fs(&f).await;
-
-    f.session_overrides.enable(&f.session_id, "firebase");
-
-    let tools = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &[fs_id], Some(&f.session_id))
-        .await
-        .unwrap();
-
-    assert_eq!(tools.len(), 2);
-    let servers: std::collections::HashSet<_> =
-        tools.iter().map(|t| t.server_id.as_str()).collect();
-    assert!(servers.contains("github"));
-    assert!(servers.contains("firebase"));
-}
 
 // ---------------------------------------------------------------------------
 // Diagnose server (mcpmux_diagnose_server)

@@ -14,7 +14,6 @@ export * from './registry';
 export * from './serverClone';
 export * from './serverFeatures';
 export * from './serverManager';
-export * from './sessionOverrides';
 export * from './settings';
 export * from './spaces';
 export * from './workspaceAppearances';

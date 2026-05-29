@@ -8,7 +8,7 @@ use mcpmux_core::DomainEvent;
 use tokio::sync::broadcast;
 
 use mcpmux_gateway::pool::{FeatureService, ServerManager};
-use mcpmux_gateway::services::{PrefixCacheService, SessionOverrideRegistry};
+use mcpmux_gateway::services::PrefixCacheService;
 
 use crate::mocks::{
     MockCredentialRepository, MockFeatureSetRepository, MockOutboundOAuthRepository,
@@ -59,7 +59,6 @@ impl ServerManagerTestHarness {
             feature_repo.clone(),
             feature_set_repo.clone(),
             prefix_cache.clone(),
-            SessionOverrideRegistry::new(),
         ));
 
         // Create ConnectionService mock
@@ -156,7 +155,6 @@ pub fn test_feature_service() -> (
         feature_repo.clone(),
         feature_set_repo.clone(),
         prefix_cache,
-        SessionOverrideRegistry::new(),
     ));
 
     (service, feature_repo, feature_set_repo)

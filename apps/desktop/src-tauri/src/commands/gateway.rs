@@ -12,7 +12,6 @@
 //! | ------ | -------- |
 //! | EventBus bridge (this module) | `space-changed`, `server-changed`, `server-status-changed`, `server-auth-progress`, `server-features-refreshed`, `feature-set-changed`, `client-changed`, `client-grant-changed`, `gateway-changed`, `mcp-notification`, `session-roots-changed`, `workspace-binding-changed`, `workspace-needs-binding`, `meta-tool-invoked` |
 //! | Direct `app.emit` in `oauth.rs` | `oauth-client-changed` |
-//! | Direct `app.emit` in `session_overrides.rs` | `session-overrides-changed` |
 //!
 //! Web-admin SSE (`GET /api/v1/events`) must fan in **both** paths — merging
 //! emitters in Rust is deferred; this module documents the contract only.
@@ -100,9 +99,7 @@ pub struct GatewayAppState {
     /// Surfaced to the desktop Workspaces tab so users can see + act on
     /// every folder connected clients are currently operating in.
     pub session_roots: Option<Arc<mcpmux_gateway::services::SessionRootsRegistry>>,
-    /// Session-scoped server enable/disable overrides (meta-tool mutations).
-    pub session_overrides: Option<Arc<mcpmux_gateway::services::SessionOverrideRegistry>>,
-    /// Per-session list_changed bridge — used when the UI clears overrides.
+    /// Per-session list_changed bridge for MCP notification fan-out.
     pub mcp_notifier: Option<Arc<mcpmux_gateway::consumers::MCPNotifier>>,
 }
 
@@ -577,7 +574,6 @@ pub async fn start_gateway(
     let server_manager = server.server_manager();
     let grant_service = server.grant_service();
     let session_roots = server.session_roots();
-    let session_overrides = server.session_overrides();
     let mcp_notifier = server.notification_bridge();
 
     // Subscribe to OAuth completions BEFORE spawn so we don't miss early
@@ -623,7 +619,6 @@ pub async fn start_gateway(
     state.grant_service = Some(grant_service);
     state.approval_broker = Some(approval_broker);
     state.session_roots = Some(session_roots);
-    state.session_overrides = Some(session_overrides);
     state.mcp_notifier = Some(mcp_notifier);
     let ui_bus =
         if let Some(admin) = app_handle.try_state::<Arc<tokio::sync::RwLock<AdminServerState>>>() {

@@ -1,7 +1,7 @@
 import { buildQuery } from '../fetch-api.helpers';
 import type { RouteHandler } from '../fetch-api.types';
 
-/** Workspace bindings, appearances, and session override routes. */
+/** Workspace bindings and appearances routes. */
 export const workspacesRoutes: Record<string, RouteHandler> = {
   list_workspace_bindings: () => ({ method: 'GET', path: '/api/v1/workspaces/bindings' }),
   list_workspace_bindings_for_space: (args) => ({
@@ -53,14 +53,5 @@ export const workspacesRoutes: Record<string, RouteHandler> = {
     method: 'POST',
     path: '/api/v1/workspaces/appearances',
     body: { source_path: args.sourcePath },
-  }),
-  list_session_overrides: (args) => ({
-    method: 'GET',
-    path: `/api/v1/session-overrides${buildQuery({ sessionId: args.sessionId })}`,
-  }),
-  clear_session_overrides: (args) => ({
-    method: 'POST',
-    path: '/api/v1/session-overrides/clear',
-    body: { session_id: args.sessionId },
   }),
 };

@@ -84,7 +84,6 @@ pub use pool::{
 // Services module
 pub use services::{
     routing_as_invoke_backend, EventEmitter, GrantService, InvokeToolBackend, PrefixCacheService,
-    SessionOverrideRegistry,
 };
 
 // MCP module (rmcp-based implementation)

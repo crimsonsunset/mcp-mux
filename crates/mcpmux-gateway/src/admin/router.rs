@@ -239,25 +239,12 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/v1/workspaces/icon", get(read::serve_workspace_icon))
         .route(
-            "/api/v1/session-overrides",
-            get(read::list_session_overrides),
-        )
-        .route(
-            "/api/v1/session-overrides/clear",
-            post(write::clear_session_overrides),
-        )
-        .route(
             "/api/v1/settings/startup",
             get(read::get_startup_settings).put(write::update_startup_settings),
         )
         .route(
             "/api/v1/settings/meta-tools-enabled",
             get(read::get_meta_tools_enabled).put(write::set_meta_tools_enabled),
-        )
-        .route(
-            "/api/v1/settings/session-overrides-require-approval",
-            get(read::get_session_overrides_require_approval)
-                .put(write::set_session_overrides_require_approval),
         )
         .route("/api/v1/app/version", get(read::get_version))
         .route("/api/v1/app/bundle-version", get(read::get_bundle_version))

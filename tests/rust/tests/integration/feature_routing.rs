@@ -7,7 +7,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use mcpmux_core::{FeatureSetRepository, ServerFeature, ServerFeatureRepository};
-use mcpmux_gateway::{FeatureService, PrefixCacheService, SessionOverrideRegistry};
+use mcpmux_gateway::{FeatureService, PrefixCacheService};
 use tests::mocks::{MockFeatureSetRepository, MockServerFeatureRepository};
 
 // Helper to create test features
@@ -38,7 +38,6 @@ fn create_feature_service(
         feature_repo as Arc<dyn ServerFeatureRepository>,
         feature_set_repo as Arc<dyn FeatureSetRepository>,
         prefix_cache,
-        SessionOverrideRegistry::new(),
     )
 }
 

@@ -676,11 +676,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_tools_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_tools_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get tools: {}", e), None))?;
 
@@ -753,7 +749,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             let scope = args
                 .get("scope")
                 .and_then(|v| v.as_str())
-                .unwrap_or("session")
+                .unwrap_or("workspace")
                 .to_string();
             return match self
                 .services
@@ -802,7 +798,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .services
                 .pool_services
                 .feature_service
-                .get_advertised_tools_for_grants(&space_id_str, &feature_set_ids, session_id)
+                .get_advertised_tools_for_grants(&space_id_str, &feature_set_ids)
                 .await
                 .map_err(|e| {
                     McpError::internal_error(format!("Failed to get advertised tools: {}", e), None)
@@ -817,7 +813,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                     .services
                     .pool_services
                     .feature_service
-                    .get_invokable_tools_for_grants(&space_id_str, &feature_set_ids, session_id)
+                    .get_invokable_tools_for_grants(&space_id_str, &feature_set_ids)
                     .await
                     .map_err(|e| {
                         McpError::internal_error(
@@ -834,11 +830,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                         .services
                         .pool_services
                         .feature_service
-                        .list_inactive_discovery_tools(
-                            &space_id_str,
-                            &feature_set_ids,
-                            session_id,
-                        )
+                        .list_inactive_discovery_tools(&space_id_str, &feature_set_ids)
                         .await
                         .map_err(|e| {
                             McpError::internal_error(
@@ -895,7 +887,6 @@ impl ServerHandler for McpMuxGatewayHandler {
             .call_tool(
                 space_id,
                 &feature_set_ids,
-                session_id,
                 &params.name,
                 serde_json::to_value(params.arguments.unwrap_or_default()).unwrap_or_default(),
             )
@@ -987,11 +978,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_prompts_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get prompts: {}", e), None))?;
 
@@ -1044,11 +1031,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_prompts_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get advertised prompts: {}", e), None)
@@ -1078,11 +1061,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_fetchable_prompts_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_fetchable_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -1138,11 +1117,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get resources: {}", e), None)
@@ -1185,11 +1160,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_readable_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_readable_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -1207,11 +1178,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get advertised resources: {}", e), None)

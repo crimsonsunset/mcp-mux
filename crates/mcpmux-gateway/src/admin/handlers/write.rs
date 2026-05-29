@@ -11,8 +11,7 @@ use crate::admin::command_bridge::write::{
     DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody,
     InstallServerBody, LogRetentionBody, MetaToolApprovalBody, MetaToolRevokeBody,
     MetaToolsEnabledBody, OAuthClientUpdateBody, OAuthGrantBody, SaveServerInputsBody,
-    SaveSpaceConfigBody, ServerConnectionBody, SessionOverridesBody,
-    SessionOverridesRequireApprovalBody, SetMembersBody, SetServerDisplayNameBody,
+    SaveSpaceConfigBody, ServerConnectionBody, SetMembersBody, SetServerDisplayNameBody,
     SetServerOAuthConnectedBody, StartupSettingsBody, UninstallServerBody, UpdateFeatureSetBody,
     UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
 };
@@ -440,26 +439,6 @@ pub async fn set_meta_tools_enabled(
     Json(body): Json<MetaToolsEnabledBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::set_meta_tools_enabled(&state.bridge, body.enabled)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
-pub async fn set_session_overrides_require_approval(
-    State(state): State<AdminState>,
-    Json(body): Json<SessionOverridesRequireApprovalBody>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::set_session_overrides_require_approval(&state.bridge, body.require_approval)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
-pub async fn clear_session_overrides(
-    State(state): State<AdminState>,
-    Json(body): Json<SessionOverridesBody>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::clear_session_overrides(&state.bridge, body)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

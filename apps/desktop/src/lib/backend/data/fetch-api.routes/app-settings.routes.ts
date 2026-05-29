@@ -5,10 +5,6 @@ import type { RouteHandler } from '../fetch-api.types';
 export const appSettingsRoutes: Record<string, RouteHandler> = {
   get_startup_settings: () => ({ method: 'GET', path: '/api/v1/settings/startup' }),
   get_meta_tools_enabled: () => ({ method: 'GET', path: '/api/v1/settings/meta-tools-enabled' }),
-  get_session_overrides_require_approval: () => ({
-    method: 'GET',
-    path: '/api/v1/settings/session-overrides-require-approval',
-  }),
   get_version: () => ({ method: 'GET', path: '/api/v1/app/version' }),
   get_bundle_version: () => ({ method: 'GET', path: '/api/v1/app/bundle-version' }),
   get_build_info: () => ({ method: 'GET', path: '/api/v1/app/build-info' }),
@@ -34,11 +30,6 @@ export const appSettingsRoutes: Record<string, RouteHandler> = {
     method: 'PUT',
     path: '/api/v1/settings/meta-tools-enabled',
     body: { enabled: args.enabled },
-  }),
-  set_session_overrides_require_approval: (args) => ({
-    method: 'PUT',
-    path: '/api/v1/settings/session-overrides-require-approval',
-    body: { requireApproval: args.requireApproval },
   }),
   clear_server_logs: (args) => ({
     method: 'DELETE',

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::pool::instance::McpClient;
-use crate::services::{PrefixCacheService, SessionOverrideRegistry};
+use crate::services::PrefixCacheService;
 use mcpmux_core::{FeatureSetRepository, FeatureType, ServerFeature, ServerFeatureRepository};
 
 use super::{
@@ -19,7 +19,6 @@ pub struct FeatureService {
     discovery: Arc<FeatureDiscoveryService>,
     resolution: Arc<FeatureResolutionService>,
     routing: Arc<FeatureRoutingService>,
-    session_overrides: Arc<SessionOverrideRegistry>,
 }
 
 impl FeatureService {
@@ -27,7 +26,6 @@ impl FeatureService {
         feature_repo: Arc<dyn ServerFeatureRepository>,
         feature_set_repo: Arc<dyn FeatureSetRepository>,
         prefix_cache: Arc<PrefixCacheService>,
-        session_overrides: Arc<SessionOverrideRegistry>,
     ) -> Self {
         let discovery = Arc::new(FeatureDiscoveryService::new(feature_repo.clone()));
 
@@ -46,7 +44,6 @@ impl FeatureService {
             discovery,
             resolution,
             routing,
-            session_overrides,
         }
     }
 
@@ -97,10 +94,9 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<InactiveDiscoveryEntry>> {
         let invokable = self
-            .get_invokable_tools_for_grants(space_id, feature_set_ids, session_id)
+            .get_invokable_tools_for_grants(space_id, feature_set_ids)
             .await?;
         let invokable_keys: HashSet<(String, String)> = invokable
             .iter()
@@ -117,15 +113,9 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
-        self.get_features_for_grants(
-            space_id,
-            feature_set_ids,
-            session_id,
-            Some(FeatureType::Tool),
-        )
-        .await
+        self.get_features_for_grants(space_id, feature_set_ids, Some(FeatureType::Tool))
+            .await
     }
 
     /// Tools promoted into client `tools/list` (surfaced backend tools only).
@@ -133,14 +123,13 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
         if feature_set_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let invokable = self
-            .get_invokable_tools_for_grants(space_id, feature_set_ids, session_id)
+            .get_invokable_tools_for_grants(space_id, feature_set_ids)
             .await?;
         let surfaced_ids = self
             .resolution
@@ -153,31 +142,24 @@ impl FeatureService {
             .collect())
     }
 
-    /// Resolve granted feature sets to tools, applying session server overrides.
+    /// Resolve granted feature sets to tools.
     pub async fn get_tools_for_grants(
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
-        self.get_invokable_tools_for_grants(space_id, feature_set_ids, session_id)
+        self.get_invokable_tools_for_grants(space_id, feature_set_ids)
             .await
     }
 
-    /// Resolve granted feature sets to prompts, applying session server overrides.
+    /// Resolve granted feature sets to prompts.
     pub async fn get_prompts_for_grants(
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
-        self.get_features_for_grants(
-            space_id,
-            feature_set_ids,
-            session_id,
-            Some(FeatureType::Prompt),
-        )
-        .await
+        self.get_features_for_grants(space_id, feature_set_ids, Some(FeatureType::Prompt))
+            .await
     }
 
     /// Resolve granted feature sets to resources readable via search/read ACL.
@@ -185,10 +167,8 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
-        self.get_resources_for_grants(space_id, feature_set_ids, session_id)
-            .await
+        self.get_resources_for_grants(space_id, feature_set_ids).await
     }
 
     /// Resources promoted into client `resources/list` (surfaced only).
@@ -196,14 +176,13 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
         if feature_set_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let readable = self
-            .get_readable_resources_for_grants(space_id, feature_set_ids, session_id)
+            .get_readable_resources_for_grants(space_id, feature_set_ids)
             .await?;
         let surfaced_ids = self
             .resolution
@@ -221,10 +200,8 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
-        self.get_prompts_for_grants(space_id, feature_set_ids, session_id)
-            .await
+        self.get_prompts_for_grants(space_id, feature_set_ids).await
     }
 
     /// Prompts promoted into client `prompts/list` (surfaced only).
@@ -232,14 +209,13 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
         if feature_set_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let fetchable = self
-            .get_fetchable_prompts_for_grants(space_id, feature_set_ids, session_id)
+            .get_fetchable_prompts_for_grants(space_id, feature_set_ids)
             .await?;
         let surfaced_ids = self
             .resolution
@@ -252,102 +228,26 @@ impl FeatureService {
             .collect())
     }
 
-    /// Resolve granted feature sets to resources, applying session server overrides.
+    /// Resolve granted feature sets to resources.
     pub async fn get_resources_for_grants(
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<ServerFeature>> {
-        self.get_features_for_grants(
-            space_id,
-            feature_set_ids,
-            session_id,
-            Some(FeatureType::Resource),
-        )
-        .await
+        self.get_features_for_grants(space_id, feature_set_ids, Some(FeatureType::Resource))
+            .await
     }
 
-    /// Shared list materialization: binding FS resolution + session overrides.
+    /// Shared list materialization: binding FeatureSet resolution.
     async fn get_features_for_grants(
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
         filter_type: Option<FeatureType>,
     ) -> Result<Vec<ServerFeature>> {
-        let binding_features = self
-            .resolution
-            .resolve_feature_sets(space_id, feature_set_ids, filter_type.clone())
-            .await?;
-
-        let Some(session_id) = session_id else {
-            return Ok(binding_features);
-        };
-
-        let enabled = self.session_overrides.enabled_set(session_id);
-        let disabled = self.session_overrides.disabled_set(session_id);
-
-        if enabled.is_empty() && disabled.is_empty() {
-            return Ok(binding_features);
-        }
-
-        let mut result: Vec<ServerFeature> = binding_features
-            .into_iter()
-            .filter(|f| !disabled.contains(&f.server_id))
-            .collect();
-
-        let binding_server_ids: HashSet<String> =
-            result.iter().map(|f| f.server_id.clone()).collect();
-
-        if feature_set_ids.is_empty() {
-            let mut active_servers = binding_server_ids;
-            active_servers.extend(
-                enabled
-                    .iter()
-                    .filter(|server_id| !disabled.contains(*server_id))
-                    .cloned(),
-            );
-
-            if active_servers.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            let all_features = self
-                .resolution
-                .get_all_features_for_space(space_id, filter_type)
-                .await?;
-
-            return Ok(all_features
-                .into_iter()
-                .filter(|f| f.is_available && active_servers.contains(&f.server_id))
-                .collect());
-        }
-
-        let extra_enabled: HashSet<String> = enabled
-            .iter()
-            .filter(|server_id| {
-                !disabled.contains(*server_id) && !binding_server_ids.contains(*server_id)
-            })
-            .cloned()
-            .collect();
-
-        if extra_enabled.is_empty() {
-            return Ok(result);
-        }
-
-        let all_features = self
-            .resolution
-            .get_all_features_for_space(space_id, filter_type)
-            .await?;
-
-        result.extend(
-            all_features
-                .into_iter()
-                .filter(|f| f.is_available && extra_enabled.contains(&f.server_id)),
-        );
-
-        Ok(result)
+        self.resolution
+            .resolve_feature_sets(space_id, feature_set_ids, filter_type)
+            .await
     }
 
     // Delegate to FeatureRoutingService (with type-specific helpers)

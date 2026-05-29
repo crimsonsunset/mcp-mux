@@ -50,7 +50,6 @@ impl InvokeToolBackend for CannedInvokeBackend {
         &self,
         _space_id: Uuid,
         _feature_set_ids: &[String],
-        _session_id: Option<&str>,
         qualified_name: &str,
         _arguments: Value,
     ) -> Result<ToolCallResult> {

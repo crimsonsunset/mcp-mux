@@ -9,7 +9,7 @@ use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
     meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService,
     FeatureSetResolverService, GrantService, MetaToolRegistry, PrefixCacheService,
-    SessionOverrideRegistry, SessionRootsRegistry, SpaceResolverService,
+    SessionRootsRegistry, SpaceResolverService,
 };
 use mcpmux_core::DomainEvent;
 
@@ -39,9 +39,6 @@ pub struct ServiceContainer {
 
     /// Registry of per-session workspace roots (populated from MCP `roots/list`).
     pub session_roots: Arc<SessionRootsRegistry>,
-
-    /// Per-session server enable/disable overrides (in-memory, process-lifetime).
-    pub session_overrides: Arc<SessionOverrideRegistry>,
 
     /// Broker that asks the desktop UI for user approval on meta-tool writes.
     /// Shared with the Tauri layer so it can attach a publisher + respond.
@@ -85,12 +82,10 @@ impl ServiceContainer {
         ));
 
         // Create pool services using factory (pass event_tx and prefix_cache)
-        let session_overrides = SessionOverrideRegistry::new();
         let pool_services = ServiceFactory::create_pool_services(
             deps,
             domain_event_tx.clone(),
             prefix_cache_service.clone(),
-            session_overrides.clone(),
         );
 
         // Extract server_manager before moving pool_services
@@ -141,7 +136,6 @@ impl ServiceContainer {
                 pool_services.pool_service.clone(),
             )),
             session_roots.clone(),
-            session_overrides.clone(),
             approval_broker.clone(),
             domain_event_tx.clone(),
             deps.settings_repo.clone(),
@@ -172,7 +166,6 @@ impl ServiceContainer {
             authorization_service,
             feature_set_resolver,
             session_roots,
-            session_overrides,
             approval_broker,
             meta_tool_registry,
             space_resolver_service,

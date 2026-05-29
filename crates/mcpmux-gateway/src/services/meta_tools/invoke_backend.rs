@@ -17,7 +17,6 @@ pub trait InvokeToolBackend: Send + Sync {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
         qualified_name: &str,
         arguments: Value,
     ) -> Result<ToolCallResult>;
@@ -29,19 +28,10 @@ impl InvokeToolBackend for RoutingService {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
         qualified_name: &str,
         arguments: Value,
     ) -> Result<ToolCallResult> {
-        RoutingService::call_tool(
-            self,
-            space_id,
-            feature_set_ids,
-            session_id,
-            qualified_name,
-            arguments,
-        )
-        .await
+        RoutingService::call_tool(self, space_id, feature_set_ids, qualified_name, arguments).await
     }
 }
 

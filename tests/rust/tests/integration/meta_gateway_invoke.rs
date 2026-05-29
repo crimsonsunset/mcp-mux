@@ -17,8 +17,7 @@ use mcpmux_gateway::services::meta_tools::invoke::{
 };
 use mcpmux_gateway::services::{
     meta_tools, meta_tools::DisclosureBackend, ApprovalBroker, FeatureSetResolverService,
-    InvokeToolBackend, MetaToolRegistry, PrefixCacheService, SessionOverrideRegistry,
-    SessionRootsRegistry,
+    InvokeToolBackend, MetaToolRegistry, PrefixCacheService, SessionRootsRegistry,
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
@@ -35,7 +34,6 @@ struct Fixture {
     registry: Arc<MetaToolRegistry>,
     feature_service: Arc<FeatureService>,
     prefix_cache: Arc<PrefixCacheService>,
-    session_overrides: Arc<SessionOverrideRegistry>,
     session_roots: Arc<SessionRootsRegistry>,
     inbound_client_repo: Arc<InboundClientRepository>,
     server_feature_repo: Arc<dyn ServerFeatureRepository>,
@@ -113,7 +111,6 @@ impl Fixture {
         feature_set_repo.create(&grant_all).await.unwrap();
 
         let session_roots = SessionRootsRegistry::new();
-        let session_overrides = SessionOverrideRegistry::new();
         let session_id = "sess-invoke".to_string();
 
         let inbound_client_repo = Arc::new(InboundClientRepository::new(db.clone()));
@@ -129,7 +126,6 @@ impl Fixture {
             server_feature_repo.clone(),
             feature_set_repo.clone(),
             prefix_cache.clone(),
-            session_overrides.clone(),
         ));
 
         let broker = Arc::new(ApprovalBroker::new().with_timeout(Duration::from_millis(500)));
@@ -173,7 +169,6 @@ impl Fixture {
             invoke_backend,
             disclosure_backend,
             session_roots.clone(),
-            session_overrides.clone(),
             broker,
             tx,
             None,
@@ -185,7 +180,6 @@ impl Fixture {
             registry,
             feature_service,
             prefix_cache,
-            session_overrides,
             session_roots,
             inbound_client_repo,
             server_feature_repo,
@@ -268,7 +262,6 @@ async fn invoke_tool_applies_filter_end_to_end() {
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -320,15 +313,14 @@ async fn advertised_tools_empty_without_surfaced_members() {
 
     let advertised = f
         .feature_service
-        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert!(advertised.is_empty(), "no surfaced members by default");
 
-    f.session_overrides.enable(&f.session_id, "github");
     let invokable = f
         .feature_service
-        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert_eq!(invokable.len(), 1);
@@ -348,7 +340,7 @@ async fn github_read_path_enable_search_schema() {
         .expect("github server listed");
     assert_eq!(github.get("status"), Some(&json!("inactive")));
 
-    f.session_overrides.enable(&f.session_id, "github");
+    f.grant_github_feature_set().await;
 
     let search = f
         .call(
@@ -397,7 +389,7 @@ async fn invoke_denied_when_server_inactive() {
     let body = Fixture::result_json(&result);
     let message = body.get("message").and_then(|m| m.as_str()).unwrap_or("");
     assert!(message.contains("inactive"));
-    assert!(message.contains("mcpmux_enable_server"));
+    assert!(message.contains("mcpmux_bind_current_workspace"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -596,12 +588,10 @@ async fn partial_feature_set_binding_limits_search_and_invoke() {
     });
     f.feature_set_repo.create(&partial_fs).await.unwrap();
     f.grant_feature_set(&partial_fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
     let fs_ids = vec![partial_fs.id.clone()];
     let invokable = f
         .feature_service
-        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert_eq!(invokable.len(), 1);
@@ -646,12 +636,10 @@ async fn surfaced_tool_appears_in_advertised_set() {
     });
     f.feature_set_repo.create(&surfaced_fs).await.unwrap();
 
-    f.session_overrides.enable(&f.session_id, "github");
-
     let fs_ids = vec![surfaced_fs.id.clone()];
     let advertised = f
         .feature_service
-        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
 
@@ -697,17 +685,15 @@ async fn direct_backend_call_gate_allows_surfaced_only() {
     });
     f.feature_set_repo.create(&mixed_fs).await.unwrap();
     f.grant_feature_set(&mixed_fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
     let fs_ids = vec![mixed_fs.id.clone()];
     let invokable = f
         .feature_service
-        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_invokable_tools_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     let advertised = f
         .feature_service
-        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_advertised_tools_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
 
@@ -728,7 +714,6 @@ async fn direct_backend_call_gate_allows_surfaced_only() {
 async fn get_tool_schema_accepts_string_array() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -750,7 +735,6 @@ async fn get_tool_schema_accepts_string_array() {
 async fn get_tool_schema_accepts_json_encoded_array_string() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -771,7 +755,6 @@ async fn get_tool_schema_accepts_json_encoded_array_string() {
 async fn get_tool_schema_reports_missing_tools() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -807,7 +790,6 @@ async fn invoke_max_bytes_truncates_json_array_without_max_rows() {
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -830,7 +812,6 @@ async fn invoke_max_bytes_truncates_json_array_without_max_rows() {
 async fn get_tool_schema_reports_empty_string_in_missing() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -882,9 +863,6 @@ async fn invoke_filter_shapes_structured_insights_payload() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides
-        .enable(&f.session_id, "posthog-personal-gait");
-
     let result = f
         .call(
             "mcpmux_invoke_tool",
@@ -957,9 +935,6 @@ async fn invoke_filter_shapes_posthog_paginated_results_in_content_json() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides
-        .enable(&f.session_id, "posthog-personal-gait");
-
     let result = f
         .call(
             "mcpmux_invoke_tool",
@@ -1019,9 +994,6 @@ async fn invoke_filter_shapes_posthog_paginated_results_in_content_yaml() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides
-        .enable(&f.session_id, "posthog-personal-gait");
-
     let result = f
         .call(
             "mcpmux_invoke_tool",
@@ -1067,7 +1039,6 @@ async fn invoke_filter_aggregates_multi_block_content() {
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -1109,19 +1080,17 @@ async fn advertised_resources_empty_without_surfaced_members() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
     let fs_ids = vec![fs.id.clone()];
     let advertised = f
         .feature_service
-        .get_advertised_resources_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_advertised_resources_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert!(advertised.is_empty());
 
     let readable = f
         .feature_service
-        .get_readable_resources_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_readable_resources_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert_eq!(readable.len(), 1);
@@ -1150,7 +1119,7 @@ async fn surfaced_resource_appears_in_advertised_set() {
     let fs_ids = vec![fs.id.clone()];
     let advertised = f
         .feature_service
-        .get_advertised_resources_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_advertised_resources_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert_eq!(advertised.len(), 1);
@@ -1180,7 +1149,7 @@ async fn surfaced_prompt_appears_in_advertised_set() {
     let fs_ids = vec![fs.id.clone()];
     let advertised = f
         .feature_service
-        .get_advertised_prompts_for_grants(&f.space_id.to_string(), &fs_ids, Some(&f.session_id))
+        .get_advertised_prompts_for_grants(&f.space_id.to_string(), &fs_ids)
         .await
         .unwrap();
     assert_eq!(advertised.len(), 1);
@@ -1206,8 +1175,6 @@ async fn search_resources_returns_readable_matches() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
     let search = f
         .call(
             "mcpmux_search_resources",
@@ -1246,8 +1213,6 @@ async fn search_prompts_returns_fetchable_matches() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
     let search = f
         .call(
             "mcpmux_search_prompts",
@@ -1268,7 +1233,6 @@ async fn search_prompts_returns_fetchable_matches() {
 async fn invoke_levenshtein_suggests_near_tool_name() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
-    f.session_overrides.enable(&f.session_id, "github");
 
     let result = f
         .call(
@@ -1318,8 +1282,6 @@ async fn search_tools_tf_idf_ranks_list_issues_first() {
     }
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides.enable(&f.session_id, "github");
-
     let search = f
         .call(
             "mcpmux_search_tools",
@@ -1379,9 +1341,6 @@ async fn read_resource_routes_clone_server_not_inactive_parent() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
-    f.session_overrides
-        .enable(&f.session_id, "posthog-personal-gait");
-
     let read = f.call("mcpmux_read_resource", json!({ "uri": uri })).await;
     let body = Fixture::result_json(&read);
     assert_eq!(body.get("uri"), Some(&json!(uri)));

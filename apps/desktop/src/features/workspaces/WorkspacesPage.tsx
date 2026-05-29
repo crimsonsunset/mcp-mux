@@ -4,7 +4,6 @@ import {
   useWorkspaceEventListener,
   type WorkspaceEventChannel,
 } from '@/hooks';
-import { useMetaToolEventListener } from '@/hooks/useMetaToolEvents';
 import { pickPath } from '@/lib/backend/shell';
 import {
   AlertCircle,
@@ -24,7 +23,6 @@ import {
   Search,
   Server as ServerGlyph,
   Trash2,
-  ToggleLeft,
   Wrench,
   X,
 } from 'lucide-react';
@@ -56,12 +54,6 @@ import {
   uploadWorkspaceIcon,
   type WorkspaceAppearance,
 } from '@/lib/api/workspaceAppearances';
-import {
-  clearSessionOverrides,
-  listSessionOverrides,
-  overridesForWorkspace,
-  type SessionOverride,
-} from '@/lib/api/sessionOverrides';
 import {
   isStarterFeatureSet,
   listFeatureSets,
@@ -101,8 +93,6 @@ const WORKSPACE_TABLE_REFRESH_CHANNELS: WorkspaceEventChannel[] = [
   'session-roots-changed',
   'workspace-binding-changed',
 ];
-
-const SESSION_OVERRIDE_REFRESH_CHANNELS: WorkspaceEventChannel[] = ['session-overrides-changed'];
 
 const EFFECTIVE_FEATURES_REFRESH_CHANNELS: WorkspaceEventChannel[] = ['workspace-binding-changed'];
 
@@ -1070,18 +1060,6 @@ function InspectorPanel({
           </CollapsibleSection>
         )}
 
-        {entry && !isNew && entry.isLive && (
-          <CollapsibleSection
-            icon={<ToggleLeft className="h-5 w-5" />}
-            tone="primary"
-            title="Active session overrides"
-            subtitle="Servers an LLM enabled or disabled for live sessions on this folder"
-            defaultOpen={true}
-            testId="workspace-session-overrides-section"
-          >
-            <SessionOverridesContent workspaceRoot={entry.root} />
-          </CollapsibleSection>
-        )}
       </div>
 
       {entry?.binding && (
@@ -1134,182 +1112,6 @@ function SaveStatusPill({ status }: { status: SaveStatus }) {
       <AlertCircle className="h-2.5 w-2.5" />
       Error
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Session overrides — per-session enable/disable from meta tools
-// ---------------------------------------------------------------------------
-
-/**
- * Lists live sessions reporting this workspace root and any session-scoped
- * server overrides applied via `mcpmux_enable_server` / `mcpmux_disable_server`.
- */
-function SessionOverridesContent({ workspaceRoot }: { workspaceRoot: string }) {
-  const [entries, setEntries] = useState<SessionOverride[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [clearingId, setClearingId] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const all = await listSessionOverrides();
-      setEntries(overridesForWorkspace(all, workspaceRoot));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setEntries([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [workspaceRoot]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  useMetaToolEventListener(
-    useCallback(
-      (event) => {
-        if (
-          event.tool_name === 'mcpmux_enable_server' ||
-          event.tool_name === 'mcpmux_disable_server'
-        ) {
-          void reload();
-        }
-      },
-      [reload]
-    )
-  );
-
-  useWorkspaceEventListener(
-    useCallback(() => {
-      void reload();
-    }, [reload]),
-    SESSION_OVERRIDE_REFRESH_CHANNELS
-  );
-
-  const handleClear = async (sessionId: string) => {
-    setClearingId(sessionId);
-    try {
-      await clearSessionOverrides(sessionId);
-      await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setClearingId(null);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))] py-2">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading session overrides…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-        {error}
-      </p>
-    );
-  }
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-[rgb(var(--muted))]">
-        No live sessions on this folder have session-scoped server overrides.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3" data-testid="workspace-session-overrides-list">
-      {entries.map((entry) => {
-        const shortId =
-          entry.session_id.length > 12
-            ? `${entry.session_id.slice(0, 8)}…${entry.session_id.slice(-4)}`
-            : entry.session_id;
-        const hasOverrides = entry.enabled.length > 0 || entry.disabled.length > 0;
-        return (
-          <div
-            key={entry.session_id}
-            className="rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))] p-3 space-y-2"
-            data-testid={`session-override-${entry.session_id}`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p
-                  className="text-xs font-mono text-[rgb(var(--foreground))] truncate"
-                  title={entry.session_id}
-                >
-                  {shortId}
-                </p>
-                {entry.roots.length > 0 && (
-                  <p className="text-[10px] text-[rgb(var(--muted))] font-mono truncate mt-0.5">
-                    {entry.roots.join(', ')}
-                  </p>
-                )}
-              </div>
-              {hasOverrides && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-shrink-0 text-xs h-7"
-                  disabled={clearingId === entry.session_id}
-                  onClick={() => void handleClear(entry.session_id)}
-                  data-testid={`session-override-clear-${entry.session_id}`}
-                >
-                  {clearingId === entry.session_id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    'Clear all'
-                  )}
-                </Button>
-              )}
-            </div>
-            {entry.enabled.length > 0 && (
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-400 mb-1">
-                  Enabled (session)
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {entry.enabled.map((id) => (
-                    <span
-                      key={`en-${id}`}
-                      className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-mono bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200"
-                    >
-                      {id}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {entry.disabled.length > 0 && (
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-1">
-                  Disabled (session)
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {entry.disabled.map((id) => (
-                    <span
-                      key={`dis-${id}`}
-                      className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200"
-                    >
-                      {id}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

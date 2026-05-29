@@ -44,12 +44,6 @@ pub struct IconPathQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionOverridesQuery {
-    pub session_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ServerLogsQuery {
     pub limit: Option<usize>,
     pub level_filter: Option<String>,
@@ -417,16 +411,6 @@ pub async fn serve_workspace_icon(
     }
 }
 
-pub async fn list_session_overrides(
-    State(state): State<AdminState>,
-    Query(query): Query<SessionOverridesQuery>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::list_session_overrides(&state.bridge, query.session_id)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
 pub async fn get_startup_settings(
     State(state): State<AdminState>,
 ) -> Result<Json<Value>, ApiError> {
@@ -440,15 +424,6 @@ pub async fn get_meta_tools_enabled(
     State(state): State<AdminState>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::get_meta_tools_enabled(&state.bridge)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
-pub async fn get_session_overrides_require_approval(
-    State(state): State<AdminState>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::get_session_overrides_require_approval(&state.bridge)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

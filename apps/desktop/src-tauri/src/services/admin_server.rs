@@ -244,37 +244,6 @@ impl GatewayRuntime for DesktopGatewayRuntime {
         }))
     }
 
-    async fn list_session_overrides(
-        &self,
-        session_id: Option<String>,
-    ) -> anyhow::Result<serde_json::Value> {
-        let state = self.gateway_state.read().await;
-        let Some(ref overrides) = state.session_overrides else {
-            return Ok(json!([]));
-        };
-        let roots_by_session: std::collections::HashMap<String, Vec<String>> = state
-            .session_roots
-            .as_ref()
-            .map(|registry| registry.list_all_sessions().into_iter().collect())
-            .unwrap_or_default();
-        let mut rows = overrides
-            .list_all()
-            .into_iter()
-            .map(|entry| {
-                json!({
-                    "session_id": entry.session_id,
-                    "enabled": entry.enabled,
-                    "disabled": entry.disabled,
-                    "roots": roots_by_session.get(&entry.session_id).cloned().unwrap_or_default(),
-                })
-            })
-            .collect::<Vec<_>>();
-        if let Some(session_id) = session_id {
-            rows.retain(|row| row["session_id"] == session_id);
-        }
-        Ok(json!(rows))
-    }
-
     async fn list_reported_workspace_roots(&self) -> anyhow::Result<serde_json::Value> {
         let state = self.gateway_state.read().await;
         Ok(json!(state

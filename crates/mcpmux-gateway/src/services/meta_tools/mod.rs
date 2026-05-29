@@ -38,10 +38,7 @@ pub use approval::{
 pub use diff::ToolDiff;
 pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};
 pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
-pub use registry::{
-    MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY,
-    SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY,
-};
+pub use registry::{MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY};
 
 use crate::services::ToolDiscoveryService;
 
@@ -71,7 +68,6 @@ pub fn build_default_registry(
     invoke_backend: Option<std::sync::Arc<dyn invoke_backend::InvokeToolBackend>>,
     disclosure_backend: Option<std::sync::Arc<dyn disclosure_backend::DisclosureBackend>>,
     session_roots: std::sync::Arc<crate::services::SessionRootsRegistry>,
-    session_overrides: std::sync::Arc<crate::services::SessionOverrideRegistry>,
     approval_broker: std::sync::Arc<ApprovalBroker>,
     domain_event_tx: tokio::sync::broadcast::Sender<mcpmux_core::DomainEvent>,
     settings_repo: Option<std::sync::Arc<dyn mcpmux_core::AppSettingsRepository>>,
@@ -101,7 +97,6 @@ pub fn build_default_registry(
         prompt_discovery,
         disclosure_backend,
         session_roots,
-        session_overrides,
         approval_broker,
         domain_event_tx,
         settings_repo,
@@ -121,7 +116,7 @@ pub fn build_default_registry(
     registry.register(Box::new(disclosure::ReadResourceTool));
     registry.register(Box::new(disclosure::SearchPromptsTool));
     registry.register(Box::new(disclosure::FetchPromptTool));
-    // Writes — gated by ApprovalBroker (or auto-allowed for session overrides).
+    // Writes — gated by ApprovalBroker.
     registry.register(Box::new(tools::EnableServerTool));
     registry.register(Box::new(tools::DisableServerTool));
     registry.register(Box::new(tools::CreateFeatureSetTool));

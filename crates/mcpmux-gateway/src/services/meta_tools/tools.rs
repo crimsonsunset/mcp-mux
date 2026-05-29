@@ -13,9 +13,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::approval::{ApprovalPayload, ApprovalScope};
-use super::registry::{
-    MetaTool, MetaToolCall, MetaToolError, SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY,
-};
+use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::workspace_server::emit_workspace_binding_changed;
 use crate::services::ResolvedFeatureSet;
 
@@ -78,18 +76,9 @@ pub(crate) async fn caller_resolution(
         .map_err(|e| MetaToolError::Internal(e.to_string()))
 }
 
-/// Derive the manifest status for one server in the caller's session.
-fn derive_server_status(
-    server_id: &str,
-    binding_servers: &HashSet<String>,
-    session_enabled: &HashSet<String>,
-    session_disabled: &HashSet<String>,
-) -> &'static str {
-    if session_disabled.contains(server_id) {
-        "disabled_via_session"
-    } else if session_enabled.contains(server_id) && !binding_servers.contains(server_id) {
-        "enabled_via_session"
-    } else if binding_servers.contains(server_id) {
+/// Derive the manifest status for one server in the caller's binding.
+fn derive_server_status(server_id: &str, binding_servers: &HashSet<String>) -> &'static str {
+    if binding_servers.contains(server_id) {
         "enabled_via_binding"
     } else {
         "inactive"
@@ -138,11 +127,7 @@ impl MetaTool for ListAllToolsTool {
         let invokable = call
             .ctx
             .feature_service
-            .get_invokable_tools_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
         // Match by (server_id, feature_name) — prefix aliases differ from raw catalog rows.
@@ -263,11 +248,10 @@ impl MetaTool for ListServersTool {
 
     fn description(&self) -> &'static str {
         "List every MCP server installed in the caller's resolved Space with \
-         a coarse status per server: enabled_via_binding, enabled_via_session, \
-         disabled_via_session, or inactive. Inactive servers include \
-         `bindable_feature_set_ids` — pass one to mcpmux_bind_current_workspace \
-         to activate persistently. Clone installs include optional `cloned_from` \
-         (source server_id)."
+         a coarse status per server: enabled_via_binding or inactive. Inactive \
+         servers include `bindable_feature_set_ids` — pass one to \
+         mcpmux_bind_current_workspace to activate persistently. Clone installs \
+         include optional `cloned_from` (source server_id)."
     }
 
     fn input_schema(&self) -> Value {
@@ -289,15 +273,6 @@ impl MetaTool for ListServersTool {
             .iter()
             .map(|f| f.server_id.clone())
             .collect();
-
-        let session_enabled = call
-            .session_id
-            .map(|sid| call.ctx.session_overrides.enabled_set(sid))
-            .unwrap_or_default();
-        let session_disabled = call
-            .session_id
-            .map(|sid| call.ctx.session_overrides.disabled_set(sid))
-            .unwrap_or_default();
 
         let features = call
             .ctx
@@ -334,11 +309,7 @@ impl MetaTool for ListServersTool {
         let inactive_by_server: HashMap<String, HashSet<String>> = call
             .ctx
             .feature_service
-            .list_inactive_discovery_tools(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .list_inactive_discovery_tools(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?
             .into_iter()
@@ -373,12 +344,7 @@ impl MetaTool for ListServersTool {
                     .map(|meta| meta.display_name.clone())
                     .or(feature_display_name)
                     .unwrap_or_else(|| id.clone());
-                let status = derive_server_status(
-                    &id,
-                    &binding_servers,
-                    &session_enabled,
-                    &session_disabled,
-                );
+                let status = derive_server_status(&id, &binding_servers);
                 let mut entry = json!({
                     "id": id,
                     "name": name,
@@ -479,11 +445,7 @@ impl MetaTool for SearchToolsTool {
         let invokable = call
             .ctx
             .feature_service
-            .get_invokable_tools_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
@@ -501,7 +463,6 @@ impl MetaTool for SearchToolsTool {
                 .list_inactive_discovery_tools(
                     &space_id.to_string(),
                     &resolved.feature_set_ids,
-                    call.session_id,
                 )
                 .await
                 .map_err(|e| MetaToolError::Internal(e.to_string()))?;
@@ -661,11 +622,7 @@ impl MetaTool for GetToolSchemaTool {
         let invokable = call
             .ctx
             .feature_service
-            .get_invokable_tools_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
@@ -764,25 +721,16 @@ fn parse_string_arg(args: &Value, field: &str) -> Result<String, MetaToolError> 
         .ok_or_else(|| MetaToolError::InvalidArgument(format!("missing `{field}`")))
 }
 
-/// Parse `scope` for enable/disable server tools.
+/// Parse `scope` for enable/disable server tools (workspace only).
 fn parse_scope(args: &Value) -> Result<&'static str, MetaToolError> {
     match args.get("scope").and_then(|v| v.as_str()) {
-        None | Some("session") => Ok("session"),
-        Some("workspace") => Ok("workspace"),
+        None | Some("workspace") => Ok("workspace"),
+        Some("session") => Err(MetaToolError::InvalidArgument(
+            "session scope was removed; use mcpmux_bind_current_workspace to activate capability persistently, or scope: \"workspace\" to mint a server-all FeatureSet on the binding".into(),
+        )),
         Some(other) => Err(MetaToolError::InvalidArgument(format!(
-            "invalid scope '{other}'; expected 'session' or 'workspace'"
+            "invalid scope '{other}'; expected 'workspace'"
         ))),
-    }
-}
-
-/// Whether session-scope server overrides require desktop approval.
-async fn session_overrides_require_approval(ctx: &super::registry::MetaToolContext) -> bool {
-    let Some(repo) = ctx.settings_repo.as_ref() else {
-        return false;
-    };
-    match repo.get(SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY).await {
-        Ok(Some(v)) => matches!(v.as_str(), "true" | "1"),
-        _ => false,
     }
 }
 
@@ -805,14 +753,8 @@ async fn validate_server_in_space(
     )))
 }
 
-fn require_session_id(call: &MetaToolCall<'_>) -> Result<String, MetaToolError> {
-    call.session_id.map(|s| s.to_string()).ok_or_else(|| {
-        MetaToolError::InvalidArgument("session scope requires an MCP session id".into())
-    })
-}
-
 // ---------------------------------------------------------------------------
-// mcpmux_enable_server / mcpmux_disable_server — write (session scope)
+// mcpmux_enable_server / mcpmux_disable_server — write (workspace scope)
 // ---------------------------------------------------------------------------
 
 pub struct EnableServerTool;
@@ -824,9 +766,10 @@ impl MetaTool for EnableServerTool {
     }
 
     fn description(&self) -> &'static str {
-        "Enable an MCP server. Default scope is session (ephemeral). Use \
-         scope: \"workspace\" to persist on the matched workspace binding \
-         (requires approval). Use mcpmux_list_servers first."
+        "Enable an MCP server on the matched workspace binding by appending a \
+         server-all FeatureSet (requires approval). Prefer \
+         mcpmux_bind_current_workspace with an existing FeatureSet when possible. \
+         Use mcpmux_list_servers first."
     }
 
     fn input_schema(&self) -> Value {
@@ -837,8 +780,8 @@ impl MetaTool for EnableServerTool {
                 "server_id": { "type": "string" },
                 "scope": {
                     "type": "string",
-                    "enum": ["session", "workspace"],
-                    "default": "session"
+                    "enum": ["workspace"],
+                    "default": "workspace"
                 }
             }
         })
@@ -854,56 +797,8 @@ impl MetaTool for EnableServerTool {
         let space_id = caller_space_id(&call).await?;
         validate_server_in_space(&call, space_id, &server_id).await?;
 
-        if scope == "workspace" {
-            return super::workspace_server::enable_workspace_server(call, space_id, server_id)
-                .await;
-        }
-
-        let session_id = require_session_id(&call)?;
-
-        if session_overrides_require_approval(call.ctx).await {
-            let overrides = call.ctx.session_overrides.clone();
-            let server_id_for_closure = server_id.clone();
-            let session_id_owned = session_id.clone();
-            let summary = format!("Enable server '{server_id}' for this session");
-            return with_approval(
-                &call,
-                "mcpmux_enable_server",
-                summary,
-                None,
-                false,
-                call.args.clone(),
-                || async move {
-                    overrides.enable(&session_id_owned, &server_id_for_closure);
-                    info!(
-                        session_id = %session_id_owned,
-                        server_id = %server_id_for_closure,
-                        "[meta_tools] enable_server applied (approved)"
-                    );
-                    Ok(text_result(json!({
-                        "ok": true,
-                        "server_id": server_id_for_closure,
-                        "scope": "session",
-                    })))
-                },
-            )
-            .await;
-        }
-
-        call.ctx.session_overrides.enable(&session_id, &server_id);
-        if let Ok(mut decision) = call.audit_decision.lock() {
-            *decision = Some("session_override");
-        }
-        info!(
-            %session_id,
-            server_id = %server_id,
-            "[meta_tools] enable_server applied"
-        );
-        Ok(text_result(json!({
-            "ok": true,
-            "server_id": server_id,
-            "scope": "session",
-        })))
+        debug_assert_eq!(scope, "workspace");
+        super::workspace_server::enable_workspace_server(call, space_id, server_id).await
     }
 }
 
@@ -916,10 +811,9 @@ impl MetaTool for DisableServerTool {
     }
 
     fn description(&self) -> &'static str {
-        "Disable an MCP server. Default scope is session (ephemeral). Use \
-         scope: \"workspace\" to remove the server-all layer from the \
-         workspace binding (requires approval; custom FeatureSets must be \
-         edited in the Workspaces UI)."
+        "Disable an MCP server on the matched workspace binding by removing \
+         its server-all FeatureSet layer (requires approval; custom FeatureSets \
+         must be edited in the Workspaces UI)."
     }
 
     fn input_schema(&self) -> Value {
@@ -930,8 +824,8 @@ impl MetaTool for DisableServerTool {
                 "server_id": { "type": "string" },
                 "scope": {
                     "type": "string",
-                    "enum": ["session", "workspace"],
-                    "default": "session"
+                    "enum": ["workspace"],
+                    "default": "workspace"
                 }
             }
         })
@@ -947,56 +841,8 @@ impl MetaTool for DisableServerTool {
         let space_id = caller_space_id(&call).await?;
         validate_server_in_space(&call, space_id, &server_id).await?;
 
-        if scope == "workspace" {
-            return super::workspace_server::disable_workspace_server(call, space_id, server_id)
-                .await;
-        }
-
-        let session_id = require_session_id(&call)?;
-
-        if session_overrides_require_approval(call.ctx).await {
-            let overrides = call.ctx.session_overrides.clone();
-            let server_id_for_closure = server_id.clone();
-            let session_id_owned = session_id.clone();
-            let summary = format!("Disable server '{server_id}' for this session");
-            return with_approval(
-                &call,
-                "mcpmux_disable_server",
-                summary,
-                None,
-                false,
-                call.args.clone(),
-                || async move {
-                    overrides.disable(&session_id_owned, &server_id_for_closure);
-                    info!(
-                        session_id = %session_id_owned,
-                        server_id = %server_id_for_closure,
-                        "[meta_tools] disable_server applied (approved)"
-                    );
-                    Ok(text_result(json!({
-                        "ok": true,
-                        "server_id": server_id_for_closure,
-                        "scope": "session",
-                    })))
-                },
-            )
-            .await;
-        }
-
-        call.ctx.session_overrides.disable(&session_id, &server_id);
-        if let Ok(mut decision) = call.audit_decision.lock() {
-            *decision = Some("session_override");
-        }
-        info!(
-            %session_id,
-            server_id = %server_id,
-            "[meta_tools] disable_server applied"
-        );
-        Ok(text_result(json!({
-            "ok": true,
-            "server_id": server_id,
-            "scope": "session",
-        })))
+        debug_assert_eq!(scope, "workspace");
+        super::workspace_server::disable_workspace_server(call, space_id, server_id).await
     }
 }
 
