@@ -746,31 +746,13 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .arguments
                 .map(|a| serde_json::to_value(a).unwrap_or(serde_json::Value::Null))
                 .unwrap_or(serde_json::Value::Null);
-            let scope = args
-                .get("scope")
-                .and_then(|v| v.as_str())
-                .unwrap_or("workspace")
-                .to_string();
             return match self
                 .services
                 .meta_tool_registry
                 .call(&params.name, &oauth_ctx.client_id, session_id, args)
                 .await
             {
-                Ok(result) => {
-                    if matches!(
-                        params.name.as_ref(),
-                        "mcpmux_enable_server" | "mcpmux_disable_server"
-                    ) && scope == "session"
-                    {
-                        if let Some(sid) = session_id {
-                            self.notification_bridge
-                                .notify_session_lists_changed(sid)
-                                .await;
-                        }
-                    }
-                    Ok(result)
-                }
+                Ok(result) => Ok(result),
                 Err(e) => Ok(e.into_call_tool_result()),
             };
         }
@@ -850,9 +832,10 @@ impl ServerHandler for McpMuxGatewayHandler {
                         )
                     } else {
                         format!(
-                            "Tool '{}' is not invokable with current grants → \
-                             mcpmux_search_tools({{ \"include_inactive\": true }}) then \
-                             mcpmux_bind_current_workspace with the bindable feature_set_id",
+                            "Tool '{}' is not invokable — no FeatureSet in this Space contains it. \
+                             Ask the user to create a bundle in the McpMux desktop or web UI \
+                             (Workspaces → Feature Sets), then mcpmux_bind_current_workspace \
+                             with the new feature_set_id",
                             params.name
                         )
                     }

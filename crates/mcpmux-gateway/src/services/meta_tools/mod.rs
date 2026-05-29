@@ -29,7 +29,6 @@ pub mod invoke;
 pub mod invoke_backend;
 mod registry;
 mod tools;
-mod workspace_server;
 
 pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
@@ -116,10 +115,7 @@ pub fn build_default_registry(
     registry.register(Box::new(disclosure::ReadResourceTool));
     registry.register(Box::new(disclosure::SearchPromptsTool));
     registry.register(Box::new(disclosure::FetchPromptTool));
-    // Writes — gated by ApprovalBroker.
-    registry.register(Box::new(tools::EnableServerTool));
-    registry.register(Box::new(tools::DisableServerTool));
-    registry.register(Box::new(tools::CreateFeatureSetTool));
+    // Writes — gated by ApprovalBroker (bind-only; humans author bundles in UI).
     registry.register(Box::new(tools::BindCurrentWorkspaceTool));
     std::sync::Arc::new(registry)
 }

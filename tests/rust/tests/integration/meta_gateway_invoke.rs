@@ -461,7 +461,7 @@ async fn registry_lists_new_meta_tools() {
         !names.iter().any(|n| n == "mcpmux_list_all_tools"),
         "list_all_tools removed from agent registry"
     );
-    assert_eq!(names.len(), 14);
+    assert_eq!(names.len(), 11);
 }
 
 #[tokio::test(flavor = "multi_thread")]

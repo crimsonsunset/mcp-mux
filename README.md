@@ -115,31 +115,31 @@ Not every AI client should have the same power. Create Feature Sets — permissi
 
 ### Self-Management Meta Tools (mcpmux_*)
 
-Connected AI clients see a fixed ~12-tool meta surface instead of every backend tool definition. FeatureSets define what is **invokable**; optional **surfaced** tools (0–N per set) can be promoted into `tools/list` for one-hop hot paths. Workspace bindings pin stable per-folder toolsets; session enable/disable gates server activity without bloating context.
+Connected AI clients see a fixed ~11-tool meta surface instead of every backend tool definition. FeatureSets define what is **invokable**; optional **surfaced** tools (0–N per set) can be promoted into `tools/list` for one-hop hot paths. Humans author bundles in the desktop or web UI; agents discover capability and **bind** existing FeatureSets to the workspace through one approval.
 
 McpMux exposes a built-in `mcpmux_*` tool namespace for search → schema → invoke workflows:
 
-1. Call **`mcpmux_list_servers`** — server-level manifest with per-server status: `enabled_via_binding`, `enabled_via_session`, `disabled_via_session`, or `inactive`.
-2. Call **`mcpmux_enable_server`** or **`mcpmux_disable_server`** — toggle servers on or off for the session or workspace.
-3. Call **`mcpmux_search_tools`** — find invokable tools by query (respects FeatureSet ACL).
+1. Call **`mcpmux_search_tools`** — find tools by query (active by default; set `include_inactive: true` to discover bindable bundles).
+2. Call **`mcpmux_list_feature_sets`** or **`mcpmux_list_servers`** — roster with active/inactive status and bind affordances.
+3. Call **`mcpmux_bind_current_workspace`** — persistently append an existing FeatureSet to the workspace binding (requires approval; the only agent write tool).
 4. Call **`mcpmux_get_tool_schema`** — load parameter schemas before invoking.
 5. Call **`mcpmux_invoke_tool`** — invoke any permitted backend tool through one entry point.
 
 | Tool | Type | Purpose |
 | ---- | ---- | ------- |
-| `mcpmux_list_all_tools` | read | Full tool roster in the resolved Space (diagnostic) |
 | `mcpmux_list_feature_sets` | read | FeatureSets available in the resolved Space |
 | `mcpmux_list_servers` | read | Server-level manifest with status |
 | `mcpmux_diagnose_server` | read | Runtime status, config, missing inputs, and log tail for unhealthy servers |
-| `mcpmux_search_tools` | read | Search invokable tools with optional schema detail |
+| `mcpmux_search_tools` | read | Search tools with optional schema detail and inactive discovery |
 | `mcpmux_get_tool_schema` | read | Load input schemas before invoke |
 | `mcpmux_invoke_tool` | read | Invoke a backend tool by server_id + tool name |
-| `mcpmux_enable_server` | write | Enable a server (session or workspace scope) |
-| `mcpmux_disable_server` | write | Disable a server (session or workspace scope) |
-| `mcpmux_create_feature_set` | write | Create a custom FeatureSet (optional `surfaced_tools[]`) |
-| `mcpmux_bind_current_workspace` | write | Bind the session's workspace root to FeatureSets |
+| `mcpmux_search_resources` / `mcpmux_read_resource` | read | Resource discovery and read |
+| `mcpmux_search_prompts` / `mcpmux_fetch_prompt` | read | Prompt discovery and fetch |
+| `mcpmux_bind_current_workspace` | write | Bind an existing FeatureSet to the workspace (approval-gated) |
 
-In the desktop app: **Settings → Self-management tools** toggles the whole namespace and optional approval for session-scope overrides. **Workspaces → live folder inspector → Active session overrides** shows per-session enabled/disabled servers and lets you clear overrides with one click.
+If no FeatureSet contains a needed tool, the agent cannot author one — it surfaces a message asking the user to create a bundle in the McpMux UI, then bind it.
+
+In the desktop app: **Settings → Self-management tools** toggles the whole namespace.
 
 ### See and Manage Every Connected Client
 

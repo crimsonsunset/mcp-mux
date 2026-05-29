@@ -471,6 +471,29 @@ async fn search_include_inactive_surfaces_bindable_github() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn search_include_inactive_no_bundle_suggests_author_in_mux() {
+    let f = Fixture::new().await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "deploy", "include_inactive": true }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("total"), Some(&json!(0)));
+    let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        hint.contains("create a bundle") || hint.contains("Feature Sets"),
+        "expected author-bundle hint, got: {hint}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn bind_does_not_promote_tools_into_advertised_list() {
     let f = Fixture::new().await;
     let meta_count = f.registry.list_as_tools().len();
@@ -661,113 +684,6 @@ async fn list_servers_includes_cloned_from_for_clone_installs() {
     assert!(github_entry.get("cloned_from").is_none());
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn enable_server_workspace_persists_on_binding() {
-    let f = Fixture::new().await;
-    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
-    bind_github_only_to_session_root(&f).await;
-
-    let result = f
-        .registry
-        .call(
-            "mcpmux_enable_server",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({ "server_id": "firebase" }),
-        )
-        .await
-        .unwrap();
-    assert!(!Fixture::is_error(&result));
-    let body = Fixture::result_json(&result);
-    assert_eq!(body.get("scope").unwrap().as_str().unwrap(), "workspace");
-
-    let root = normalize_workspace_root("/tmp/mcpmux-list-servers-test");
-    let binding = f
-        .binding_repo
-        .find_longest_prefix_match(&f.space_id, &[root.clone()])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(binding.feature_set_ids.len(), 2);
-
-    let tools = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &binding.feature_set_ids)
-        .await
-        .unwrap();
-    let servers: std::collections::HashSet<_> =
-        tools.iter().map(|t| t.server_id.as_str()).collect();
-    assert!(servers.contains("github"));
-    assert!(servers.contains("firebase"));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn disable_server_workspace_removes_server_all_from_binding() {
-    let f = Fixture::new().await;
-    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
-    bind_github_only_to_session_root(&f).await;
-
-    f.registry
-        .call(
-            "mcpmux_enable_server",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({ "server_id": "firebase" }),
-        )
-        .await
-        .unwrap();
-
-    f.registry
-        .call(
-            "mcpmux_disable_server",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({ "server_id": "firebase" }),
-        )
-        .await
-        .unwrap();
-
-    let root = normalize_workspace_root("/tmp/mcpmux-list-servers-test");
-    let binding = f
-        .binding_repo
-        .find_longest_prefix_match(&f.space_id, &[root.clone()])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(binding.feature_set_ids.len(), 1);
-
-    let tools = f
-        .feature_service
-        .get_tools_for_grants(&f.space_id.to_string(), &binding.feature_set_ids)
-        .await
-        .unwrap();
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].server_id, "github");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn enable_server_workspace_requires_binding() {
-    let f = Fixture::new().await;
-    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
-    f.session_roots.set_roots_capable(&f.session_id, true);
-    f.session_roots
-        .set(&f.session_id, ["/tmp/unbound-workspace"]);
-
-    let result = f
-        .call_tool_as_handler_would(
-            "mcpmux_enable_server",
-            json!({ "server_id": "github" }),
-        )
-        .await;
-    assert!(Fixture::is_error(&result));
-}
-
-// `describe_resolution` and `describe_workspace` were both removed at the
-// user's request — the read surface is now just `list_all_tools` and
-// `list_feature_sets`. Behavior previously asserted here is covered by
-// `FeatureSetResolverService`'s own tests in
-// `tests/rust/tests/integration/feature_set_resolver.rs`.
-
 // ---------------------------------------------------------------------------
 // Writes — gated by ApprovalBroker
 // ---------------------------------------------------------------------------
@@ -823,39 +739,6 @@ async fn write_rejected_on_deny_leaves_state_unchanged() {
 
     let after_bindings = f.binding_repo.list().await.unwrap().len();
     assert_eq!(after_bindings, before_bindings);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn create_feature_set_persists_members_on_approval() {
-    let f = Fixture::new().await;
-    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
-
-    let result = f
-        .registry
-        .call(
-            "mcpmux_create_feature_set",
-            &f.client_id,
-            Some(&f.session_id),
-            json!({
-                "name": "Tiny Set",
-                "tool_qualified_names": ["github_create_issue"],
-            }),
-        )
-        .await
-        .unwrap();
-    assert!(!Fixture::is_error(&result));
-
-    let body = Fixture::result_json(&result);
-    let new_fs_id = body.get("feature_set_id").unwrap().as_str().unwrap();
-
-    let fs = f
-        .feature_set_repo
-        .get_with_members(new_fs_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(fs.name, "Tiny Set");
-    assert_eq!(fs.members.len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1102,30 +985,35 @@ async fn registry_advertises_every_default_tool_with_annotations() {
     for expected in [
         "mcpmux_list_feature_sets",
         "mcpmux_list_servers",
-        "mcpmux_enable_server",
-        "mcpmux_disable_server",
-        "mcpmux_create_feature_set",
         "mcpmux_bind_current_workspace",
         "mcpmux_diagnose_server",
     ] {
         assert!(names.iter().any(|n| n == expected), "missing {expected}");
     }
-    // Both describe_* tools were removed — they must NOT be advertised.
-    for removed in ["mcpmux_describe_resolution", "mcpmux_describe_workspace"] {
+    for removed in [
+        "mcpmux_enable_server",
+        "mcpmux_disable_server",
+        "mcpmux_create_feature_set",
+        "mcpmux_describe_resolution",
+        "mcpmux_describe_workspace",
+    ] {
         assert!(
             !names.iter().any(|n| n == removed),
             "{removed} should be removed; got {names:?}"
         );
     }
-    // Writes carry the destructive_hint annotation.
-    let bind = tools
+    // bind_current_workspace is the sole write tool.
+    let write_tools: Vec<_> = tools
         .iter()
-        .find(|t| t.name == "mcpmux_bind_current_workspace")
-        .unwrap();
-    assert_eq!(
-        bind.annotations.as_ref().and_then(|a| a.destructive_hint),
-        Some(true)
-    );
+        .filter(|t| {
+            t.annotations
+                .as_ref()
+                .and_then(|a| a.destructive_hint)
+                .unwrap_or(false)
+        })
+        .map(|t| t.name.to_string())
+        .collect();
+    assert_eq!(write_tools, vec!["mcpmux_bind_current_workspace"]);
 }
 
 // ---------------------------------------------------------------------------

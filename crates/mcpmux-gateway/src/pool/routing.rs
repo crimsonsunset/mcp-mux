@@ -109,7 +109,8 @@ pub fn format_direct_fetch_prompt_redirect(
 pub fn format_server_not_in_binding_error(server_id: &str) -> String {
     format!(
         "server '{server_id}' has no readable/fetchable features with current FeatureSet grants — \
-         add via Workspaces UI or mcpmux_create_feature_set"
+         create a FeatureSet bundle in the McpMux desktop or web UI, then bind it with \
+         mcpmux_bind_current_workspace"
     )
 }
 

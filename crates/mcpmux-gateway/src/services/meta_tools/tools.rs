@@ -14,7 +14,6 @@ use uuid::Uuid;
 
 use super::approval::{ApprovalPayload, ApprovalScope};
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
-use super::workspace_server::emit_workspace_binding_changed;
 use crate::services::ResolvedFeatureSet;
 
 /// Fire a `FeatureSetMembersChanged` event so MCPNotifier pushes a
@@ -26,6 +25,18 @@ fn emit_tools_list_changed(event_tx: &broadcast::Sender<DomainEvent>, space_id: 
         feature_set_id: "meta-tool-write".into(),
         added_count: 0,
         removed_count: 0,
+    });
+}
+
+/// Notify listeners that a workspace binding row changed.
+fn emit_workspace_binding_changed(
+    event_tx: &broadcast::Sender<DomainEvent>,
+    space_id: Uuid,
+    workspace_root: &str,
+) {
+    let _ = event_tx.send(DomainEvent::WorkspaceBindingChanged {
+        space_id,
+        workspace_root: workspace_root.to_string(),
     });
 }
 
@@ -505,6 +516,29 @@ impl MetaTool for SearchToolsTool {
                  bindable capability, or call mcpmux_list_feature_sets then \
                  mcpmux_bind_current_workspace with a feature_set_id."
             );
+        } else if include_inactive && result.total == 0 {
+            let catalog = call
+                .ctx
+                .tool_discovery
+                .build_catalog_index(&space_id.to_string())
+                .await
+                .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+            let catalog_result = crate::services::tool_discovery::ToolDiscoveryService::search(
+                &catalog,
+                call.args.get("query").and_then(|v| v.as_str()),
+                call.args.get("server_id").and_then(|v| v.as_str()),
+                detail_level,
+                limit,
+                call.args.get("cursor").and_then(|v| v.as_str()),
+            );
+            if catalog_result.total > 0 {
+                payload["hint"] = json!(
+                    "Matching tools exist in this Space but no FeatureSet contains them. \
+                     Ask the user to create a bundle in the McpMux desktop or web UI \
+                     (Workspaces → Feature Sets), then mcpmux_bind_current_workspace \
+                     with the new feature_set_id."
+                );
+            }
         }
 
         Ok(text_result(payload))
@@ -712,288 +746,6 @@ fn parse_uuid_arg(args: &Value, field: &str) -> Result<Uuid, MetaToolError> {
         .ok_or_else(|| MetaToolError::InvalidArgument(format!("missing `{field}`")))?;
     Uuid::parse_str(s)
         .map_err(|_| MetaToolError::InvalidArgument(format!("`{field}` is not a UUID: {s}")))
-}
-
-fn parse_string_arg(args: &Value, field: &str) -> Result<String, MetaToolError> {
-    args.get(field)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| MetaToolError::InvalidArgument(format!("missing `{field}`")))
-}
-
-/// Parse `scope` for enable/disable server tools (workspace only).
-fn parse_scope(args: &Value) -> Result<&'static str, MetaToolError> {
-    match args.get("scope").and_then(|v| v.as_str()) {
-        None | Some("workspace") => Ok("workspace"),
-        Some("session") => Err(MetaToolError::InvalidArgument(
-            "session scope was removed; use mcpmux_bind_current_workspace to activate capability persistently, or scope: \"workspace\" to mint a server-all FeatureSet on the binding".into(),
-        )),
-        Some(other) => Err(MetaToolError::InvalidArgument(format!(
-            "invalid scope '{other}'; expected 'workspace'"
-        ))),
-    }
-}
-
-/// Ensure `server_id` has at least one feature row in the caller's Space.
-async fn validate_server_in_space(
-    call: &MetaToolCall<'_>,
-    space_id: Uuid,
-    server_id: &str,
-) -> Result<(), MetaToolError> {
-    let features = call
-        .ctx
-        .server_feature_repo
-        .list_for_space(&space_id.to_string())
-        .await?;
-    if features.iter().any(|f| f.server_id == server_id) {
-        return Ok(());
-    }
-    Err(MetaToolError::InvalidArgument(format!(
-        "unknown server_id '{server_id}' in this Space"
-    )))
-}
-
-// ---------------------------------------------------------------------------
-// mcpmux_enable_server / mcpmux_disable_server — write (workspace scope)
-// ---------------------------------------------------------------------------
-
-pub struct EnableServerTool;
-
-#[async_trait]
-impl MetaTool for EnableServerTool {
-    fn name(&self) -> &'static str {
-        "mcpmux_enable_server"
-    }
-
-    fn description(&self) -> &'static str {
-        "Enable an MCP server on the matched workspace binding by appending a \
-         server-all FeatureSet (requires approval). Prefer \
-         mcpmux_bind_current_workspace with an existing FeatureSet when possible. \
-         Use mcpmux_list_servers first."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["server_id"],
-            "properties": {
-                "server_id": { "type": "string" },
-                "scope": {
-                    "type": "string",
-                    "enum": ["workspace"],
-                    "default": "workspace"
-                }
-            }
-        })
-    }
-
-    fn is_write(&self) -> bool {
-        true
-    }
-
-    async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
-        let scope = parse_scope(&call.args)?;
-        let server_id = parse_string_arg(&call.args, "server_id")?;
-        let space_id = caller_space_id(&call).await?;
-        validate_server_in_space(&call, space_id, &server_id).await?;
-
-        debug_assert_eq!(scope, "workspace");
-        super::workspace_server::enable_workspace_server(call, space_id, server_id).await
-    }
-}
-
-pub struct DisableServerTool;
-
-#[async_trait]
-impl MetaTool for DisableServerTool {
-    fn name(&self) -> &'static str {
-        "mcpmux_disable_server"
-    }
-
-    fn description(&self) -> &'static str {
-        "Disable an MCP server on the matched workspace binding by removing \
-         its server-all FeatureSet layer (requires approval; custom FeatureSets \
-         must be edited in the Workspaces UI)."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["server_id"],
-            "properties": {
-                "server_id": { "type": "string" },
-                "scope": {
-                    "type": "string",
-                    "enum": ["workspace"],
-                    "default": "workspace"
-                }
-            }
-        })
-    }
-
-    fn is_write(&self) -> bool {
-        true
-    }
-
-    async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
-        let scope = parse_scope(&call.args)?;
-        let server_id = parse_string_arg(&call.args, "server_id")?;
-        let space_id = caller_space_id(&call).await?;
-        validate_server_in_space(&call, space_id, &server_id).await?;
-
-        debug_assert_eq!(scope, "workspace");
-        super::workspace_server::disable_workspace_server(call, space_id, server_id).await
-    }
-}
-
-// ---------------------------------------------------------------------------
-// mcpmux_create_feature_set — write (creates FS, optionally activates)
-// ---------------------------------------------------------------------------
-
-pub struct CreateFeatureSetTool;
-
-#[async_trait]
-impl MetaTool for CreateFeatureSetTool {
-    fn name(&self) -> &'static str {
-        "mcpmux_create_feature_set"
-    }
-
-    fn description(&self) -> &'static str {
-        "Create a new custom FeatureSet in the caller's resolved Space from \
-         an explicit list of qualified tool names (e.g. ['github_create_issue', \
-         'firebase_deploy']). Optional surfaced_tools promotes a subset into \
-         client tools/list. Returns the new FS id. To make a workspace \
-         actually route through this FeatureSet, follow up with \
-         `mcpmux_bind_current_workspace`."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["name", "tool_qualified_names"],
-            "properties": {
-                "name": { "type": "string" },
-                "description": { "type": "string" },
-                "tool_qualified_names": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                },
-                "surfaced_tools": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Optional subset of tool_qualified_names to promote into client tools/list"
-                }
-            }
-        })
-    }
-
-    fn is_write(&self) -> bool {
-        true
-    }
-
-    async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
-        let name = call
-            .args
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| MetaToolError::InvalidArgument("missing `name`".into()))?
-            .to_string();
-        let description = call
-            .args
-            .get("description")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let qualified_names: Vec<String> = call
-            .args
-            .get("tool_qualified_names")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if qualified_names.is_empty() {
-            return Err(MetaToolError::InvalidArgument(
-                "tool_qualified_names must contain at least one entry".into(),
-            ));
-        }
-
-        let surfaced_names: HashSet<String> = call
-            .args
-            .get("surfaced_tools")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let space_id = caller_space_id(&call).await?;
-
-        // Resolve qualified names → ServerFeature ids up-front so the
-        // approval dialog can show the exact tool count.
-        let all_features = call
-            .ctx
-            .server_feature_repo
-            .list_for_space(&space_id.to_string())
-            .await?;
-        let matched: Vec<_> = all_features
-            .iter()
-            .filter(|f| {
-                f.feature_type == FeatureType::Tool && qualified_names.contains(&f.qualified_name())
-            })
-            .cloned()
-            .collect();
-        if matched.is_empty() {
-            return Err(MetaToolError::InvalidArgument(
-                "no provided qualified_names matched any tool in this Space".into(),
-            ));
-        }
-
-        let summary = format!("Create FeatureSet '{name}' with {} tools", matched.len());
-        let diff = json!({
-            "added_tools": matched.iter().map(|f| f.qualified_name()).collect::<Vec<_>>(),
-        });
-
-        let fs_repo = call.ctx.feature_set_repo.clone();
-        let name_for_closure = name.clone();
-        let description_for_closure = description.clone();
-        with_approval(
-            &call,
-            "mcpmux_create_feature_set",
-            summary,
-            Some(diff),
-            false,
-            call.args.clone(),
-            || async move {
-                let mut fs =
-                    mcpmux_core::FeatureSet::new_custom(&name_for_closure, space_id.to_string());
-                fs.description = description_for_closure;
-                for feature in &matched {
-                    let mut member = mcpmux_core::FeatureSetMember::include_feature(
-                        &fs.id,
-                        &feature.id.to_string(),
-                    );
-                    if surfaced_names.contains(&feature.qualified_name()) {
-                        member.surfaced = true;
-                    }
-                    fs.members.push(member);
-                }
-                fs_repo.create(&fs).await?;
-                let surfaced_count = fs.members.iter().filter(|m| m.surfaced).count();
-                info!(fs_id = %fs.id, name = %name_for_closure, "[meta_tools] create_feature_set applied");
-                Ok(text_result(json!({
-                    "ok": true,
-                    "feature_set_id": fs.id,
-                    "tool_count": matched.len(),
-                    "surfaced_count": surfaced_count,
-                })))
-            },
-        )
-        .await
-    }
 }
 
 // ---------------------------------------------------------------------------

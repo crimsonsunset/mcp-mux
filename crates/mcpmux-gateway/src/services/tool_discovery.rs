@@ -69,6 +69,27 @@ impl ToolDiscoveryService {
         }
     }
 
+    /// Build an index of every tool installed in `space_id` (ignores FeatureSet ACL).
+    pub async fn build_catalog_index(&self, space_id: &str) -> Result<Vec<ToolIndexEntry>> {
+        let features = self.server_feature_repo.list_for_space(space_id).await?;
+        let mut index: Vec<ToolIndexEntry> = features
+            .into_iter()
+            .filter(|f| f.feature_type == FeatureType::Tool)
+            .map(|f| ToolIndexEntry {
+                server_id: f.server_id.clone(),
+                feature_name: f.feature_name.clone(),
+                qualified_name: f.qualified_name(),
+                description: f.description.clone(),
+                input_schema: extract_input_schema(f.raw_json.as_ref()),
+                is_available: f.is_available,
+                status: None,
+                bindable_feature_set_id: None,
+            })
+            .collect();
+        index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+        Ok(index)
+    }
+
     /// Build an index for `space_id`, retaining only tools present in `invokable`.
     pub async fn build_index(
         &self,
