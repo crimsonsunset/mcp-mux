@@ -3,15 +3,18 @@
 //! Downloads `bge-small-en-v1.5` on first use into the app data directory and
 //! exposes non-blocking state so callers can fall back to lexical-only search.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use mcpmux_storage::hash_embedding_content;
 use parking_lot::RwLock;
 use tracing::info;
+
+#[cfg(any(test, feature = "test-utils"))]
+use std::collections::HashMap;
 
 /// BGE retrieval prefix for user queries.
 const QUERY_PREFIX: &str = "query: ";
@@ -80,6 +83,27 @@ impl EmbeddingService {
     /// Cache directory passed to fastembed for model artifacts.
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
+    }
+
+    /// Stable model version used for persisted embedding keys.
+    pub fn model_version(&self) -> &'static str {
+        self.model_name
+    }
+
+    /// Build alias-free text used for embedding and content hashing.
+    pub fn embedding_haystack(feature_name: &str, description: Option<&str>) -> String {
+        match description {
+            Some(description) if !description.is_empty() => {
+                format!("{feature_name} {description}")
+            }
+            _ => feature_name.to_string(),
+        }
+    }
+
+    /// Stable content hash for alias-free embedding text.
+    pub fn content_hash(feature_name: &str, description: Option<&str>) -> String {
+        let haystack = Self::embedding_haystack(feature_name, description);
+        hash_embedding_content(&haystack)
     }
 
     /// Start background model download/init when still `NotDownloaded`.
@@ -228,13 +252,22 @@ impl EmbeddingService {
         }
 
         let started = Instant::now();
-        let mut guard = self.model.lock().ok()?;
-        let embedding = guard.as_mut()?;
-        let raw = embedding.embed(texts, None).ok()?;
-        let vectors: Vec<Vec<f32>> = raw.into_iter().map(to_f32_vector).collect();
+        let vectors = self.embed_with_spawn_blocking(texts)?;
         let embed_ms = started.elapsed().as_millis() as u64;
         self.log_embedding_state(query_id, "ready", docs_embedded, Some(embed_ms));
         Some(vectors)
+    }
+
+    fn embed_with_spawn_blocking(&self, texts: &[&str]) -> Option<Vec<Vec<f32>>> {
+        let model_slot = Arc::clone(&self.model);
+        let inputs: Vec<String> = texts.iter().map(|text| (*text).to_string()).collect();
+        run_spawn_blocking(move || {
+            let mut guard = model_slot.lock().ok()?;
+            let embedding = guard.as_mut()?;
+            let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
+            let raw = embedding.embed(&refs, None).ok()?;
+            Some(raw.into_iter().map(to_f32_vector).collect())
+        })
     }
 
     fn log_embedding_state(
@@ -306,6 +339,33 @@ fn to_f32_vector(embedding: fastembed::Embedding) -> Vec<f32> {
     embedding
 }
 
+fn run_spawn_blocking<T, F>(task: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Option<T> + Send + 'static,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        return std::thread::spawn(move || {
+            handle
+                .block_on(tokio::task::spawn_blocking(task))
+                .ok()
+                .flatten()
+        })
+        .join()
+        .ok()
+        .flatten();
+    }
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    runtime
+        .block_on(tokio::task::spawn_blocking(task))
+        .ok()
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +426,14 @@ mod tests {
             service.state(),
             EmbeddingState::Downloading | EmbeddingState::Ready | EmbeddingState::Failed { .. }
         ));
+    }
+
+    #[test]
+    fn content_hash_changes_when_description_changes() {
+        let hash_before = EmbeddingService::content_hash("search_issues", Some("Find Jira issues"));
+        let hash_after =
+            EmbeddingService::content_hash("search_issues", Some("Find open Jira issues"));
+        assert_ne!(hash_before, hash_after);
     }
 
     /// Requires network + ~67 MB model download; run locally with `cargo test -- --ignored`.

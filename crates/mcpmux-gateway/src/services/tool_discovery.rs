@@ -292,6 +292,16 @@ fn entry_search_haystack(entry: &ToolIndexEntry) -> String {
     )
 }
 
+/// Alias-free haystack text for embedding + content hashing (`feature_name + description`).
+fn entry_embedding_haystack(entry: &ToolIndexEntry) -> String {
+    EmbeddingService::embedding_haystack(&entry.feature_name, entry.description.as_deref())
+}
+
+/// Stable alias-free content hash for embedding vectors.
+pub fn entry_content_hash(entry: &ToolIndexEntry) -> String {
+    EmbeddingService::content_hash(&entry.feature_name, entry.description.as_deref())
+}
+
 /// Apply hybrid fusion when the embedding model is ready; otherwise lexical-only.
 fn rank_with_hybrid<'a, T, FHaystack>(
     ranked: &mut Vec<&'a T>,
@@ -339,7 +349,11 @@ where
         .collect();
 
     let doc_vectors = if doc_vectors.is_empty() {
-        let documents: Vec<String> = ctx.active_index.iter().map(entry_search_haystack).collect();
+        let documents: Vec<String> = ctx
+            .active_index
+            .iter()
+            .map(entry_embedding_haystack)
+            .collect();
         let Some(raw_vectors) = ctx.embeddings.embed_documents(&documents, Some(query_id)) else {
             log_cache_decision(
                 query_id,
@@ -528,5 +542,37 @@ fn schema_entry_to_json(entry: &ToolIndexEntry, compact: bool) -> Value {
 impl AsRef<ToolIndexEntry> for ToolIndexEntry {
     fn as_ref(&self) -> &ToolIndexEntry {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{entry_content_hash, ToolIndexEntry};
+
+    fn test_entry(qualified_name: &str, description: &str) -> ToolIndexEntry {
+        ToolIndexEntry {
+            server_id: "server-a".to_string(),
+            feature_name: "search_issues".to_string(),
+            qualified_name: qualified_name.to_string(),
+            description: Some(description.to_string()),
+            input_schema: None,
+            is_available: true,
+            status: None,
+            bindable_feature_set_id: None,
+        }
+    }
+
+    #[test]
+    fn alias_change_leaves_content_hash_unchanged() {
+        let before = test_entry("jira_search_issues", "Find Jira issues");
+        let after = test_entry("atlassian_search_issues", "Find Jira issues");
+        assert_eq!(entry_content_hash(&before), entry_content_hash(&after));
+    }
+
+    #[test]
+    fn description_change_changes_content_hash() {
+        let before = test_entry("jira_search_issues", "Find Jira issues");
+        let after = test_entry("jira_search_issues", "Find open Jira issues");
+        assert_ne!(entry_content_hash(&before), entry_content_hash(&after));
     }
 }
