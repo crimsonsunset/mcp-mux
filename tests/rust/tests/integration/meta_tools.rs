@@ -262,6 +262,7 @@ impl Fixture {
             None,
             server_manager.clone(),
             log_manager,
+            std::env::temp_dir().join(format!("mcpmux-meta-tools-{}", Uuid::new_v4())),
         );
 
         Self {
@@ -720,6 +721,7 @@ async fn search_tools_cache_evicted_on_workspace_binding_changed() {
     f.session_roots.evict_search_cache_for_workspace_root(root);
 
     assert!(!f.registry.search_cache_contains(&f.session_id));
+    assert!(!f.registry.embedding_cache_contains(&f.session_id));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -741,6 +743,96 @@ async fn search_tools_cache_evicted_on_session_disconnect() {
     f.session_roots.remove(&f.session_id);
 
     assert!(!f.registry.search_cache_contains(&f.session_id));
+    assert!(!f.registry.embedding_cache_contains(&f.session_id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_ranking_lexical_when_model_absent() {
+    let f = Fixture::new().await;
+    bind_github_only_to_session_root(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "create issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("ranking").and_then(|v| v.as_str()),
+        Some("lexical"),
+        "without a ready embedding model search must label itself lexical: {body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_embedding_cache_hit_on_second_query() {
+    let f = Fixture::new().await;
+    let fs_id = bind_github_only_to_session_root(&f).await;
+    let resolved_ids = vec![fs_id.to_string()];
+    let fingerprint = meta_tools::feature_set_ids_fingerprint(&resolved_ids);
+
+    f.registry.context().embedding_cache.insert(
+        f.session_id.clone(),
+        (
+            fingerprint,
+            vec![mcpmux_gateway::services::DocEmbedding {
+                qualified_name: "github_create_issue".to_string(),
+                vector: vec![1.0, 0.0, 0.0],
+            }],
+        ),
+    );
+
+    let args = json!({ "query": "issue" });
+    f.registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            args.clone(),
+        )
+        .await
+        .unwrap();
+    assert!(f.registry.embedding_cache_contains(&f.session_id));
+
+    f.registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            args,
+        )
+        .await
+        .unwrap();
+    let entry = f
+        .registry
+        .context()
+        .embedding_cache
+        .get(&f.session_id)
+        .expect("embedding cache entry");
+    assert_eq!(entry.0, fingerprint);
+    assert_eq!(entry.1.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_embedding_cache_evicted_on_workspace_binding_changed() {
+    let f = Fixture::new().await;
+    let root = "/tmp/mcpmux-list-servers-test";
+    bind_github_only_to_session_root(&f).await;
+
+    f.registry
+        .context()
+        .embedding_cache
+        .insert(f.session_id.clone(), (0, vec![]));
+    assert!(f.registry.embedding_cache_contains(&f.session_id));
+
+    f.session_roots.evict_search_cache_for_workspace_root(root);
+
+    assert!(!f.registry.embedding_cache_contains(&f.session_id));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1467,6 +1559,7 @@ async fn bare_registry(
         settings_repo,
         server_manager,
         log_manager,
+        std::env::temp_dir().join(format!("mcpmux-bare-registry-{}", Uuid::new_v4())),
     );
     (registry, client_id, tx, rx)
 }
@@ -1589,6 +1682,7 @@ async fn master_switch_toggles_registry_visibility() {
         Some(settings_repo.clone()),
         server_manager,
         log_manager,
+        std::env::temp_dir().join(format!("mcpmux-meta-switch-{}", Uuid::new_v4())),
     );
 
     assert!(!registry.is_enabled().await, "initially disabled");

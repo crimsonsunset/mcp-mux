@@ -515,10 +515,12 @@ impl MetaTool for SearchToolsTool {
             debug!(query_id = %query_id, query, "[search] query text");
         }
 
-        let mut index = if let Some(session_id) = call.session_id {
+        let mut index_cache_hit = false;
+        let active_index = if let Some(session_id) = call.session_id {
             if let Some(entry) = call.ctx.search_cache.get(session_id) {
                 let (cached_fp, cached_index) = entry.value();
                 if *cached_fp == fingerprint {
+                    index_cache_hit = true;
                     cached_index.clone()
                 } else {
                     drop(entry);
@@ -538,6 +540,8 @@ impl MetaTool for SearchToolsTool {
         } else {
             build_active_index(&call, &space_id, &resolved).await?
         };
+
+        let mut index = active_index.clone();
 
         let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
         let mut inactive_tool_count = 0usize;
@@ -567,6 +571,17 @@ impl MetaTool for SearchToolsTool {
             index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
         }
 
+        let hybrid = query_str.and(call.session_id).map(|session_id| {
+            crate::services::tool_discovery::SearchContext {
+                embeddings: call.ctx.embeddings.as_ref(),
+                embedding_cache: call.ctx.embedding_cache.as_ref(),
+                session_id,
+                fingerprint,
+                active_index: active_index.as_slice(),
+                index_cache_hit,
+            }
+        });
+
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
             &index,
             query_str,
@@ -575,6 +590,7 @@ impl MetaTool for SearchToolsTool {
             limit,
             call.args.get("cursor").and_then(|v| v.as_str()),
             Some(query_id.as_str()),
+            hybrid,
         );
 
         let top_qualified_name = result
@@ -590,7 +606,7 @@ impl MetaTool for SearchToolsTool {
             total = result.total,
             returned = result.tools.len(),
             top_qualified_name,
-            top_fused_score = ?result.top_lexical_score,
+            top_fused_score = ?result.top_fused_score,
             total_ms = started.elapsed().as_millis() as u64,
             "[search] result summary"
         );
@@ -628,6 +644,7 @@ impl MetaTool for SearchToolsTool {
                 limit,
                 call.args.get("cursor").and_then(|v| v.as_str()),
                 Some(query_id.as_str()),
+                None,
             );
             if catalog_result.total > 0 {
                 payload["hint"] = json!(

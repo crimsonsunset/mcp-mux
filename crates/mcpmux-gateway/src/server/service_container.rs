@@ -141,6 +141,9 @@ impl ServiceContainer {
             deps.settings_repo.clone(),
             server_manager.clone(),
             deps.log_manager.clone(),
+            deps.state_dir
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("mcpmux")),
         );
 
         // Space resolver — currently just exposes the active Space, but

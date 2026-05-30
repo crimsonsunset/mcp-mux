@@ -25,8 +25,8 @@ use super::disclosure_backend::DisclosureBackend;
 use super::invoke_backend::InvokeToolBackend;
 use crate::pool::{FeatureService, ServerManager};
 use crate::services::{
-    FeatureSetResolverService, PromptDiscoveryService, ResourceDiscoveryService,
-    SessionRootsRegistry, ToolDiscoveryService, ToolIndex,
+    DocEmbedding, EmbeddingService, FeatureSetResolverService, PromptDiscoveryService,
+    ResourceDiscoveryService, SessionRootsRegistry, ToolDiscoveryService, ToolIndex,
 };
 
 /// Stable hash of sorted `feature_set_ids` for per-session search cache keys.
@@ -80,6 +80,10 @@ pub struct MetaToolContext {
     pub log_manager: Arc<ServerLogManager>,
     /// Per-session active tool index for `mcpmux_search_tools` (fingerprint-keyed).
     pub search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
+    /// Per-session doc embeddings for hybrid search (fingerprint-keyed).
+    pub embedding_cache: Arc<DashMap<String, (u64, Vec<DocEmbedding>)>>,
+    /// Local ONNX embedding service for hybrid tool ranking.
+    pub embeddings: Arc<EmbeddingService>,
 }
 
 /// Per-request metadata threaded through every tool call.
@@ -301,13 +305,19 @@ impl MetaToolRegistry {
         &self.ctx
     }
 
-    /// Evict the cached active index for one MCP session.
+    /// Evict cached active index and doc embeddings for one MCP session.
     pub fn evict_search_cache_for_session(&self, session_id: &str) {
         self.ctx.search_cache.remove(session_id);
+        self.ctx.embedding_cache.remove(session_id);
     }
 
     /// Whether a session has a cached active search index entry.
     pub fn search_cache_contains(&self, session_id: &str) -> bool {
         self.ctx.search_cache.contains_key(session_id)
+    }
+
+    /// Whether a session has cached doc embeddings for hybrid search.
+    pub fn embedding_cache_contains(&self, session_id: &str) -> bool {
+        self.ctx.embedding_cache.contains_key(session_id)
     }
 }

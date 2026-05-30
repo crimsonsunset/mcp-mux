@@ -32,14 +32,19 @@ mod tools;
 
 pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
-    ApprovalScope, META_TOOL_APPROVAL_EVENT,
+    ApprovalScope, ResolutionNotifier, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use diff::ToolDiff;
 pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};
 pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
-pub use registry::{MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY};
+pub use registry::{
+    feature_set_ids_fingerprint, MetaToolContext, MetaToolError, MetaToolRegistry,
+    META_TOOLS_ENABLED_KEY,
+};
 
-use crate::services::ToolDiscoveryService;
+use std::path::PathBuf;
+
+use crate::services::{EmbeddingService, ToolDiscoveryService};
 
 /// Every built-in tool's name must start with this prefix so the handler
 /// can intercept it before routing to backend servers.
@@ -72,6 +77,7 @@ pub fn build_default_registry(
     settings_repo: Option<std::sync::Arc<dyn mcpmux_core::AppSettingsRepository>>,
     server_manager: std::sync::Arc<crate::pool::ServerManager>,
     log_manager: std::sync::Arc<mcpmux_core::ServerLogManager>,
+    data_dir: PathBuf,
 ) -> std::sync::Arc<MetaToolRegistry> {
     let tool_discovery =
         std::sync::Arc::new(ToolDiscoveryService::new(server_feature_repo.clone()));
@@ -82,6 +88,8 @@ pub fn build_default_registry(
         server_feature_repo.clone(),
     ));
     let search_cache = session_roots.search_cache();
+    let embedding_cache = session_roots.embedding_cache();
+    let embeddings = std::sync::Arc::new(EmbeddingService::new(data_dir));
     let ctx = MetaToolContext {
         client_repo,
         space_repo,
@@ -103,6 +111,8 @@ pub fn build_default_registry(
         server_manager,
         log_manager,
         search_cache,
+        embedding_cache,
+        embeddings,
     };
 
     let mut registry = MetaToolRegistry::new(ctx);

@@ -174,6 +174,7 @@ impl Fixture {
             None,
             server_manager,
             log_manager,
+            std::env::temp_dir().join(format!("mcpmux-meta-invoke-{}", Uuid::new_v4())),
         );
 
         Self {

@@ -39,4 +39,6 @@ pub use prompt_discovery::{PromptDetailLevel, PromptDiscoveryService, PromptInde
 pub use resource_discovery::{ResourceDetailLevel, ResourceDiscoveryService, ResourceIndexEntry};
 pub use session_roots::SessionRootsRegistry;
 pub use space_resolver::SpaceResolverService;
-pub use tool_discovery::{DetailLevel, ToolDiscoveryService, ToolIndex, ToolIndexEntry};
+pub use tool_discovery::{
+    DetailLevel, DocEmbedding, SearchContext, ToolDiscoveryService, ToolIndex, ToolIndexEntry,
+};

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use mcpmux_core::normalize_workspace_root;
 
-use super::tool_discovery::ToolIndex;
+use super::tool_discovery::{DocEmbedding, ToolIndex};
 
 /// Thread-safe registry mapping `mcp-session-id` to the caller's reported
 /// workspace roots, plus the most recently resolved feature-set id so the
@@ -64,6 +64,8 @@ pub struct SessionRootsRegistry {
     /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
     /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext).
     search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
+    /// Per-session doc embeddings for hybrid search (`fingerprint`, vectors).
+    embedding_cache: Arc<DashMap<String, (u64, Vec<DocEmbedding>)>>,
 }
 
 impl SessionRootsRegistry {
@@ -75,12 +77,18 @@ impl SessionRootsRegistry {
             last_probe: DashMap::new(),
             probe_lock: DashMap::new(),
             search_cache: Arc::new(DashMap::new()),
+            embedding_cache: Arc::new(DashMap::new()),
         })
     }
 
     /// Shared per-session `search_tools` active index cache.
     pub fn search_cache(&self) -> Arc<DashMap<String, (u64, ToolIndex)>> {
         self.search_cache.clone()
+    }
+
+    /// Shared per-session doc embedding cache for hybrid search ranking.
+    pub fn embedding_cache(&self) -> Arc<DashMap<String, (u64, Vec<DocEmbedding>)>> {
+        self.embedding_cache.clone()
     }
 
     /// Get (or create) the per-session probe lock. The returned Arc is
@@ -156,9 +164,10 @@ impl SessionRootsRegistry {
         self.last_probe.remove(session_id);
         self.probe_lock.remove(session_id);
         self.search_cache.remove(session_id);
+        self.embedding_cache.remove(session_id);
     }
 
-    /// Evict cached active indexes for sessions reporting `workspace_root`.
+    /// Evict cached active indexes and doc embeddings for sessions reporting `workspace_root`.
     pub fn evict_search_cache_for_workspace_root(&self, workspace_root: &str) {
         let normalized = normalize_workspace_root(workspace_root);
         let session_ids: Vec<String> = self
@@ -169,6 +178,7 @@ impl SessionRootsRegistry {
             .collect();
         for session_id in session_ids {
             self.search_cache.remove(&session_id);
+            self.embedding_cache.remove(&session_id);
         }
     }
 
