@@ -26,7 +26,9 @@ use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
 use mcpmux_core::{AppSettingsService, DomainEvent};
 use mcpmux_gateway::admin::ui_events::{map_domain_event_to_ui, AdminUiEventBus};
 use mcpmux_gateway::oauth::OAUTH_CONSENT_EVENT;
-use mcpmux_gateway::services::meta_tools::META_TOOL_APPROVAL_EVENT;
+use mcpmux_gateway::services::meta_tools::{
+    META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
+};
 use mcpmux_gateway::{
     ConnectionContext, ConnectionResult, FeatureService, InstalledServerInfo, OAuthCompleteEvent,
     PoolService, ResolvedTransport, ServerKey, ServerManager,
@@ -173,14 +175,21 @@ pub(crate) fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 /// `start_gateway` command and the lib.rs auto-start path must call this —
 /// without it the broker stays publisher-less and every write surfaces as
 /// `approval_required: no desktop attached to mcpmux gateway`.
+///
+/// Also sets a resolution notifier so that when either surface resolves a
+/// dialog (approve or deny), all other surfaces receive a
+/// `meta-tool-approval-resolved` event and can self-dismiss the orphaned dialog
+/// for that `request_id`.
 pub(crate) async fn attach_approval_publisher<R: tauri::Runtime>(
     approval_broker: &Arc<mcpmux_gateway::services::ApprovalBroker>,
     app_handle: tauri::AppHandle<R>,
     ui_bus: Option<Arc<AdminUiEventBus>>,
 ) {
+    let app_handle_pub = app_handle.clone();
+    let ui_bus_pub = ui_bus.clone();
     let publisher: mcpmux_gateway::services::meta_tools::ApprovalPublisher = Arc::new(move |req| {
-        let app_handle = app_handle.clone();
-        let ui_bus = ui_bus.clone();
+        let app_handle = app_handle_pub.clone();
+        let ui_bus = ui_bus_pub.clone();
         Box::pin(async move {
             focus_main_window(&app_handle);
             let payload = serde_json::to_value(&req).unwrap_or_else(|_| serde_json::json!({}));
@@ -202,6 +211,32 @@ pub(crate) async fn attach_approval_publisher<R: tauri::Runtime>(
         })
     });
     approval_broker.set_publisher(publisher).await;
+
+    let app_handle_res = app_handle.clone();
+    let ui_bus_res = ui_bus.clone();
+    let resolution_notifier: mcpmux_gateway::services::meta_tools::ResolutionNotifier =
+        Arc::new(move |request_id, decision| {
+            let app_handle = app_handle_res.clone();
+            let ui_bus = ui_bus_res.clone();
+            Box::pin(async move {
+                let payload = serde_json::json!({
+                    "request_id": request_id,
+                    "decision": decision,
+                });
+                if let Err(e) = app_handle.emit(META_TOOL_APPROVAL_RESOLVED_EVENT, &payload) {
+                    tracing::warn!(
+                        error = %e,
+                        "[meta-tool] failed to emit approval resolution to Tauri"
+                    );
+                }
+                if let Some(ref bus) = ui_bus {
+                    bus.publish(META_TOOL_APPROVAL_RESOLVED_EVENT, payload);
+                }
+            })
+        });
+    approval_broker
+        .set_resolution_notifier(resolution_notifier)
+        .await;
 }
 
 /// Wires up ServerManager state + the OAuth completion handler + the
