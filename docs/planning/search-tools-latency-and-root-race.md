@@ -1,7 +1,7 @@
 # search_tools Latency & Root-Race Fixes
 
 **Last Updated:** May 29, 2026
-**Status:** Planning — decisions locked; not started
+**Status:** Shipped — Phases 6–8 committed on `docs/feature-set-consent-model` (4195944, 494c693, 16d5fff)
 **Branch:** `docs/feature-set-consent-model` (Phase 6 of consent-model work)
 **Base branch:** `docs/feature-set-consent-model`
 **Depends on:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) Phases 1–5 (shipped on this branch) — `include_inactive` discovery, bind layering, session-override removal
@@ -214,4 +214,14 @@ Cache is `DashMap` (same concurrency primitive used by `SessionRootsRegistry` al
 
 ## Reconciliation
 
-When implementation completes, update **Status** at the top and reconcile deviations per [`update-planning-md`](~/.cursor/commands/update-planning-md.md).
+**Shipped May 29, 2026** on commits `4195944` (Phase 6), `494c693` (Phase 7), `16d5fff` (Phase 8).
+
+| Phase | Planned | Shipped | Deviation |
+| ----- | ------- | ------- | --------- |
+| 6 | `ensure_roots_probed` before meta-tool dispatch | Same — `handler.rs` ~745 | None |
+| 7 | Single JOIN SQL in `resolution.rs` | Two-pass in-memory scan: `list_for_space` + `list_by_space`, flat includes first, `resolve_members` second pass for nested/exclude | Avoided new storage-layer SQL; achieves O(1) repo round-trips vs per-FS `resolve_feature_sets`. Same outcome, different layer. |
+| 8 | `search_cache` on `MetaToolContext` | Shared `Arc` on `SessionRootsRegistry`, wired into `MetaToolContext`; eviction in `remove()` + `MCPNotifier::WorkspaceBindingChanged` | Cache lives on `SessionRootsRegistry` (not standalone on context) so session disconnect eviction is colocated with root lifecycle |
+
+**Validation:** `pnpm validate` + `pnpm test:rust` green (May 29, 2026).
+
+**Manual QA still required:** Fresh Cursor session smoke (`search_tools("jira")` first call) and PostHog-scale inactive scan perf check per Pre-PR validation table.

@@ -2,9 +2,9 @@
 
 **Last Updated:** May 29, 2026
 **Branch:** `docs/feature-set-consent-model`
-**Related:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) · [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md)
+**Related:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) · [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) · [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md)
 
-Full checklist for validating Phases 1–8 of the consent-model PR: discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, and the three Phase 6–8 perf/correctness fixes (root-race, inactive scan, active index cache). Sections A–G map to Phases 1–5; Sections H–J map to Phases 6–8.
+Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4.
 
 ---
 
@@ -43,7 +43,7 @@ In McpMux → **Workspaces**, bind `~/Desktop/QA/consent-model-qa` to:
 | **First inactive target** | `bundle:design` | `4397fd99-3d6a-41a9-ad07-38cc1b38569c` | 36 | Smallest — fast inactive scan, use for Sections B/C |
 | **Second inactive target** | `bundle:devops-personal` | `9034e26f-5430-464c-9599-11e74f7df322` | 29 | For Phase 5 web-approval (needs a distinct UUID) |
 
-> **Do not use `bundle:observability-personal` (494 tools) or `bundle:s2h` (878 tools) for `include_inactive` tests** — they'll hit the Phase 7 inactive-scan hang.
+> **Do not use `bundle:observability-personal` (494 tools) or `bundle:s2h` (878 tools) for routine `include_inactive` tests** — Phase 7 fixed the hang, but wide scans are still slow on huge bundles. Use `bundle:design` / `bundle:devops-personal` for day-to-day inactive discovery; reserve observability for Section I perf smoke only.
 >
 > **`bundle:gait` is NOT empty** — 488 members as of May 29 2026. Fine for invoke testing once bound, but too heavy for wide `include_inactive` scans.
 
@@ -80,6 +80,7 @@ Expect `bundle:core` as `active`, `bundle:design` and `bundle:devops-personal` a
 - [ ] QA workspace folder open in the Cursor window running the agent
 - [ ] Web admin open in browser: `http://127.0.0.1:1420` (for Phase 5 / Section F)
 - [ ] **Do not approve bind dialogs** unless the step says to
+- [ ] First hybrid-ranking query (Section L) may trigger a ~67 MB embedding model download — allow network once, or SKIP L/M/N if air-gapped
 
 ---
 
@@ -93,6 +94,7 @@ McpMux consent-model QA — setup
 - Workspace: ~/Desktop/QA/consent-model-qa — bundle:core active, bundle:design + bundle:devops-personal inactive
 - Do NOT approve bind dialogs unless the test step says to
 - Report exact tool names, JSON payloads, and error messages verbatim
+- For search_tools: always report the ranking field (lexical | hybrid) when present
 - Format: PASS / FAIL / SKIP / BLOCKED per step with one-line evidence
 ```
 
@@ -289,12 +291,12 @@ Confirm: binding unchanged after deny, already_bound still false (or appropriate
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Approval dialog appears in browser (SSE render) | ☐ | ☐ | |
-| Approve in browser → binding written | ☐ | ☐ | |
-| No double-dialog (Tauri + browser simultaneously) | ☐ | ☐ | |
-| Deny in browser → binding unchanged | ☐ | ☐ | |
+| Approval dialog appears in browser (SSE render) | ✅ | | Appeared in both Tauri and browser |
+| Approve in browser → binding written | ✅ | | `bundle:devops-personal` active; `feature_set_ids` has all 3 bundles |
+| No double-dialog sync issue | ✅ | | Approving in browser auto-dismissed Tauri dialog (post-fix) |
+| Deny in browser → binding unchanged | ✅ | | `bundle:browser` not written; Tauri auto-dismissed on deny too |
 
-Record: dialog location, approve/deny outcomes.
+Record: post-fix retest — approve and deny both correctly sync across Tauri and browser. Deny test used `bundle:browser` (fresh unbound bundle) to avoid `already_bound` short-circuit.
 
 ---
 
@@ -315,11 +317,11 @@ Paste the invoke result summary.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Search finds tools in newly bound bundle | ☐ | ☐ | |
-| Schema loaded before invoke | ☐ | ☐ | |
-| Invoke result is not a bind/inactive error | ☐ | ☐ | |
+| Search finds tools in newly bound bundle | ✅ | | 30 canva tools, `scope: active_only` |
+| Schema loaded before invoke | ✅ | | `canva_list-folder-items` schema retrieved cleanly |
+| Invoke result is not a bind/inactive error | ✅ | | Full successful response — 26 items returned from Canva root folder |
 
-Record: invoke result or error type.
+Record: `canva_list-folder-items` with `folder_id: "root"` — full data response, no auth or bind errors.
 
 ---
 
@@ -453,6 +455,135 @@ Record: pre/post-rebind results for J2, post-reconnect result for J3.
 
 ---
 
+## K. Hybrid Phase 1 — Lexical token-overlap
+
+**Setup:** Complete Section C first (`bundle:design` bound — Canva tools active). This tests the fix for multi-word queries against hyphenated tool names.
+
+**Prompt:**
+
+```text
+1. mcpmux_search_tools({ "query": "list folder", "detail_level": "description" })
+   Expect: total > 0, canva_list-folder-items (or similar Canva list/folder tool) in results.
+   Before the fix this returned total: 0 because "list folder" did not match list-folder-items as a contiguous substring.
+
+2. mcpmux_search_tools({ "query": "zznotrealxyz" })
+   Expect: total: 0, scope: active_only, ranking field present (see below).
+
+Paste both responses verbatim. Note the ranking field value on each.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `"list folder"` returns Canva folder/list tools | ☐ | ☐ | token-overlap fix |
+| Zero-match query still returns `total: 0` | ☐ | ☐ | |
+| Payload includes `ranking` (`"lexical"` or `"hybrid"`) | ☐ | ☐ | new field |
+
+Record: top `qualified_name` from call 1, `ranking` value on both calls.
+
+---
+
+## L. Hybrid Phase 2 — Embedding model lifecycle
+
+**Setup:** Fresh dev gateway (`pnpm dev:admin`). First hybrid query may download BGE-small (~67 MB) to app data under `{data_dir}/embeddings`. Watch gateway logs for `[embed]` state transitions.
+
+**Prompt:**
+
+```text
+1. mcpmux_search_tools({ "query": "folder" })
+   Note: ranking field on first call — may be "lexical" if model still downloading.
+
+2. Wait ~30 s if needed, then repeat:
+   mcpmux_search_tools({ "query": "folder" })
+   Expect: ranking may become "hybrid" once model is Ready.
+
+3. Report whether call 1 felt slower (cold) vs call 2 (warm index; embedding cache may still be cold on first hybrid query).
+
+Paste both responses. Note ranking values and any download delay.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Search never hard-fails while model downloads | ☐ | ☐ | lexical fallback |
+| First call returns results (`total > 0` or valid zero with hint) | ☐ | ☐ | |
+| `ranking: "lexical"` acceptable while model not Ready | ☐ | ☐ | |
+| Second call works after download window | ☐ | ☐ | may show `ranking: "hybrid"` |
+
+**Optional (air-gapped / no download):** Rename or move `{data_dir}/embeddings` aside, restart gateway, confirm search still returns results with `ranking: "lexical"`. Restore folder after.
+
+Record: ranking on call 1 vs call 2, download observed (yes/no), gateway `[embed]` log snippet if available.
+
+---
+
+## M. Hybrid Phase 3 — Hybrid fusion + embedding cache
+
+**Setup:** Model Ready from Section L (`ranking: "hybrid"` observed at least once). QA workspace with `bundle:core` + `bundle:design` bound.
+
+**Prompt:**
+
+```text
+1. mcpmux_search_tools({ "query": "list folder" })
+   Expect: ranking: "hybrid" (if model Ready), Canva tools in top results.
+
+2. Call the same query five times with identical args.
+   Expect: consistent results; calls 2–5 should not regress ranking or drop tools.
+
+3. mcpmux_search_tools({ "query": "canva_list-folder-items" })
+   Expect: literal tool name ranks first or near-first (lexical precision preserved in fusion).
+
+Paste responses for calls 1, 2, 5, and 3.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `ranking: "hybrid"` when model Ready | ☐ | ☐ | |
+| Repeat queries return consistent tool set | ☐ | ☐ | embedding + index cache |
+| Exact qualified_name query ranks target tool highly | ☐ | ☐ | lexical weight in fusion |
+
+Record: `ranking`, top 3 `qualified_name` values from call 3.
+
+---
+
+## N. Hybrid Phase 4 — Intent relevance smoke
+
+**Setup:** Requires a workspace with Jira/Atlassian tools in the **active** binding. Options:
+
+| Workspace | Binding | Use for |
+| --------- | ------- | ------- |
+| `generAIt` (or folder with `bundle:gait`) | includes Atlassian | intent query below |
+| QA folder only | core + design | SKIP intent step; run exact-name step only |
+
+**Prompt (Atlassian binding):**
+
+```text
+1. mcpmux_search_tools({ "query": "post a jira comment", "detail_level": "description", "limit": 10 })
+   Expect: a comment/issue-creation Jira tool in top 3 (e.g. create_issue_comment or similar).
+   ranking: "hybrid" if model Ready.
+
+2. mcpmux_search_tools({ "query": "canva_list-folder-items", "limit": 5 })
+   Expect: canva_list-folder-items is #1 (exact lexical precision).
+
+Paste both responses with top 5 qualified_name list.
+```
+
+**Prompt (QA folder only — SKIP step 1):**
+
+```text
+mcpmux_search_tools({ "query": "canva_list-folder-items", "limit": 5 })
+Expect: canva_list-folder-items ranks first among Canva tools.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Intent query surfaces semantically related tool in top 3 | ☐ | ☐ | SKIP if no Jira binding |
+| Exact tool name ranks first | ☐ | ☐ | |
+| `include_inactive: true` results NOT semantically reranked | ☐ | ☐ | optional: confirm inactive rows lack hybrid boost vs active |
+
+**Optional trace (developer):** Run gateway with `RUST_LOG=mcpmux_gateway=debug`, one `search_tools` call, grep logs for `query_id` — confirm entry → cache → embed → lexical → fusion → summary chain. Raw query text must not appear above `debug`.
+
+Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` values.
+
+---
+
 ## Red flags (stop and file a bug)
 
 - [ ] Any of the removed tools (`enable_server`, `disable_server`, `create_feature_set`, `list_all_tools`) present in `tools/list`
@@ -460,9 +591,13 @@ Record: pre/post-rebind results for J2, post-reconnect result for J3.
 - [ ] Bind **replaces** prior feature sets instead of layering (prior bundle tools disappear)
 - [ ] `search_tools` default finds tools from inactive/unbound servers
 - [ ] Approval dialog never appears (Tauri or browser) on bind call
-- [ ] Approval dialog appears in both Tauri AND browser simultaneously
+- [ ] Approval dialog appears in both Tauri AND browser simultaneously **without cross-dialog sync** (acting on one must auto-dismiss the other)
 - [ ] `search_tools` returns 0 on first call even though workspace binding is already correct (root-race bug — fixed in Phase 6)
 - [ ] `include_inactive: true` without `server_id` hangs > 5 s (inactive scan bug — fixed in Phase 7)
+- [ ] `search_tools("list folder")` returns `total: 0` when Canva tools are active (token-overlap bug — fixed in Hybrid Phase 1)
+- [ ] `search_tools` missing `ranking` field in payload (hybrid ranking regression)
+- [ ] Intent query returns zero hits when semantically matching tool is active and model is Ready (Hybrid Phase 3/4 regression)
+- [ ] Exact tool name query does not rank the literal tool in top 3 (fusion drowning lexical — Hybrid Phase 3 regression)
 
 ---
 
@@ -475,11 +610,15 @@ Record: pre/post-rebind results for J2, post-reconnect result for J3.
 | C Bind/layer | ✅ PASS | Layering intact; `already_bound: true` short-circuits before consent prompt; canva tools active post-bind |
 | D Removed paths | ✅ PASS | `enable_server` absent; inactive invoke error correctly points to `mcpmux_bind_current_workspace` |
 | E Human-only | ✅ PASS | `create_feature_set` absent; uncovered-tool hint correctly points to McpMux UI |
-| F Web approval | | |
-| G Invoke | | |
+| F Web approval | ✅ PASS | Approve + deny both work; Tauri and browser dialogs sync correctly post-fix |
+| G Invoke | ✅ PASS | Search → schema → invoke all clean; invoke returned live Canva data |
 | H Root-race | | |
 | I Inactive scan perf | | |
 | J Cache (hit/evict/disconnect) | | |
+| K Lexical token-overlap | | |
+| L Embedding lifecycle | | |
+| M Hybrid fusion + cache | | |
+| N Intent relevance | | |
 
 List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle available.
 
@@ -497,4 +636,8 @@ List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle 
 | Phase 6 — root-race fix | ☐ Pass ☐ Fail |
 | Phase 7 — inactive scan perf | ☐ Pass ☐ Fail |
 | Phase 8 — active index cache | ☐ Pass ☐ Fail |
+| Hybrid 1 — lexical token-overlap | ☐ Pass ☐ Fail |
+| Hybrid 2 — embedding lifecycle | ☐ Pass ☐ Fail |
+| Hybrid 3 — hybrid fusion + cache | ☐ Pass ☐ Fail |
+| Hybrid 4 — intent relevance | ☐ Pass ☐ Fail |
 | Overall | ☐ Ship ☐ Block |

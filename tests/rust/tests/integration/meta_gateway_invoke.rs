@@ -604,7 +604,7 @@ async fn partial_feature_set_binding_limits_search_and_invoke() {
     let search = f
         .call(
             "mcpmux_search_tools",
-            json!({ "query": "issue", "server_id": "github" }),
+            json!({ "query": "issues", "server_id": "github" }),
         )
         .await;
     let search_body = Fixture::result_json(&search);

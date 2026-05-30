@@ -1,8 +1,8 @@
 # search_tools Hybrid Semantic Ranking
 
 **Last Updated:** May 29, 2026
-**Status:** Planning — decisions locked; not started
-**Branch:** TBD (stacks on `docs/feature-set-consent-model`)
+**Status:** Shipped — Phases 1–4 committed on `docs/feature-set-consent-model` (c612af7, ab8cf8e, 91d6942, e7e191e)
+**Branch:** `docs/feature-set-consent-model` (stacks on consent-model work)
 **Base branch:** `docs/feature-set-consent-model`
 **Depends on:** [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) Phase 8 (per-session active index cache) — the embedding cache layers onto the same `(session_id, fingerprint)` keying
 **Supersedes:** TF-IDF ranking introduced in [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) Phase D — this doc replaces the `substring-prefilter → TF-IDF rerank` pipeline in `discovery_rank.rs`
@@ -261,4 +261,17 @@ The result payload already gains `ranking: "hybrid" | "lexical"` (Decision 9). T
 
 ## Reconciliation
 
-When implementation completes, update **Status** at the top and reconcile deviations per [`update-planning-md`](~/.cursor/commands/update-planning-md.md).
+**Shipped May 29, 2026** on commits `c612af7` (Phase 1), `ab8cf8e` (Phase 2), `91d6942` (Phase 3), `e7e191e` (Phase 4).
+
+| Phase | Planned | Shipped | Deviation |
+| ----- | ------- | ------- | --------- |
+| 1 | Token-overlap + AND-boost; `[search]` tracing; `ranking: lexical` | Same | `filter_and_rank_traced` added to preserve 5-arg API for prompt/resource discovery callers |
+| 2 | `fastembed` + `EmbeddingService` state machine | Same | BGESmallENV15 (non-quantized); background thread init; `#[ignore]` download test |
+| 3 | Hybrid fusion + `embedding_cache` | Same | `data_dir` wired through registry/service_container (outside strict file list); semantic rerank active set only; cache-hit test pre-seeds embeddings for CI |
+| 4 | ~20-case relevance fixture + weight tuning | Same | `EmbeddingService::install_test_vectors` test-utils stub; 0.4/0.6 retained (20/20 on fixture) |
+
+**Post-ship fix (uncommitted):** `partial_feature_set_binding_limits_search_and_invoke` query updated `"issue"` → `"issues"` — token-overlap no longer matches `list_issues` via substring.
+
+**Validation:** `pnpm validate` + `pnpm test:rust` green — 766 passed, 2 skipped (May 29, 2026).
+
+**Manual QA still required:** intent smoke (`post a jira comment`), exact-name smoke (`canva_list-folder-items`), offline fallback (`ranking: lexical` without model), trace one query via `RUST_LOG=mcpmux_gateway=debug`.
