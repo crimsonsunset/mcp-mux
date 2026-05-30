@@ -12,7 +12,7 @@ use mcpmux_core::{FeatureType, ServerFeature, ServerFeatureRepository};
 use crate::pool::InactiveDiscoveryEntry;
 use serde_json::{json, Value};
 
-use super::discovery_rank::filter_and_rank;
+use super::discovery_rank::{filter_and_rank_traced, RankTraceContext};
 
 /// How much detail search results include per matched tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +57,10 @@ pub struct SearchToolsResult {
     pub tools: Vec<Value>,
     pub next_cursor: Option<String>,
     pub total: usize,
+    /// Ranking mode used for this result set (`lexical` until hybrid fusion lands).
+    pub ranking: &'static str,
+    /// Lexical score of the top-ranked match, when a query was provided.
+    pub top_lexical_score: Option<f64>,
 }
 
 /// Service that builds and queries a tool index for a Space.
@@ -158,24 +162,43 @@ impl ToolDiscoveryService {
         detail_level: DetailLevel,
         limit: usize,
         cursor: Option<&str>,
+        query_id: Option<&str>,
     ) -> SearchToolsResult {
         let limit = limit.clamp(1, 100);
         let offset = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
 
-        let filtered = filter_and_rank(
-            index,
-            query,
-            server_id,
-            |entry| entry.server_id.as_str(),
-            |entry| {
-                format!(
-                    "{} {} {}",
-                    entry.qualified_name,
-                    entry.feature_name,
-                    entry.description.as_deref().unwrap_or("")
-                )
-            },
-        );
+        let haystack_fn = |entry: &ToolIndexEntry| {
+            format!(
+                "{} {} {}",
+                entry.qualified_name,
+                entry.feature_name,
+                entry.description.as_deref().unwrap_or("")
+            )
+        };
+
+        let (filtered, top_lexical_score) = if let Some(query_id) = query_id {
+            let trace = RankTraceContext { query_id };
+            filter_and_rank_traced(
+                index,
+                query,
+                server_id,
+                |entry| entry.server_id.as_str(),
+                haystack_fn,
+                &trace,
+            )
+        } else {
+            use super::discovery_rank::filter_and_rank;
+            (
+                filter_and_rank(
+                    index,
+                    query,
+                    server_id,
+                    |entry| entry.server_id.as_str(),
+                    haystack_fn,
+                ),
+                None,
+            )
+        };
 
         let total = filtered.len();
         let page: Vec<Value> = filtered
@@ -196,6 +219,8 @@ impl ToolDiscoveryService {
             tools: page,
             next_cursor,
             total,
+            ranking: "lexical",
+            top_lexical_score,
         }
     }
 

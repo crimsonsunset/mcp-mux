@@ -8,8 +8,9 @@ use mcpmux_core::{normalize_workspace_root, DomainEvent, FeatureType, WorkspaceB
 use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use tokio::sync::broadcast;
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::approval::{ApprovalPayload, ApprovalScope};
@@ -466,8 +467,18 @@ impl MetaTool for SearchToolsTool {
     }
 
     async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
+        let started = Instant::now();
+        let query_id: String = Uuid::new_v4()
+            .to_string()
+            .chars()
+            .filter(|c| *c != '-')
+            .take(8)
+            .collect();
+
         let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
+
+        let query_str = call.args.get("query").and_then(|v| v.as_str());
 
         let detail_level = call
             .args
@@ -489,6 +500,21 @@ impl MetaTool for SearchToolsTool {
             .unwrap_or(false);
 
         let fingerprint = feature_set_ids_fingerprint(&resolved.feature_set_ids);
+
+        info!(
+            query_id = %query_id,
+            session_id = ?call.session_id,
+            fingerprint,
+            query_len = query_str.map(str::len).unwrap_or(0),
+            detail_level = ?detail_level,
+            limit,
+            include_inactive,
+            "[search] call entry"
+        );
+        if let Some(query) = query_str {
+            debug!(query_id = %query_id, query, "[search] query text");
+        }
+
         let mut index = if let Some(session_id) = call.session_id {
             if let Some(entry) = call.ctx.search_cache.get(session_id) {
                 let (cached_fp, cached_index) = entry.value();
@@ -543,17 +569,37 @@ impl MetaTool for SearchToolsTool {
 
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
             &index,
-            call.args.get("query").and_then(|v| v.as_str()),
+            query_str,
             server_id_filter,
             detail_level,
             limit,
             call.args.get("cursor").and_then(|v| v.as_str()),
+            Some(query_id.as_str()),
+        );
+
+        let top_qualified_name = result
+            .tools
+            .first()
+            .and_then(|tool| tool.get("qualified_name"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
+        info!(
+            query_id = %query_id,
+            ranking = result.ranking,
+            total = result.total,
+            returned = result.tools.len(),
+            top_qualified_name,
+            top_fused_score = ?result.top_lexical_score,
+            total_ms = started.elapsed().as_millis() as u64,
+            "[search] result summary"
         );
 
         let mut payload = json!({
             "tools": result.tools,
             "next_cursor": result.next_cursor,
             "total": result.total,
+            "ranking": result.ranking,
             "scope": if include_inactive { "active_and_inactive" } else { "active_only" },
         });
 
@@ -576,11 +622,12 @@ impl MetaTool for SearchToolsTool {
                 .map_err(|e| MetaToolError::Internal(e.to_string()))?;
             let catalog_result = crate::services::tool_discovery::ToolDiscoveryService::search(
                 &catalog,
-                call.args.get("query").and_then(|v| v.as_str()),
+                query_str,
                 call.args.get("server_id").and_then(|v| v.as_str()),
                 detail_level,
                 limit,
                 call.args.get("cursor").and_then(|v| v.as_str()),
+                Some(query_id.as_str()),
             );
             if catalog_result.total > 0 {
                 payload["hint"] = json!(
