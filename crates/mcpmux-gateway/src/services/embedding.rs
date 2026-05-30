@@ -3,6 +3,7 @@
 //! Downloads `bge-small-en-v1.5` on first use into the app data directory and
 //! exposes non-blocking state so callers can fall back to lexical-only search.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -44,6 +45,9 @@ pub struct EmbeddingService {
     state: Arc<RwLock<EmbeddingState>>,
     model: Arc<Mutex<Option<TextEmbedding>>>,
     init_started: Arc<AtomicBool>,
+    /// Deterministic vectors for CI relevance eval (no model download).
+    #[cfg(any(test, feature = "test-utils"))]
+    test_vectors: Arc<RwLock<HashMap<String, Vec<f32>>>>,
 }
 
 impl EmbeddingService {
@@ -56,7 +60,16 @@ impl EmbeddingService {
             state: Arc::new(RwLock::new(EmbeddingState::NotDownloaded)),
             model: Arc::new(Mutex::new(None)),
             init_started: Arc::new(AtomicBool::new(false)),
+            #[cfg(any(test, feature = "test-utils"))]
+            test_vectors: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Install deterministic embedding vectors and mark the model ready (CI / integration tests).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn install_test_vectors(&self, vectors: HashMap<String, Vec<f32>>) {
+        *self.test_vectors.write() = vectors;
+        *self.state.write() = EmbeddingState::Ready;
     }
 
     /// Return the current model lifecycle state without blocking.
@@ -188,6 +201,23 @@ impl EmbeddingService {
         query_id: Option<&str>,
         docs_embedded: usize,
     ) -> Option<Vec<Vec<f32>>> {
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            let stub = self.test_vectors.read();
+            if !stub.is_empty() {
+                let vectors: Vec<Vec<f32>> = texts
+                    .iter()
+                    .map(|text| {
+                        stub.get(*text)
+                            .cloned()
+                            .unwrap_or_else(|| panic!("missing test embedding vector for `{text}`"))
+                    })
+                    .collect();
+                self.log_embedding_state(query_id, "ready", docs_embedded, Some(0));
+                return Some(vectors);
+            }
+        }
+
         let state = self.state();
         let model_state = model_state_label(&state);
 

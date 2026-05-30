@@ -36,22 +36,22 @@ use tests::mocks::{MockCredentialRepository, MockOutboundOAuthRepository};
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
-struct Fixture {
-    registry: Arc<MetaToolRegistry>,
+pub(crate) struct Fixture {
+    pub(crate) registry: Arc<MetaToolRegistry>,
     broker: Arc<ApprovalBroker>,
     #[allow(dead_code)]
     client_repo: Arc<dyn InboundMcpClientRepository>,
-    feature_set_repo: Arc<dyn FeatureSetRepository>,
-    server_feature_repo: Arc<dyn ServerFeatureRepository>,
-    binding_repo: Arc<dyn WorkspaceBindingRepository>,
+    pub(crate) feature_set_repo: Arc<dyn FeatureSetRepository>,
+    pub(crate) server_feature_repo: Arc<dyn ServerFeatureRepository>,
+    pub(crate) binding_repo: Arc<dyn WorkspaceBindingRepository>,
     installed_server_repo: Arc<dyn InstalledServerRepository>,
-    session_roots: Arc<SessionRootsRegistry>,
+    pub(crate) session_roots: Arc<SessionRootsRegistry>,
     feature_service: Arc<FeatureService>,
-    space_id: Uuid,
+    pub(crate) space_id: Uuid,
     /// Opaque client identity (UUID-as-string here; in production for DCR
     /// clients this can be a `client_metadata` URL).
-    client_id: String,
-    session_id: String,
+    pub(crate) client_id: String,
+    pub(crate) session_id: String,
     fs_android_id: Uuid,
     github_tool_id: Uuid,
     event_rx: broadcast::Receiver<DomainEvent>,
@@ -171,7 +171,7 @@ async fn seed_diagnose_servers(f: &Fixture) {
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
 
         let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db.clone()));
@@ -335,7 +335,7 @@ impl Fixture {
         });
     }
 
-    fn result_json(result: &rmcp::model::CallToolResult) -> Value {
+    pub(crate) fn result_json(result: &rmcp::model::CallToolResult) -> Value {
         // CallToolResult's Content is opaque; round-trip through JSON and
         // pluck out the first text payload.
         let raw = serde_json::to_value(result).unwrap();

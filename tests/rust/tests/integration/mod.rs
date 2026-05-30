@@ -21,5 +21,6 @@ mod feature_set_resolver;
 mod mcp_flows;
 mod meta_gateway_invoke;
 mod meta_tools;
+mod search_relevance_eval;
 mod server_clone;
 mod workspace_binding_events;

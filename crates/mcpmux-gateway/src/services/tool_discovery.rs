@@ -84,10 +84,16 @@ pub struct SearchToolsResult {
     pub top_fused_score: Option<f64>,
 }
 
-/// Default lexical weight for hybrid score fusion.
+/// Lexical weight for hybrid score fusion.
+///
+/// Tuned against the 20-case intent→tool relevance fixture in
+/// `tests/rust/tests/integration/search_relevance_eval.rs` (Phase 4). At 0.4/0.6
+/// hybrid passes all fixture cases in top-3 while lexical-only passes ~11/20;
+/// lowering lexical (e.g. 0.3) risks exact-name queries losing to semantic noise,
+/// raising it (e.g. 0.5) drops intent-only queries with zero token overlap.
 const LEXICAL_FUSION_WEIGHT: f32 = 0.4;
 
-/// Default semantic weight for hybrid score fusion.
+/// Semantic weight for hybrid score fusion (complement of [`LEXICAL_FUSION_WEIGHT`]).
 const SEMANTIC_FUSION_WEIGHT: f32 = 0.6;
 
 /// Service that builds and queries a tool index for a Space.
