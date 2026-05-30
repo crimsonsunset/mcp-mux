@@ -16,9 +16,10 @@ fn main() {
     // Stamp git/build metadata into the binary so the admin UI can detect a stale
     // SPA build (web-admin serves a pre-built bundle from `apps/desktop/dist`).
     let git_sha = git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_default();
-    let git_branch = git_output(&["rev-parse", "--abbrev-ref", "HEAD"])
-        .unwrap_or_else(|| "unknown".to_string());
-    let commit_time = git_output(&["log", "-1", "--format=%ci"]).unwrap_or_else(|| "unknown".to_string());
+    let git_branch =
+        git_output(&["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
+    let commit_time =
+        git_output(&["log", "-1", "--format=%ci"]).unwrap_or_else(|| "unknown".to_string());
     let build_time = std::env::var("SOURCE_DATE_EPOCH")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
