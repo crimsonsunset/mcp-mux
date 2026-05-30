@@ -8,8 +8,8 @@ use std::sync::Arc;
 use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
     meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService,
-    FeatureSetResolverService, GrantService, MetaToolRegistry, PrefixCacheService,
-    SessionRootsRegistry, SpaceResolverService,
+    EmbeddingWarmer, FeatureSetResolverService, GrantService, MetaToolRegistry,
+    PrefixCacheService, SessionRootsRegistry, SpaceResolverService,
 };
 use mcpmux_core::DomainEvent;
 
@@ -46,6 +46,9 @@ pub struct ServiceContainer {
 
     /// Built-in `mcpmux_*` meta tools advertised alongside backend tools.
     pub meta_tool_registry: Arc<MetaToolRegistry>,
+
+    /// Background warmer for per-server tool embedding catalogs.
+    pub embedding_warmer: Arc<EmbeddingWarmer>,
 
     /// Space resolver for determining client's active space (SRP)
     pub space_resolver_service: Arc<SpaceResolverService>,
@@ -148,6 +151,12 @@ impl ServiceContainer {
                 .unwrap_or_else(|| std::env::temp_dir().join("mcpmux")),
             embedding_repo,
         );
+        let embedding_warmer = Arc::new(EmbeddingWarmer::new(
+            deps.feature_repo.clone(),
+            meta_tool_registry.context().embedding_repo.clone(),
+            meta_tool_registry.context().embedding_store.clone(),
+            meta_tool_registry.context().embeddings.clone(),
+        ));
 
         // Space resolver — currently just exposes the active Space, but
         // keeps a stable seam for future session-targeted routing.
@@ -174,6 +183,7 @@ impl ServiceContainer {
             session_roots,
             approval_broker,
             meta_tool_registry,
+            embedding_warmer,
             space_resolver_service,
             prefix_cache_service,
             client_metadata_service,

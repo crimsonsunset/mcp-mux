@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 
 use mcpmux_core::{
-    normalize_workspace_root, FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerFeature,
-    WorkspaceBinding,
+    normalize_workspace_root, EmbeddingRecord, FeatureSet, FeatureSetMember, MemberMode,
+    MemberType, ServerFeature, WorkspaceBinding,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -315,10 +315,9 @@ const FIXTURE_TOOLS: &[FixtureTool] = &[
     },
 ];
 
-/// Build the searchable haystack string (matches gateway `entry_search_haystack`).
-fn search_haystack(server_id: &str, feature_name: &str, description: &str) -> String {
-    let qualified = format!("{server_id}_{feature_name}");
-    format!("{feature_name} {qualified} {description}")
+/// Build the embedding haystack string (matches gateway `embedding_haystack`).
+fn search_haystack(_server_id: &str, feature_name: &str, description: &str) -> String {
+    format!("{feature_name} {description}")
 }
 
 /// L2-normalize a vector for cosine similarity.
@@ -447,10 +446,36 @@ async fn search_relevance_eval_hybrid_top3() {
     let fs_id = seed_relevance_bundle(&f).await;
     bind_relevance_bundle(&f, &fs_id).await;
 
+    let stub_vectors = build_stub_vectors();
     f.registry
         .context()
         .embeddings
-        .install_test_vectors(build_stub_vectors());
+        .install_test_vectors(stub_vectors.clone());
+    let records: Vec<EmbeddingRecord> = FIXTURE_TOOLS
+        .iter()
+        .map(|tool| {
+            let haystack = search_haystack(tool.server_id, tool.feature_name, tool.description);
+            let passage_key = format!("{PASSAGE_PREFIX}{haystack}");
+            let vector = stub_vectors
+                .get(&passage_key)
+                .cloned()
+                .expect("missing stub vector for passage");
+            EmbeddingRecord {
+                content_hash: mcpmux_gateway::services::EmbeddingService::content_hash(
+                    tool.feature_name,
+                    Some(tool.description),
+                ),
+                model_version: f.registry.context().embeddings.model_version().to_string(),
+                vector,
+            }
+        })
+        .collect();
+    f.registry
+        .context()
+        .embedding_repo
+        .upsert_many(&records)
+        .await
+        .unwrap();
 
     let mut failures = Vec::new();
     for case in RELEVANCE_CASES {

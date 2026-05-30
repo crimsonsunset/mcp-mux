@@ -22,10 +22,11 @@ use mcpmux_gateway::pool::{
     CachedFeatures, ConnectionService, FeatureService, OutboundOAuthManager, ServerKey,
     ServerManager, TokenService,
 };
+use mcpmux_gateway::MCPNotifier;
 use mcpmux_gateway::services::{
     meta_tools, ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher,
-    FeatureSetResolverService, MetaToolRegistry, PrefixCacheService, SessionRootsRegistry,
-    META_TOOL_APPROVAL_EVENT,
+    EmbeddingWarmer, FeatureSetResolverService, MetaToolRegistry, PrefixCacheService,
+    SessionRootsRegistry, META_TOOL_APPROVAL_EVENT,
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
@@ -904,6 +905,73 @@ async fn search_tools_reuses_persisted_embeddings_after_registry_restart() {
             .embedding_store
             .contains_key(&content_hash),
         "restart should hydrate persisted vectors by content hash"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_event_warms_server_catalog_embeddings_before_search() {
+    let f = Fixture::new().await;
+    let _ = bind_github_only_to_session_root(&f).await;
+    let content_hash = mcpmux_gateway::services::EmbeddingService::content_hash(
+        "create_issue",
+        Some("Create an issue"),
+    );
+    f.registry.context().embeddings.install_test_vectors(
+        [
+            (
+                "passage: create_issue Create an issue".to_string(),
+                vec![1.0, 0.0, 0.0],
+            ),
+            ("query: issue".to_string(), vec![1.0, 0.0, 0.0]),
+        ]
+        .into_iter()
+        .collect(),
+    );
+
+    let warmer = Arc::new(EmbeddingWarmer::new(
+        f.server_feature_repo.clone(),
+        f.registry.context().embedding_repo.clone(),
+        f.registry.context().embedding_store.clone(),
+        f.registry.context().embeddings.clone(),
+    ));
+    let notifier = Arc::new(MCPNotifier::new(
+        f.registry.context().resolver.clone(),
+        f.feature_service.clone(),
+    ));
+    notifier.set_embedding_warmer(warmer);
+    notifier.clone().start(f.event_rx.resubscribe());
+
+    let server_key = ServerKey::new(f.space_id, "github");
+    f.server_manager
+        .set_connected(&server_key, CachedFeatures::default())
+        .await;
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !f.registry.context().embedding_store.contains_key(&content_hash)
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        f.registry.context().embedding_store.contains_key(&content_hash),
+        "expected connect warmer to populate in-memory vector map"
+    );
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("ranking").and_then(|value| value.as_str()),
+        Some("hybrid"),
+        "search should find pre-warmed vectors after server connect: {body}"
     );
 }
 

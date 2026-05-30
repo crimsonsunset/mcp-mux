@@ -125,6 +125,7 @@ impl GatewayServer {
             services.feature_set_resolver.clone(),
             services.pool_services.feature_service.clone(),
         ));
+        notification_bridge.set_embedding_warmer(services.embedding_warmer.clone());
 
         info!("[Gateway] Services initialized successfully");
 
