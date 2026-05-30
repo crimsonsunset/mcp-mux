@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
-    meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService,
-    EmbeddingWarmer, FeatureSetResolverService, GrantService, MetaToolRegistry,
-    PrefixCacheService, SessionRootsRegistry, SpaceResolverService,
+    meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService, EmbeddingWarmer,
+    FeatureSetResolverService, GrantService, MetaToolRegistry, PrefixCacheService,
+    SessionRootsRegistry, SpaceResolverService,
 };
 use mcpmux_core::DomainEvent;
 
@@ -120,8 +120,9 @@ impl ServiceContainer {
         // Approval broker for meta-tool writes. Publisher is attached later
         // by the Tauri layer; until then, writes return `approval_required`.
         let approval_broker = Arc::new(ApprovalBroker::new());
-        let embedding_repo: Arc<dyn mcpmux_core::EmbeddingRepository> =
-            Arc::new(mcpmux_storage::SqliteEmbeddingRepository::new(deps.database.clone()));
+        let embedding_repo: Arc<dyn mcpmux_core::EmbeddingRepository> = Arc::new(
+            mcpmux_storage::SqliteEmbeddingRepository::new(deps.database.clone()),
+        );
 
         // Registry of built-in `mcpmux_*` meta tools (introspection + self-
         // management). Each write tool is gated by the broker above.

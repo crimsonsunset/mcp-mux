@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use mcpmux_core::{
-    normalize_workspace_root, Client, DomainEvent, EmbeddingRecord, EmbeddingRepository, FeatureSet,
-    FeatureSetMember, FeatureSetRepository, InboundMcpClientRepository, InputDefinition,
-    InstalledServer, InstalledServerRepository, LogConfig, MemberMode, MemberType,
+    normalize_workspace_root, Client, DomainEvent, EmbeddingRecord, EmbeddingRepository,
+    FeatureSet, FeatureSetMember, FeatureSetRepository, InboundMcpClientRepository,
+    InputDefinition, InstalledServer, InstalledServerRepository, LogConfig, MemberMode, MemberType,
     ServerDefinition, ServerFeature, ServerFeatureRepository, ServerLogManager, ServerSource,
     SpaceRepository, TransportConfig, TransportMetadata, WorkspaceBinding,
     WorkspaceBindingRepository,
@@ -22,12 +22,12 @@ use mcpmux_gateway::pool::{
     CachedFeatures, ConnectionService, FeatureService, OutboundOAuthManager, ServerKey,
     ServerManager, TokenService,
 };
-use mcpmux_gateway::MCPNotifier;
 use mcpmux_gateway::services::{
     meta_tools, ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher,
     EmbeddingWarmer, FeatureSetResolverService, MetaToolRegistry, PrefixCacheService,
     SessionRootsRegistry, META_TOOL_APPROVAL_EVENT,
 };
+use mcpmux_gateway::MCPNotifier;
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
     SqliteEmbeddingRepository, SqliteFeatureSetRepository, SqliteInboundMcpClientRepository,
@@ -179,7 +179,6 @@ impl Fixture {
     }
 
     pub(crate) async fn new_with_db(db: Arc<Mutex<Database>>) -> Self {
-
         let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db.clone()));
         let feature_set_repo: Arc<dyn FeatureSetRepository> =
             Arc::new(SqliteFeatureSetRepository::new(db.clone()));
@@ -834,7 +833,10 @@ async fn search_tools_reuses_global_embeddings_across_sessions_without_reembeddi
         "second session should reuse the shared vector"
     );
     assert!(
-        f.registry.context().embedding_store.contains_key(&content_hash),
+        f.registry
+            .context()
+            .embedding_store
+            .contains_key(&content_hash),
         "global embedding store should keep the content hash"
     );
 }
@@ -871,11 +873,15 @@ async fn search_tools_reuses_persisted_embeddings_after_registry_restart() {
         .session_roots
         .set_roots_capable(&restarted.session_id, true);
     restarted.session_roots.set(&restarted.session_id, [root]);
-    restarted.registry.context().embeddings.install_test_vectors(
-        [("query: issue".to_string(), vec![1.0, 0.0, 0.0])]
-            .into_iter()
-            .collect(),
-    );
+    restarted
+        .registry
+        .context()
+        .embeddings
+        .install_test_vectors(
+            [("query: issue".to_string(), vec![1.0, 0.0, 0.0])]
+                .into_iter()
+                .collect(),
+        );
     assert_eq!(
         restarted.registry.context().embedding_store.len(),
         0,
@@ -947,13 +953,20 @@ async fn connect_event_warms_server_catalog_embeddings_before_search() {
         .await;
 
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while !f.registry.context().embedding_store.contains_key(&content_hash)
+    while !f
+        .registry
+        .context()
+        .embedding_store
+        .contains_key(&content_hash)
         && std::time::Instant::now() < deadline
     {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     assert!(
-        f.registry.context().embedding_store.contains_key(&content_hash),
+        f.registry
+            .context()
+            .embedding_store
+            .contains_key(&content_hash),
         "expected connect warmer to populate in-memory vector map"
     );
 

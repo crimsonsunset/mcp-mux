@@ -317,5 +317,4 @@ impl MetaToolRegistry {
     pub fn search_cache_contains(&self, session_id: &str) -> bool {
         self.ctx.search_cache.contains_key(session_id)
     }
-
 }

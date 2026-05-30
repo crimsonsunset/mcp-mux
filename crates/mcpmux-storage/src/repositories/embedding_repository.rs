@@ -75,7 +75,9 @@ impl mcpmux_core::EmbeddingRepository for SqliteEmbeddingRepository {
         let mut records = Vec::new();
         for content_hash in content_hashes {
             let vector_blob = stmt
-                .query_row(params![content_hash, model_version], |row| row.get::<_, Vec<u8>>(0))
+                .query_row(params![content_hash, model_version], |row| {
+                    row.get::<_, Vec<u8>>(0)
+                })
                 .optional()?;
 
             if let Some(vector_blob) = vector_blob {

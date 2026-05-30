@@ -105,11 +105,14 @@ impl EmbeddingWarmer {
             .embedding_repo
             .get_many(&missing_hashes, self.embeddings.model_version())
             .await?;
-        let existing_hashes: HashSet<String> =
-            existing.iter().map(|record| record.content_hash.clone()).collect();
+        let existing_hashes: HashSet<String> = existing
+            .iter()
+            .map(|record| record.content_hash.clone())
+            .collect();
 
         for record in existing {
-            self.embedding_store.insert(record.content_hash, record.vector);
+            self.embedding_store
+                .insert(record.content_hash, record.vector);
         }
 
         missing_hashes.retain(|content_hash| !existing_hashes.contains(content_hash));
