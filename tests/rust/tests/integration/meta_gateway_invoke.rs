@@ -175,6 +175,7 @@ impl Fixture {
             server_manager,
             log_manager,
             std::env::temp_dir().join(format!("mcpmux-meta-invoke-{}", Uuid::new_v4())),
+            Arc::new(mcpmux_storage::SqliteEmbeddingRepository::new(db.clone())),
         );
 
         Self {

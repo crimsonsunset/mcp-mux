@@ -78,6 +78,7 @@ pub fn build_default_registry(
     server_manager: std::sync::Arc<crate::pool::ServerManager>,
     log_manager: std::sync::Arc<mcpmux_core::ServerLogManager>,
     data_dir: PathBuf,
+    embedding_repo: std::sync::Arc<dyn mcpmux_core::EmbeddingRepository>,
 ) -> std::sync::Arc<MetaToolRegistry> {
     let tool_discovery =
         std::sync::Arc::new(ToolDiscoveryService::new(server_feature_repo.clone()));
@@ -88,7 +89,7 @@ pub fn build_default_registry(
         server_feature_repo.clone(),
     ));
     let search_cache = session_roots.search_cache();
-    let embedding_cache = session_roots.embedding_cache();
+    let embedding_store = std::sync::Arc::new(dashmap::DashMap::new());
     let embeddings = std::sync::Arc::new(EmbeddingService::new(data_dir));
     let ctx = MetaToolContext {
         client_repo,
@@ -111,7 +112,8 @@ pub fn build_default_registry(
         server_manager,
         log_manager,
         search_cache,
-        embedding_cache,
+        embedding_store,
+        embedding_repo,
         embeddings,
     };
 

@@ -423,6 +423,37 @@ async fn build_and_cache_active_index(
     Ok(index)
 }
 
+/// Load missing active-tool vectors from persistent storage into the global embedding map.
+async fn hydrate_active_embeddings(
+    call: &MetaToolCall<'_>,
+    active_index: &[crate::services::ToolIndexEntry],
+) -> Result<(), MetaToolError> {
+    let missing_hashes: Vec<String> = active_index
+        .iter()
+        .map(crate::services::tool_discovery::entry_content_hash)
+        .filter(|content_hash| !call.ctx.embedding_store.contains_key(content_hash))
+        .collect();
+
+    if missing_hashes.is_empty() {
+        return Ok(());
+    }
+
+    let records = call
+        .ctx
+        .embedding_repo
+        .get_many(&missing_hashes, call.ctx.embeddings.model_version())
+        .await
+        .map_err(|error| MetaToolError::Internal(error.to_string()))?;
+
+    for record in records {
+        call.ctx
+            .embedding_store
+            .insert(record.content_hash, record.vector);
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // mcpmux_search_tools — read
 // ---------------------------------------------------------------------------
@@ -598,15 +629,15 @@ impl MetaTool for SearchToolsTool {
             );
         }
 
-        let hybrid = query_str.and(call.session_id).map(|session_id| {
-            crate::services::tool_discovery::SearchContext {
-                embeddings: call.ctx.embeddings.as_ref(),
-                embedding_cache: call.ctx.embedding_cache.as_ref(),
-                session_id,
-                fingerprint,
-                active_index: active_index.as_slice(),
-                index_cache_hit,
-            }
+        if query_str.is_some() {
+            hydrate_active_embeddings(&call, active_index.as_slice()).await?;
+        }
+
+        let hybrid = query_str.map(|_| crate::services::tool_discovery::SearchContext {
+            embeddings: call.ctx.embeddings.as_ref(),
+            embedding_store: call.ctx.embedding_store.as_ref(),
+            active_index: active_index.as_slice(),
+            index_cache_hit,
         });
 
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(

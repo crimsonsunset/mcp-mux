@@ -40,5 +40,5 @@ pub use resource_discovery::{ResourceDetailLevel, ResourceDiscoveryService, Reso
 pub use session_roots::SessionRootsRegistry;
 pub use space_resolver::SpaceResolverService;
 pub use tool_discovery::{
-    DetailLevel, DocEmbedding, SearchContext, ToolDiscoveryService, ToolIndex, ToolIndexEntry,
+    DetailLevel, SearchContext, ToolDiscoveryService, ToolIndex, ToolIndexEntry,
 };

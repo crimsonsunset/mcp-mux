@@ -3,7 +3,7 @@
 //! Built from Space [`ServerFeature`] rows and filtered to the caller's
 //! invokable tool set before search/schema operations run.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -40,19 +40,10 @@ impl DetailLevel {
 /// In-memory active tool index for a resolved binding (search cache value).
 pub type ToolIndex = Vec<ToolIndexEntry>;
 
-/// Cached embedding for one active tool (hybrid search).
-#[derive(Debug, Clone)]
-pub struct DocEmbedding {
-    pub qualified_name: String,
-    pub vector: Vec<f32>,
-}
-
-/// Per-binding hybrid search inputs (embedding cache + active corpus).
+/// Per-binding hybrid search inputs (global embedding store + active corpus).
 pub struct SearchContext<'a> {
     pub embeddings: &'a EmbeddingService,
-    pub embedding_cache: &'a DashMap<String, (u64, Vec<DocEmbedding>)>,
-    pub session_id: &'a str,
-    pub fingerprint: u64,
+    pub embedding_store: &'a DashMap<String, Vec<f32>>,
     /// Active-only index used as the semantic embedding corpus.
     pub active_index: &'a [ToolIndexEntry],
     pub index_cache_hit: bool,
@@ -292,11 +283,6 @@ fn entry_search_haystack(entry: &ToolIndexEntry) -> String {
     )
 }
 
-/// Alias-free haystack text for embedding + content hashing (`feature_name + description`).
-fn entry_embedding_haystack(entry: &ToolIndexEntry) -> String {
-    EmbeddingService::embedding_haystack(&entry.feature_name, entry.description.as_deref())
-}
-
 /// Stable alias-free content hash for embedding vectors.
 pub fn entry_content_hash(entry: &ToolIndexEntry) -> String {
     EmbeddingService::content_hash(&entry.feature_name, entry.description.as_deref())
@@ -315,18 +301,6 @@ where
     T: AsRef<ToolIndexEntry> + 'a,
     FHaystack: Fn(&T) -> String,
 {
-    let embedding_cache_label;
-    let doc_vectors = match ctx.embedding_cache.get(ctx.session_id) {
-        Some(entry) if entry.0 == ctx.fingerprint => {
-            embedding_cache_label = "hit";
-            entry.value().1.clone()
-        }
-        _ => {
-            embedding_cache_label = "miss";
-            Vec::new()
-        }
-    };
-
     let model_ready = matches!(ctx.embeddings.state(), EmbeddingState::Ready);
     if !model_ready {
         ctx.embeddings.ensure_init_started();
@@ -342,62 +316,31 @@ where
         return ("lexical", top_lexical_score);
     }
 
+    let vectors_present = ctx
+        .active_index
+        .iter()
+        .filter(|entry| {
+            let content_hash = entry_content_hash(entry);
+            ctx.embedding_store.contains_key(&content_hash)
+        })
+        .count();
+
     let active_keys: HashSet<&str> = ctx
         .active_index
         .iter()
         .map(|e| e.qualified_name.as_str())
         .collect();
 
-    let doc_vectors = if doc_vectors.is_empty() {
-        let documents: Vec<String> = ctx
-            .active_index
-            .iter()
-            .map(entry_embedding_haystack)
-            .collect();
-        let Some(raw_vectors) = ctx.embeddings.embed_documents(&documents, Some(query_id)) else {
-            log_cache_decision(
-                query_id,
-                ctx.index_cache_hit,
-                "skipped",
-                ctx.active_index.len(),
-            );
-            return ("lexical", top_lexical_score);
-        };
-        let cached: Vec<DocEmbedding> = ctx
-            .active_index
-            .iter()
-            .zip(raw_vectors)
-            .map(|(entry, vector)| DocEmbedding {
-                qualified_name: entry.qualified_name.clone(),
-                vector,
-            })
-            .collect();
-        ctx.embedding_cache.insert(
-            ctx.session_id.to_string(),
-            (ctx.fingerprint, cached.clone()),
-        );
-        log_embedding_cache_reuse(query_id, false, cached.len());
-        cached
-    } else {
-        log_embedding_cache_reuse(query_id, true, doc_vectors.len());
-        doc_vectors
-    };
-
     log_cache_decision(
         query_id,
         ctx.index_cache_hit,
-        embedding_cache_label,
+        if vectors_present > 0 { "hit" } else { "miss" },
         ctx.active_index.len(),
     );
 
     let Some(query_vector) = ctx.embeddings.embed_query(query, Some(query_id)) else {
         return ("lexical", top_lexical_score);
     };
-
-    let vector_by_name: HashMap<&str, &[f32]> = doc_vectors
-        .iter()
-        .map(|doc| (doc.qualified_name.as_str(), doc.vector.as_slice()))
-        .collect();
 
     let corpus: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
     let lexical_scores: Vec<f64> = ranked
@@ -414,15 +357,18 @@ where
     for (idx, entry) in ranked.iter().enumerate() {
         let tool_entry = entry.as_ref();
         let norm_lexical = (lexical_scores[idx] / max_lexical) as f32;
-        let semantic = if active_keys.contains(tool_entry.qualified_name.as_str()) {
-            vector_by_name
-                .get(tool_entry.qualified_name.as_str())
-                .map(|doc_vector| EmbeddingService::cosine(&query_vector, doc_vector))
-                .unwrap_or(0.0)
+        let maybe_doc_vector = if active_keys.contains(tool_entry.qualified_name.as_str()) {
+            let content_hash = entry_content_hash(tool_entry);
+            ctx.embedding_store.get(&content_hash)
         } else {
-            0.0
+            None
         };
-        let fused = if active_keys.contains(tool_entry.qualified_name.as_str()) {
+        let semantic = maybe_doc_vector
+            .as_ref()
+            .map(|doc_vector| EmbeddingService::cosine(&query_vector, doc_vector.value()))
+            .unwrap_or(0.0);
+        let has_vector = maybe_doc_vector.is_some();
+        let fused = if active_keys.contains(tool_entry.qualified_name.as_str()) && has_vector {
             (LEXICAL_FUSION_WEIGHT * norm_lexical + SEMANTIC_FUSION_WEIGHT * semantic) as f64
         } else {
             lexical_scores[idx]
@@ -447,6 +393,10 @@ where
     let top_fused_score = scored.first().map(|(_, score)| *score);
     *ranked = scored.into_iter().map(|(entry, _)| entry).collect();
 
+    if vectors_present == 0 {
+        return ("lexical", top_lexical_score);
+    }
+
     debug!(
         query_id,
         ranking = "hybrid",
@@ -461,25 +411,15 @@ where
 fn log_cache_decision(
     query_id: &str,
     index_cache_hit: bool,
-    embedding_cache: &str,
+    embedding_store: &str,
     active_tools: usize,
 ) {
     debug!(
         query_id,
         index_cache = if index_cache_hit { "hit" } else { "miss" },
-        embedding_cache,
+        embedding_store,
         active_tools,
         "[search] cache decision"
-    );
-}
-
-fn log_embedding_cache_reuse(query_id: &str, cached: bool, docs_embedded: usize) {
-    tracing::info!(
-        target: "embed",
-        "[embed] query_id = {}, model_state = ready, docs_embedded = {}, cached = {}",
-        query_id,
-        docs_embedded,
-        cached
     );
 }
 

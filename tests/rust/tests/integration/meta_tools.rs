@@ -11,11 +11,12 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use mcpmux_core::{
-    normalize_workspace_root, Client, DomainEvent, FeatureSet, FeatureSetMember,
-    FeatureSetRepository, InboundMcpClientRepository, InputDefinition, InstalledServer,
-    InstalledServerRepository, LogConfig, MemberMode, MemberType, ServerDefinition, ServerFeature,
-    ServerFeatureRepository, ServerLogManager, ServerSource, SpaceRepository, TransportConfig,
-    TransportMetadata, WorkspaceBinding, WorkspaceBindingRepository,
+    normalize_workspace_root, Client, DomainEvent, EmbeddingRecord, EmbeddingRepository, FeatureSet,
+    FeatureSetMember, FeatureSetRepository, InboundMcpClientRepository, InputDefinition,
+    InstalledServer, InstalledServerRepository, LogConfig, MemberMode, MemberType,
+    ServerDefinition, ServerFeature, ServerFeatureRepository, ServerLogManager, ServerSource,
+    SpaceRepository, TransportConfig, TransportMetadata, WorkspaceBinding,
+    WorkspaceBindingRepository,
 };
 use mcpmux_gateway::pool::{
     CachedFeatures, ConnectionService, FeatureService, OutboundOAuthManager, ServerKey,
@@ -28,8 +29,9 @@ use mcpmux_gateway::services::{
 };
 use mcpmux_storage::{
     generate_master_key, Database, FieldEncryptor, InboundClientRepository,
-    SqliteFeatureSetRepository, SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
-    SqliteServerFeatureRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
+    SqliteEmbeddingRepository, SqliteFeatureSetRepository, SqliteInboundMcpClientRepository,
+    SqliteInstalledServerRepository, SqliteServerFeatureRepository, SqliteSpaceRepository,
+    SqliteWorkspaceBindingRepository,
 };
 use serde_json::{json, Value};
 use tests::mocks::{MockCredentialRepository, MockOutboundOAuthRepository};
@@ -172,7 +174,10 @@ async fn seed_diagnose_servers(f: &Fixture) {
 
 impl Fixture {
     pub(crate) async fn new() -> Self {
-        let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
+        Self::new_with_db(Arc::new(Mutex::new(Database::open_in_memory().unwrap()))).await
+    }
+
+    pub(crate) async fn new_with_db(db: Arc<Mutex<Database>>) -> Self {
 
         let space_repo: Arc<dyn SpaceRepository> = Arc::new(SqliteSpaceRepository::new(db.clone()));
         let feature_set_repo: Arc<dyn FeatureSetRepository> =
@@ -244,6 +249,8 @@ impl Fixture {
         let log_manager = test_log_manager();
         let server_manager =
             test_server_manager(tx.clone(), feature_service.clone(), prefix_cache.clone());
+        let embedding_repo: Arc<dyn EmbeddingRepository> =
+            Arc::new(SqliteEmbeddingRepository::new(db.clone()));
 
         let registry = meta_tools::build_default_registry(
             client_repo.clone(),
@@ -263,6 +270,7 @@ impl Fixture {
             server_manager.clone(),
             log_manager,
             std::env::temp_dir().join(format!("mcpmux-meta-tools-{}", Uuid::new_v4())),
+            embedding_repo,
         );
 
         Self {
@@ -721,7 +729,6 @@ async fn search_tools_cache_evicted_on_workspace_binding_changed() {
     f.session_roots.evict_search_cache_for_workspace_root(root);
 
     assert!(!f.registry.search_cache_contains(&f.session_id));
-    assert!(!f.registry.embedding_cache_contains(&f.session_id));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -743,7 +750,6 @@ async fn search_tools_cache_evicted_on_session_disconnect() {
     f.session_roots.remove(&f.session_id);
 
     assert!(!f.registry.search_cache_contains(&f.session_id));
-    assert!(!f.registry.embedding_cache_contains(&f.session_id));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -770,69 +776,135 @@ async fn search_tools_ranking_lexical_when_model_absent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_tools_embedding_cache_hit_on_second_query() {
+async fn search_tools_reuses_global_embeddings_across_sessions_without_reembedding_docs() {
     let f = Fixture::new().await;
-    let fs_id = bind_github_only_to_session_root(&f).await;
-    let resolved_ids = vec![fs_id.to_string()];
-    let fingerprint = meta_tools::feature_set_ids_fingerprint(&resolved_ids);
-
-    f.registry.context().embedding_cache.insert(
-        f.session_id.clone(),
-        (
-            fingerprint,
-            vec![mcpmux_gateway::services::DocEmbedding {
-                qualified_name: "github_create_issue".to_string(),
-                vector: vec![1.0, 0.0, 0.0],
-            }],
-        ),
+    let root = "/tmp/mcpmux-list-servers-test";
+    let _ = bind_github_only_to_session_root(&f).await;
+    let content_hash = mcpmux_gateway::services::EmbeddingService::content_hash(
+        "create_issue",
+        Some("Create an issue"),
+    );
+    f.registry
+        .context()
+        .embedding_repo
+        .upsert_many(&[EmbeddingRecord {
+            content_hash: content_hash.clone(),
+            model_version: f.registry.context().embeddings.model_version().to_string(),
+            vector: vec![1.0, 0.0, 0.0],
+        }])
+        .await
+        .unwrap();
+    f.registry.context().embeddings.install_test_vectors(
+        [("query: issue".to_string(), vec![1.0, 0.0, 0.0])]
+            .into_iter()
+            .collect(),
     );
 
-    let args = json!({ "query": "issue" });
     f.registry
         .call(
             "mcpmux_search_tools",
             &f.client_id,
             Some(&f.session_id),
-            args.clone(),
+            json!({ "query": "issue" }),
         )
         .await
         .unwrap();
-    assert!(f.registry.embedding_cache_contains(&f.session_id));
+    assert_eq!(
+        f.registry.context().embedding_store.len(),
+        1,
+        "first session should hydrate one shared vector"
+    );
 
+    let second_session_id = "sess-meta-reuse-2";
+    f.session_roots.set_roots_capable(second_session_id, true);
+    f.session_roots.set(second_session_id, [root]);
     f.registry
         .call(
             "mcpmux_search_tools",
             &f.client_id,
-            Some(&f.session_id),
-            args,
+            Some(second_session_id),
+            json!({ "query": "issue" }),
         )
         .await
         .unwrap();
-    let entry = f
-        .registry
-        .context()
-        .embedding_cache
-        .get(&f.session_id)
-        .expect("embedding cache entry");
-    assert_eq!(entry.0, fingerprint);
-    assert_eq!(entry.1.len(), 1);
+    assert_eq!(
+        f.registry.context().embedding_store.len(),
+        1,
+        "second session should reuse the shared vector"
+    );
+    assert!(
+        f.registry.context().embedding_store.contains_key(&content_hash),
+        "global embedding store should keep the content hash"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_tools_embedding_cache_evicted_on_workspace_binding_changed() {
-    let f = Fixture::new().await;
-    let root = "/tmp/mcpmux-list-servers-test";
-    bind_github_only_to_session_root(&f).await;
-
-    f.registry
+async fn search_tools_reuses_persisted_embeddings_after_registry_restart() {
+    let shared_db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
+    let seeded = Fixture::new_with_db(shared_db.clone()).await;
+    let _ = bind_github_only_to_session_root(&seeded).await;
+    let content_hash = mcpmux_gateway::services::EmbeddingService::content_hash(
+        "create_issue",
+        Some("Create an issue"),
+    );
+    seeded
+        .registry
         .context()
-        .embedding_cache
-        .insert(f.session_id.clone(), (0, vec![]));
-    assert!(f.registry.embedding_cache_contains(&f.session_id));
+        .embedding_repo
+        .upsert_many(&[EmbeddingRecord {
+            content_hash: content_hash.clone(),
+            model_version: seeded
+                .registry
+                .context()
+                .embeddings
+                .model_version()
+                .to_string(),
+            vector: vec![1.0, 0.0, 0.0],
+        }])
+        .await
+        .unwrap();
 
-    f.session_roots.evict_search_cache_for_workspace_root(root);
+    let restarted = Fixture::new_with_db(shared_db).await;
+    let root = "/tmp/mcpmux-list-servers-test";
+    restarted
+        .session_roots
+        .set_roots_capable(&restarted.session_id, true);
+    restarted.session_roots.set(&restarted.session_id, [root]);
+    restarted.registry.context().embeddings.install_test_vectors(
+        [("query: issue".to_string(), vec![1.0, 0.0, 0.0])]
+            .into_iter()
+            .collect(),
+    );
+    assert_eq!(
+        restarted.registry.context().embedding_store.len(),
+        0,
+        "new registry starts with an empty in-memory embedding store"
+    );
 
-    assert!(!f.registry.embedding_cache_contains(&f.session_id));
+    let result = restarted
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &restarted.client_id,
+            Some(&restarted.session_id),
+            json!({ "query": "issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("ranking").and_then(|value| value.as_str()),
+        Some("hybrid"),
+        "persisted vectors should be rehydrated after restart: {body}"
+    );
+    assert!(
+        restarted
+            .registry
+            .context()
+            .embedding_store
+            .contains_key(&content_hash),
+        "restart should hydrate persisted vectors by content hash"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1560,6 +1632,7 @@ async fn bare_registry(
         server_manager,
         log_manager,
         std::env::temp_dir().join(format!("mcpmux-bare-registry-{}", Uuid::new_v4())),
+        Arc::new(SqliteEmbeddingRepository::new(db.clone())),
     );
     (registry, client_id, tx, rx)
 }
@@ -1683,6 +1756,7 @@ async fn master_switch_toggles_registry_visibility() {
         server_manager,
         log_manager,
         std::env::temp_dir().join(format!("mcpmux-meta-switch-{}", Uuid::new_v4())),
+        Arc::new(SqliteEmbeddingRepository::new(db.clone())),
     );
 
     assert!(!registry.is_enabled().await, "initially disabled");

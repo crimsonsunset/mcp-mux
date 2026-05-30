@@ -117,6 +117,8 @@ impl ServiceContainer {
         // Approval broker for meta-tool writes. Publisher is attached later
         // by the Tauri layer; until then, writes return `approval_required`.
         let approval_broker = Arc::new(ApprovalBroker::new());
+        let embedding_repo: Arc<dyn mcpmux_core::EmbeddingRepository> =
+            Arc::new(mcpmux_storage::SqliteEmbeddingRepository::new(deps.database.clone()));
 
         // Registry of built-in `mcpmux_*` meta tools (introspection + self-
         // management). Each write tool is gated by the broker above.
@@ -144,6 +146,7 @@ impl ServiceContainer {
             deps.state_dir
                 .clone()
                 .unwrap_or_else(|| std::env::temp_dir().join("mcpmux")),
+            embedding_repo,
         );
 
         // Space resolver — currently just exposes the active Space, but
