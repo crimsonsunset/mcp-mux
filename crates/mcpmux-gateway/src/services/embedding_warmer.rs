@@ -3,11 +3,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
 use mcpmux_core::{EmbeddingRecord, EmbeddingRepository, FeatureType, ServerFeatureRepository};
 use tokio::sync::Semaphore;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::services::EmbeddingService;
@@ -93,15 +94,12 @@ impl EmbeddingWarmer {
             haystacks_by_hash.entry(content_hash).or_insert(haystack);
         }
 
+        let catalog_tools = haystacks_by_hash.len();
         let mut missing_hashes = haystacks_by_hash
             .keys()
             .filter(|content_hash| !self.embedding_store.contains_key(*content_hash))
             .cloned()
             .collect::<Vec<_>>();
-
-        if missing_hashes.is_empty() {
-            return Ok(());
-        }
 
         let existing = self
             .embedding_repo
@@ -115,7 +113,26 @@ impl EmbeddingWarmer {
         }
 
         missing_hashes.retain(|content_hash| !existing_hashes.contains(content_hash));
+        let missing = missing_hashes.len();
+        let skipped_present = catalog_tools.saturating_sub(missing);
+        debug!(
+            space_id = %space_id,
+            server_id,
+            catalog_tools,
+            missing,
+            "[embed] warm enqueue"
+        );
+
         if missing_hashes.is_empty() {
+            info!(
+                space_id = %space_id,
+                server_id,
+                embedded = 0,
+                skipped_present,
+                embed_ms = 0_u64,
+                model_version = self.embeddings.model_version(),
+                "[embed] warm batch done"
+            );
             return Ok(());
         }
 
@@ -123,6 +140,7 @@ impl EmbeddingWarmer {
         tokio::time::sleep(Duration::from_millis(20)).await;
 
         let mut records = Vec::new();
+        let embed_started = Instant::now();
         for content_hash in missing_hashes {
             let Some(haystack) = haystacks_by_hash.get(&content_hash).cloned() else {
                 continue;
@@ -147,6 +165,15 @@ impl EmbeddingWarmer {
         }
 
         if records.is_empty() {
+            info!(
+                space_id = %space_id,
+                server_id,
+                embedded = 0,
+                skipped_present,
+                embed_ms = embed_started.elapsed().as_millis() as u64,
+                model_version = self.embeddings.model_version(),
+                "[embed] warm batch done"
+            );
             return Ok(());
         }
 
@@ -157,6 +184,15 @@ impl EmbeddingWarmer {
             "[embed] warmer upserting records"
         );
         self.embedding_repo.upsert_many(&records).await?;
+        info!(
+            space_id = %space_id,
+            server_id,
+            embedded = records.len(),
+            skipped_present,
+            embed_ms = embed_started.elapsed().as_millis() as u64,
+            model_version = self.embeddings.model_version(),
+            "[embed] warm batch done"
+        );
         Ok(())
     }
 }

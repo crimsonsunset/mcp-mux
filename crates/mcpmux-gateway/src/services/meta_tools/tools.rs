@@ -426,18 +426,28 @@ async fn build_and_cache_active_index(
 /// Load missing active-tool vectors from persistent storage into the global embedding map.
 async fn hydrate_active_embeddings(
     call: &MetaToolCall<'_>,
+    query_id: &str,
     active_index: &[crate::services::ToolIndexEntry],
 ) -> Result<(), MetaToolError> {
-    let missing_hashes: Vec<String> = active_index
+    let missing_hashes: HashSet<String> = active_index
         .iter()
         .map(crate::services::tool_discovery::entry_content_hash)
         .filter(|content_hash| !call.ctx.embedding_store.contains_key(content_hash))
         .collect();
+    let hashes_requested = missing_hashes.len();
 
     if missing_hashes.is_empty() {
+        debug!(
+            query_id,
+            hashes_requested = 0,
+            store_hits = 0,
+            store_misses = 0,
+            "[embed] store hydrate"
+        );
         return Ok(());
     }
 
+    let missing_hashes: Vec<String> = missing_hashes.into_iter().collect();
     let records = call
         .ctx
         .embedding_repo
@@ -450,6 +460,17 @@ async fn hydrate_active_embeddings(
             .embedding_store
             .insert(record.content_hash, record.vector);
     }
+    let store_hits = missing_hashes
+        .iter()
+        .filter(|content_hash| call.ctx.embedding_store.contains_key(*content_hash))
+        .count();
+    debug!(
+        query_id,
+        hashes_requested,
+        store_hits,
+        store_misses = hashes_requested.saturating_sub(store_hits),
+        "[embed] store hydrate"
+    );
 
     Ok(())
 }
@@ -630,7 +651,7 @@ impl MetaTool for SearchToolsTool {
         }
 
         if query_str.is_some() {
-            hydrate_active_embeddings(&call, active_index.as_slice()).await?;
+            hydrate_active_embeddings(&call, query_id.as_str(), active_index.as_slice()).await?;
         }
 
         let hybrid = query_str.map(|_| crate::services::tool_discovery::SearchContext {

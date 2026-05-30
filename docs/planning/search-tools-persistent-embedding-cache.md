@@ -1,7 +1,7 @@
 # search_tools Persistent Embedding Cache
 
 **Last Updated:** May 30, 2026
-**Status:** Planned
+**Status:** Shipped (Phases 1-5 complete)
 **Branch:** `docs/feature-set-consent-model` (continues the search-tools work)
 **Base branch:** `docs/feature-set-consent-model`
 **Depends on:** [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md) Phases 2–3 (shipped) — the `EmbeddingService` and the hybrid fusion path this re-keys
@@ -259,4 +259,35 @@ Same secret-handling posture: never log raw tool text or query above `debug`.
 
 ## Reconciliation
 
-_Pending implementation. To be filled per [`update-planning-md`](../../.cursor/commands/update-planning-md.md) once Phases 1–5 land: shipped commits, planned-vs-shipped deltas, validation results, and outstanding manual QA._
+### Shipped commits (Phases 1-5)
+
+1. `2e05cad` — `feat(search-tools): Phase 1 — Embedding repository + persistence`
+2. `de4f616` — `feat(search-tools): Phase 2 — Alias-free embedding text + spawn_blocking`
+3. `2736717` — `feat(search-tools): Phase 3 — Global store-backed search read path`
+4. `e07d6de` — `feat(search-tools): Phase 4 — On-connect incremental warmer`
+5. _(this commit)_ — `feat(search-tools): Phase 5 — Observability, pruning & reconciliation`
+
+### Planned vs shipped deltas
+
+- **Shipped as planned:** Added warm/hydrate/search observability with `query_id` correlation and `[embed]` / `[search]` targets:
+  - Warm enqueue (`debug`, `[embed]`): `server_id`, `catalog_tools`, `missing`
+  - Warm batch done (`info`, `[embed]`): `server_id`, `embedded`, `skipped_present`, `embed_ms`, `model_version`
+  - Store hydrate (`debug`, `[embed]`): `query_id`, `hashes_requested`, `store_hits`, `store_misses`
+  - Search read (`debug`, `[search]`): `query_id`, `active_tools`, `vectors_present`, `lexical_only_docs`
+  - Inline query embed (`info`, `[embed]`): `query_id`, `docs_embedded=1`, `embed_ms`
+- **Scope decision:** Optional orphan prune was intentionally deferred in this phase to avoid introducing wider repository/scheduler lifecycle behavior beyond the observability + reconciliation objective.
+- **Secret posture:** No new logging of raw tool text or query above `debug`; info-level logs remain aggregate/metadata-only.
+
+### Validation results
+
+- `cargo clippy --workspace -- -D warnings` ✅ passed clean
+- `cargo test -p mcpmux-gateway -p mcpmux-storage` ✅ passed (`mcpmux-gateway`: 193 passed, 1 ignored; `mcpmux-storage`: 41 passed, 1 ignored)
+
+### Outstanding manual QA
+
+- Run the existing smoke checks from this plan's **Pre-PR validation** table in a live app session:
+  - Cross-session store-hit/no-spike check
+  - Restart persistence check
+  - Alias-rename no-reembed check
+  - On-connect warm check
+  - `query_id` trace walk (`store hydrate -> search read -> fusion`)

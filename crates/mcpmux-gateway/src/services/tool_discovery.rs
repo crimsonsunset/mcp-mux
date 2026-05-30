@@ -12,10 +12,11 @@ use mcpmux_core::{FeatureType, ServerFeature, ServerFeatureRepository};
 
 use crate::pool::InactiveDiscoveryEntry;
 use serde_json::{json, Value};
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use super::discovery_rank::{filter_and_rank_traced, lexical_score, RankTraceContext};
 use super::embedding::{EmbeddingService, EmbeddingState};
+use std::time::Instant;
 
 /// How much detail search results include per matched tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +325,14 @@ where
             ctx.embedding_store.contains_key(&content_hash)
         })
         .count();
+    let lexical_only_docs = ctx.active_index.len().saturating_sub(vectors_present);
+    debug!(
+        query_id,
+        active_tools = ctx.active_index.len(),
+        vectors_present,
+        lexical_only_docs,
+        "[search] read"
+    );
 
     let active_keys: HashSet<&str> = ctx
         .active_index
@@ -338,9 +347,17 @@ where
         ctx.active_index.len(),
     );
 
+    let inline_embed_started = Instant::now();
     let Some(query_vector) = ctx.embeddings.embed_query(query, Some(query_id)) else {
         return ("lexical", top_lexical_score);
     };
+    info!(
+        target: "embed",
+        query_id,
+        docs_embedded = 1,
+        embed_ms = inline_embed_started.elapsed().as_millis() as u64,
+        "[embed] inline query embed"
+    );
 
     let corpus: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
     let lexical_scores: Vec<f64> = ranked
