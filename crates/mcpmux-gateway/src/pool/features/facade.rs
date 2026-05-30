@@ -3,6 +3,8 @@
 use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
+use tracing::debug;
 
 use crate::pool::instance::McpClient;
 use crate::services::PrefixCacheService;
@@ -94,7 +96,10 @@ impl FeatureService {
         &self,
         space_id: &str,
         feature_set_ids: &[String],
+        query_id: Option<&str>,
     ) -> Result<Vec<InactiveDiscoveryEntry>> {
+        let started = Instant::now();
+        let invokable_started = Instant::now();
         let invokable = self
             .get_invokable_tools_for_grants(space_id, feature_set_ids)
             .await?;
@@ -103,9 +108,26 @@ impl FeatureService {
             .filter(|f| f.feature_type == FeatureType::Tool)
             .map(|f| (f.server_id.clone(), f.feature_name.clone()))
             .collect();
-        self.resolution
-            .list_inactive_tools_for_discovery(space_id, &invokable_keys)
-            .await
+        debug!(
+            query_id,
+            invokable_tools = invokable_keys.len(),
+            invokable_ms = invokable_started.elapsed().as_millis() as u64,
+            "[search] inactive scan invokable keys"
+        );
+
+        let entries = self
+            .resolution
+            .list_inactive_tools_for_discovery(space_id, &invokable_keys, query_id)
+            .await?;
+
+        debug!(
+            query_id,
+            inactive_tools = entries.len(),
+            total_ms = started.elapsed().as_millis() as u64,
+            "[search] inactive scan complete"
+        );
+
+        Ok(entries)
     }
 
     /// Resolve granted feature sets to tools invokable via search/invoke ACL.

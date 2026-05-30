@@ -3,7 +3,6 @@
 //! Downloads `bge-small-en-v1.5` on first use into the app data directory and
 //! exposes non-blocking state so callers can fall back to lexical-only search.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

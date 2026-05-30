@@ -325,6 +325,22 @@ Record: `canva_list-folder-items` with `folder_id: "root"` — full data respons
 
 ---
 
+## G2. Hybrid search ranking (post-ship QA)
+
+**Context:** Phases 1–4 of [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md) shipped on this branch. Replaces contiguous-substring gate with token-overlap + semantic rerank (`fastembed`, BGESmallENV15). Run after Section G; requires model to be downloaded (first call may be lexical-only).
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Token-overlap fix: `"list folder"` returns results | ✅ | | `canva_list-folder-items` ranks #1, `total: 31`, `ranking: lexical` |
+| `ranking` field present in response | ✅ | | Both `"lexical"` and `"hybrid"` observed correctly |
+| Exact-name precision: `"canva_list-folder-items"` ranks #1 | ✅ | | `total: 51`, `ranking: hybrid` |
+| Wide `include_inactive` no hang | ✅ | | `total: 57`, `ranking: hybrid`, fast — download-blocking bug fixed |
+| Intent: `"post a comment on a jira issue"` → Jira comment tool in top 3 | ✅ | | `atlassian_addCommentToJiraIssue` ranks #3, `ranking: hybrid`, `server_id: com.atlassian-mcp` |
+
+Record: all smokes re-run post fix — clean pass. Model download no longer blocks inactive scan; lexical fallback works correctly during download.
+
+---
+
 ## H. Phase 6 — Root-race fix
 
 **Setup:** QA workspace with `bundle:core` active. **Fresh session required** — new Cursor chat or MCP disconnect/reconnect. Do not call `tools/list` or any other `mcpmux_*` tool first.
@@ -612,6 +628,7 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 | E Human-only | ✅ PASS | `create_feature_set` absent; uncovered-tool hint correctly points to McpMux UI |
 | F Web approval | ✅ PASS | Approve + deny both work; Tauri and browser dialogs sync correctly post-fix |
 | G Invoke | ✅ PASS | Search → schema → invoke all clean; invoke returned live Canva data |
+| G2 Hybrid search | ✅ PASS | Token-overlap, hybrid ranking, intent search, and wide inactive scan all pass post-fix |
 | H Root-race | | |
 | I Inactive scan perf | | |
 | J Cache (hit/evict/disconnect) | | |

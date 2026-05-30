@@ -14,6 +14,9 @@ pub struct RankTraceContext<'a> {
 
 /// Tokenize text for TF-IDF scoring.
 fn tokenize(text: &str) -> Vec<String> {
+    // TODO(stopwords): filter common stop tokens (e.g. "a", "on", "the") before
+    // overlap matching — intent queries like "post a comment on a jira issue" currently
+    // match almost every tool via single-letter tokens.
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|token| !token.is_empty())

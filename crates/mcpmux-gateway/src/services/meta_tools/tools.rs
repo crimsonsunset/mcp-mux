@@ -321,7 +321,7 @@ impl MetaTool for ListServersTool {
         let inactive_by_server: HashMap<String, HashSet<String>> = call
             .ctx
             .feature_service
-            .list_inactive_discovery_tools(&space_id.to_string(), &resolved.feature_set_ids)
+            .list_inactive_discovery_tools(&space_id.to_string(), &resolved.feature_set_ids, None)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?
             .into_iter()
@@ -516,6 +516,7 @@ impl MetaTool for SearchToolsTool {
         }
 
         let mut index_cache_hit = false;
+        let active_index_started = Instant::now();
         let active_index = if let Some(session_id) = call.session_id {
             if let Some(entry) = call.ctx.search_cache.get(session_id) {
                 let (cached_fp, cached_index) = entry.value();
@@ -541,16 +542,33 @@ impl MetaTool for SearchToolsTool {
             build_active_index(&call, &space_id, &resolved).await?
         };
 
+        debug!(
+            query_id = %query_id,
+            index_cache_hit,
+            active_tools = active_index.len(),
+            active_index_ms = active_index_started.elapsed().as_millis() as u64,
+            "[search] active index ready"
+        );
+
         let mut index = active_index.clone();
 
         let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
         let mut inactive_tool_count = 0usize;
 
         if include_inactive {
+            debug!(
+                query_id = %query_id,
+                "[search] inactive scan starting"
+            );
+            let inactive_started = Instant::now();
             let inactive = call
                 .ctx
                 .feature_service
-                .list_inactive_discovery_tools(&space_id.to_string(), &resolved.feature_set_ids)
+                .list_inactive_discovery_tools(
+                    &space_id.to_string(),
+                    &resolved.feature_set_ids,
+                    Some(query_id.as_str()),
+                )
                 .await
                 .map_err(|e| MetaToolError::Internal(e.to_string()))?;
             inactive_tool_count = inactive.len();
@@ -562,6 +580,7 @@ impl MetaTool for SearchToolsTool {
                 .iter()
                 .map(|e| (e.server_id.clone(), e.feature_name.clone()))
                 .collect();
+            let before_merge = index.len();
             for entry in inactive_index {
                 let key = (entry.server_id.clone(), entry.feature_name.clone());
                 if !active_keys.contains(&key) {
@@ -569,6 +588,14 @@ impl MetaTool for SearchToolsTool {
                 }
             }
             index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+            debug!(
+                query_id = %query_id,
+                inactive_tools = inactive_tool_count,
+                merged_index = index.len(),
+                added_inactive = index.len().saturating_sub(before_merge),
+                inactive_widen_ms = inactive_started.elapsed().as_millis() as u64,
+                "[search] inactive widen complete"
+            );
         }
 
         let hybrid = query_str.and(call.session_id).map(|session_id| {

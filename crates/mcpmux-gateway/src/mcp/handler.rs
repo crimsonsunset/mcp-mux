@@ -815,7 +815,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                         .services
                         .pool_services
                         .feature_service
-                        .list_inactive_discovery_tools(&space_id_str, &feature_set_ids)
+                        .list_inactive_discovery_tools(&space_id_str, &feature_set_ids, None)
                         .await
                         .map_err(|e| {
                             McpError::internal_error(
