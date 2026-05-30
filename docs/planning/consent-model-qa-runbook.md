@@ -1,10 +1,10 @@
 # Consent-Model PR — Manual QA Runbook
 
-**Last Updated:** May 29, 2026
+**Last Updated:** May 30, 2026
 **Branch:** `docs/feature-set-consent-model`
-**Related:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) · [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) · [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md)
+**Related:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) · [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) · [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md) · [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md)
 
-Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4.
+Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4; **Section O maps to persistent-embedding-cache Phases 1–5 (Planned — run only once that work lands).**
 
 ---
 
@@ -600,6 +600,111 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 
 ---
 
+## O. Persistent embedding cache (Planned — [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md))
+
+**Status:** Do **not** run until that doc's Phases 1–5 ship on this branch. Mark every check `SKIP — not yet implemented` otherwise.
+
+**Why this needs the gateway logs:** unlike hybrid ranking, the win here is *no recomputation* — and the tool payload looks identical whether vectors were embedded fresh or loaded from the store. The only in-band signal is **latency** (the ~30 s cold embed should disappear). The authoritative signal is the `[embed]` log target. Run the gateway with `RUST_LOG=mcpmux_gateway=debug` and watch:
+
+- `[embed] ... docs_embedded = N, cached = false` → a fresh corpus embed happened (expected only once per `(text, model)`)
+- `[embed] store hydrate ... store_hits = N, store_misses = 0` → served from the persistent store (the goal)
+- `[embed] warm batch done ... embedded = X, skipped_present = Y` → on-connect warmer ran
+- macOS log path: `~/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.YYYY-MM-DD.log`
+
+> **Note on `ranking`:** during the connect-warm window, tools not yet in the store rank lexical-only. A `ranking: "lexical"` result on a Ready model is acceptable *transiently* — it must flip to `"hybrid"` once the warmer finishes for that binding.
+
+### O1 — Cross-session reuse (no re-embed per chat)
+
+**Setup:** Model Ready (Section L done). Warm the store with one hybrid query, then open a **second** Cursor chat (or disconnect/reconnect MCP to mint a new `session_id`).
+
+**Prompt (chat 1, then chat 2 — identical):**
+
+```text
+mcpmux_search_tools({ "query": "list folder" })
+Report: ranking field, and whether the result felt instant or had a multi-second delay.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Chat 1 first hybrid query embeds the corpus once (`cached = false` in `[embed]`) | ☐ | ☐ | one-time cost |
+| Chat 2's first hybrid query is **fast** — no ~30 s spike | ☐ | ☐ | the core win |
+| Chat 2 logs show store hits, not a fresh corpus embed | ☐ | ☐ | `store_misses = 0` (or warmer already ran) |
+| Chat 2 returns `ranking: "hybrid"` on the first call | ☐ | ☐ | no per-session re-embed |
+
+Record: chat 1 vs chat 2 latency, `[embed]` `cached`/`store_hits` snippet for each.
+
+### O2 — Restart persistence
+
+**Setup:** Store warmed (O1 done). Quit McpMux fully, then relaunch (`pnpm dev:stop` → `pnpm dev:admin` for a dev build).
+
+**Prompt (after relaunch, model Ready):**
+
+```text
+mcpmux_search_tools({ "query": "list folder" })
+Report ranking and whether it felt instant.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Post-restart query returns `ranking: "hybrid"` without a long cold embed | ☐ | ☐ | vectors loaded from SQLite |
+| `[embed]` logs show store hydrate / hits, not a full re-embed | ☐ | ☐ | persistence works |
+
+Record: post-restart latency, `[embed]` hydrate snippet.
+
+### O3 — Alias rename is free
+
+**Setup:** Pick an active server with searchable tools. Note a tool's behavior, then in McpMux → server settings change that server's **alias** (the tool prefix).
+
+**Prompt (after rename + tool reload):**
+
+```text
+mcpmux_search_tools({ "query": "<a tool from the renamed server>" })
+Report the tool's new qualified_name (prefix should reflect the new alias) and ranking.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Renamed prefix shows in `qualified_name` (lexical haystack updated) | ☐ | ☐ | rename took effect |
+| `[embed]` logs show **no** re-embedding for that server after rename | ☐ | ☐ | content_hash unchanged (alias excluded) |
+| Search still returns `ranking: "hybrid"` immediately | ☐ | ☐ | store hit on unchanged hash |
+
+Record: old vs new `qualified_name`, confirmation that `[embed]` showed no fresh embed (`skipped_present` only).
+
+### O4 — On-connect warm (no inline spike)
+
+**Setup:** Identify a server whose tools are **not** yet in the store (newly added, or clear the store / use a fresh `{data_dir}`). Connect it (enable in a bound bundle, or relaunch so it connects fresh). Wait a few seconds for the background warmer.
+
+**Prompt:**
+
+```text
+1. (Right after the server connects, before waiting) mcpmux_search_tools({ "query": "<tool from that server>" })
+   Report ranking — may be "lexical" if the warmer hasn't finished.
+
+2. Wait ~10–20 s, then repeat the same call.
+   Expect ranking: "hybrid", instant — warmer populated the store off the hot path.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `[embed] warm batch done` appears for the connected server (background) | ☐ | ☐ | on-connect warmer fired |
+| Post-warm search is a store hit — no inline corpus embed on the request | ☐ | ☐ | `cached = false` must NOT appear on the search call |
+| No all-core CPU spike on the user-facing search call | ☐ | ☐ | spike moved to the background warmer |
+
+Record: ranking on call 1 vs call 2, `[embed] warm batch done` snippet, CPU observation.
+
+### O5 — Model-version invalidation (optional, developer)
+
+**Setup:** Only if testing a model change. Bump the embedding model version (or clear the store), restart.
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| New `model_version` re-warms the corpus incrementally (old rows ignored) | ☐ | ☐ | clean invalidation |
+| Search still serves results (lexical) during the re-warm | ☐ | ☐ | no hard fail |
+
+Record: `[embed]` `model_version` before/after, re-warm behavior.
+
+---
+
 ## Red flags (stop and file a bug)
 
 - [ ] Any of the removed tools (`enable_server`, `disable_server`, `create_feature_set`, `list_all_tools`) present in `tools/list`
@@ -614,6 +719,10 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 - [ ] `search_tools` missing `ranking` field in payload (hybrid ranking regression)
 - [ ] Intent query returns zero hits when semantically matching tool is active and model is Ready (Hybrid Phase 3/4 regression)
 - [ ] Exact tool name query does not rank the literal tool in top 3 (fusion drowning lexical — Hybrid Phase 3 regression)
+- [ ] (Persistent cache) A fresh chat / second session re-embeds the whole corpus (`[embed] cached = false` on a warm store — per-session re-embed regression, Section O1)
+- [ ] (Persistent cache) App restart triggers a full cold re-embed instead of loading from SQLite (persistence regression, Section O2)
+- [ ] (Persistent cache) Renaming a server alias re-embeds that server's tools (alias leaked into content_hash, Section O3)
+- [ ] (Persistent cache) The all-core embedding spike lands on a user-facing `search_tools` call instead of the background warmer (Section O4)
 
 ---
 
@@ -636,6 +745,7 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 | L Embedding lifecycle | | |
 | M Hybrid fusion + cache | | |
 | N Intent relevance | | |
+| O Persistent embedding cache | | Planned — SKIP until that work ships |
 
 List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle available.
 
@@ -657,4 +767,6 @@ List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle 
 | Hybrid 2 — embedding lifecycle | ☐ Pass ☐ Fail |
 | Hybrid 3 — hybrid fusion + cache | ☐ Pass ☐ Fail |
 | Hybrid 4 — intent relevance | ☐ Pass ☐ Fail |
+| Persistent cache 1–3 — repo / persistence / alias-free | ☐ Pass ☐ Fail ☐ N/A (unshipped) |
+| Persistent cache 4 — on-connect warm | ☐ Pass ☐ Fail ☐ N/A (unshipped) |
 | Overall | ☐ Ship ☐ Block |
