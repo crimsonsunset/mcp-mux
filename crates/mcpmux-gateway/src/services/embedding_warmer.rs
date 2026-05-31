@@ -81,6 +81,10 @@ impl EmbeddingWarmer {
             return Ok(());
         }
 
+        // Kick model load now so the model is ready by the time a search arrives,
+        // even when the store is already fully warm and no new embeddings are needed.
+        self.embeddings.ensure_init_started();
+
         let mut haystacks_by_hash: HashMap<String, String> = HashMap::new();
         for tool in tools {
             let haystack = EmbeddingService::embedding_haystack(
