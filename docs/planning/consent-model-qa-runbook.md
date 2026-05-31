@@ -1,10 +1,12 @@
 # Consent-Model PR — Manual QA Runbook
 
-**Last Updated:** May 30, 2026
+**Last Updated:** May 31, 2026
 **Branch:** `docs/feature-set-consent-model`
 **Related:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) · [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) · [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md) · [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md)
 
-Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4; **Section O maps to persistent-embedding-cache Phases 1–5 (Shipped, fe122d8) — run O0b fix verification now (O0 Run 1 archived).**
+Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4; **Section O maps to persistent-embedding-cache Phases 1–5 (shipped) + read-path follow-up ([`search-tools-embedding-search-read-path.md`](./search-tools-embedding-search-read-path.md)).**
+
+**Current entry point (May 31, 2026):** O-latency complete — warm hybrid path PASS (89 ms); call 5 exact-name latency FAIL (1347 ms, `rank_ms=712`). Next: file rank-spike bug on call 5; O1–O4 stay blocked until Phase 2 (eager model init) — see [O0c](#o0c--search-read-path-phase-1-diagnostics-complete).
 
 ---
 
@@ -92,9 +94,11 @@ McpMux consent-model QA — setup
 - Gateway: http://localhost:45818/mcp via user-mcpmux (reload MCP tools first)
 - Branch under test: docs/feature-set-consent-model (dev build via pnpm dev:admin)
 - Workspace: ~/Desktop/QA/consent-model-qa — bundle:core active, bundle:design + bundle:devops-personal inactive
+- Active section: O-latency (see docs/planning/consent-model-qa-runbook.md) — skip O0/O0b unless regressing warmer write
 - Do NOT approve bind dialogs unless the test step says to
 - Report exact tool names, JSON payloads, and error messages verbatim
 - For search_tools: always report the ranking field (lexical | hybrid) when present
+- For search_tools: grep [search] timing breakdown and skip_reason on cache decision lines
 - Format: PASS / FAIL / SKIP / BLOCKED per step with one-line evidence
 ```
 
@@ -606,7 +610,7 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 
 ## O. Persistent embedding cache (Shipped — [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md))
 
-**Status:** Phases 1–5 shipped on this branch (fe122d8+). **Run [O0b](#o0b--fix-verification-re-run-run-this-now)** now (fix verification after `run_spawn_blocking` change). O0 Run 1 is archived (bug confirmed May 30). O0b gates O1–O4.
+**Status:** Warmer write path **verified** (945 rows, May 30–31). Read-path Phase 1 diagnostics **complete**. O-latency **complete** (May 31) — see [O-latency](#o-latency--search-timing-breakdown-complete--may-31-2026). O1–O4 blocked until Phase 2 eager model init.
 
 **Why this needs the gateway logs:** unlike hybrid ranking, the win here is *no recomputation* — and the tool payload looks identical whether vectors were embedded fresh or loaded from the store. The in-band signals are **latency** (the ~30 s cold embed should disappear) and **`ranking`**; the authoritative signal is the `[embed]` / `[search]` log targets + the SQLite row count. Run the gateway with `RUST_LOG=mcpmux_gateway=debug` and watch:
 
@@ -621,15 +625,20 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 | `[embed] warm enqueue … catalog_tools=N missing=M` | Warmer fired for a server; `M` tools are absent from the store and *should* get embedded. |
 | `[embed] warm batch done … embedded=X skipped_present=Y embed_ms=…` | Warmer finished. **`embedded` is the money field** — it must be `> 0` when `missing > 0` and model is `Ready`. |
 | `[embed] warmer upserting records` | Vectors are being written to SQLite. Should appear whenever `embedded > 0`. |
-| `[embed] store hydrate … store_hits=… store_misses=…` | Search loaded vectors from the store into memory. |
-| `[search] cache decision … embedding_store=hit\|miss` | Whether the active corpus had vectors at search time. |
-| `[search] read … vectors_present=… lexical_only_docs=…` | Per-search vector coverage. |
+| `[embed] store hydrate … store_hits=… store_misses=… hydrate_ms=…` | Search loaded vectors from the store into memory. **`hashes_requested=0 store_hits=N` is success** when the warmer pre-filled the DashMap — not a hydrate failure. |
+| `[search] cache decision … embedding_store=hit\|miss\|skipped skip_reason=… model_state=…` | Whether hybrid ran. `skipped` + `skip_reason=model_not_ready` = model not loaded yet (benign on first search). `skipped` + `empty_ranked` = zero lexical matches. |
+| `[search] read … vectors_present=… lexical_only_docs=…` | Per-search vector coverage (only when hybrid attempted). |
 | `[search] result summary … ranking=hybrid\|lexical total_ms=…` | Final ranking + latency. |
+| `[search] timing breakdown … resolve_ms space_id_ms active_index_ms rank_ms unaccounted_ms` | Top-level latency buckets per query (May 31 instrumentation). |
+| `[search] resolver timing … resolve_ms space_id_ms` | Double resolver call cost — suspect if sum is large. |
+| `[search] rank phase … lexical_ms hybrid_ms paginate_ms` | Rank pipeline wall times. |
+| `[search] lexical pass … filter_ms rank_ms` | Lexical filter vs sort (O(n²) TF-IDF suspect if `rank_ms` large). |
+| `[search] fusion … corpus_ms lexical_scores_ms fusion_ms sort_ms` | Hybrid compute breakdown (embed query is separate in `[embed] inline query embed`). |
 | `[embed] spawn_blocking panicked` + `panic = "…"` | ONNX/runtime panic inside `spawn_blocking` (logged after May 30 fix; was previously swallowed). |
 | `[embed] spawn_blocking cancelled` / `join failed` | Task cancelled or join error (not a panic). |
 | `[embed] diag: …` | Temporary warn scaffolding on inner failure paths (mutex / empty slot / `fastembed embed() failed`). |
 
-> **Note on `ranking`:** during the connect-warm window, tools not yet in the store rank lexical-only. A `ranking: "lexical"` result on a Ready model is acceptable *transiently* — it must flip to `"hybrid"` once the warmer finishes for that binding. A Ready model that **stays** `lexical` after the warmer reported done is the bug O0 hunts.
+> **Note on `ranking`:** `ranking: "lexical"` on the **first** search after a cold gateway start is expected when `skip_reason=model_not_ready` — the ONNX model lazy-inits on that call (~150 ms from disk cache). The **second** search in the same session should return `ranking: "hybrid"` with `store_hits > 0` and `embedding_store=hit`. Lexical that **persists** after `state = Ready` on repeat queries is a bug — check `skip_reason` on `[search] cache decision`.
 
 ### O0 — Warmer diagnostic (Run 1 — archived May 30, 2026)
 
@@ -788,7 +797,14 @@ Yet the **outer** `embed_with_spawn_blocking returned None` always fires. The on
 
 **Fix landed (uncommitted, `embedding.rs`):** `run_spawn_blocking` no longer uses `std::thread::spawn` → `block_on` → `.ok().flatten()`. It now uses `tokio::task::block_in_place` + explicit `JoinError` logging (`[embed] spawn_blocking panicked` with `panic = "…"`). Re-run via **O0b** on a **rebuilt** dev binary — `pnpm dev` alone is not enough.
 
-### O0b — Fix verification re-run (RUN THIS NOW)
+### O0b — Warmer write fix verification (COMPLETE — May 30, 2026)
+
+> **Do not re-run** unless regressing embed persistence. Search read-path: [O0c](#o0c--search-read-path-phase-1-diagnostics-complete). Latency: [O-latency](#o-latency--search-timing-breakdown-complete--may-31-2026) (complete).
+
+**Verdict: WARMER WRITE FIXED ✅** — 27 servers, `embedded > 0`, `warmer upserting records`, **945 rows** in `tool_embeddings`.
+
+<details>
+<summary>Original O0b procedure (archived)</summary>
 
 **Goal:** Confirm the fix on a cold gateway, or capture the panic message / remaining failure mode if still broken.
 
@@ -884,37 +900,127 @@ grep '\[search\] result summary\|\[embed\] store hydrate\|\[search\] cache decis
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `ranking: "hybrid"` | | ❌ | `ranking="lexical"` — store populated but not read |
-| `embedding_store=hit` and `store_hits > 0` | | ❌ | `embedding_store="skipped"`, `hashes_requested=0` — store hydrate never attempted |
+| `ranking: "hybrid"` on first search after cold start | | ⚠️ | First search was lexical — see O0c; repeat search was hybrid |
+| `store_hits > 0` when DashMap warm | | ⚠️ | Old log had `store_hits=0` (telemetry bug, fixed May 31) |
 
-Step 4 log verbatim:
+Step 4 log verbatim (May 30 — pre skip_reason telemetry):
 ```
 [embed] store hydrate query_id="6012ab70" hashes_requested=0 store_hits=0 store_misses=0
 [search] cache decision query_id="6012ab70" index_cache="miss" embedding_store="skipped" active_tools=175
 [search] result summary query_id=6012ab70 ranking="lexical" total=37 top_qualified_name="canva_list-folder-items" total_ms=940
 ```
 
-Tool result: `{ranking: "lexical", total: 37, top: "canva_list-folder-items"}`.
+**Archived verdict (superseded by O0c):** Step 4 was filed as "search read NEW BUG" — incorrect. Warmer write fixed; read path works on repeat search after model Ready.
 
-**Verdict: 🐛 NEW FAILURE MODE** (May 30, 2026)
+Record: restart at 22:40 UTC, before=0 rows, after=945 rows, 27 servers warmed. Warmer write verified.
 
-Warmer write path: **FIXED** ✅ — `run_spawn_blocking` fix works, 945 rows written, `warmer upserting records` fires for all servers.
+</details>
 
-Search read path: **NEW BUG** ❌ — `hashes_requested=0` with `embedding_store="skipped"`. The active ToolIndexEntry objects don't supply content_hashes to the store hydrate, so the embedding store is never consulted during search. This is distinct from O0 Run 1 (which was `embedding_store="miss"` — tried but found nothing). Here the store is not tried at all.
+### O0c — Search read path Phase 1 diagnostics (COMPLETE — May 31, 2026)
 
-Filed as: *"Search read path: active index doesn't expose content_hashes to store hydrate — `hashes_requested=0`, `embedding_store=skipped`, ranking stuck lexical despite 945 rows in tool_embeddings."*
+**Goal:** Determine why O0b Step 4 returned `ranking=lexical` despite 945 DB rows. See [`search-tools-embedding-search-read-path.md`](./search-tools-embedding-search-read-path.md) Phase 1.
 
-**O1–O4: Still BLOCKED** on the search read path fix.
+**Verdict: READ PATH WORKS — root cause is model lazy-init race ✅ (with caveat on first search)**
 
-- **FIX VERIFIED** — `embedded>0`, `warmer upserting`, rows > 0, search `hybrid` → update Final report O0b PASS, **unblock O1–O4** and run them in order.
-- **STILL BROKEN** — paste: latest `warm batch done` lines, any `spawn_blocking panicked` + `panic` text, top `[embed] diag:` lines, before/after row counts, search JSON. Mark O1–O4 still BLOCKED.
-- **NEW FAILURE MODE** — e.g. panics logged but no embed: file with panic text; dev owner fixes next.
+| Test | Result | Key evidence |
+| ---- | ------ | ------------ |
+| **A — first search after cold start** | lexical (expected) | `skip_reason=model_not_ready model_state=not_downloaded`; `store_hits=175`; model `Ready` ~153 ms later |
+| **B — repeat after model Ready** | hybrid ✅ | `embedding_store=hit`; `ranking=hybrid`; `total_ms=700` |
+| **C — zero-match** | lexical (correct) | `skip_reason=empty_ranked`; `total=0` |
 
-Record: restart at 22:40 UTC, before=0 rows, after=945 rows, 27 servers warmed. Search: `hashes_requested=0, embedding_store=skipped, ranking=lexical`. Verdict: warmer write fixed; search read NEW BUG.
+**Corrected interpretation of May 30 O0b Step 4 (was misdiagnosed):**
+
+- `hashes_requested=0` + `store_hits=175` = DashMap pre-filled by warmer. **Not a hydrate bug.** (Old logs showed `store_hits=0` before Phase 1 telemetry fix.)
+- `embedding_store=skipped` on first search = hybrid not attempted because model was `NotDownloaded`. **Not a content_hash mismatch.**
+- Warmer store-full early-return skips `ensure_init_started()` — ONNX model loads only when first `search_tools` runs.
+
+**Phase 2 fix (not yet shipped):** Eager model init at gateway startup / warmer connect so first search can be hybrid.
+
+**Do not re-run O0c** unless regressing skip_reason telemetry or after Phase 2 lands.
+
+### O-latency — Search timing breakdown (COMPLETE — May 31, 2026)
+
+**Goal:** Locate search latency. Query embed is ~5 ms; warm hybrid searches were 674–2623 ms with most time previously unlogged.
+
+**Prerequisites:**
+
+1. **`pnpm dev:stop` → `pnpm dev:rebuild` → `pnpm dev:admin`** — binary must include May 31 timing instrumentation.
+2. Reload MCP tools in Cursor.
+3. Workspace: `~/Desktop/QA/consent-model-qa` — `bundle:core` active.
+
+**Agent preamble:**
+
+```text
+McpMux O-latency — search timing breakdown
+
+- Read: docs/planning/consent-model-qa-runbook.md Section O-latency
+- Context: warmer write PASS (945 rows); hybrid works on 2nd+ search; first search may be lexical (model_not_ready)
+- Run search battery; grep logs by query_id
+- Deliver latency table: resolve_ms, space_id_ms, active_index_ms, rank_ms, unaccounted_ms per call
+- Format: PASS/FAIL with verbatim log snippets
+```
+
+**Search battery (same session, in order):**
+
+```text
+1. mcpmux_search_tools({ "query": "list folder" })
+2. mcpmux_search_tools({ "query": "list folder" })              — immediate repeat
+3. mcpmux_search_tools({ "query": "list folder", "limit": 5 })
+4. mcpmux_search_tools({ "query": "zznotrealxyz" })
+5. mcpmux_search_tools({ "query": "canva_list-folder-items", "limit": 5 })
+```
+
+**Grep per query_id:**
+
+```bash
+LOG="$HOME/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.$(date +%Y-%m-%d).log"
+grep "$QID" "$LOG" | grep -E 'timing breakdown|resolver timing|rank phase|lexical pass|fusion|cache decision|result summary|store hydrate|inline query'
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Call 2 `ranking: "hybrid"` | ✅ | | `query_id=586207f0`, `embedding_store=hit` |
+| Call 2 `unaccounted_ms` < 200 on warm repeat | ✅ | | `unaccounted_ms=3`, `total_ms=89` |
+| `resolve_ms + space_id_ms` flagged if > 100 on warm calls | ✅ | | Calls 2–3: 11 ms / 1 ms. Calls 4–5: 629 ms / 633 ms — likely parallel-fire artifact (both at `02:46:59.28x`) |
+| Large `rank_ms` → check `lexical pass rank_ms` | | ❌ | Call 5: `rank_ms=712`, lexical pass `rank_ms=637` on 30 candidates — O(n²) lexical suspect |
+| Call 4 `empty_ranked`, `total=0` | ✅ | | `skip_reason=empty_ranked`, `model_state=ready` |
+| Call 5 exact name ranks first | ✅ | | `canva_list-folder-items` #1, `ranking=hybrid` — but `total_ms=1347` |
+
+**Verdict: PASS with caveat** — warm repeat path healthy (calls 2–3 under 90 ms). File bug on call 5 lexical rank cost (`rank_ms=712`, `lexical pass rank_ms=637` on 30 all-match candidates). Call 5 `total_ms=1347` is inflated ~633 ms by parallel resolver contention with call 4 (both started within 4 ms); sequential re-run would likely show ~714 ms (`633 resolve artifact` + `712 rank`).
+
+**Latency table (log: `mcpmux.2026-05-31.log`):**
+
+| Call | query_id | Query | ranking | total_ms | resolve | space_id | active_index | rank | unaccounted |
+| ---- | -------- | ----- | ------- | -------- | ------- | -------- | ------------ | ---- | ----------- |
+| 1 | `3290b254` | list folder | lexical | 921 | 16 | 1 | **842** | 61 | 1 |
+| 2 | `586207f0` | list folder (repeat) | hybrid | **89** | 5 | 6 | 0 | 75 | 3 |
+| 3 | `76f53305` | list folder limit=5 | hybrid | **78** | 0 | 1 | 0 | 74 | 3 |
+| 4 | `921a802a` | zznotrealxyz | lexical | 633 | 410 | 219 | 0 | 2 | 2 |
+| 5 | `95ab9461` | canva_list-folder-items | hybrid | **1347** | 410 | 223 | 0 | **712** | 2 |
+
+**Key log snippets:**
+
+```
+# Call 1 — cold index + model_not_ready (expected)
+[search] cache decision query_id="3290b254" skip_reason="model_not_ready" model_state="not_downloaded"
+[search] timing breakdown query_id=3290b254 active_index_ms=842 rank_ms=61 total_ms=921 unaccounted_ms=1
+
+# Call 2 — warm hybrid baseline (key metric)
+[search] cache decision query_id="586207f0" index_cache="hit" embedding_store="hit"
+[embed] inline query embed query_id="586207f0" docs_embedded=1 embed_ms=5
+[search] timing breakdown query_id=586207f0 rank_ms=75 total_ms=89 unaccounted_ms=3
+
+# Call 5 — exact-name rank spike (bug candidate)
+[search] lexical pass query_id="95ab9461" index_entries=30 candidates_after_filter=30 rank_ms=637
+[search] rank phase query_id="95ab9461" lexical_ms=641 hybrid_ms=71 rank_total_ms=712
+[search] timing breakdown query_id=95ab9461 rank_ms=712 total_ms=1347 unaccounted_ms=2
+```
+
+Record: May 31, 2026 session after rebuild + MCP reload. Calls 4–5 fired ~4 ms apart (parallel); re-run sequentially if clean resolver numbers needed.
 
 ### O1 — Cross-session reuse (no re-embed per chat)
 
-**Status: BLOCKED until O0b passes** — Run 1 confirmed store never populated; unblocks after O0b FIX VERIFIED.
+**Status: BLOCKED until Phase 2 eager model init** — hybrid works on 2nd+ search in-session; first search in a new session/chat may still be lexical until model loads.
 
 **Setup:** O0 passed (store actually populates). Model Ready. Warm the store with one hybrid query, then open a **second** Cursor chat (or disconnect/reconnect MCP to mint a new `session_id`).
 
@@ -935,7 +1041,7 @@ Record: chat 1 vs chat 2 latency, `[embed] store hydrate` / `[search] cache deci
 
 ### O2 — Restart persistence
 
-**Status: BLOCKED until O0b passes**
+**Status: BLOCKED until Phase 2 eager model init** — same first-search lexical caveat as O1.
 
 **Setup:** Store warmed (O1 done). Quit McpMux fully, then relaunch (`pnpm dev:stop` → `pnpm dev:admin` for a dev build).
 
@@ -955,7 +1061,7 @@ Record: post-restart latency, `[embed]` hydrate snippet.
 
 ### O3 — Alias rename is free
 
-**Status: BLOCKED until O0b passes**
+**Status: BLOCKED until Phase 2 eager model init**
 
 **Setup:** Pick an active server with searchable tools. Note a tool's behavior, then in McpMux → server settings change that server's **alias** (the tool prefix).
 
@@ -976,7 +1082,7 @@ Record: old vs new `qualified_name`, confirmation that `[embed]` showed no fresh
 
 ### O4 — On-connect warm (no inline spike)
 
-**Status: BLOCKED until O0b passes**
+**Status: BLOCKED until Phase 2 eager model init** — warmer write verified; formal O4 needs first-search hybrid fix for clean sign-off.
 
 **Setup:** Identify a server whose tools are **not** yet in the store (newly added, or clear the store / use a fresh `{data_dir}`). Connect it (enable in a bound bundle, or relaunch so it connects fresh). Wait a few seconds for the background warmer.
 
@@ -1025,8 +1131,11 @@ Record: `[embed]` `model_version` before/after, re-warm behavior.
 - [ ] `search_tools` missing `ranking` field in payload (hybrid ranking regression)
 - [ ] Intent query returns zero hits when semantically matching tool is active and model is Ready (Hybrid Phase 3/4 regression)
 - [ ] Exact tool name query does not rank the literal tool in top 3 (fusion drowning lexical — Hybrid Phase 3 regression)
-- [x] **(CONFIRMED May 30, 2026)** (Persistent cache) Warmer enqueues with `missing > 0` on a Ready model but every `warm batch done` is `embedded=0`, no `warmer upserting records`, and `tool_embeddings` stays empty (Section O0 — bug confirmed)
-- [ ] (Persistent cache) A fresh chat / second session re-embeds the whole corpus instead of `store hydrate … store_hits > 0` (per-session re-embed regression, Section O1)
+- [x] **(FIXED May 30, 2026)** (Persistent cache) Warmer enqueues with `missing > 0` on a Ready model but every `warm batch done` is `embedded=0` (Section O0 — fixed via `block_in_place`)
+- [ ] (Persistent cache) First search after cold start returns lexical when store is warm but model not loaded (`skip_reason=model_not_ready`) — Phase 2 fix pending
+- [x] **(PASS May 31, 2026)** (Persistent cache) Warm repeat search `total_ms` > 500 ms with high `unaccounted_ms` — call 2: 89 ms, `unaccounted_ms=3`
+- [ ] (Persistent cache) Exact-name hybrid query `total_ms` > 500 ms with large `rank_ms` / lexical pass spike (Section O-latency call 5 — `rank_ms=712`, `lexical pass rank_ms=637` on 30 entries)
+- [ ] (Persistent cache) A fresh chat / second session re-embeds the whole corpus instead of `store hydrate … store_hits > 0` (Section O1)
 - [ ] (Persistent cache) App restart triggers a full cold re-embed instead of loading from SQLite (persistence regression, Section O2)
 - [ ] (Persistent cache) Renaming a server alias re-embeds that server's tools (alias leaked into content_hash, Section O3)
 - [ ] (Persistent cache) The all-core embedding spike lands on a user-facing `search_tools` call instead of the background warmer (Section O4)
@@ -1053,8 +1162,10 @@ Record: `[embed]` `model_version` before/after, re-warm behavior.
 | M Hybrid fusion + cache | | |
 | N Intent relevance | | |
 | O0 Run 1 (archived) | 🐛 BUG (fixed) | May 30, 2026 — `embedded=0` despite Ready + `missing>0`; root cause: `run_spawn_blocking` silently swallowed panics. Fixed via `block_in_place`. |
-| O0b Fix verification | 🐛 NEW BUG | Warmer write FIXED (945 rows, 27 servers warmed). Search read NEW BUG: `hashes_requested=0`, `embedding_store=skipped`, `ranking=lexical`. Active index doesn't expose content_hashes to store hydrate. Filed May 30, 2026. |
-| O1–O4 Persistent embedding cache | BLOCKED | Warmer write fixed but search read broken — store populated, never consulted during search |
+| O0b Warmer write | ✅ PASS | 945 rows, 27 servers, `warmer upserting records` |
+| O0c Read path Phase 1 | ✅ PASS (caveat) | Hybrid on 2nd+ search; first search lexical (`model_not_ready`). Not a store/hydrate bug. |
+| O-latency | ✅ PASS (caveat) | Warm repeat 89 ms hybrid (`586207f0`); call 5 exact-name 1347 ms — `rank_ms=712` bug candidate |
+| O1–O4 Persistent embedding cache | BLOCKED | Phase 2 eager model init required for first-search hybrid |
 
 List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle available.
 
@@ -1077,7 +1188,8 @@ List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle 
 | Hybrid 3 — hybrid fusion + cache | ✅ Pass (covered by G2) |
 | Hybrid 4 — intent relevance | ✅ Pass (covered by G2) |
 | Persistent cache 0 Run 1 — warmer diagnostic | 🐛 Bug fixed — `run_spawn_blocking` → `block_in_place` |
-| Persistent cache 0b — fix verification | 🐛 New bug — warmer write fixed (945 rows), search read broken (`hashes_requested=0`, `embedding_store=skipped`) |
-| Persistent cache 1–3 — cross-session / persistence / alias-free | ☐ Blocked on O0b read-path fix |
-| Persistent cache 4 — on-connect warm | ☐ Blocked on O0b read-path fix |
-| Overall | ☐ Block — persistent cache read path broken; O1–O4 cannot be validated until `hashes_requested=0` / `embedding_store=skipped` is fixed |
+| Persistent cache 0b — warmer write | ✅ Pass — 945 rows |
+| Persistent cache 0c — read path Phase 1 | ✅ Pass (caveat) — `model_not_ready` on first search; hybrid on repeat |
+| Persistent cache O-latency — timing breakdown | ✅ Pass (caveat) — warm repeat 89 ms; call 5 rank spike |
+| Persistent cache 1–4 — cross-session / persistence / alias / on-connect | ☐ Blocked on Phase 2 eager model init |
+| Overall | ☐ Block — ship Phase 2 (eager model init) + lexical rank optimization before O1–O4 |
