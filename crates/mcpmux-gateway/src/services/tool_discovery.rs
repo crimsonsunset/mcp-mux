@@ -14,7 +14,10 @@ use crate::pool::InactiveDiscoveryEntry;
 use serde_json::{json, Value};
 use tracing::{debug, info, trace};
 
-use super::discovery_rank::{filter_and_rank_traced, lexical_score, RankTraceContext};
+use super::discovery_rank::{
+    build_corpus_doc_freq, filter_and_rank_traced, lexical_score_precomputed, tokenize,
+    RankTraceContext,
+};
 use super::embedding::{EmbeddingService, EmbeddingState};
 use std::time::Instant;
 
@@ -401,14 +404,23 @@ where
         "[embed] inline query embed"
     );
 
+    // Precompute corpus statistics and per-doc tokens once. The public
+    // `lexical_score` helper rebuilt the corpus doc-frequency map on every
+    // call, making this loop O(N^2) in tokenization; building the stats a
+    // single time keeps it O(N) (matches the lexical pass in discovery_rank).
     let corpus_started = Instant::now();
-    let corpus: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
+    let haystacks: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
+    let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(&haystacks);
+    let query_tokens = tokenize(query);
     let corpus_ms = corpus_started.elapsed().as_millis() as u64;
 
     let lexical_scores_started = Instant::now();
-    let lexical_scores: Vec<f64> = ranked
+    let lexical_scores: Vec<f64> = haystacks
         .iter()
-        .map(|entry| lexical_score(query, &haystack_fn(entry), &corpus))
+        .map(|haystack| {
+            let doc_tokens = tokenize(haystack);
+            lexical_score_precomputed(&query_tokens, &doc_tokens, corpus_size, &corpus_doc_freq)
+        })
         .collect();
     let lexical_scores_ms = lexical_scores_started.elapsed().as_millis() as u64;
 

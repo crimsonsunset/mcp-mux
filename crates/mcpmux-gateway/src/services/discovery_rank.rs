@@ -14,7 +14,7 @@ pub struct RankTraceContext<'a> {
 }
 
 /// Tokenize text for TF-IDF scoring.
-fn tokenize(text: &str) -> Vec<String> {
+pub(crate) fn tokenize(text: &str) -> Vec<String> {
     // TODO(stopwords): filter common stop tokens (e.g. "a", "on", "the") before
     // overlap matching — intent queries like "post a comment on a jira issue" currently
     // match almost every tool via single-letter tokens.
@@ -48,7 +48,7 @@ fn all_tokens_present(query_tokens: &[String], haystack: &str) -> bool {
 /// Returns `(corpus_size, doc_freq)` where `doc_freq[token]` is the number of documents
 /// containing that token at least once. Amortises tokenization to O(N) so callers avoid
 /// repeating it O(N log N) times inside a sort comparator.
-fn build_corpus_doc_freq(corpus: &[String]) -> (usize, HashMap<String, usize>) {
+pub(crate) fn build_corpus_doc_freq(corpus: &[String]) -> (usize, HashMap<String, usize>) {
     let corpus_size = corpus.len();
     let mut doc_freq: HashMap<String, usize> = HashMap::new();
     for doc in corpus {
@@ -104,7 +104,7 @@ fn tf_idf_score_precomputed(
 }
 
 /// Lexical relevance score (TF-IDF + AND-match boost) from precomputed corpus statistics.
-fn lexical_score_precomputed(
+pub(crate) fn lexical_score_precomputed(
     query_tokens: &[String],
     doc_tokens: &[String],
     corpus_size: usize,
@@ -112,21 +112,15 @@ fn lexical_score_precomputed(
 ) -> f64 {
     let base = tf_idf_score_precomputed(query_tokens, doc_tokens, corpus_size, corpus_doc_freq);
     let doc_token_set: HashSet<&str> = doc_tokens.iter().map(String::as_str).collect();
-    let all_present =
-        !query_tokens.is_empty() && query_tokens.iter().all(|t| doc_token_set.contains(t.as_str()));
+    let all_present = !query_tokens.is_empty()
+        && query_tokens
+            .iter()
+            .all(|t| doc_token_set.contains(t.as_str()));
     if all_present {
         base + AND_MATCH_BOOST
     } else {
         base
     }
-}
-
-/// Lexical relevance score (TF-IDF plus AND-match boost) for hybrid fusion.
-pub fn lexical_score(query: &str, document: &str, corpus: &[String]) -> f64 {
-    let query_tokens = tokenize(query);
-    let doc_tokens = tokenize(document);
-    let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(corpus);
-    lexical_score_precomputed(&query_tokens, &doc_tokens, corpus_size, &corpus_doc_freq)
 }
 
 /// Filter haystacks by optional token-overlap query and optional server id, then rank.
@@ -402,8 +396,20 @@ mod tests {
             "partial list something".to_string(),
             "full list folder items".to_string(),
         ];
-        let partial = lexical_score("list folder", "partial list something", &corpus);
-        let full = lexical_score("list folder", "full list folder items", &corpus);
+        let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(&corpus);
+        let query_tokens = tokenize("list folder");
+        let partial = lexical_score_precomputed(
+            &query_tokens,
+            &tokenize("partial list something"),
+            corpus_size,
+            &corpus_doc_freq,
+        );
+        let full = lexical_score_precomputed(
+            &query_tokens,
+            &tokenize("full list folder items"),
+            corpus_size,
+            &corpus_doc_freq,
+        );
         assert!(full > partial);
     }
 }

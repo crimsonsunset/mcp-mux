@@ -7,12 +7,6 @@
 //! - **Peer Registry**: Manages peer lifecycle (register/unregister) for session management
 //! - **Smart Consumer**: Subscribes to DomainEvents and sends notifications to registered peers
 
-/// **DEBUG KILL SWITCH**: Set to `true` to disable ALL list_changed notifications
-///
-/// Use this to diagnose if notifications are causing client reconnection loops.
-/// When enabled, events are still received but no notifications are sent to clients.
-const DISABLE_ALL_NOTIFICATIONS: bool = false;
-
 use mcpmux_core::{DomainEvent, FeatureType};
 use parking_lot::RwLock;
 use rmcp::{service::Peer, RoleServer};
@@ -281,7 +275,8 @@ impl MCPNotifier {
     /// **Enterprise-Grade Throttling Logic:**
     /// - Per-space, per-notification-type throttling
     /// - Prevents cascade: Client query → Backend notification → Forward → Client refetch → Loop
-    /// - Window is long enough (10s) to break rapid-fire notification cycles
+    /// - The short `THROTTLE_WINDOW` (1s) breaks rapid-fire notification
+    ///   cycles; content-hash deduping handles the rest
     fn should_throttle(&self, space_id: Uuid, notification_type: NotificationType) -> bool {
         let now = Instant::now();
         let key = (space_id, notification_type);
@@ -607,7 +602,7 @@ impl MCPNotifier {
     /// Notify all peers in a space about all list types (tools/prompts/resources)
     ///
     /// **CRITICAL THROTTLING**: This method has aggressive throttling to prevent infinite loops.
-    /// The 30-second window ensures that even if multiple backend servers emit notifications
+    /// The `THROTTLE_WINDOW` (1s) ensures that even if multiple backend servers emit notifications
     /// in rapid succession (e.g., when clients query them), we only forward one batch notification.
     ///
     /// **Important**: This method handles throttling at the batch level and marks
@@ -755,12 +750,6 @@ impl MCPNotifier {
 
     /// Internal method to actually send tools/list_changed notification (no throttling)
     async fn send_tools_list_changed(&self, space_id: Uuid, _timestamp: Instant) {
-        // DEBUG: Kill switch to disable all notifications
-        if DISABLE_ALL_NOTIFICATIONS {
-            trace!(space_id = %space_id, "[MCPNotifier] 🚫 NOTIFICATIONS DISABLED - skipping tools/list_changed");
-            return;
-        }
-
         // Get sessions in this space with active streams, paired with
         // their session_id + client_id for per-push log attribution.
         let targets = self.get_peers_for_space_with_streams(space_id).await;
@@ -927,12 +916,6 @@ impl MCPNotifier {
 
     /// Internal method to actually send prompts/list_changed notification (no throttling)
     async fn send_prompts_list_changed(&self, space_id: Uuid, _timestamp: Instant) {
-        // DEBUG: Kill switch to disable all notifications
-        if DISABLE_ALL_NOTIFICATIONS {
-            trace!(space_id = %space_id, "[MCPNotifier] 🚫 NOTIFICATIONS DISABLED - skipping prompts/list_changed");
-            return;
-        }
-
         let targets = self.get_peers_for_space_with_streams(space_id).await;
 
         if targets.is_empty() {
@@ -1000,12 +983,6 @@ impl MCPNotifier {
 
     /// Internal method to actually send resources/list_changed notification (no throttling)
     async fn send_resources_list_changed(&self, space_id: Uuid, _timestamp: Instant) {
-        // DEBUG: Kill switch to disable all notifications
-        if DISABLE_ALL_NOTIFICATIONS {
-            trace!(space_id = %space_id, "[MCPNotifier] 🚫 NOTIFICATIONS DISABLED - skipping resources/list_changed");
-            return;
-        }
-
         let targets = self.get_peers_for_space_with_streams(space_id).await;
 
         if targets.is_empty() {
@@ -1048,11 +1025,6 @@ impl MCPNotifier {
     /// fallback FS to a bound FS doesn't change the space hash even though
     /// the client's view changed.
     pub async fn notify_peer_lists_changed(&self, client_id: &str) {
-        if DISABLE_ALL_NOTIFICATIONS {
-            trace!(%client_id, "[MCPNotifier] 🚫 disabled — skipping peer list_changed");
-            return;
-        }
-
         // A single client may hold several active sessions (multi-window
         // editors, parallel CLI invocations). Push the notification on
         // every active session for that client_id; client-side dedup is
@@ -1096,14 +1068,6 @@ impl MCPNotifier {
     /// space-level hash dedup. Used after session-scoped override mutations
     /// so only the calling session refreshes its tool list.
     pub async fn notify_session_lists_changed(&self, session_id: &str) {
-        if DISABLE_ALL_NOTIFICATIONS {
-            trace!(
-                %session_id,
-                "[MCPNotifier] 🚫 disabled — skipping session list_changed"
-            );
-            return;
-        }
-
         let snapshot: Option<(String, Arc<Peer<RoleServer>>)> = {
             let sessions = self.sessions.read();
             sessions.get(session_id).and_then(|entry| {

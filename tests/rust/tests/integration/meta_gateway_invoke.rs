@@ -33,7 +33,6 @@ use uuid::Uuid;
 struct Fixture {
     registry: Arc<MetaToolRegistry>,
     feature_service: Arc<FeatureService>,
-    prefix_cache: Arc<PrefixCacheService>,
     session_roots: Arc<SessionRootsRegistry>,
     inbound_client_repo: Arc<InboundClientRepository>,
     server_feature_repo: Arc<dyn ServerFeatureRepository>,
@@ -181,7 +180,6 @@ impl Fixture {
         Self {
             registry,
             feature_service,
-            prefix_cache,
             session_roots,
             inbound_client_repo,
             server_feature_repo,
@@ -1106,7 +1104,7 @@ async fn advertised_resources_empty_without_surfaced_members() {
 async fn surfaced_resource_appears_in_advertised_set() {
     let f = Fixture::new().await;
 
-    let mut resource = ServerFeature::resource(f.space_id, "github", "github://docs/readme");
+    let resource = ServerFeature::resource(f.space_id, "github", "github://docs/readme");
     f.server_feature_repo.upsert(&resource).await.unwrap();
 
     let mut fs = FeatureSet::new_custom("Surfaced resource", f.space_id.to_string());

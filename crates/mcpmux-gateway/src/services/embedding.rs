@@ -5,12 +5,12 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use mcpmux_storage::hash_embedding_content;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tracing::{info, warn};
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -142,7 +142,7 @@ impl EmbeddingService {
             match load_text_embedding(&cache_dir) {
                 Ok(embedding) => {
                     let download_ms = started.elapsed().as_millis() as u64;
-                    *model_slot.lock().expect("embedding model mutex poisoned") = Some(embedding);
+                    *model_slot.lock() = Some(embedding);
                     *state.write() = EmbeddingState::Ready;
                     info!(
                         target: "embed",
@@ -262,10 +262,7 @@ impl EmbeddingService {
         let model_slot = Arc::clone(&self.model);
         let inputs: Vec<String> = texts.iter().map(|text| (*text).to_string()).collect();
         let result = run_spawn_blocking(move || {
-            let mut guard = match model_slot.lock() {
-                Ok(guard) => guard,
-                Err(_) => return None,
-            };
+            let mut guard = model_slot.lock();
             let embedding = guard.as_mut()?;
             let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
             match embedding.embed(&refs, None) {
@@ -392,6 +389,13 @@ where
     }
 }
 
+/// Run a blocking embed `task` without stalling the async scheduler.
+///
+/// Inside a Tokio context this uses `block_in_place`, which **requires the
+/// multi-thread runtime** — it panics on a `current_thread` runtime. The
+/// gateway runs on Tokio's multi-thread scheduler (Axum/Tauri), so that
+/// invariant holds in production. Outside any runtime (e.g. some unit
+/// tests) it spins up a temporary multi-thread runtime instead.
 fn run_spawn_blocking<T, F>(task: F) -> Option<T>
 where
     T: Send + 'static,

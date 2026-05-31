@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use ring::digest::{digest, SHA256};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 use tokio::sync::Mutex;
 
 use crate::Database;
@@ -66,23 +66,34 @@ impl mcpmux_core::EmbeddingRepository for SqliteEmbeddingRepository {
 
         let db = self.db.lock().await;
         let conn = db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT vector
-             FROM tool_embeddings
-             WHERE content_hash = ?1 AND model_version = ?2",
-        )?;
 
         let mut records = Vec::new();
-        for content_hash in content_hashes {
-            let vector_blob = stmt
-                .query_row(params![content_hash, model_version], |row| {
-                    row.get::<_, Vec<u8>>(0)
-                })
-                .optional()?;
+        // Fetch in chunks with a single `IN (...)` query per chunk instead of
+        // one round-trip per hash. SQLite caps bound variables (~999 on older
+        // builds); 800 + the shared model_version stays clear of that limit.
+        const CHUNK: usize = 800;
+        for chunk in content_hashes.chunks(CHUNK) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT content_hash, vector
+                 FROM tool_embeddings
+                 WHERE model_version = ? AND content_hash IN ({placeholders})"
+            );
+            let mut stmt = conn.prepare(&sql)?;
 
-            if let Some(vector_blob) = vector_blob {
+            let mut bound: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() + 1);
+            bound.push(&model_version);
+            for content_hash in chunk {
+                bound.push(content_hash);
+            }
+
+            let rows = stmt.query_map(bound.as_slice(), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })?;
+            for row in rows {
+                let (content_hash, vector_blob) = row?;
                 records.push(mcpmux_core::EmbeddingRecord {
-                    content_hash: content_hash.clone(),
+                    content_hash,
                     model_version: model_version.to_string(),
                     vector: decode_vector(&vector_blob)?,
                 });

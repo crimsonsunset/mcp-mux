@@ -7,11 +7,10 @@ use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
 use mcpmux_core::{EmbeddingRecord, EmbeddingRepository, FeatureType, ServerFeatureRepository};
-use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::services::EmbeddingService;
+use crate::services::{EmbeddingService, EmbeddingState};
 
 /// Event-driven embedding warm worker.
 ///
@@ -24,11 +23,10 @@ pub struct EmbeddingWarmer {
     embedding_store: Arc<DashMap<String, Vec<f32>>>,
     embeddings: Arc<EmbeddingService>,
     in_flight: Arc<DashSet<(Uuid, String)>>,
-    embed_semaphore: Arc<Semaphore>,
 }
 
 impl EmbeddingWarmer {
-    /// Build a warmer with bounded embed concurrency.
+    /// Build a warmer.
     pub fn new(
         feature_repo: Arc<dyn ServerFeatureRepository>,
         embedding_repo: Arc<dyn EmbeddingRepository>,
@@ -41,7 +39,33 @@ impl EmbeddingWarmer {
             embedding_store,
             embeddings,
             in_flight: Arc::new(DashSet::new()),
-            embed_semaphore: Arc::new(Semaphore::new(4)),
+        }
+    }
+
+    /// Poll until the embedding model is `Ready` or a bounded budget elapses.
+    ///
+    /// On a cold install the connect-triggered warm fires while the ~67 MB
+    /// model is still downloading. Without waiting, every `embed_documents`
+    /// returns `None`, the persistent cache stays empty, and nothing
+    /// re-warms until some later connect event happens to land after the
+    /// model is `Ready`. Polling here lets the existing single warm task
+    /// populate vectors once the download finishes. Returns `true` when
+    /// ready, `false` if the model `Failed` or the budget ran out.
+    async fn await_model_ready(&self) -> bool {
+        const BUDGET: Duration = Duration::from_secs(120);
+        const POLL: Duration = Duration::from_millis(250);
+        self.embeddings.ensure_init_started();
+        let deadline = Instant::now() + BUDGET;
+        loop {
+            match self.embeddings.state() {
+                EmbeddingState::Ready => return true,
+                EmbeddingState::Failed { .. } => return false,
+                _ => {}
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(POLL).await;
         }
     }
 
@@ -144,8 +168,18 @@ impl EmbeddingWarmer {
             return Ok(());
         }
 
-        self.embeddings.ensure_init_started();
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        if !self.await_model_ready().await {
+            info!(
+                space_id = %space_id,
+                server_id,
+                embedded = 0,
+                skipped_present,
+                missing,
+                model_state = ?self.embeddings.state(),
+                "[embed] warm batch skipped (model not ready within budget)"
+            );
+            return Ok(());
+        }
 
         let mut records = Vec::new();
         let embed_started = Instant::now();
@@ -154,9 +188,6 @@ impl EmbeddingWarmer {
                 continue;
             };
 
-            let Ok(_permit) = self.embed_semaphore.clone().acquire_owned().await else {
-                break;
-            };
             let Some(vectors) = self.embeddings.embed_documents(&[haystack], None) else {
                 continue;
             };

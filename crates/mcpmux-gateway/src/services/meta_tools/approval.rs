@@ -57,7 +57,9 @@ pub type ResolutionNotifier = Arc<
 /// Default timeout for a single approval prompt.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Rate limit: max pending approvals per (client_id) within the window.
+/// Rate limit: max approval *requests* per `client_id` within
+/// `RATE_LIMIT_WINDOW` (a sliding request-rate window, not a count of
+/// currently-pending dialogs).
 const RATE_LIMIT_MAX_PENDING: usize = 10;
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
@@ -96,6 +98,11 @@ pub struct ApprovalPayload {
     /// activation) don't shift the caller's resolved toolset.
     pub diff: Option<serde_json::Value>,
     /// Raw arguments the LLM supplied; shown verbatim for auditability.
+    ///
+    /// TODO(redaction): no write meta tool accepts credential-bearing args
+    /// today, so rendering this unredacted in the dialog / SSE is safe. If a
+    /// future write tool takes secrets, add a per-tool redaction allowlist
+    /// before this payload crosses the Tauri / admin-SSE boundary.
     pub raw_args: serde_json::Value,
     /// Does this change affect clients other than the caller? Dictates
     /// whether the dialog shows the "also affects other connections" warning.

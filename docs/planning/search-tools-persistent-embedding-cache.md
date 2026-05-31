@@ -201,10 +201,10 @@ Same secret-handling posture: never log raw tool text or query above `debug`.
 **Effort:** ~half day
 
 - Add the warm/hydrate `[embed]` / `[search]` events from the Observability table
-- Optional orphan prune: drop `tool_embeddings` rows whose `content_hash` is unreferenced by any current catalog tool (age- or count-bounded)
+- Optional orphan prune (**deferred — not implemented**, see scope note in the Reconciliation section): drop `tool_embeddings` rows whose `content_hash` is unreferenced by any current catalog tool (age- or count-bounded)
 - **Reconcile this planning doc** via [`update-planning-md`](../../.cursor/commands/update-planning-md.md) — fill the Reconciliation section with shipped commits, planned-vs-shipped deltas, validation results, and outstanding manual QA. This step is non-optional; the plan is not complete until the doc reflects what was actually built.
 
-**Outcome:** A single `query_id` can be followed from store hydrate → read → fusion, warm passes are observable, the store doesn't grow unbounded, and the planning doc matches the shipped code.
+**Outcome:** A single `query_id` can be followed from store hydrate → read → fusion, warm passes are observable, and the planning doc matches the shipped code. (Orphan pruning was deferred, so the store can still accumulate stale rows after description edits / model bumps — bounded growth is a follow-up.)
 
 ---
 
