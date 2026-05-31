@@ -158,11 +158,6 @@ impl EmbeddingWarmer {
                 break;
             };
             let Some(vectors) = self.embeddings.embed_documents(&[haystack], None) else {
-                warn!(
-                    server_id,
-                    model_state = ?self.embeddings.state(),
-                    "[embed] diag: warmer embed_documents returned None — skipping tool"
-                );
                 continue;
             };
             let Some(vector) = vectors.into_iter().next() else {

@@ -252,15 +252,7 @@ impl EmbeddingService {
         }
 
         let started = Instant::now();
-        let Some(vectors) = self.embed_with_spawn_blocking(texts) else {
-            warn!(
-                target: "embed",
-                docs_embedded,
-                embed_ms = started.elapsed().as_millis() as u64,
-                "[embed] diag: state=Ready but inference produced no vectors"
-            );
-            return None;
-        };
+        let vectors = self.embed_with_spawn_blocking(texts)?;
         let embed_ms = started.elapsed().as_millis() as u64;
         self.log_embedding_state(query_id, "ready", docs_embedded, Some(embed_ms));
         Some(vectors)
@@ -272,22 +264,13 @@ impl EmbeddingService {
         let result = run_spawn_blocking(move || {
             let mut guard = match model_slot.lock() {
                 Ok(guard) => guard,
-                Err(error) => {
-                    warn!(target: "embed", error = %error, "[embed] diag: model mutex poisoned");
-                    return None;
-                }
+                Err(_) => return None,
             };
-            let Some(embedding) = guard.as_mut() else {
-                warn!(target: "embed", "[embed] diag: model slot empty despite Ready state");
-                return None;
-            };
+            let embedding = guard.as_mut()?;
             let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
             match embedding.embed(&refs, None) {
                 Ok(raw) => Some(raw.into_iter().map(to_f32_vector).collect()),
-                Err(error) => {
-                    warn!(target: "embed", error = %error, "[embed] diag: fastembed embed() failed");
-                    None
-                }
+                Err(_) => None,
             }
         });
         result
