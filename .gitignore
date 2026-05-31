@@ -62,6 +62,7 @@ test-results/
 playwright-report/
 blob-report/
 html-report/
+.playwright-mcp/
 tests/e2e/reports/
 tests/e2e/screenshots/
 tests/e2e/videos/
