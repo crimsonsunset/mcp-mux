@@ -1,6 +1,7 @@
 //! Shared ranking and fuzzy-match helpers for discovery indexes.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use tracing::debug;
 
@@ -42,40 +43,58 @@ fn all_tokens_present(query_tokens: &[String], haystack: &str) -> bool {
     query_tokens.iter().all(|token| doc_tokens.contains(token))
 }
 
-/// Compute TF-IDF relevance of `query` against `document` given the corpus.
-fn tf_idf_score(query: &str, document: &str, corpus: &[String]) -> f64 {
-    let query_tokens = tokenize(query);
-    if query_tokens.is_empty() {
-        return 0.0;
+/// Build a corpus-level document-frequency map from a slice of haystack strings.
+///
+/// Returns `(corpus_size, doc_freq)` where `doc_freq[token]` is the number of documents
+/// containing that token at least once. Amortises tokenization to O(N) so callers avoid
+/// repeating it O(N log N) times inside a sort comparator.
+fn build_corpus_doc_freq(corpus: &[String]) -> (usize, HashMap<String, usize>) {
+    let corpus_size = corpus.len();
+    let mut doc_freq: HashMap<String, usize> = HashMap::new();
+    for doc in corpus {
+        let tokens: HashSet<String> = tokenize(doc).into_iter().collect();
+        for token in tokens {
+            *doc_freq.entry(token).or_default() += 1;
+        }
     }
+    (corpus_size, doc_freq)
+}
 
-    let doc_tokens = tokenize(document);
-    if doc_tokens.is_empty() {
+/// TF-IDF score from precomputed corpus statistics and a pre-tokenized document.
+///
+/// Separating the precomputed path from the corpus-building step lets
+/// `filter_and_rank_inner` call this once per candidate rather than rebuilding
+/// corpus statistics on every comparator invocation.
+fn tf_idf_score_precomputed(
+    query_tokens: &[String],
+    doc_tokens: &[String],
+    corpus_size: usize,
+    corpus_doc_freq: &HashMap<String, usize>,
+) -> f64 {
+    if query_tokens.is_empty() || doc_tokens.is_empty() {
         return 0.0;
     }
 
     let doc_len = doc_tokens.len() as f64;
-    let mut doc_freq: HashMap<String, usize> = HashMap::new();
-    for token in &doc_tokens {
-        *doc_freq.entry(token.clone()).or_default() += 1;
+    let corpus_size_f = corpus_size.max(1) as f64;
+
+    let mut doc_term_freq: HashMap<String, usize> = HashMap::new();
+    for token in doc_tokens {
+        *doc_term_freq.entry(token.clone()).or_default() += 1;
     }
 
-    let corpus_size = corpus.len().max(1) as f64;
     let mut idf_cache: HashMap<String, f64> = HashMap::new();
     let mut score = 0.0;
 
     for token in query_tokens {
-        let tf = doc_freq.get(&token).copied().unwrap_or(0) as f64 / doc_len;
+        let tf = doc_term_freq.get(token).copied().unwrap_or(0) as f64 / doc_len;
         if tf == 0.0 {
             continue;
         }
 
         let idf = *idf_cache.entry(token.clone()).or_insert_with(|| {
-            let docs_with_term = corpus
-                .iter()
-                .filter(|doc| tokenize(doc).contains(&token))
-                .count() as f64;
-            ((corpus_size + 1.0) / (docs_with_term + 1.0)).ln() + 1.0
+            let docs_with_term = corpus_doc_freq.get(token).copied().unwrap_or(0) as f64;
+            ((corpus_size_f + 1.0) / (docs_with_term + 1.0)).ln() + 1.0
         });
 
         score += tf * idf;
@@ -84,15 +103,30 @@ fn tf_idf_score(query: &str, document: &str, corpus: &[String]) -> f64 {
     score
 }
 
-/// Lexical relevance score (TF-IDF plus AND-match boost) for hybrid fusion.
-pub fn lexical_score(query: &str, document: &str, corpus: &[String]) -> f64 {
-    let query_tokens = tokenize(query);
-    let base = tf_idf_score(query, document, corpus);
-    if all_tokens_present(&query_tokens, document) {
+/// Lexical relevance score (TF-IDF + AND-match boost) from precomputed corpus statistics.
+fn lexical_score_precomputed(
+    query_tokens: &[String],
+    doc_tokens: &[String],
+    corpus_size: usize,
+    corpus_doc_freq: &HashMap<String, usize>,
+) -> f64 {
+    let base = tf_idf_score_precomputed(query_tokens, doc_tokens, corpus_size, corpus_doc_freq);
+    let doc_token_set: HashSet<&str> = doc_tokens.iter().map(String::as_str).collect();
+    let all_present =
+        !query_tokens.is_empty() && query_tokens.iter().all(|t| doc_token_set.contains(t.as_str()));
+    if all_present {
         base + AND_MATCH_BOOST
     } else {
         base
     }
+}
+
+/// Lexical relevance score (TF-IDF plus AND-match boost) for hybrid fusion.
+pub fn lexical_score(query: &str, document: &str, corpus: &[String]) -> f64 {
+    let query_tokens = tokenize(query);
+    let doc_tokens = tokenize(document);
+    let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(corpus);
+    lexical_score_precomputed(&query_tokens, &doc_tokens, corpus_size, &corpus_doc_freq)
 }
 
 /// Filter haystacks by optional token-overlap query and optional server id, then rank.
@@ -148,6 +182,8 @@ where
 {
     let query_tokens = query.map(tokenize).unwrap_or_default();
     let mut and_boost_hits = 0usize;
+    let index_entries = entries.len();
+    let filter_started = Instant::now();
 
     let mut matched: Vec<&T> = entries
         .iter()
@@ -169,32 +205,57 @@ where
             true
         })
         .collect();
+    let filter_ms = filter_started.elapsed().as_millis() as u64;
 
+    let rank_started = Instant::now();
     let top_lexical_score = if query.is_some() {
         let corpus: Vec<String> = matched.iter().map(|entry| haystack_fn(entry)).collect();
-        matched.sort_by(|a, b| {
-            let score_a = lexical_score(query.unwrap(), &haystack_fn(a), &corpus);
-            let score_b = lexical_score(query.unwrap(), &haystack_fn(b), &corpus);
+        let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(&corpus);
+
+        // Precompute (entry, haystack, score) once per candidate so sort_by compares
+        // cached scores instead of re-tokenizing the whole corpus O(N log N) times.
+        let mut scored: Vec<(&T, String, f64)> = matched
+            .iter()
+            .map(|entry| {
+                let haystack = haystack_fn(entry);
+                let doc_tokens = tokenize(&haystack);
+                let score = lexical_score_precomputed(
+                    &query_tokens,
+                    &doc_tokens,
+                    corpus_size,
+                    &corpus_doc_freq,
+                );
+                (*entry, haystack, score)
+            })
+            .collect();
+
+        scored.sort_by(|(_, hay_a, score_a), (_, hay_b, score_b)| {
             score_b
-                .partial_cmp(&score_a)
+                .partial_cmp(score_a)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| haystack_fn(a).cmp(&haystack_fn(b)))
+                .then_with(|| hay_a.cmp(hay_b))
         });
-        matched
-            .first()
-            .map(|entry| lexical_score(query.unwrap(), &haystack_fn(entry), &corpus))
+
+        let top_score = scored.first().map(|(_, _, score)| *score);
+        matched = scored.into_iter().map(|(entry, _, _)| entry).collect();
+        top_score
     } else {
         matched.sort_by_key(|a| haystack_fn(a));
         None
     };
+    let rank_ms = rank_started.elapsed().as_millis() as u64;
 
     if let Some(trace_ctx) = trace {
         if query.is_some() {
             debug!(
                 query_id = trace_ctx.query_id,
+                index_entries,
                 tokens = ?query_tokens,
                 candidates_after_filter = matched.len(),
                 and_boost_hits,
+                filter_ms,
+                rank_ms,
+                lexical_total_ms = filter_ms + rank_ms,
                 "[search] lexical pass"
             );
         }
@@ -249,8 +310,20 @@ mod tests {
     fn tf_idf_ranks_closer_match_first() {
         let entries = ["github_list_issues", "github_get_me", "jira_list_issues"];
         let corpus: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
-        let score_list = tf_idf_score("list issues", "github_list_issues List issues", &corpus);
-        let score_get = tf_idf_score("list issues", "github_get_me Get current user", &corpus);
+        let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(&corpus);
+        let query_tokens = tokenize("list issues");
+        let score_list = tf_idf_score_precomputed(
+            &query_tokens,
+            &tokenize("github_list_issues List issues"),
+            corpus_size,
+            &corpus_doc_freq,
+        );
+        let score_get = tf_idf_score_precomputed(
+            &query_tokens,
+            &tokenize("github_get_me Get current user"),
+            corpus_size,
+            &corpus_doc_freq,
+        );
         assert!(score_list > score_get);
     }
 
