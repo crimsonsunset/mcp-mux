@@ -393,19 +393,37 @@ async fn build_active_index(
     call: &MetaToolCall<'_>,
     space_id: &Uuid,
     resolved: &ResolvedFeatureSet,
+    query_id: &str,
 ) -> Result<Vec<crate::services::ToolIndexEntry>, MetaToolError> {
+    let invokable_started = Instant::now();
     let invokable = call
         .ctx
         .feature_service
         .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
         .await
         .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+    let invokable_ms = invokable_started.elapsed().as_millis() as u64;
 
-    call.ctx
+    let build_index_started = Instant::now();
+    let index = call
+        .ctx
         .tool_discovery
         .build_index(&space_id.to_string(), &invokable)
         .await
-        .map_err(|e| MetaToolError::Internal(e.to_string()))
+        .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+    let build_index_ms = build_index_started.elapsed().as_millis() as u64;
+
+    debug!(
+        query_id,
+        invokable_count = invokable.len(),
+        index_entries = index.len(),
+        invokable_ms,
+        build_index_ms,
+        active_index_build_ms = invokable_ms + build_index_ms,
+        "[search] active index build"
+    );
+
+    Ok(index)
 }
 
 /// Build the active index and store it in the per-session search cache.
@@ -415,8 +433,9 @@ async fn build_and_cache_active_index(
     resolved: &ResolvedFeatureSet,
     fingerprint: u64,
     session_id: &str,
+    query_id: &str,
 ) -> Result<Vec<crate::services::ToolIndexEntry>, MetaToolError> {
-    let index = build_active_index(call, space_id, resolved).await?;
+    let index = build_active_index(call, space_id, resolved, query_id).await?;
     call.ctx
         .search_cache
         .insert(session_id.to_string(), (fingerprint, index.clone()));
@@ -428,7 +447,8 @@ async fn hydrate_active_embeddings(
     call: &MetaToolCall<'_>,
     query_id: &str,
     active_index: &[crate::services::ToolIndexEntry],
-) -> Result<(), MetaToolError> {
+) -> Result<u64, MetaToolError> {
+    let hydrate_started = Instant::now();
     let missing_hashes: HashSet<String> = active_index
         .iter()
         .map(crate::services::tool_discovery::entry_content_hash)
@@ -437,23 +457,32 @@ async fn hydrate_active_embeddings(
     let hashes_requested = missing_hashes.len();
 
     if missing_hashes.is_empty() {
+        let store_hits = active_index
+            .iter()
+            .map(crate::services::tool_discovery::entry_content_hash)
+            .filter(|content_hash| call.ctx.embedding_store.contains_key(content_hash))
+            .count();
+        let hydrate_ms = hydrate_started.elapsed().as_millis() as u64;
         debug!(
             query_id,
             hashes_requested = 0,
-            store_hits = 0,
+            store_hits,
             store_misses = 0,
+            hydrate_ms,
             "[embed] store hydrate"
         );
-        return Ok(());
+        return Ok(hydrate_ms);
     }
 
     let missing_hashes: Vec<String> = missing_hashes.into_iter().collect();
+    let db_started = Instant::now();
     let records = call
         .ctx
         .embedding_repo
         .get_many(&missing_hashes, call.ctx.embeddings.model_version())
         .await
         .map_err(|error| MetaToolError::Internal(error.to_string()))?;
+    let db_ms = db_started.elapsed().as_millis() as u64;
 
     for record in records {
         call.ctx
@@ -464,15 +493,18 @@ async fn hydrate_active_embeddings(
         .iter()
         .filter(|content_hash| call.ctx.embedding_store.contains_key(*content_hash))
         .count();
+    let hydrate_ms = hydrate_started.elapsed().as_millis() as u64;
     debug!(
         query_id,
         hashes_requested,
         store_hits,
         store_misses = hashes_requested.saturating_sub(store_hits),
+        db_ms,
+        hydrate_ms,
         "[embed] store hydrate"
     );
 
-    Ok(())
+    Ok(hydrate_ms)
 }
 
 // ---------------------------------------------------------------------------
@@ -527,8 +559,26 @@ impl MetaTool for SearchToolsTool {
             .take(8)
             .collect();
 
+        let resolve_started = Instant::now();
         let resolved = caller_resolution(&call).await?;
-        let space_id = caller_space_id(&call).await?;
+        let resolve_ms = resolve_started.elapsed().as_millis() as u64;
+
+        // Derive from the already-resolved result — avoids a second resolver round-trip.
+        let space_id = resolved.space_id.ok_or_else(|| {
+            MetaToolError::Internal(
+                "no Space resolved for this caller (no default Space configured?)".into(),
+            )
+        })?;
+        let space_id_ms = 0u64;
+
+        debug!(
+            query_id = %query_id,
+            resolve_ms,
+            space_id_ms,
+            resolver_total_ms = resolve_ms + space_id_ms,
+            feature_set_count = resolved.feature_set_ids.len(),
+            "[search] resolver timing"
+        );
 
         let query_str = call.args.get("query").and_then(|v| v.as_str());
 
@@ -583,29 +633,41 @@ impl MetaTool for SearchToolsTool {
                         &resolved,
                         fingerprint,
                         session_id,
+                        query_id.as_str(),
                     )
                     .await?
                 }
             } else {
-                build_and_cache_active_index(&call, &space_id, &resolved, fingerprint, session_id)
-                    .await?
+                build_and_cache_active_index(
+                    &call,
+                    &space_id,
+                    &resolved,
+                    fingerprint,
+                    session_id,
+                    query_id.as_str(),
+                )
+                .await?
             }
         } else {
-            build_active_index(&call, &space_id, &resolved).await?
+            build_active_index(&call, &space_id, &resolved, query_id.as_str()).await?
         };
+        let active_index_ms = active_index_started.elapsed().as_millis() as u64;
 
         debug!(
             query_id = %query_id,
             index_cache_hit,
             active_tools = active_index.len(),
-            active_index_ms = active_index_started.elapsed().as_millis() as u64,
+            active_index_ms,
             "[search] active index ready"
         );
 
+        let clone_started = Instant::now();
         let mut index = active_index.clone();
+        let index_clone_ms = clone_started.elapsed().as_millis() as u64;
 
         let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
         let mut inactive_tool_count = 0usize;
+        let mut inactive_widen_ms = 0_u64;
 
         if include_inactive {
             debug!(
@@ -640,19 +702,22 @@ impl MetaTool for SearchToolsTool {
                 }
             }
             index.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+            inactive_widen_ms = inactive_started.elapsed().as_millis() as u64;
             debug!(
                 query_id = %query_id,
                 inactive_tools = inactive_tool_count,
                 merged_index = index.len(),
                 added_inactive = index.len().saturating_sub(before_merge),
-                inactive_widen_ms = inactive_started.elapsed().as_millis() as u64,
+                inactive_widen_ms,
                 "[search] inactive widen complete"
             );
         }
 
-        if query_str.is_some() {
-            hydrate_active_embeddings(&call, query_id.as_str(), active_index.as_slice()).await?;
-        }
+        let hydrate_ms = if query_str.is_some() {
+            hydrate_active_embeddings(&call, query_id.as_str(), active_index.as_slice()).await?
+        } else {
+            0
+        };
 
         let hybrid = query_str.map(|_| crate::services::tool_discovery::SearchContext {
             embeddings: call.ctx.embeddings.as_ref(),
@@ -661,6 +726,7 @@ impl MetaTool for SearchToolsTool {
             index_cache_hit,
         });
 
+        let rank_started = Instant::now();
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
             &index,
             query_str,
@@ -671,6 +737,7 @@ impl MetaTool for SearchToolsTool {
             Some(query_id.as_str()),
             hybrid,
         );
+        let rank_ms = rank_started.elapsed().as_millis() as u64;
 
         let top_qualified_name = result
             .tools
@@ -679,17 +746,7 @@ impl MetaTool for SearchToolsTool {
             .and_then(|value| value.as_str())
             .unwrap_or("");
 
-        info!(
-            query_id = %query_id,
-            ranking = result.ranking,
-            total = result.total,
-            returned = result.tools.len(),
-            top_qualified_name,
-            top_fused_score = ?result.top_fused_score,
-            total_ms = started.elapsed().as_millis() as u64,
-            "[search] result summary"
-        );
-
+        let post_started = Instant::now();
         let mut payload = json!({
             "tools": result.tools,
             "next_cursor": result.next_cursor,
@@ -734,6 +791,43 @@ impl MetaTool for SearchToolsTool {
                 );
             }
         }
+        let post_ms = post_started.elapsed().as_millis() as u64;
+
+        let total_ms = started.elapsed().as_millis() as u64;
+        let accounted_ms = resolve_ms
+            + space_id_ms
+            + active_index_ms
+            + index_clone_ms
+            + inactive_widen_ms
+            + hydrate_ms
+            + rank_ms
+            + post_ms;
+
+        info!(
+            query_id = %query_id,
+            ranking = result.ranking,
+            total = result.total,
+            returned = result.tools.len(),
+            top_qualified_name,
+            top_fused_score = ?result.top_fused_score,
+            total_ms,
+            "[search] result summary"
+        );
+        info!(
+            query_id = %query_id,
+            resolve_ms,
+            space_id_ms,
+            active_index_ms,
+            index_clone_ms,
+            inactive_widen_ms,
+            hydrate_ms,
+            rank_ms,
+            post_ms,
+            accounted_ms,
+            unaccounted_ms = total_ms.saturating_sub(accounted_ms),
+            merged_index = index.len(),
+            "[search] timing breakdown"
+        );
 
         Ok(text_result(payload))
     }

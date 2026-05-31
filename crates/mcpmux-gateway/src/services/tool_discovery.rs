@@ -196,6 +196,7 @@ impl ToolDiscoveryService {
 
         let haystack_fn = |entry: &ToolIndexEntry| entry_search_haystack(entry);
 
+        let lexical_started = Instant::now();
         let (mut ranked, top_lexical_score) = if let Some(query_id) = query_id {
             let trace = RankTraceContext { query_id };
             filter_and_rank_traced(
@@ -219,7 +220,9 @@ impl ToolDiscoveryService {
                 None,
             )
         };
+        let lexical_ms = lexical_started.elapsed().as_millis() as u64;
 
+        let hybrid_started = Instant::now();
         let (ranking, top_fused_score) =
             if let (Some(query), Some(query_id), Some(ctx)) = (query, query_id, hybrid) {
                 rank_with_hybrid(
@@ -233,14 +236,31 @@ impl ToolDiscoveryService {
             } else {
                 ("lexical", top_lexical_score)
             };
+        let hybrid_ms = hybrid_started.elapsed().as_millis() as u64;
 
         let total = ranked.len();
+
+        let paginate_started = Instant::now();
         let page: Vec<Value> = ranked
             .iter()
             .skip(offset)
             .take(limit)
             .map(|entry| entry_to_json(entry, detail_level))
             .collect();
+        let paginate_ms = paginate_started.elapsed().as_millis() as u64;
+
+        if let Some(query_id) = query_id {
+            debug!(
+                query_id,
+                index_entries = index.len(),
+                ranked_count = total,
+                lexical_ms,
+                hybrid_ms,
+                paginate_ms,
+                rank_total_ms = lexical_ms + hybrid_ms + paginate_ms,
+                "[search] rank phase"
+            );
+        }
 
         let next_offset = offset + page.len();
         let next_cursor = if next_offset < total {
@@ -302,21 +322,31 @@ where
     T: AsRef<ToolIndexEntry> + 'a,
     FHaystack: Fn(&T) -> String,
 {
-    let model_ready = matches!(ctx.embeddings.state(), EmbeddingState::Ready);
+    let model_state = ctx.embeddings.state();
+    let model_ready = matches!(model_state, EmbeddingState::Ready);
     if !model_ready {
         ctx.embeddings.ensure_init_started();
     }
 
     if !model_ready || ranked.is_empty() {
+        let skip_reason = if !model_ready {
+            "model_not_ready"
+        } else {
+            "empty_ranked"
+        };
         log_cache_decision(
             query_id,
             ctx.index_cache_hit,
             "skipped",
+            Some(skip_reason),
+            Some(&model_state),
             ctx.active_index.len(),
+            ranked.len(),
         );
         return ("lexical", top_lexical_score);
     }
 
+    let vectors_started = Instant::now();
     let vectors_present = ctx
         .active_index
         .iter()
@@ -325,12 +355,14 @@ where
             ctx.embedding_store.contains_key(&content_hash)
         })
         .count();
+    let vectors_scan_ms = vectors_started.elapsed().as_millis() as u64;
     let lexical_only_docs = ctx.active_index.len().saturating_sub(vectors_present);
     debug!(
         query_id,
         active_tools = ctx.active_index.len(),
         vectors_present,
         lexical_only_docs,
+        vectors_scan_ms,
         "[search] read"
     );
 
@@ -344,11 +376,21 @@ where
         query_id,
         ctx.index_cache_hit,
         if vectors_present > 0 { "hit" } else { "miss" },
+        None,
+        None,
         ctx.active_index.len(),
+        ranked.len(),
     );
 
     let inline_embed_started = Instant::now();
     let Some(query_vector) = ctx.embeddings.embed_query(query, Some(query_id)) else {
+        debug!(
+            query_id,
+            model_state = ?ctx.embeddings.state(),
+            embed_ms = inline_embed_started.elapsed().as_millis() as u64,
+            skip_reason = "query_embed_failed",
+            "[search] hybrid abort"
+        );
         return ("lexical", top_lexical_score);
     };
     info!(
@@ -359,17 +401,24 @@ where
         "[embed] inline query embed"
     );
 
+    let corpus_started = Instant::now();
     let corpus: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
+    let corpus_ms = corpus_started.elapsed().as_millis() as u64;
+
+    let lexical_scores_started = Instant::now();
     let lexical_scores: Vec<f64> = ranked
         .iter()
         .map(|entry| lexical_score(query, &haystack_fn(entry), &corpus))
         .collect();
+    let lexical_scores_ms = lexical_scores_started.elapsed().as_millis() as u64;
+
     let max_lexical = lexical_scores
         .iter()
         .copied()
         .fold(0.0_f64, f64::max)
         .max(1e-9);
 
+    let fusion_started = Instant::now();
     let mut fused_scores: Vec<f64> = Vec::with_capacity(ranked.len());
     for (idx, entry) in ranked.iter().enumerate() {
         let tool_entry = entry.as_ref();
@@ -400,7 +449,9 @@ where
         );
         fused_scores.push(fused);
     }
+    let fusion_ms = fusion_started.elapsed().as_millis() as u64;
 
+    let sort_started = Instant::now();
     let mut scored: Vec<(&T, f64)> = ranked.drain(..).zip(fused_scores).collect();
     scored.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
@@ -409,14 +460,31 @@ where
     });
     let top_fused_score = scored.first().map(|(_, score)| *score);
     *ranked = scored.into_iter().map(|(entry, _)| entry).collect();
+    let sort_ms = sort_started.elapsed().as_millis() as u64;
 
     if vectors_present == 0 {
+        debug!(
+            query_id,
+            ranked_count = ranked.len(),
+            corpus_ms,
+            lexical_scores_ms,
+            fusion_ms,
+            sort_ms,
+            skip_reason = "vectors_present_zero",
+            "[search] hybrid abort"
+        );
         return ("lexical", top_lexical_score);
     }
 
     debug!(
         query_id,
         ranking = "hybrid",
+        ranked_count = ranked.len(),
+        corpus_ms,
+        lexical_scores_ms,
+        fusion_ms,
+        sort_ms,
+        hybrid_compute_ms = corpus_ms + lexical_scores_ms + fusion_ms + sort_ms,
         lexical_weight = LEXICAL_FUSION_WEIGHT,
         semantic_weight = SEMANTIC_FUSION_WEIGHT,
         "[search] fusion"
@@ -429,13 +497,25 @@ fn log_cache_decision(
     query_id: &str,
     index_cache_hit: bool,
     embedding_store: &str,
+    skip_reason: Option<&str>,
+    model_state: Option<&EmbeddingState>,
     active_tools: usize,
+    ranked_count: usize,
 ) {
+    let model_state_label = model_state.map(|s| match s {
+        EmbeddingState::NotDownloaded => "not_downloaded",
+        EmbeddingState::Downloading => "downloading",
+        EmbeddingState::Ready => "ready",
+        EmbeddingState::Failed { .. } => "failed",
+    });
     debug!(
         query_id,
         index_cache = if index_cache_hit { "hit" } else { "miss" },
         embedding_store,
+        skip_reason,
+        model_state = model_state_label,
         active_tools,
+        ranked_count,
         "[search] cache decision"
     );
 }
