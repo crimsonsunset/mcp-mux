@@ -4,7 +4,7 @@
 **Branch:** `docs/feature-set-consent-model`
 **Related:** [`feature-set-consent-model.md`](./feature-set-consent-model.md) · [`search-tools-latency-and-root-race.md`](./search-tools-latency-and-root-race.md) · [`search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md) · [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md)
 
-Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4; **Section O maps to persistent-embedding-cache Phases 1–5 (Planned — run only once that work lands).**
+Full checklist for validating Phases 1–8 of the consent-model PR plus hybrid search ranking (Phases 1–4 of the semantic-ranking doc): discovery of inactive tools, bind layering, removed ephemeral path, human-only authoring, web approval, latency/cache fixes (root-race, inactive scan, active index cache), and hybrid lexical + embedding search. Sections A–G map to consent Phases 1–5; Sections H–J map to latency Phases 6–8; Sections K–N map to hybrid-ranking Phases 1–4; **Section O maps to persistent-embedding-cache Phases 1–5 (Shipped, fe122d8) — run O0b fix verification now (O0 Run 1 archived).**
 
 ---
 
@@ -362,11 +362,11 @@ Paste both responses verbatim.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| First call returns `total > 0` with active tools | ☐ | ☐ | root-race fixed |
-| No-match query returns hint (not silent 0 / binding-missing) | ☐ | ☐ | |
-| `scope: "active_only"` in both responses | ☐ | ☐ | |
+| First call returns `total > 0` with active tools | ✅ | | Test query `"core"` has no tool-name/description matches → `total: 0`, but root-race fix confirmed via `search_tools("canva")` → 30 active tools on first effective call to this gateway instance (no prior `tools/list` warmup). Fix is working. |
+| No-match query returns hint (not silent 0 / binding-missing) | ✅ | | `"zznotreal"` returns `"No active tools matched. Retry with include_inactive: true…"` — correct Phase 6 hint, NOT a PendingRoots/empty-binding message |
+| `scope: "active_only"` in both responses | ✅ | | Present in all calls |
 
-Record: full JSON for both calls.
+Record: `search_tools("core")` → `{total: 0, scope: "active_only", ranking: "lexical", hint: "No active tools matched. Retry with include_inactive: true to discover bindable capability, or call mcpmux_list_feature_sets then mcpmux_bind_current_workspace with a feature_set_id."}`. `search_tools("zznotreal")` → same shape. `search_tools("canva")` (3rd call, first effective match) → `{total: 30, scope: "active_only", ranking: "lexical"}` — no lag, roots already probed. Note: runbook test query `"core"` should be changed to `"canva"` or similar for a more reliable first-call check.
 
 ---
 
@@ -396,12 +396,12 @@ Paste responses and note timing for call 1.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Wide `include_inactive` scan completes < 2 s | ☐ | ☐ | Phase 7 fixed 84 s hang |
-| `total` reflects large inactive set | ☐ | ☐ | |
-| Hint present when `total > 50` and no `server_id` | ☐ | ☐ | |
-| `server_id`-filtered call returns scoped results | ☐ | ☐ | |
+| Wide `include_inactive` scan completes < 2 s | ✅ | | Returned instantly (`total: 1804`) — no hang |
+| `total` reflects large inactive set | ✅ | | `total: 1804`, `scope: active_and_inactive` |
+| Hint present when `total > 50` and no `server_id` | ✅ | | `"Narrow with \`server_id\` for faster results."` |
+| `server_id`-filtered call returns scoped results | ✅ | | `server_id: "posthog-personal"` → `total: 337`, no hint, fast |
 
-Record: timing for call 1, total count, hint text.
+Record: call 1 felt instant (sub-second). `total: 1804`, hint: `"Narrow with \`server_id\` for faster results."`. `bundle:observability-personal` (`9deb355f-…`) already present in this Space as inactive — no manual setup required. Filtered call: `server_id: "posthog-personal"` → `{total: 337, scope: "active_and_inactive", ranking: "lexical"}`.
 
 After this section, **remove `bundle:observability-personal`** from the QA space binding if you added it only for this test.
 
@@ -426,8 +426,10 @@ Paste all six responses and note any latency difference.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Calls 2–5 return consistent results (same active index) | ☐ | ☐ | |
-| Different query on call 6 still returns active tools | ☐ | ☐ | cache key is index not query |
+| Calls 2–5 return consistent results (same active index) | ✅ | | Identical top-5, `total: 30`, `ranking: lexical` across all 4 repeat calls |
+| Different query on call 6 still returns active tools | ✅ | | `search_tools("file")` → `{total: 2, scope: "active_only"}` — cache key is index not query |
+
+Note: used query `"canva"` (not `"core"` — core has no tool matches). All calls felt instant, no latency difference visible between call 1 and calls 2–5.
 
 ### J2 — Cache eviction on rebind
 
@@ -445,8 +447,10 @@ Paste responses for steps 1 and 3.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Post-bind search returns tools from newly bound bundle | ☐ | ☐ | eviction on WorkspaceBindingChanged |
-| Prior bundle tools still present (layering intact) | ☐ | ☐ | |
+| Post-bind search returns tools from newly bound bundle | ✅ | | `search_tools("browser")` → `{total: 25, scope: "active_only"}` — Playwright/browser tools immediately active post-bind |
+| Prior bundle tools still present (layering intact) | ✅ | | Canva tools still returned by prior searches; `feature_set_ids` shows all 4 bundles |
+
+Note: used `bundle:browser` (`382d3067-…`) as bind target — `bundle:design` was already bound from earlier in the session. Bind returned `{ok: true, already_bound: false, feature_set_ids: [core, design, devops-personal, browser]}`. Approved via dialog.
 
 ### J3 — Cache eviction on disconnect
 
@@ -464,10 +468,10 @@ Paste the post-reconnect response.
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Post-reconnect search returns correct active tools | ☐ | ☐ | cache evicted on disconnect |
-| No stale data from previous session | ☐ | ☐ | |
+| Post-reconnect search returns correct active tools | ✅ | | `search_tools("canva")` → `{total: 30, scope: "active_only", ranking: "lexical"}` — identical to pre-disconnect |
+| No stale data from previous session | ✅ | | Same top-5 order, no phantom tools, correct binding reflected |
 
-Record: pre/post-rebind results for J2, post-reconnect result for J3.
+Record: pre/post-rebind (J2) — pre: `total: 30` (canva, active_only); post-bind: `total: 25` (browser tools, active_only, scope unchanged). J3 post-reconnect: `{total: 30, scope: "active_only", ranking: "lexical"}` — clean. `tool_embeddings` remained at **0 rows** throughout all of H/I/J — warmer running but nothing persisting to SQLite (O0 bug already manifesting pre-cold-restart).
 
 ---
 
@@ -600,22 +604,319 @@ Record: top 3 from intent query (or SKIP reason), exact-name rank, `ranking` val
 
 ---
 
-## O. Persistent embedding cache (Planned — [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md))
+## O. Persistent embedding cache (Shipped — [`search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md))
 
-**Status:** Do **not** run until that doc's Phases 1–5 ship on this branch. Mark every check `SKIP — not yet implemented` otherwise.
+**Status:** Phases 1–5 shipped on this branch (fe122d8+). **Run [O0b](#o0b--fix-verification-re-run-run-this-now)** now (fix verification after `run_spawn_blocking` change). O0 Run 1 is archived (bug confirmed May 30). O0b gates O1–O4.
 
-**Why this needs the gateway logs:** unlike hybrid ranking, the win here is *no recomputation* — and the tool payload looks identical whether vectors were embedded fresh or loaded from the store. The only in-band signal is **latency** (the ~30 s cold embed should disappear). The authoritative signal is the `[embed]` log target. Run the gateway with `RUST_LOG=mcpmux_gateway=debug` and watch:
+**Why this needs the gateway logs:** unlike hybrid ranking, the win here is *no recomputation* — and the tool payload looks identical whether vectors were embedded fresh or loaded from the store. The in-band signals are **latency** (the ~30 s cold embed should disappear) and **`ranking`**; the authoritative signal is the `[embed]` / `[search]` log targets + the SQLite row count. Run the gateway with `RUST_LOG=mcpmux_gateway=debug` and watch:
 
-- `[embed] ... docs_embedded = N, cached = false` → a fresh corpus embed happened (expected only once per `(text, model)`)
-- `[embed] store hydrate ... store_hits = N, store_misses = 0` → served from the persistent store (the goal)
-- `[embed] warm batch done ... embedded = X, skipped_present = Y` → on-connect warmer ran
 - macOS log path: `~/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.YYYY-MM-DD.log`
+- DB path: `~/Library/Application Support/com.mcpmux.desktop/mcpmux.db` (table `tool_embeddings`)
 
-> **Note on `ranking`:** during the connect-warm window, tools not yet in the store rank lexical-only. A `ranking: "lexical"` result on a Ready model is acceptable *transiently* — it must flip to `"hybrid"` once the warmer finishes for that binding.
+**Shipped log vocabulary (use these exact strings — older drafts of this section said `cached = false`, which the shipped code does not emit):**
+
+| Log line | Meaning |
+| -------- | ------- |
+| `[embed] model = … state = Ready` | ONNX model loaded; embedding is possible. Until this, every embed returns nothing and ranking is `lexical` (benign). |
+| `[embed] warm enqueue … catalog_tools=N missing=M` | Warmer fired for a server; `M` tools are absent from the store and *should* get embedded. |
+| `[embed] warm batch done … embedded=X skipped_present=Y embed_ms=…` | Warmer finished. **`embedded` is the money field** — it must be `> 0` when `missing > 0` and model is `Ready`. |
+| `[embed] warmer upserting records` | Vectors are being written to SQLite. Should appear whenever `embedded > 0`. |
+| `[embed] store hydrate … store_hits=… store_misses=…` | Search loaded vectors from the store into memory. |
+| `[search] cache decision … embedding_store=hit\|miss` | Whether the active corpus had vectors at search time. |
+| `[search] read … vectors_present=… lexical_only_docs=…` | Per-search vector coverage. |
+| `[search] result summary … ranking=hybrid\|lexical total_ms=…` | Final ranking + latency. |
+| `[embed] spawn_blocking panicked` + `panic = "…"` | ONNX/runtime panic inside `spawn_blocking` (logged after May 30 fix; was previously swallowed). |
+| `[embed] spawn_blocking cancelled` / `join failed` | Task cancelled or join error (not a panic). |
+| `[embed] diag: …` | Temporary warn scaffolding on inner failure paths (mutex / empty slot / `fastembed embed() failed`). |
+
+> **Note on `ranking`:** during the connect-warm window, tools not yet in the store rank lexical-only. A `ranking: "lexical"` result on a Ready model is acceptable *transiently* — it must flip to `"hybrid"` once the warmer finishes for that binding. A Ready model that **stays** `lexical` after the warmer reported done is the bug O0 hunts.
+
+### O0 — Warmer diagnostic (Run 1 — archived May 30, 2026)
+
+> **Historical only.** Run 1 confirmed the bug. **Active work is [O0b](#o0b--fix-verification-re-run-run-this-now)** after the `run_spawn_blocking` fix lands in the dev binary.
+
+**Goal:** Reproduce and capture the suspected failure: the warmer logs `warm enqueue … missing=M` (M large) but then `warm batch done … embedded=0`, no `warmer upserting records` line ever appears, and `tool_embeddings` stays empty — so every search falls back to `lexical` even with a Ready model. This phase is pure evidence-gathering; it has no "make it pretty" expectation.
+
+**Setup:**
+
+1. Human: fully restart the gateway so warming runs from cold — `pnpm dev:stop` → `pnpm dev:admin` on `docs/feature-set-consent-model`. Reload MCP tools in Cursor afterward.
+2. Human (baseline, before any search): record starting row count and that the table exists —
+   ```bash
+   sqlite3 ~/Library/Application\ Support/com.mcpmux.desktop/mcpmux.db \
+     "SELECT COUNT(*) AS rows, COALESCE(model_version,'-') FROM tool_embeddings GROUP BY model_version;"
+   ```
+   Expect either no rows (cold) or a known count. Note it — this is the before number.
+3. Set `LOG="$HOME/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.$(date +%Y-%m-%d).log"` for the greps below.
+
+**Step 1 — Did the model ever become Ready?**
+
+```bash
+grep '\[embed\] model' "$LOG" | tail -5
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| A `state = Ready` line exists after the last restart | ✅ | | `2026-05-30T22:20:29.273438Z INFO ... [embed] model = bge-small-en-v1.5, state = Ready, download_ms = 132` |
+
+**Step 2 — Did the warmer run, and what did it embed?**
+
+```bash
+grep '\[embed\] warm' "$LOG" | tail -60
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `warm enqueue` lines appear with `missing > 0` | ✅ | | Every server fires enqueue with `missing = catalog_tools` (entire corpus missing from store) |
+| At least one `warm batch done` shows `embedded > 0` | | ❌ | **BUG** — every server: `embedded=0 skipped_present=0` despite `model_state=Ready` and `missing > 0` |
+| `[embed] warmer upserting records` appears at least once | | ❌ | **0 occurrences** in entire log — nothing ever written to SQLite |
+| Each server's `warm enqueue` fires at most ~2× | ✅ | | Each server enqueues exactly twice (~1 s apart) — both `Connected` and `ServerFeaturesRefreshed` trigger |
+
+Record verbatim — representative `warm enqueue` + `warm batch done` pairs:
+
+```
+2026-05-30T22:20:56.452606Z DEBUG [embed] warm enqueue server_id="firebase-dev" catalog_tools=52 missing=52
+2026-05-30T22:20:56.479127Z  INFO [embed] warm batch done server_id="firebase-dev" embedded=0 skipped_present=0 missing=52 embed_ms=5 model_version="bge-small-en-v1.5" model_state=Ready
+
+2026-05-30T22:20:58.814427Z DEBUG [embed] warm enqueue server_id="openrouter" catalog_tools=4 missing=4
+2026-05-30T22:20:58.836827Z  INFO [embed] warm batch done server_id="openrouter" embedded=0 skipped_present=0 missing=4 embed_ms=0 model_version="bge-small-en-v1.5" model_state=Ready
+
+2026-05-30T22:21:03.755340Z DEBUG [embed] warm enqueue server_id="posthog-work" catalog_tools=351 missing=351
+2026-05-30T22:21:03.809422Z  INFO [embed] warm batch done server_id="posthog-work" embedded=0 skipped_present=0 missing=351 embed_ms=32 model_version="bge-small-en-v1.5" model_state=Ready
+
+2026-05-30T22:21:06.221258Z DEBUG [embed] warm enqueue server_id="posthog-personal" catalog_tools=351 missing=351
+2026-05-30T22:21:06.275627Z  INFO [embed] warm batch done server_id="posthog-personal" embedded=0 skipped_present=0 missing=351 embed_ms=32 model_version="bge-small-en-v1.5" model_state=Ready
+
+2026-05-30T22:22:16.950237Z DEBUG [embed] warm enqueue server_id="com.atlassian-mcp" catalog_tools=37 missing=37
+2026-05-30T22:22:16.975090Z  INFO [embed] warm batch done server_id="com.atlassian-mcp" embedded=0 skipped_present=0 missing=37 embed_ms=3 model_version="bge-small-en-v1.5" model_state=Ready
+
+2026-05-30T22:22:24.672050Z DEBUG [embed] warm enqueue server_id="github" catalog_tools=41 missing=41
+2026-05-30T22:22:24.697540Z  INFO [embed] warm batch done server_id="github" embedded=0 skipped_present=0 missing=41 embed_ms=4 model_version="bge-small-en-v1.5" model_state=Ready
+
+2026-05-30T22:22:27.196102Z DEBUG [embed] warm enqueue server_id="community.playwright-npx" catalog_tools=23 missing=23
+2026-05-30T22:22:27.220258Z  INFO [embed] warm batch done server_id="community.playwright-npx" embedded=0 skipped_present=0 missing=23 embed_ms=2 model_version="bge-small-en-v1.5" model_state=Ready
+```
+
+Note: `embed_ms > 0` for all large servers (32 ms for 351-tool posthog servers, 4–5 ms for 40–52 tool servers) — warmer is spending time but producing 0 embeddings. Root cause unknown.
+
+**Step 3 — Did anything land in SQLite?**
+
+```bash
+sqlite3 ~/Library/Application\ Support/com.mcpmux.desktop/mcpmux.db \
+  "SELECT COUNT(*) FROM tool_embeddings;"
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Row count increased vs the baseline from Setup #2 | | ❌ | **0 rows** before restart, **0 rows** after full warm cycle — persistence never happened |
+
+**Step 4 — Walk one search end-to-end.**
+
+Prompt:
+
+```text
+mcpmux_search_tools({ "query": "list folder" })
+Report ranking, total, top qualified_name, and felt latency.
+```
+
+Then:
+
+```bash
+grep '\[search\]\|\[embed\] store hydrate\|\[embed\] inline query' "$LOG" | tail -25
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `[search] result summary` shows `ranking=hybrid` (model Ready) | | ❌ | `ranking="lexical"` — stuck permanently; model is Ready but store is empty |
+| `[search] cache decision … embedding_store=hit` | | ❌ | `embedding_store="miss"` — no vectors for active corpus |
+| `store hydrate … store_hits > 0` | | ❌ | `store_hits=0 store_misses=175` — store completely empty |
+
+Step 4 log verbatim:
+
+```
+[embed] store hydrate query_id="22b960b1" hashes_requested=175 store_hits=0 store_misses=175
+[search] read query_id="22b960b1" active_tools=175 vectors_present=0 lexical_only_docs=175
+[search] cache decision query_id="22b960b1" index_cache="miss" embedding_store="miss" active_tools=175
+[search] result summary query_id=22b960b1 ranking="lexical" total=37 returned=20 top_qualified_name="canva_list-folder-items" total_ms=988
+```
+
+Tool result: `{ranking: "lexical", total: 37, top: "canva_list-folder-items"}` — lexical is working but no hybrid ranking.
+
+**Verdict: 🐛 BUG CONFIRMED** (May 30, 2026)
+
+All conditions met:
+- ✅ Model `state = Ready` (bge-small-en-v1.5, download_ms=132)
+- ✅ `warm enqueue missing > 0` (every server, repeatedly)
+- ❌ ALL `warm batch done embedded=0` (every server, no exceptions)
+- ❌ `warmer upserting records` — 0 occurrences in entire log
+- ❌ `tool_embeddings` — 0 rows before and after full warm cycle
+- ❌ Search stuck `ranking=lexical` with `embedding_store=miss`, `vectors_present=0`
+
+**Filed as:** *"On-connect warmer enqueues but never embeds/persists — `embedded=0` despite `missing>0` on a Ready model; `tool_embeddings` empty; search degraded to lexical permanently."*
+
+**O1–O4: BLOCKED on O0.** All four sections share this root cause — the store never populates so cross-session reuse (O1), restart persistence (O2), alias-rename free (O3), and on-connect warm (O4) cannot be validated.
+
+- **If model never Ready** (Step 1 fail): file *"Embedding model never reaches Ready ([embed] state stuck Downloading/Failed)"* with the Step 1 lines; O1–O5 are SKIP (blocked on model).
+- **WORKS** if `embedded>0` + `warmer upserting` + row count climbs + search `hybrid`: O0 passes, continue to O1–O4 as normal regression checks.
+
+Record: before/after `tool_embeddings` counts, model state line, the warm log block, the search summary + hydrate lines, and the verdict.
+
+#### Diagnostic instrumentation findings (root cause narrowed — May 30, 2026)
+
+Before this cold-restart run, temporary `[embed] diag:` warn-level instrumentation was added to the three silently-swallowed failure points in the embed path (`crates/mcpmux-gateway/src/services/embedding.rs` + `embedding_warmer.rs`). Grep them with:
+
+```bash
+grep '\[embed\] diag:' "$LOG"
+```
+
+Observed chain (fires once per missing tool, e.g. `firebase-local`, `model_state=Ready`):
+
+```
+WARN [embed] diag: embed_with_spawn_blocking returned None (spawn_blocking join or inner failure)
+WARN [embed] diag: state=Ready but inference produced no vectors docs_embedded=1 embed_ms=0
+WARN [embed] diag: warmer embed_documents returned None — skipping tool server_id="firebase-local" model_state=Ready
+```
+
+**The discriminating signal is what did NOT fire.** The closure inside `embed_with_spawn_blocking` logs every error branch it can hit:
+
+- `[embed] diag: model mutex poisoned` — **never fired** ⇒ lock acquired fine
+- `[embed] diag: model slot empty despite Ready state` — **never fired** ⇒ model `Some(_)` present
+- `[embed] diag: fastembed embed() failed` — **never fired** ⇒ `embed()` did not return `Err`
+
+Yet the **outer** `embed_with_spawn_blocking returned None` always fires. The only way to reach the outer `None` without any inner branch logging is if the closure **never returned at all** — i.e. it **panicked**, and the panic was caught as a `JoinError` by `tokio::task::spawn_blocking` and then dropped by `.ok().flatten()` in `run_spawn_blocking` (`embedding.rs` ~line 342).
+
+**Root-cause hypothesis:** a panic inside the `spawn_blocking` task (most likely the `fastembed` `embedding.embed()` ONNX call panicking rather than returning `Err`, or a nested-runtime issue in `run_spawn_blocking`'s `std::thread::spawn` → `handle.block_on(spawn_blocking(...))` shape), swallowed by `.ok()`. This matches the symptom: `embed_ms` is non-zero (32 ms for 351 tools) because the loop *iterates* all docs, but each `embed_documents` returns `None` instantly so `records` stays empty → `embedded=0`, no `upserting`, empty SQLite.
+
+**Fix landed (uncommitted, `embedding.rs`):** `run_spawn_blocking` no longer uses `std::thread::spawn` → `block_on` → `.ok().flatten()`. It now uses `tokio::task::block_in_place` + explicit `JoinError` logging (`[embed] spawn_blocking panicked` with `panic = "…"`). Re-run via **O0b** on a **rebuilt** dev binary — `pnpm dev` alone is not enough.
+
+### O0b — Fix verification re-run (RUN THIS NOW)
+
+**Goal:** Confirm the fix on a cold gateway, or capture the panic message / remaining failure mode if still broken.
+
+**Prerequisites (human — do before the agent runs greps or `search_tools`):**
+
+1. In `mcp-mux` repo on `docs/feature-set-consent-model`: **`pnpm dev:stop` → `pnpm dev:rebuild` → `pnpm dev:admin`** (Rust changed; rebuild is mandatory).
+2. Reload MCP tools in Cursor.
+3. Do **not** call `search_tools` until Step 4 — let the connect-warm window finish first (~30–90 s after gateway up while servers connect).
+
+**Agent preamble (paste for O0b only):**
+
+```text
+McpMux O0b — embedding warmer fix verification
+
+- Read: docs/planning/consent-model-qa-runbook.md Section O0b (this run supersedes archived O0 Run 1)
+- Gateway must be on a binary rebuilt AFTER the run_spawn_blocking fix (human did dev:rebuild)
+- Workspace: ~/Desktop/QA/consent-model-qa — bundle:core active
+- Do NOT call search_tools until Step 4 says to
+- You may run shell greps and sqlite3 against local paths below
+- Format: PASS / FAIL per check; paste verbatim log lines
+```
+
+**Setup (agent or human):**
+
+```bash
+LOG="$HOME/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.$(date +%Y-%m-%d).log"
+sqlite3 ~/Library/Application\ Support/com.mcpmux.desktop/mcpmux.db \
+  "SELECT COUNT(*) FROM tool_embeddings;"
+```
+
+Record **before** count (expect 0 on cold start).
+
+**Step 1 — Model Ready after this restart**
+
+```bash
+grep '\[embed\] model' "$LOG" | tail -3
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `state = Ready` after latest restart timestamp | ✅ | | `2026-05-30T22:40:55.461613Z ... state = Ready, download_ms = 130` (restart at 22:40) |
+
+**Step 2 — Warmer + failure mode (primary)**
+
+Wait until server connect storm settles (~60 s after gateway up), then:
+
+```bash
+grep '\[embed\] warm batch done\|\[embed\] warmer upserting\|\[embed\] spawn_blocking' "$LOG" | tail -40
+grep '\[embed\] diag:' "$LOG" | tail -15
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| At least one `warm batch done` with **`embedded > 0`** | ✅ | | 27 servers, all with `embedded > 0` (e.g. posthog-personal-gait=351, firebase-prod=52, canva=30, github=41, community.playwright-npx=23, com.apify-mcp-http=11…) |
+| At least one **`warmer upserting records`** | ✅ | | 27 occurrences — one per server, embedded counts match warm batch done values |
+| **No** flood of `spawn_blocking panicked` (or paste panic text if present) | ✅ | | 0 `spawn_blocking panicked` lines in this session. Pre-fix diags at 22:22 are from archived O0 Run 1. Only benign: one `model_state=Downloading` skip for cloudflare at gateway start. |
+| If still `embedded=0`: `fastembed embed() failed` or other `[embed] diag:` explains why | N/A | | Warmer write path is fixed — `embedded > 0` on all servers |
+
+Representative warm lines (O0b session, 22:40–22:43):
+```
+[embed] warmer upserting records server_id="posthog-personal-gait" embedded=351
+[embed] warm batch done server_id="posthog-personal-gait" embedded=351 skipped_present=0 embed_ms=4975
+[embed] warmer upserting records server_id="canva" embedded=30
+[embed] warm batch done server_id="canva" embedded=30 skipped_present=0 embed_ms=612
+[embed] warmer upserting records server_id="github" embedded=41
+[embed] warm batch done server_id="github" embedded=41 skipped_present=0 embed_ms=578
+[embed] warmer upserting records server_id="com.apify-mcp-http" embedded=11
+[embed] warm batch done server_id="com.apify-mcp-http" embedded=11 skipped_present=0 embed_ms=924
+```
+Second-trigger runs (each server fires twice): show `embedded=0 skipped_present=N model_state=NotDownloaded` — correct, tools already in store.
+
+**Step 3 — SQLite row count**
+
+```bash
+sqlite3 ~/Library/Application\ Support/com.mcpmux.desktop/mcpmux.db \
+  "SELECT COUNT(*) FROM tool_embeddings;"
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| Row count **> 0** vs Step 0 baseline | ✅ | | Before: 0 rows → After: **945 rows** (`bge-small-en-v1.5`). Sum of all 27 server embeds = 945 exactly. |
+
+**Step 4 — One search**
+
+```text
+mcpmux_search_tools({ "query": "list folder" })
+Report: ranking, total, top qualified_name, latency.
+```
+
+```bash
+grep '\[search\] result summary\|\[embed\] store hydrate\|\[search\] cache decision' "$LOG" | tail -10
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `ranking: "hybrid"` | | ❌ | `ranking="lexical"` — store populated but not read |
+| `embedding_store=hit` and `store_hits > 0` | | ❌ | `embedding_store="skipped"`, `hashes_requested=0` — store hydrate never attempted |
+
+Step 4 log verbatim:
+```
+[embed] store hydrate query_id="6012ab70" hashes_requested=0 store_hits=0 store_misses=0
+[search] cache decision query_id="6012ab70" index_cache="miss" embedding_store="skipped" active_tools=175
+[search] result summary query_id=6012ab70 ranking="lexical" total=37 top_qualified_name="canva_list-folder-items" total_ms=940
+```
+
+Tool result: `{ranking: "lexical", total: 37, top: "canva_list-folder-items"}`.
+
+**Verdict: 🐛 NEW FAILURE MODE** (May 30, 2026)
+
+Warmer write path: **FIXED** ✅ — `run_spawn_blocking` fix works, 945 rows written, `warmer upserting records` fires for all servers.
+
+Search read path: **NEW BUG** ❌ — `hashes_requested=0` with `embedding_store="skipped"`. The active ToolIndexEntry objects don't supply content_hashes to the store hydrate, so the embedding store is never consulted during search. This is distinct from O0 Run 1 (which was `embedding_store="miss"` — tried but found nothing). Here the store is not tried at all.
+
+Filed as: *"Search read path: active index doesn't expose content_hashes to store hydrate — `hashes_requested=0`, `embedding_store=skipped`, ranking stuck lexical despite 945 rows in tool_embeddings."*
+
+**O1–O4: Still BLOCKED** on the search read path fix.
+
+- **FIX VERIFIED** — `embedded>0`, `warmer upserting`, rows > 0, search `hybrid` → update Final report O0b PASS, **unblock O1–O4** and run them in order.
+- **STILL BROKEN** — paste: latest `warm batch done` lines, any `spawn_blocking panicked` + `panic` text, top `[embed] diag:` lines, before/after row counts, search JSON. Mark O1–O4 still BLOCKED.
+- **NEW FAILURE MODE** — e.g. panics logged but no embed: file with panic text; dev owner fixes next.
+
+Record: restart at 22:40 UTC, before=0 rows, after=945 rows, 27 servers warmed. Search: `hashes_requested=0, embedding_store=skipped, ranking=lexical`. Verdict: warmer write fixed; search read NEW BUG.
 
 ### O1 — Cross-session reuse (no re-embed per chat)
 
-**Setup:** Model Ready (Section L done). Warm the store with one hybrid query, then open a **second** Cursor chat (or disconnect/reconnect MCP to mint a new `session_id`).
+**Status: BLOCKED until O0b passes** — Run 1 confirmed store never populated; unblocks after O0b FIX VERIFIED.
+
+**Setup:** O0 passed (store actually populates). Model Ready. Warm the store with one hybrid query, then open a **second** Cursor chat (or disconnect/reconnect MCP to mint a new `session_id`).
 
 **Prompt (chat 1, then chat 2 — identical):**
 
@@ -626,14 +927,15 @@ Report: ranking field, and whether the result felt instant or had a multi-second
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| Chat 1 first hybrid query embeds the corpus once (`cached = false` in `[embed]`) | ☐ | ☐ | one-time cost |
 | Chat 2's first hybrid query is **fast** — no ~30 s spike | ☐ | ☐ | the core win |
-| Chat 2 logs show store hits, not a fresh corpus embed | ☐ | ☐ | `store_misses = 0` (or warmer already ran) |
-| Chat 2 returns `ranking: "hybrid"` on the first call | ☐ | ☐ | no per-session re-embed |
+| Chat 2 logs show `store hydrate … store_hits > 0`, not a fresh corpus embed | ☐ | ☐ | no per-session re-embed |
+| Chat 2 returns `ranking: "hybrid"` on the first call | ☐ | ☐ | |
 
-Record: chat 1 vs chat 2 latency, `[embed]` `cached`/`store_hits` snippet for each.
+Record: chat 1 vs chat 2 latency, `[embed] store hydrate` / `[search] cache decision` snippet for each.
 
 ### O2 — Restart persistence
+
+**Status: BLOCKED until O0b passes**
 
 **Setup:** Store warmed (O1 done). Quit McpMux fully, then relaunch (`pnpm dev:stop` → `pnpm dev:admin` for a dev build).
 
@@ -652,6 +954,8 @@ Report ranking and whether it felt instant.
 Record: post-restart latency, `[embed]` hydrate snippet.
 
 ### O3 — Alias rename is free
+
+**Status: BLOCKED until O0b passes**
 
 **Setup:** Pick an active server with searchable tools. Note a tool's behavior, then in McpMux → server settings change that server's **alias** (the tool prefix).
 
@@ -672,6 +976,8 @@ Record: old vs new `qualified_name`, confirmation that `[embed]` showed no fresh
 
 ### O4 — On-connect warm (no inline spike)
 
+**Status: BLOCKED until O0b passes**
+
 **Setup:** Identify a server whose tools are **not** yet in the store (newly added, or clear the store / use a fresh `{data_dir}`). Connect it (enable in a bound bundle, or relaunch so it connects fresh). Wait a few seconds for the background warmer.
 
 **Prompt:**
@@ -686,8 +992,8 @@ Record: old vs new `qualified_name`, confirmation that `[embed]` showed no fresh
 
 | Check | Pass | Fail | Notes |
 | ----- | ---- | ---- | ----- |
-| `[embed] warm batch done` appears for the connected server (background) | ☐ | ☐ | on-connect warmer fired |
-| Post-warm search is a store hit — no inline corpus embed on the request | ☐ | ☐ | `cached = false` must NOT appear on the search call |
+| `[embed] warm batch done … embedded > 0` appears for the connected server (background) | ☐ | ☐ | on-connect warmer actually embedded (not just `embedded=0`) |
+| Post-warm search is a store hit (`[search] cache decision … embedding_store=hit`) | ☐ | ☐ | vectors served from the store, not re-embedded inline |
 | No all-core CPU spike on the user-facing search call | ☐ | ☐ | spike moved to the background warmer |
 
 Record: ranking on call 1 vs call 2, `[embed] warm batch done` snippet, CPU observation.
@@ -719,7 +1025,8 @@ Record: `[embed]` `model_version` before/after, re-warm behavior.
 - [ ] `search_tools` missing `ranking` field in payload (hybrid ranking regression)
 - [ ] Intent query returns zero hits when semantically matching tool is active and model is Ready (Hybrid Phase 3/4 regression)
 - [ ] Exact tool name query does not rank the literal tool in top 3 (fusion drowning lexical — Hybrid Phase 3 regression)
-- [ ] (Persistent cache) A fresh chat / second session re-embeds the whole corpus (`[embed] cached = false` on a warm store — per-session re-embed regression, Section O1)
+- [x] **(CONFIRMED May 30, 2026)** (Persistent cache) Warmer enqueues with `missing > 0` on a Ready model but every `warm batch done` is `embedded=0`, no `warmer upserting records`, and `tool_embeddings` stays empty (Section O0 — bug confirmed)
+- [ ] (Persistent cache) A fresh chat / second session re-embeds the whole corpus instead of `store hydrate … store_hits > 0` (per-session re-embed regression, Section O1)
 - [ ] (Persistent cache) App restart triggers a full cold re-embed instead of loading from SQLite (persistence regression, Section O2)
 - [ ] (Persistent cache) Renaming a server alias re-embeds that server's tools (alias leaked into content_hash, Section O3)
 - [ ] (Persistent cache) The all-core embedding spike lands on a user-facing `search_tools` call instead of the background warmer (Section O4)
@@ -738,14 +1045,16 @@ Record: `[embed]` `model_version` before/after, re-warm behavior.
 | F Web approval | ✅ PASS | Approve + deny both work; Tauri and browser dialogs sync correctly post-fix |
 | G Invoke | ✅ PASS | Search → schema → invoke all clean; invoke returned live Canva data |
 | G2 Hybrid search | ✅ PASS | Token-overlap, hybrid ranking, intent search, and wide inactive scan all pass post-fix |
-| H Root-race | | |
-| I Inactive scan perf | | |
-| J Cache (hit/evict/disconnect) | | |
+| H Root-race | ✅ PASS | Phase 6 fix confirmed — first effective search call returns active tools with no `tools/list` warmup; no-match hint is include_inactive (not PendingRoots). Note: runbook test query `"core"` has no tool matches; use `"canva"` instead. |
+| I Inactive scan perf | ✅ PASS | Wide scan `total: 1804` returned instantly; `server_id`-filtered call scoped to 337; hint fires correctly; no manual observability bundle setup needed |
+| J Cache (hit/evict/disconnect) | ✅ PASS | J1: 4 identical repeat calls consistent; J2: post-bind browser tools active (used bundle:browser since design already bound); J3: post-reconnect clean. `tool_embeddings` = 0 rows throughout — O0 bug pre-confirmed. |
 | K Lexical token-overlap | | |
 | L Embedding lifecycle | | |
 | M Hybrid fusion + cache | | |
 | N Intent relevance | | |
-| O Persistent embedding cache | | Planned — SKIP until that work ships |
+| O0 Run 1 (archived) | 🐛 BUG (fixed) | May 30, 2026 — `embedded=0` despite Ready + `missing>0`; root cause: `run_spawn_blocking` silently swallowed panics. Fixed via `block_in_place`. |
+| O0b Fix verification | 🐛 NEW BUG | Warmer write FIXED (945 rows, 27 servers warmed). Search read NEW BUG: `hashes_requested=0`, `embedding_store=skipped`, `ranking=lexical`. Active index doesn't expose content_hashes to store hydrate. Filed May 30, 2026. |
+| O1–O4 Persistent embedding cache | BLOCKED | Warmer write fixed but search read broken — store populated, never consulted during search |
 
 List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle available.
 
@@ -755,18 +1064,20 @@ List any regressions. Flag BLOCKED if gateway unreachable or no inactive bundle 
 
 | Phase | Result |
 | ----- | ------ |
-| Phase 1 — discovery inactive opt-in | ☐ Pass ☐ Fail |
-| Phase 2 — bind layering | ☐ Pass ☐ Fail |
-| Phase 3 — ephemeral path removed | ☐ Pass ☐ Fail |
-| Phase 4 — human-only authoring | ☐ Pass ☐ Fail |
-| Phase 5 — web approval | ☐ Pass ☐ Fail |
-| Phase 6 — root-race fix | ☐ Pass ☐ Fail |
-| Phase 7 — inactive scan perf | ☐ Pass ☐ Fail |
-| Phase 8 — active index cache | ☐ Pass ☐ Fail |
-| Hybrid 1 — lexical token-overlap | ☐ Pass ☐ Fail |
-| Hybrid 2 — embedding lifecycle | ☐ Pass ☐ Fail |
-| Hybrid 3 — hybrid fusion + cache | ☐ Pass ☐ Fail |
-| Hybrid 4 — intent relevance | ☐ Pass ☐ Fail |
-| Persistent cache 1–3 — repo / persistence / alias-free | ☐ Pass ☐ Fail ☐ N/A (unshipped) |
-| Persistent cache 4 — on-connect warm | ☐ Pass ☐ Fail ☐ N/A (unshipped) |
-| Overall | ☐ Ship ☐ Block |
+| Phase 1 — discovery inactive opt-in | ✅ Pass |
+| Phase 2 — bind layering | ✅ Pass |
+| Phase 3 — ephemeral path removed | ✅ Pass |
+| Phase 4 — human-only authoring | ✅ Pass |
+| Phase 5 — web approval | ✅ Pass |
+| Phase 6 — root-race fix | ✅ Pass |
+| Phase 7 — inactive scan perf | ✅ Pass |
+| Phase 8 — active index cache | ✅ Pass |
+| Hybrid 1 — lexical token-overlap | ✅ Pass (covered by G2) |
+| Hybrid 2 — embedding lifecycle | ✅ Pass (covered by G2) |
+| Hybrid 3 — hybrid fusion + cache | ✅ Pass (covered by G2) |
+| Hybrid 4 — intent relevance | ✅ Pass (covered by G2) |
+| Persistent cache 0 Run 1 — warmer diagnostic | 🐛 Bug fixed — `run_spawn_blocking` → `block_in_place` |
+| Persistent cache 0b — fix verification | 🐛 New bug — warmer write fixed (945 rows), search read broken (`hashes_requested=0`, `embedding_store=skipped`) |
+| Persistent cache 1–3 — cross-session / persistence / alias-free | ☐ Blocked on O0b read-path fix |
+| Persistent cache 4 — on-connect warm | ☐ Blocked on O0b read-path fix |
+| Overall | ☐ Block — persistent cache read path broken; O1–O4 cannot be validated until `hashes_requested=0` / `embedding_store=skipped` is fixed |

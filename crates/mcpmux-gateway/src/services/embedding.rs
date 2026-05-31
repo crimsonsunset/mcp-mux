@@ -11,7 +11,7 @@ use std::time::Instant;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use mcpmux_storage::hash_embedding_content;
 use parking_lot::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 
 #[cfg(any(test, feature = "test-utils"))]
 use std::collections::HashMap;
@@ -252,7 +252,15 @@ impl EmbeddingService {
         }
 
         let started = Instant::now();
-        let vectors = self.embed_with_spawn_blocking(texts)?;
+        let Some(vectors) = self.embed_with_spawn_blocking(texts) else {
+            warn!(
+                target: "embed",
+                docs_embedded,
+                embed_ms = started.elapsed().as_millis() as u64,
+                "[embed] diag: state=Ready but inference produced no vectors"
+            );
+            return None;
+        };
         let embed_ms = started.elapsed().as_millis() as u64;
         self.log_embedding_state(query_id, "ready", docs_embedded, Some(embed_ms));
         Some(vectors)
@@ -261,13 +269,28 @@ impl EmbeddingService {
     fn embed_with_spawn_blocking(&self, texts: &[&str]) -> Option<Vec<Vec<f32>>> {
         let model_slot = Arc::clone(&self.model);
         let inputs: Vec<String> = texts.iter().map(|text| (*text).to_string()).collect();
-        run_spawn_blocking(move || {
-            let mut guard = model_slot.lock().ok()?;
-            let embedding = guard.as_mut()?;
+        let result = run_spawn_blocking(move || {
+            let mut guard = match model_slot.lock() {
+                Ok(guard) => guard,
+                Err(error) => {
+                    warn!(target: "embed", error = %error, "[embed] diag: model mutex poisoned");
+                    return None;
+                }
+            };
+            let Some(embedding) = guard.as_mut() else {
+                warn!(target: "embed", "[embed] diag: model slot empty despite Ready state");
+                return None;
+            };
             let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
-            let raw = embedding.embed(&refs, None).ok()?;
-            Some(raw.into_iter().map(to_f32_vector).collect())
-        })
+            match embedding.embed(&refs, None) {
+                Ok(raw) => Some(raw.into_iter().map(to_f32_vector).collect()),
+                Err(error) => {
+                    warn!(target: "embed", error = %error, "[embed] diag: fastembed embed() failed");
+                    None
+                }
+            }
+        });
+        result
     }
 
     fn log_embedding_state(
@@ -339,31 +362,67 @@ fn to_f32_vector(embedding: fastembed::Embedding) -> Vec<f32> {
     embedding
 }
 
+fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
+
+fn log_spawn_blocking_join_error(context: &'static str, error: tokio::task::JoinError) {
+    if error.is_panic() {
+        let message = panic_payload_message(error.into_panic());
+        warn!(
+            target: "embed",
+            context,
+            panic = %message,
+            "[embed] spawn_blocking panicked"
+        );
+        return;
+    }
+    if error.is_cancelled() {
+        warn!(target: "embed", context, "[embed] spawn_blocking cancelled");
+        return;
+    }
+    warn!(
+        target: "embed",
+        context,
+        error = %error,
+        "[embed] spawn_blocking join failed"
+    );
+}
+
+fn await_spawn_blocking<T, F>(handle: tokio::runtime::Handle, task: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Option<T> + Send + 'static,
+{
+    match handle.block_on(tokio::task::spawn_blocking(task)) {
+        Ok(value) => value,
+        Err(error) => {
+            log_spawn_blocking_join_error("spawn_blocking", error);
+            None
+        }
+    }
+}
+
 fn run_spawn_blocking<T, F>(task: F) -> Option<T>
 where
     T: Send + 'static,
     F: FnOnce() -> Option<T> + Send + 'static,
 {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        return std::thread::spawn(move || {
-            handle
-                .block_on(tokio::task::spawn_blocking(task))
-                .ok()
-                .flatten()
-        })
-        .join()
-        .ok()
-        .flatten();
+        return tokio::task::block_in_place(|| await_spawn_blocking(handle, task));
     }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .ok()?;
-    runtime
-        .block_on(tokio::task::spawn_blocking(task))
-        .ok()
-        .flatten()
+    await_spawn_blocking(runtime.handle().clone(), task)
 }
 
 #[cfg(test)]

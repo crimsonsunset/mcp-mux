@@ -134,6 +134,7 @@ impl EmbeddingWarmer {
                 skipped_present,
                 embed_ms = 0_u64,
                 model_version = self.embeddings.model_version(),
+                model_state = ?self.embeddings.state(),
                 "[embed] warm batch done"
             );
             return Ok(());
@@ -153,6 +154,11 @@ impl EmbeddingWarmer {
                 break;
             };
             let Some(vectors) = self.embeddings.embed_documents(&[haystack], None) else {
+                warn!(
+                    server_id,
+                    model_state = ?self.embeddings.state(),
+                    "[embed] diag: warmer embed_documents returned None — skipping tool"
+                );
                 continue;
             };
             let Some(vector) = vectors.into_iter().next() else {
@@ -173,8 +179,10 @@ impl EmbeddingWarmer {
                 server_id,
                 embedded = 0,
                 skipped_present,
+                missing,
                 embed_ms = embed_started.elapsed().as_millis() as u64,
                 model_version = self.embeddings.model_version(),
+                model_state = ?self.embeddings.state(),
                 "[embed] warm batch done"
             );
             return Ok(());
