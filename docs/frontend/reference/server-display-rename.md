@@ -23,16 +23,16 @@ Users want a friendly per-install label that:
 
 ## Decisions
 
-| # | Decision | Choice | Rationale |
-| - | -------- | ------ | --------- |
-| 1 | Identity vs label | **Display label only now**; `server_id` / alias / tool prefixes unchanged | Renaming the ID would invalidate every prompt, binding, and tool name referencing the server. Labels are reversible; IDs are not. |
-| 2 | Storage shape | New nullable `display_name_override` column on `installed_servers` (migration 018) | `server_name` is overwritten on every user-config sync, so the override needs its own column to survive. |
-| 3 | Eligible installs | Registry, manual, clones, and user-config installs are all renamable | Users want to label *any* install — not just clones. |
-| 4 | Uniqueness | Duplicate display names allowed in a space | The `server_id` is already unique; labels are pure UX. |
-| 5 | Configure surface | Display name field at top of the Configure modal, with helper text "Shown in My Servers only. Does not change the server ID or tool names." | Single place users already go to edit a server. |
-| 6 | Clone wizard | Optional freeform display name + existing suffix (suffix still drives `server_id` / alias) | Lets users pick a friendly name at clone time without giving up suffix-driven routing. |
-| 7 | Always-show Configure | Action menu shows Configure (renamed to "Settings" when there are no inputs) for every installed server | Servers without credential inputs still need a way to be renamed. |
-| 8 | Meta-tool surfacing | `mcpmux_list_servers` reports the effective display name (override → `server_name` → `server_id` tail) | Agents see "Joe Calendar" instead of the catalog name when the user has renamed an install. |
+| #   | Decision              | Choice                                                                                                                                      | Rationale                                                                                                                         |
+| --- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Identity vs label     | **Display label only now**; `server_id` / alias / tool prefixes unchanged                                                                   | Renaming the ID would invalidate every prompt, binding, and tool name referencing the server. Labels are reversible; IDs are not. |
+| 2   | Storage shape         | New nullable `display_name_override` column on `installed_servers` (migration 018)                                                          | `server_name` is overwritten on every user-config sync, so the override needs its own column to survive.                          |
+| 3   | Eligible installs     | Registry, manual, clones, and user-config installs are all renamable                                                                        | Users want to label _any_ install — not just clones.                                                                              |
+| 4   | Uniqueness            | Duplicate display names allowed in a space                                                                                                  | The `server_id` is already unique; labels are pure UX.                                                                            |
+| 5   | Configure surface     | Display name field at top of the Configure modal, with helper text "Shown in My Servers only. Does not change the server ID or tool names." | Single place users already go to edit a server.                                                                                   |
+| 6   | Clone wizard          | Optional freeform display name + existing suffix (suffix still drives `server_id` / alias)                                                  | Lets users pick a friendly name at clone time without giving up suffix-driven routing.                                            |
+| 7   | Always-show Configure | Action menu shows Configure (renamed to "Settings" when there are no inputs) for every installed server                                     | Servers without credential inputs still need a way to be renamed.                                                                 |
+| 8   | Meta-tool surfacing   | `mcpmux_list_servers` reports the effective display name (override → `server_name` → `server_id` tail)                                      | Agents see "Joe Calendar" instead of the catalog name when the user has renamed an install.                                       |
 
 ---
 
@@ -117,12 +117,12 @@ The frontend `resolveInstalledDisplayName` mirrors that precedence so every code
 
 ## Risks and mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| UI still shows catalog name in some surface | Centralized `resolveInstalledDisplayName` + every merge path fixed |
-| User-config sync clobbers the label | `display_name_override` lives in its own column; sync only refreshes `server_name` / `cached_definition` |
-| Configure unreachable for no-input servers | Action menu always shows Configure (renamed to "Settings") |
-| Tool names break after rename | Rename only updates the label; `server_id` and alias are immutable in v1 |
+| Risk                                        | Mitigation                                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| UI still shows catalog name in some surface | Centralized `resolveInstalledDisplayName` + every merge path fixed                                       |
+| User-config sync clobbers the label         | `display_name_override` lives in its own column; sync only refreshes `server_name` / `cached_definition` |
+| Configure unreachable for no-input servers  | Action menu always shows Configure (renamed to "Settings")                                               |
+| Tool names break after rename               | Rename only updates the label; `server_id` and alias are immutable in v1                                 |
 
 ## Validation
 

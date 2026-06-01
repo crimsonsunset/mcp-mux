@@ -23,17 +23,17 @@ Users wanted to:
 
 ## Decisions
 
-| # | Decision | Choice | Rationale |
-| - | -------- | ------ | --------- |
-| 1 | Card scope | **All workspace cards** — unmapped live, mapped live, mapped offline | User explicitly wants icons on every card, not just saved bindings. |
-| 2 | Unmapped storage | New `workspace_appearances` table keyed by normalized `workspace_root` | Unmapped entries have no binding row; appearance must persist independently until a binding is created. |
-| 3 | Bound storage | Nullable `icon` column on `workspace_bindings` (migration 020) | Keeps icon co-located with other binding metadata; matches Space / FeatureSet `icon` field pattern. |
-| 4 | Icon value shape | **Single optional string** — emoji text OR `https://` URL OR `local:workspace-icons/...` ref | Same convention as Space (`emoji or URL`) and `ServerIcon`; one field, one renderer. |
-| 5 | Image storage | Copy uploaded file into `<app_data>/workspace-icons/`; store `local:` ref in SQLite | Avoids bloating SQLite with base64; files survive app restarts; aligns with existing app data dir usage in `lib.rs`. |
-| 6 | Emoji UX | **Freeform text input** (Feature Set panel pattern) | User rejected preset grid; allows any emoji or short glyph. |
-| 7 | Fallback | Keep current **`FolderOpen` Lucide icon** inside tone-colored box | User wants status tones (amber/emerald/neutral) preserved; only replace glyph when icon is set. |
-| 8 | Display precedence | `binding.icon` → `appearance.icon` → `FolderOpen` | Binding is authoritative once it exists; appearance covers the unmapped gap. |
-| 9 | Bind migration | On binding create from unmapped root: copy appearance icon onto binding if binding icon empty; delete appearance row | Prevents duplicate storage and keeps one resolver path for mapped entries. |
+| #   | Decision           | Choice                                                                                                               | Rationale                                                                                                            |
+| --- | ------------------ | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 1   | Card scope         | **All workspace cards** — unmapped live, mapped live, mapped offline                                                 | User explicitly wants icons on every card, not just saved bindings.                                                  |
+| 2   | Unmapped storage   | New `workspace_appearances` table keyed by normalized `workspace_root`                                               | Unmapped entries have no binding row; appearance must persist independently until a binding is created.              |
+| 3   | Bound storage      | Nullable `icon` column on `workspace_bindings` (migration 020)                                                       | Keeps icon co-located with other binding metadata; matches Space / FeatureSet `icon` field pattern.                  |
+| 4   | Icon value shape   | **Single optional string** — emoji text OR `https://` URL OR `local:workspace-icons/...` ref                         | Same convention as Space (`emoji or URL`) and `ServerIcon`; one field, one renderer.                                 |
+| 5   | Image storage      | Copy uploaded file into `<app_data>/workspace-icons/`; store `local:` ref in SQLite                                  | Avoids bloating SQLite with base64; files survive app restarts; aligns with existing app data dir usage in `lib.rs`. |
+| 6   | Emoji UX           | **Freeform text input** (Feature Set panel pattern)                                                                  | User rejected preset grid; allows any emoji or short glyph.                                                          |
+| 7   | Fallback           | Keep current **`FolderOpen` Lucide icon** inside tone-colored box                                                    | User wants status tones (amber/emerald/neutral) preserved; only replace glyph when icon is set.                      |
+| 8   | Display precedence | `binding.icon` → `appearance.icon` → `FolderOpen`                                                                    | Binding is authoritative once it exists; appearance covers the unmapped gap.                                         |
+| 9   | Bind migration     | On binding create from unmapped root: copy appearance icon onto binding if binding icon empty; delete appearance row | Prevents duplicate storage and keeps one resolver path for mapped entries.                                           |
 
 ---
 
@@ -63,11 +63,11 @@ flowchart TD
 
 **Icon string encoding:**
 
-| Shape | Meaning | Render |
-| ----- | ------- | ------ |
-| `https://...` | Remote URL | `<img>` via extended `ServerIcon` |
+| Shape                              | Meaning             | Render                                             |
+| ---------------------------------- | ------------------- | -------------------------------------------------- |
+| `https://...`                      | Remote URL          | `<img>` via extended `ServerIcon`                  |
 | `local:workspace-icons/{uuid}.png` | File under app data | `convertFileSrc(absolutePath)` after Tauri resolve |
-| anything else | Emoji / short text | Text span (existing emoji path in `ServerIcon`) |
+| anything else                      | Emoji / short text  | Text span (existing emoji path in `ServerIcon`)    |
 
 **Upload pipeline:**
 
@@ -179,15 +179,15 @@ entry.binding?.icon ?? appearanceByRoot.get(normalize(entry.root)) ?? null → F
 
 ## Autonomous decisions
 
-| Phase | Decision | Rationale |
-| ----- | -------- | --------- |
-| 1 | Dedicated SQLite repository file + nested module wiring for appearances | Enabled Phase 1 tests without expanding surface area beyond inventory |
-| 1 | Optional `icon` on bindings only; label and feature-set semantics unchanged | Minimized behavior risk for existing routing logic |
-| 2 | Reused `workspace-binding-changed` UI channel for `WorkspaceAppearanceChanged` | Keeps frontend listener compatibility without Phase 3 listener edits |
-| 2 | Repository-wide orphan cleanup before deleting local icon files | Prevents accidental removal when refs are shared across binding/appearance rows |
-| 2 | Normalize all uploads to PNG, max 256px | Deterministic render payload and upload-size constraints |
-| 3 | Single `ServerIcon` local-ref resolver path | Consistent emoji/URL/local rendering across cards, panel headers, and previews |
-| 3 | Autosave unmapped icons to `workspace_appearances` in-panel | Preserves icon identity before binding creation without manual save friction |
+| Phase | Decision                                                                       | Rationale                                                                       |
+| ----- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 1     | Dedicated SQLite repository file + nested module wiring for appearances        | Enabled Phase 1 tests without expanding surface area beyond inventory           |
+| 1     | Optional `icon` on bindings only; label and feature-set semantics unchanged    | Minimized behavior risk for existing routing logic                              |
+| 2     | Reused `workspace-binding-changed` UI channel for `WorkspaceAppearanceChanged` | Keeps frontend listener compatibility without Phase 3 listener edits            |
+| 2     | Repository-wide orphan cleanup before deleting local icon files                | Prevents accidental removal when refs are shared across binding/appearance rows |
+| 2     | Normalize all uploads to PNG, max 256px                                        | Deterministic render payload and upload-size constraints                        |
+| 3     | Single `ServerIcon` local-ref resolver path                                    | Consistent emoji/URL/local rendering across cards, panel headers, and previews  |
+| 3     | Autosave unmapped icons to `workspace_appearances` in-panel                    | Preserves icon identity before binding creation without manual save friction    |
 
 ---
 
@@ -202,13 +202,13 @@ entry.binding?.icon ?? appearanceByRoot.get(normalize(entry.root)) ?? null → F
 
 ## Risks and mitigations
 
-| Risk | Mitigation |
-| ---- | ---------- |
-| Webview cannot load arbitrary file paths | Always render local icons through `convertFileSrc` after Rust resolves absolute path under app data |
-| Orphaned PNGs accumulate | Delete old file on icon replace/clear; optional startup sweep deferred |
-| Duplicate icon storage (appearance + binding) | Migrate appearance → binding on create; display prefers binding |
-| Large uploads | Resize to 256px max on ingest; reject files over 2MB |
-| Icon set on unmapped root, then binding created elsewhere | Key appearances by normalized root; migration copies on bind for matching root |
+| Risk                                                      | Mitigation                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Webview cannot load arbitrary file paths                  | Always render local icons through `convertFileSrc` after Rust resolves absolute path under app data |
+| Orphaned PNGs accumulate                                  | Delete old file on icon replace/clear; optional startup sweep deferred                              |
+| Duplicate icon storage (appearance + binding)             | Migrate appearance → binding on create; display prefers binding                                     |
+| Large uploads                                             | Resize to 256px max on ingest; reject files over 2MB                                                |
+| Icon set on unmapped root, then binding created elsewhere | Key appearances by normalized root; migration copies on bind for matching root                      |
 
 ---
 
@@ -224,14 +224,14 @@ entry.binding?.icon ?? appearanceByRoot.get(normalize(entry.root)) ?? null → F
 
 ## Key files referenced
 
-| File | Note |
-| ---- | ---- |
-| [`WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) | Entry union, `EntryCard`, binding form autosave, `resolveEntryIcon` |
-| [`workspace_binding.rs`](../../crates/mcpmux-core/src/domain/workspace_binding.rs) | Binding entity — `icon` field |
-| [`ServerIcon.tsx`](../../apps/desktop/src/components/ServerIcon.tsx) | Emoji/URL/`local:` renderer |
-| [`FeatureSetPanel.tsx`](../../apps/desktop/src/features/featuresets/FeatureSetPanel.tsx) | Freeform emoji input pattern |
-| [`lib.rs`](../../apps/desktop/src-tauri/src/lib.rs) | `get_app_data_dir()` for icon file storage |
-| [`server-display-rename.md`](./server-display-rename.md) | Planning doc format reference |
+| File                                                                                     | Note                                                                |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [`WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx)    | Entry union, `EntryCard`, binding form autosave, `resolveEntryIcon` |
+| [`workspace_binding.rs`](../../crates/mcpmux-core/src/domain/workspace_binding.rs)       | Binding entity — `icon` field                                       |
+| [`ServerIcon.tsx`](../../apps/desktop/src/components/ServerIcon.tsx)                     | Emoji/URL/`local:` renderer                                         |
+| [`FeatureSetPanel.tsx`](../../apps/desktop/src/features/featuresets/FeatureSetPanel.tsx) | Freeform emoji input pattern                                        |
+| [`lib.rs`](../../apps/desktop/src-tauri/src/lib.rs)                                      | `get_app_data_dir()` for icon file storage                          |
+| [`server-display-rename.md`](./server-display-rename.md)                                 | Planning doc format reference                                       |
 
 ---
 

@@ -97,12 +97,15 @@ populates on a **fresh** profile instead of staying empty until a reconnect.
 2. Start the gateway (`pnpm dev`), connect at least one server with tools, and wait for the
    model download to finish (watch the log).
 3. Grep the gateway log for the warm batch outcome:
+
    ```bash
    # should show embedded > 0 AFTER the model reaches Ready — not "skipped (model not ready)"
    rg '\[embed\] warm batch (done|skipped)' <gateway-log>
    ```
+
    - PASS: a `warm batch done embedded=N` (N>0) line appears once the model is `Ready`.
    - FAIL: only `warm batch skipped (model not ready within budget)` with no later `done`.
+
 4. Run a `mcpmux_search_tools` query and confirm `ranking: "hybrid"` (not `"lexical"`) and
    `store_hits > 0` in the `[search]` logs.
 5. Restore: `mv ~/Library/Application\ Support/com.mcpmux.app/embeddings{.bak,}`.
