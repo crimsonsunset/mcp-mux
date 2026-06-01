@@ -124,8 +124,8 @@ impl GatewayServer {
         let notification_bridge = Arc::new(MCPNotifier::new(
             services.feature_set_resolver.clone(),
             services.pool_services.feature_service.clone(),
-            services.session_overrides.clone(),
         ));
+        notification_bridge.set_embedding_warmer(services.embedding_warmer.clone());
 
         info!("[Gateway] Services initialized successfully");
 
@@ -195,12 +195,7 @@ impl GatewayServer {
         self.services.session_roots.clone()
     }
 
-    /// Session-scoped enable/disable overrides (meta-tool mutations).
-    pub fn session_overrides(&self) -> Arc<crate::services::SessionOverrideRegistry> {
-        self.services.session_overrides.clone()
-    }
-
-    /// Notification bridge for per-session list_changed after override clears.
+    /// Notification bridge for per-session list_changed.
     pub fn notification_bridge(&self) -> Arc<MCPNotifier> {
         self.notification_bridge.clone()
     }
@@ -423,7 +418,14 @@ impl GatewayServer {
     ) -> anyhow::Result<()> {
         let addr = self.config.addr();
 
-        info!("[Gateway] Starting on {}", addr);
+        info!(
+            "[Gateway] Starting on {} | sha: {} | branch: {} | committed: {} | built: {}",
+            addr,
+            env!("MCPMUX_GIT_SHA"),
+            env!("MCPMUX_GIT_BRANCH"),
+            env!("MCPMUX_COMMIT_TIME"),
+            env!("MCPMUX_BUILD_TIME"),
+        );
         info!(
             "[Gateway] CORS: {}",
             if self.config.enable_cors {

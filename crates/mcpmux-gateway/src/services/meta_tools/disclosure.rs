@@ -16,15 +16,9 @@ use crate::services::{
     ResourceDiscoveryService,
 };
 
-/// Returns whether `server_id` is active for the caller's session.
-fn is_server_active(
-    server_id: &str,
-    binding_servers: &HashSet<String>,
-    session_enabled: &HashSet<String>,
-    session_disabled: &HashSet<String>,
-) -> bool {
-    !session_disabled.contains(server_id)
-        && (binding_servers.contains(server_id) || session_enabled.contains(server_id))
+/// Returns whether `server_id` is active via the caller's binding.
+fn is_server_active(server_id: &str, binding_servers: &HashSet<String>) -> bool {
+    binding_servers.contains(server_id)
 }
 
 /// Collect binding server ids for the caller's resolved FeatureSets.
@@ -45,20 +39,7 @@ async fn binding_servers_for_call(
         .collect())
 }
 
-/// Session override sets for the caller.
-fn session_override_sets(call: &MetaToolCall<'_>) -> (HashSet<String>, HashSet<String>) {
-    let session_enabled = call
-        .session_id
-        .map(|sid| call.ctx.session_overrides.enabled_set(sid))
-        .unwrap_or_default();
-    let session_disabled = call
-        .session_id
-        .map(|sid| call.ctx.session_overrides.disabled_set(sid))
-        .unwrap_or_default();
-    (session_enabled, session_disabled)
-}
-
-/// Validate optional `server_id` filter against session/binding state.
+/// Validate optional `server_id` filter against binding state.
 async fn validate_server_filter(
     call: &MetaToolCall<'_>,
     server_id: Option<&str>,
@@ -69,20 +50,8 @@ async fn validate_server_filter(
     };
 
     let binding_servers = binding_servers_for_call(call).await?;
-    let (session_enabled, session_disabled) = session_override_sets(call);
 
-    if session_disabled.contains(server_id) {
-        return Ok(Some(format!(
-            "server '{server_id}' is disabled for this session → mcpmux_enable_server({{ \"server_id\": \"{server_id}\" }})"
-        )));
-    }
-
-    if !is_server_active(
-        server_id,
-        &binding_servers,
-        &session_enabled,
-        &session_disabled,
-    ) {
+    if !is_server_active(server_id, &binding_servers) {
         return Ok(Some(format_server_inactive_error(server_id)));
     }
 
@@ -155,11 +124,7 @@ impl MetaTool for SearchResourcesTool {
         let readable = call
             .ctx
             .feature_service
-            .get_readable_resources_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_readable_resources_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
@@ -199,7 +164,7 @@ impl MetaTool for SearchResourcesTool {
         if result.total == 0 {
             payload["hint"] = json!(
                 "No readable resources matched. Verify FeatureSet grants include resource members, \
-                 or use mcpmux_enable_server when the server is inactive."
+                 or use mcpmux_bind_current_workspace when the server is inactive."
             );
         }
 
@@ -248,11 +213,7 @@ impl MetaTool for ReadResourceTool {
         let readable = call
             .ctx
             .feature_service
-            .get_readable_resources_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_readable_resources_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
@@ -280,20 +241,8 @@ impl MetaTool for ReadResourceTool {
         };
 
         let binding_servers = binding_servers_for_call(&call).await?;
-        let (session_enabled, session_disabled) = session_override_sets(&call);
 
-        if session_disabled.contains(&server_id) {
-            return Ok(disclosure_error(format!(
-                "server '{server_id}' is disabled for this session → mcpmux_enable_server({{ \"server_id\": \"{server_id}\" }})"
-            )));
-        }
-
-        if !is_server_active(
-            &server_id,
-            &binding_servers,
-            &session_enabled,
-            &session_disabled,
-        ) {
+        if !is_server_active(&server_id, &binding_servers) {
             return Ok(disclosure_error(format_server_inactive_error(&server_id)));
         }
 
@@ -367,11 +316,7 @@ impl MetaTool for SearchPromptsTool {
         let fetchable = call
             .ctx
             .feature_service
-            .get_fetchable_prompts_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_fetchable_prompts_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
@@ -411,7 +356,7 @@ impl MetaTool for SearchPromptsTool {
         if result.total == 0 {
             payload["hint"] = json!(
                 "No fetchable prompts matched. Verify FeatureSet grants include prompt members, \
-                 or use mcpmux_enable_server when the server is inactive."
+                 or use mcpmux_bind_current_workspace when the server is inactive."
             );
         }
 
@@ -467,31 +412,15 @@ impl MetaTool for FetchPromptTool {
         let space_id = caller_space_id(&call).await?;
 
         let binding_servers = binding_servers_for_call(&call).await?;
-        let (session_enabled, session_disabled) = session_override_sets(&call);
 
-        if session_disabled.contains(&server_id) {
-            return Ok(disclosure_error(format!(
-                "server '{server_id}' is disabled for this session → mcpmux_enable_server({{ \"server_id\": \"{server_id}\" }})"
-            )));
-        }
-
-        if !is_server_active(
-            &server_id,
-            &binding_servers,
-            &session_enabled,
-            &session_disabled,
-        ) {
+        if !is_server_active(&server_id, &binding_servers) {
             return Ok(disclosure_error(format_server_inactive_error(&server_id)));
         }
 
         let fetchable = call
             .ctx
             .feature_service
-            .get_fetchable_prompts_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                call.session_id,
-            )
+            .get_fetchable_prompts_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 

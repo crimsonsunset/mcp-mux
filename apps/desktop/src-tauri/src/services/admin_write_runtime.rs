@@ -20,7 +20,6 @@ use crate::commands::server_manager::{
     cancel_auth_v2, disable_server_v2, enable_server_v2, logout_server, retry_connection,
     start_auth_v2,
 };
-use crate::commands::session_overrides::clear_session_overrides;
 
 /// Delegates admin write operations to existing Tauri command handlers.
 pub struct DesktopGatewayWriteRuntime {
@@ -205,13 +204,6 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         )
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
-        Ok(json!({ "ok": true }))
-    }
-
-    async fn clear_session_overrides(&self, session_id: String) -> anyhow::Result<Value> {
-        clear_session_overrides(session_id, self.app_handle.state(), self.app_handle.clone())
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
         Ok(json!({ "ok": true }))
     }
 

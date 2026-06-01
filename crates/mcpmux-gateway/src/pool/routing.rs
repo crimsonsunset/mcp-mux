@@ -61,7 +61,7 @@ const TOOL_CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// Actionable error when a server is not in the effective enable set.
 pub fn format_server_inactive_error(server_id: &str) -> String {
     format!(
-        "server '{server_id}' is inactive → mcpmux_enable_server({{ \"server_id\": \"{server_id}\" }})"
+        "server '{server_id}' is inactive → mcpmux_bind_current_workspace with a FeatureSet that includes this server"
     )
 }
 
@@ -109,7 +109,8 @@ pub fn format_direct_fetch_prompt_redirect(
 pub fn format_server_not_in_binding_error(server_id: &str) -> String {
     format!(
         "server '{server_id}' has no readable/fetchable features with current FeatureSet grants — \
-         add via Workspaces UI or mcpmux_create_feature_set"
+         create a FeatureSet bundle in the McpMux desktop or web UI, then bind it with \
+         mcpmux_bind_current_workspace"
     )
 }
 
@@ -153,14 +154,13 @@ impl RoutingService {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<RoutedTool>> {
         let space_id_str = space_id.to_string();
 
         // Resolve feature sets to allowed features
         let allowed_features = self
             .feature_service
-            .get_invokable_tools_for_grants(&space_id_str, feature_set_ids, session_id)
+            .get_invokable_tools_for_grants(&space_id_str, feature_set_ids)
             .await?;
 
         // Filter to just tools
@@ -189,13 +189,12 @@ impl RoutingService {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<RoutedPrompt>> {
         let space_id_str = space_id.to_string();
 
         let allowed_features = self
             .feature_service
-            .get_prompts_for_grants(&space_id_str, feature_set_ids, session_id)
+            .get_prompts_for_grants(&space_id_str, feature_set_ids)
             .await?;
 
         let prompts: Vec<RoutedPrompt> = allowed_features
@@ -222,13 +221,12 @@ impl RoutingService {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
     ) -> Result<Vec<RoutedResource>> {
         let space_id_str = space_id.to_string();
 
         let allowed_features = self
             .feature_service
-            .get_resources_for_grants(&space_id_str, feature_set_ids, session_id)
+            .get_resources_for_grants(&space_id_str, feature_set_ids)
             .await?;
 
         let resources: Vec<RoutedResource> = allowed_features
@@ -256,7 +254,6 @@ impl RoutingService {
         &self,
         space_id: Uuid,
         feature_set_ids: &[String],
-        session_id: Option<&str>,
         tool_name: &str,
         arguments: Value,
     ) -> Result<ToolCallResult> {
@@ -269,10 +266,10 @@ impl RoutingService {
             .await?
             .ok_or_else(|| anyhow!("Tool '{}' not found", tool_name))?;
 
-        // 2. Check if the tool is allowed by grants (session overrides included)
+        // 2. Check if the tool is allowed by grants
         let allowed_features = self
             .feature_service
-            .get_invokable_tools_for_grants(&space_id_str, feature_set_ids, session_id)
+            .get_invokable_tools_for_grants(&space_id_str, feature_set_ids)
             .await?;
 
         info!(

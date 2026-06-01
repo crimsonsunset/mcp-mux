@@ -17,7 +17,6 @@ const ALL_WORKSPACE_CHANNELS: WorkspaceEventChannel[] = [
   'session-roots-changed',
   'workspace-binding-changed',
   'workspace-needs-binding',
-  'session-overrides-changed',
 ];
 
 /**

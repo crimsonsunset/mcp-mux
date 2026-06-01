@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
-    meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService,
+    meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService, EmbeddingWarmer,
     FeatureSetResolverService, GrantService, MetaToolRegistry, PrefixCacheService,
-    SessionOverrideRegistry, SessionRootsRegistry, SpaceResolverService,
+    SessionRootsRegistry, SpaceResolverService,
 };
 use mcpmux_core::DomainEvent;
 
@@ -40,15 +40,15 @@ pub struct ServiceContainer {
     /// Registry of per-session workspace roots (populated from MCP `roots/list`).
     pub session_roots: Arc<SessionRootsRegistry>,
 
-    /// Per-session server enable/disable overrides (in-memory, process-lifetime).
-    pub session_overrides: Arc<SessionOverrideRegistry>,
-
     /// Broker that asks the desktop UI for user approval on meta-tool writes.
     /// Shared with the Tauri layer so it can attach a publisher + respond.
     pub approval_broker: Arc<ApprovalBroker>,
 
     /// Built-in `mcpmux_*` meta tools advertised alongside backend tools.
     pub meta_tool_registry: Arc<MetaToolRegistry>,
+
+    /// Background warmer for per-server tool embedding catalogs.
+    pub embedding_warmer: Arc<EmbeddingWarmer>,
 
     /// Space resolver for determining client's active space (SRP)
     pub space_resolver_service: Arc<SpaceResolverService>,
@@ -85,12 +85,10 @@ impl ServiceContainer {
         ));
 
         // Create pool services using factory (pass event_tx and prefix_cache)
-        let session_overrides = SessionOverrideRegistry::new();
         let pool_services = ServiceFactory::create_pool_services(
             deps,
             domain_event_tx.clone(),
             prefix_cache_service.clone(),
-            session_overrides.clone(),
         );
 
         // Extract server_manager before moving pool_services
@@ -122,6 +120,9 @@ impl ServiceContainer {
         // Approval broker for meta-tool writes. Publisher is attached later
         // by the Tauri layer; until then, writes return `approval_required`.
         let approval_broker = Arc::new(ApprovalBroker::new());
+        let embedding_repo: Arc<dyn mcpmux_core::EmbeddingRepository> = Arc::new(
+            mcpmux_storage::SqliteEmbeddingRepository::new(deps.database.clone()),
+        );
 
         // Registry of built-in `mcpmux_*` meta tools (introspection + self-
         // management). Each write tool is gated by the broker above.
@@ -141,13 +142,22 @@ impl ServiceContainer {
                 pool_services.pool_service.clone(),
             )),
             session_roots.clone(),
-            session_overrides.clone(),
             approval_broker.clone(),
             domain_event_tx.clone(),
             deps.settings_repo.clone(),
             server_manager.clone(),
             deps.log_manager.clone(),
+            deps.state_dir
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("mcpmux")),
+            embedding_repo,
         );
+        let embedding_warmer = Arc::new(EmbeddingWarmer::new(
+            deps.feature_repo.clone(),
+            meta_tool_registry.context().embedding_repo.clone(),
+            meta_tool_registry.context().embedding_store.clone(),
+            meta_tool_registry.context().embeddings.clone(),
+        ));
 
         // Space resolver — currently just exposes the active Space, but
         // keeps a stable seam for future session-targeted routing.
@@ -172,9 +182,9 @@ impl ServiceContainer {
             authorization_service,
             feature_set_resolver,
             session_roots,
-            session_overrides,
             approval_broker,
             meta_tool_registry,
+            embedding_warmer,
             space_resolver_service,
             prefix_cache_service,
             client_metadata_service,

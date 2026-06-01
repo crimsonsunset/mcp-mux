@@ -599,15 +599,12 @@ async fn test_stdio_transport_resolves_command_via_shell_path() {
 
     // echo isn't an MCP server, so it will either fail at handshake or timeout.
     // The important thing is it does NOT fail with "Command not found".
-    match result {
-        TransportConnectResult::Failed(msg) => {
-            assert!(
-                !msg.contains("Command not found"),
-                "Shell PATH should find 'echo', but got: {}",
-                msg
-            );
-        }
-        // If it somehow connects (unlikely), that's fine too
-        _ => {}
+    // If it somehow connects (unlikely), that's fine too.
+    if let TransportConnectResult::Failed(msg) = result {
+        assert!(
+            !msg.contains("Command not found"),
+            "Shell PATH should find 'echo', but got: {}",
+            msg
+        );
     }
 }

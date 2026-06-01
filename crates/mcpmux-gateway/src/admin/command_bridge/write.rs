@@ -198,11 +198,6 @@ pub struct OAuthGrantBody {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SessionOverridesBody {
-    pub session_id: String,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct LogRetentionBody {
     pub days: u32,
 }
@@ -210,12 +205,6 @@ pub struct LogRetentionBody {
 #[derive(Debug, Deserialize)]
 pub struct MetaToolsEnabledBody {
     pub enabled: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionOverridesRequireApprovalBody {
-    pub require_approval: bool,
 }
 
 fn normalize_label(label: &Option<String>) -> Option<String> {
@@ -722,19 +711,6 @@ pub async fn set_meta_tools_enabled(ctx: &AdminBridgeCtx, enabled: bool) -> Resu
     Ok(json!({ "ok": true }))
 }
 
-pub async fn set_session_overrides_require_approval(
-    ctx: &AdminBridgeCtx,
-    require_approval: bool,
-) -> Result<Value> {
-    ctx.settings_repository
-        .set(
-            "gateway.session_overrides_require_approval",
-            if require_approval { "true" } else { "false" },
-        )
-        .await?;
-    Ok(json!({ "ok": true }))
-}
-
 // --- Logs ---
 
 pub async fn clear_server_logs(ctx: &AdminBridgeCtx, server_id: String) -> Result<Value> {
@@ -974,15 +950,6 @@ pub async fn retry_connection(ctx: &AdminBridgeCtx, body: ServerConnectionBody) 
 pub async fn logout_server(ctx: &AdminBridgeCtx, body: ServerConnectionBody) -> Result<Value> {
     ctx.gateway_writes
         .logout_server(body.space_id, body.server_id)
-        .await
-}
-
-pub async fn clear_session_overrides(
-    ctx: &AdminBridgeCtx,
-    body: SessionOverridesBody,
-) -> Result<Value> {
-    ctx.gateway_writes
-        .clear_session_overrides(body.session_id)
         .await
 }
 

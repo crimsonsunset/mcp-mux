@@ -44,10 +44,21 @@ export function MetaToolApprovalDialog() {
     setQueue((prev) => [...prev, payload]);
   }, []);
 
+  const handleResolved = useCallback(
+    (payload: { request_id: string }) => {
+      setQueue((prev) => prev.filter((r) => r.request_id !== payload.request_id));
+    },
+    []
+  );
+
   useBackendEventSubscription<ApprovalRequest>(
     'meta-tool-approval-request',
-    enqueueApproval,
-    { sse: false }
+    enqueueApproval
+  );
+
+  useBackendEventSubscription<{ request_id: string; decision: string }>(
+    'meta-tool-approval-resolved',
+    handleResolved
   );
 
   const respond = useCallback(

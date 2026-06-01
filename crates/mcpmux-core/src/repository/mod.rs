@@ -14,6 +14,28 @@ use crate::domain::{
 /// Result type for repository operations
 pub type RepoResult<T> = anyhow::Result<T>;
 
+/// A persisted embedding keyed by content hash + model version.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddingRecord {
+    pub content_hash: String,
+    pub model_version: String,
+    pub vector: Vec<f32>,
+}
+
+/// Embedding repository trait.
+#[async_trait]
+pub trait EmbeddingRepository: Send + Sync {
+    /// Load vectors for a set of content hashes and a model version.
+    async fn get_many(
+        &self,
+        content_hashes: &[String],
+        model_version: &str,
+    ) -> RepoResult<Vec<EmbeddingRecord>>;
+
+    /// Insert or replace vectors by `(content_hash, model_version)`.
+    async fn upsert_many(&self, records: &[EmbeddingRecord]) -> RepoResult<()>;
+}
+
 /// Space repository trait
 #[async_trait]
 pub trait SpaceRepository: Send + Sync {

@@ -1,11 +1,10 @@
 /**
- * useWorkspaceEvents — workspace binding, session roots, and override channels.
+ * useWorkspaceEvents — workspace binding and session roots channels.
  *
- * Subscribes to Tauri events emitted by the gateway bridge or session_overrides:
+ * Subscribes to Tauri events emitted by the gateway bridge:
  * - `session-roots-changed` — EventBus bridge (reported roots updated)
  * - `workspace-binding-changed` — EventBus bridge (binding + appearance writes)
  * - `workspace-needs-binding` — EventBus bridge (unbound root prompt)
- * - `session-overrides-changed` — direct emit from session_overrides.rs
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -19,8 +18,7 @@ import { useWorkspaceEventsWeb } from './useWorkspaceEventsWeb';
 export type WorkspaceEventChannel =
   | 'session-roots-changed'
   | 'workspace-binding-changed'
-  | 'workspace-needs-binding'
-  | 'session-overrides-changed';
+  | 'workspace-needs-binding';
 
 /** Payload for `workspace-binding-changed` (binding or appearance update). */
 export interface WorkspaceBindingChangedPayload {
@@ -41,7 +39,6 @@ export interface WorkspacePayloadTypeMap {
   'session-roots-changed': Record<string, never>;
   'workspace-binding-changed': WorkspaceBindingChangedPayload;
   'workspace-needs-binding': WorkspaceNeedsBindingPayload;
-  'session-overrides-changed': Record<string, never>;
 }
 
 /** Callback for a specific workspace channel. */
@@ -59,7 +56,6 @@ const ALL_WORKSPACE_CHANNELS: WorkspaceEventChannel[] = [
   'session-roots-changed',
   'workspace-binding-changed',
   'workspace-needs-binding',
-  'session-overrides-changed',
 ];
 
 /**

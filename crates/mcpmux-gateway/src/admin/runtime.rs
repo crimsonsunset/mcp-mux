@@ -16,7 +16,6 @@ pub trait GatewayRuntime: Send + Sync {
     async fn reset_gateway_port(&self) -> Result<Value>;
     async fn list_connected_servers(&self) -> Result<Value>;
     async fn get_pool_stats(&self) -> Result<Value>;
-    async fn list_session_overrides(&self, _session_id: Option<String>) -> Result<Value>;
     async fn list_reported_workspace_roots(&self) -> Result<Value>;
     async fn list_meta_tool_grants(&self) -> Result<Value>;
     async fn get_oauth_clients(&self) -> Result<Value>;
@@ -75,10 +74,6 @@ impl GatewayRuntime for StubGatewayRuntime {
             "connected_instances": 0,
             "total_space_server_mappings": 0,
         }))
-    }
-
-    async fn list_session_overrides(&self, _session_id: Option<String>) -> Result<Value> {
-        Ok(json!([]))
     }
 
     async fn list_reported_workspace_roots(&self) -> Result<Value> {

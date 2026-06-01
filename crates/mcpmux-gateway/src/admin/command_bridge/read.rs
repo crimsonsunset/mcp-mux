@@ -510,13 +510,6 @@ pub async fn resolve_workspace_icon_path(ctx: &AdminBridgeCtx, icon_ref: String)
     }
 }
 
-pub async fn list_session_overrides(
-    ctx: &AdminBridgeCtx,
-    session_id: Option<String>,
-) -> Result<Value> {
-    ctx.gateway_runtime.list_session_overrides(session_id).await
-}
-
 pub async fn get_startup_settings(ctx: &AdminBridgeCtx) -> Result<Value> {
     let start_minimized = ctx
         .settings_repository
@@ -553,18 +546,6 @@ pub async fn get_meta_tools_enabled(ctx: &AdminBridgeCtx) -> Result<Value> {
     as_json(enabled)
 }
 
-pub async fn get_session_overrides_require_approval(ctx: &AdminBridgeCtx) -> Result<Value> {
-    let enabled = match ctx
-        .settings_repository
-        .get("gateway.session_overrides_require_approval")
-        .await
-    {
-        Ok(Some(value)) => matches!(value.as_str(), "true" | "1"),
-        _ => false,
-    };
-    as_json(enabled)
-}
-
 pub async fn get_version(ctx: &AdminBridgeCtx) -> Result<Value> {
     as_json(ctx.app_version.clone())
 }
@@ -575,7 +556,10 @@ pub async fn get_bundle_version(ctx: &AdminBridgeCtx) -> Result<Value> {
 
 pub async fn get_build_info(ctx: &AdminBridgeCtx) -> Result<Value> {
     as_json(serde_json::json!({
-        "git_sha": ctx.build_git_sha,
+        "git_sha": ctx.backend_build.git_sha,
+        "git_branch": ctx.backend_build.git_branch,
+        "commit_time": ctx.backend_build.commit_time,
+        "build_time": ctx.backend_build.build_time,
     }))
 }
 

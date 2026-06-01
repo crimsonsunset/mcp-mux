@@ -676,11 +676,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_tools_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_tools_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get tools: {}", e), None))?;
 
@@ -746,35 +742,20 @@ impl ServerHandler for McpMuxGatewayHandler {
             // Note: client_id is the OAuth client identity (a URL for DCR-
             // registered clients like Claude, a UUID for others). The meta-
             // tool registry treats it as an opaque string identity key.
+            self.ensure_roots_probed(&context.peer, session_id, &oauth_ctx.client_id)
+                .await;
+
             let args: serde_json::Value = params
                 .arguments
                 .map(|a| serde_json::to_value(a).unwrap_or(serde_json::Value::Null))
                 .unwrap_or(serde_json::Value::Null);
-            let scope = args
-                .get("scope")
-                .and_then(|v| v.as_str())
-                .unwrap_or("session")
-                .to_string();
             return match self
                 .services
                 .meta_tool_registry
                 .call(&params.name, &oauth_ctx.client_id, session_id, args)
                 .await
             {
-                Ok(result) => {
-                    if matches!(
-                        params.name.as_ref(),
-                        "mcpmux_enable_server" | "mcpmux_disable_server"
-                    ) && scope == "session"
-                    {
-                        if let Some(sid) = session_id {
-                            self.notification_bridge
-                                .notify_session_lists_changed(sid)
-                                .await;
-                        }
-                    }
-                    Ok(result)
-                }
+                Ok(result) => Ok(result),
                 Err(e) => Ok(e.into_call_tool_result()),
             };
         }
@@ -802,7 +783,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .services
                 .pool_services
                 .feature_service
-                .get_advertised_tools_for_grants(&space_id_str, &feature_set_ids, session_id)
+                .get_advertised_tools_for_grants(&space_id_str, &feature_set_ids)
                 .await
                 .map_err(|e| {
                     McpError::internal_error(format!("Failed to get advertised tools: {}", e), None)
@@ -813,14 +794,70 @@ impl ServerHandler for McpMuxGatewayHandler {
                 .any(|feature| feature.qualified_name() == params.name.as_ref());
 
             if !is_surfaced {
-                let message = crate::pool::format_direct_call_redirect(
-                    &params.name,
-                    &server_id,
-                    &actual_tool_name,
-                );
+                let invokable = self
+                    .services
+                    .pool_services
+                    .feature_service
+                    .get_invokable_tools_for_grants(&space_id_str, &feature_set_ids)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to get invokable tools: {}", e),
+                            None,
+                        )
+                    })?;
+                let is_invokable = invokable.iter().any(|feature| {
+                    feature.qualified_name() == params.name.as_ref() && feature.is_available
+                });
+
+                let message = if !is_invokable {
+                    let inactive = self
+                        .services
+                        .pool_services
+                        .feature_service
+                        .list_inactive_discovery_tools(&space_id_str, &feature_set_ids, None)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("Failed to list inactive tools: {}", e),
+                                None,
+                            )
+                        })?;
+                    if let Some(entry) = inactive.iter().find(|candidate| {
+                        candidate.feature.qualified_name() == params.name.as_ref()
+                    }) {
+                        format!(
+                            "Tool '{}' is inactive for this workspace → \
+                             mcpmux_bind_current_workspace({{ \"feature_set_id\": \"{}\" }}) \
+                             (discover bundles via mcpmux_search_tools with include_inactive: true \
+                             or mcpmux_list_feature_sets)",
+                            params.name, entry.bindable_feature_set_id
+                        )
+                    } else {
+                        format!(
+                            "Tool '{}' is not invokable — no FeatureSet in this Space contains it. \
+                             Ask the user to create a bundle in the McpMux desktop or web UI \
+                             (Workspaces → Feature Sets), then mcpmux_bind_current_workspace \
+                             with the new feature_set_id",
+                            params.name
+                        )
+                    }
+                } else {
+                    crate::pool::format_direct_call_redirect(
+                        &params.name,
+                        &server_id,
+                        &actual_tool_name,
+                    )
+                };
+
+                let error_code = if is_invokable {
+                    "use_invoke_tool"
+                } else {
+                    "bind_feature_set"
+                };
                 return Ok(CallToolResult::error(vec![Content::text(
                     serde_json::json!({
-                        "error": "use_invoke_tool",
+                        "error": error_code,
                         "message": message,
                     })
                     .to_string(),
@@ -836,7 +873,6 @@ impl ServerHandler for McpMuxGatewayHandler {
             .call_tool(
                 space_id,
                 &feature_set_ids,
-                session_id,
                 &params.name,
                 serde_json::to_value(params.arguments.unwrap_or_default()).unwrap_or_default(),
             )
@@ -928,11 +964,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_prompts_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get prompts: {}", e), None))?;
 
@@ -985,11 +1017,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_prompts_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get advertised prompts: {}", e), None)
@@ -1019,11 +1047,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_fetchable_prompts_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_fetchable_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -1079,11 +1103,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get resources: {}", e), None)
@@ -1126,11 +1146,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_readable_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_readable_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -1148,11 +1164,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_advertised_resources_for_grants(
-                &space_id.to_string(),
-                &feature_set_ids,
-                session_id_owned.as_deref(),
-            )
+            .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get advertised resources: {}", e), None)

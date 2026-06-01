@@ -29,21 +29,22 @@ pub mod invoke;
 pub mod invoke_backend;
 mod registry;
 mod tools;
-mod workspace_server;
 
 pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
-    ApprovalScope,
+    ApprovalScope, ResolutionNotifier, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use diff::ToolDiff;
 pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};
 pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
 pub use registry::{
-    MetaToolContext, MetaToolError, MetaToolRegistry, META_TOOLS_ENABLED_KEY,
-    SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY,
+    feature_set_ids_fingerprint, MetaToolContext, MetaToolError, MetaToolRegistry,
+    META_TOOLS_ENABLED_KEY,
 };
 
-use crate::services::ToolDiscoveryService;
+use std::path::PathBuf;
+
+use crate::services::{EmbeddingService, ToolDiscoveryService};
 
 /// Every built-in tool's name must start with this prefix so the handler
 /// can intercept it before routing to backend servers.
@@ -71,12 +72,13 @@ pub fn build_default_registry(
     invoke_backend: Option<std::sync::Arc<dyn invoke_backend::InvokeToolBackend>>,
     disclosure_backend: Option<std::sync::Arc<dyn disclosure_backend::DisclosureBackend>>,
     session_roots: std::sync::Arc<crate::services::SessionRootsRegistry>,
-    session_overrides: std::sync::Arc<crate::services::SessionOverrideRegistry>,
     approval_broker: std::sync::Arc<ApprovalBroker>,
     domain_event_tx: tokio::sync::broadcast::Sender<mcpmux_core::DomainEvent>,
     settings_repo: Option<std::sync::Arc<dyn mcpmux_core::AppSettingsRepository>>,
     server_manager: std::sync::Arc<crate::pool::ServerManager>,
     log_manager: std::sync::Arc<mcpmux_core::ServerLogManager>,
+    data_dir: PathBuf,
+    embedding_repo: std::sync::Arc<dyn mcpmux_core::EmbeddingRepository>,
 ) -> std::sync::Arc<MetaToolRegistry> {
     let tool_discovery =
         std::sync::Arc::new(ToolDiscoveryService::new(server_feature_repo.clone()));
@@ -86,6 +88,9 @@ pub fn build_default_registry(
     let prompt_discovery = std::sync::Arc::new(crate::services::PromptDiscoveryService::new(
         server_feature_repo.clone(),
     ));
+    let search_cache = session_roots.search_cache();
+    let embedding_store = std::sync::Arc::new(dashmap::DashMap::new());
+    let embeddings = std::sync::Arc::new(EmbeddingService::new(data_dir));
     let ctx = MetaToolContext {
         client_repo,
         space_repo,
@@ -101,17 +106,19 @@ pub fn build_default_registry(
         prompt_discovery,
         disclosure_backend,
         session_roots,
-        session_overrides,
         approval_broker,
         domain_event_tx,
         settings_repo,
         server_manager,
         log_manager,
+        search_cache,
+        embedding_store,
+        embedding_repo,
+        embeddings,
     };
 
     let mut registry = MetaToolRegistry::new(ctx);
     // Reads — no approval needed.
-    registry.register(Box::new(tools::ListAllToolsTool));
     registry.register(Box::new(tools::ListFeatureSetsTool));
     registry.register(Box::new(tools::ListServersTool));
     registry.register(Box::new(tools::SearchToolsTool));
@@ -122,10 +129,7 @@ pub fn build_default_registry(
     registry.register(Box::new(disclosure::ReadResourceTool));
     registry.register(Box::new(disclosure::SearchPromptsTool));
     registry.register(Box::new(disclosure::FetchPromptTool));
-    // Writes — gated by ApprovalBroker (or auto-allowed for session overrides).
-    registry.register(Box::new(tools::EnableServerTool));
-    registry.register(Box::new(tools::DisableServerTool));
-    registry.register(Box::new(tools::CreateFeatureSetTool));
+    // Writes — gated by ApprovalBroker (bind-only; humans author bundles in UI).
     registry.register(Box::new(tools::BindCurrentWorkspaceTool));
     std::sync::Arc::new(registry)
 }

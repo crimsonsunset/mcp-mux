@@ -1,8 +1,9 @@
 //! Feature Resolution Service - SRP: Feature set resolution & permissions
 
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::debug;
 
 use crate::services::PrefixCacheService;
@@ -10,6 +11,13 @@ use mcpmux_core::{
     FeatureSet, FeatureSetRepository, FeatureType, MemberMode, MemberType, ServerFeature,
     ServerFeatureRepository,
 };
+
+/// A catalog tool visible in discovery but not invokable until its FeatureSet is bound.
+#[derive(Debug, Clone)]
+pub struct InactiveDiscoveryEntry {
+    pub feature: ServerFeature,
+    pub bindable_feature_set_id: String,
+}
 
 /// Helper to apply include/exclude mode (DRY)
 fn apply_mode_to_set(
@@ -203,6 +211,189 @@ impl FeatureResolutionService {
             }
         }
         Ok(())
+    }
+
+    /// Tools granted by some FeatureSet in the Space but not in `invokable_keys`.
+    ///
+    /// Used by meta-tool discovery (`include_inactive`); first matching FeatureSet
+    /// wins when multiple bundles contain the same tool.
+    pub async fn list_inactive_tools_for_discovery(
+        &self,
+        space_id: &str,
+        invokable_keys: &HashSet<(String, String)>,
+        query_id: Option<&str>,
+    ) -> Result<Vec<InactiveDiscoveryEntry>> {
+        let started = Instant::now();
+
+        let load_features_started = Instant::now();
+        let all_features = self.feature_repo.list_for_space(space_id).await?;
+        let features_by_id: HashMap<String, ServerFeature> = all_features
+            .iter()
+            .map(|feature| (feature.id.to_string(), feature.clone()))
+            .collect();
+        debug!(
+            query_id,
+            space_id,
+            features_in_space = all_features.len(),
+            load_features_ms = load_features_started.elapsed().as_millis() as u64,
+            "[search] inactive scan load features"
+        );
+
+        let load_sets_started = Instant::now();
+        let sets = self.feature_set_repo.list_by_space(space_id).await?;
+        let mut sets: Vec<_> = sets.into_iter().filter(|fs| !fs.is_deleted).collect();
+        // Prefer custom bundles over the auto-seeded Default when both grant the same tool.
+        sets.sort_by(|a, b| {
+            a.is_builtin
+                .cmp(&b.is_builtin)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        debug!(
+            query_id,
+            space_id,
+            feature_sets = sets.len(),
+            load_sets_ms = load_sets_started.elapsed().as_millis() as u64,
+            "[search] inactive scan load feature sets"
+        );
+
+        let mut by_key: HashMap<(String, String), InactiveDiscoveryEntry> = HashMap::new();
+
+        // Pass 1: flat `feature` include members (hot path — equivalent to the JOIN scan).
+        let pass1_started = Instant::now();
+        for fs in &sets {
+            Self::collect_inactive_from_flat_includes(
+                &mut by_key,
+                &features_by_id,
+                fs,
+                invokable_keys,
+            );
+        }
+        debug!(
+            query_id,
+            pass1_candidates = by_key.len(),
+            pass1_ms = pass1_started.elapsed().as_millis() as u64,
+            "[search] inactive scan pass 1 flat includes"
+        );
+
+        // Pass 2: nested FeatureSet members and exclude rules (rare composed bundles).
+        let pass2_started = Instant::now();
+        let mut pass2_feature_sets = 0usize;
+        for fs in &sets {
+            if !Self::feature_set_needs_resolution_pass(fs) {
+                continue;
+            }
+            pass2_feature_sets += 1;
+            let mut allowed_feature_ids: HashSet<String> = HashSet::new();
+            let mut excluded_feature_ids: HashSet<String> = HashSet::new();
+            self.resolve_members(
+                fs,
+                &all_features,
+                &mut allowed_feature_ids,
+                &mut excluded_feature_ids,
+            )
+            .await?;
+            Self::merge_inactive_from_feature_ids(
+                &mut by_key,
+                &features_by_id,
+                &allowed_feature_ids,
+                &excluded_feature_ids,
+                &fs.id,
+                invokable_keys,
+            );
+        }
+        debug!(
+            query_id,
+            pass2_feature_sets,
+            pass2_candidates = by_key.len(),
+            pass2_ms = pass2_started.elapsed().as_millis() as u64,
+            "[search] inactive scan pass 2 nested/exclude"
+        );
+
+        let mut entries: Vec<_> = by_key.into_values().collect();
+        let prefix_started = Instant::now();
+        for entry in &mut entries {
+            let prefix = self
+                .prefix_cache
+                .get_prefix_for_server(space_id, &entry.feature.server_id)
+                .await;
+            entry.feature.server_alias = Some(prefix);
+        }
+        debug!(
+            query_id,
+            inactive_entries = entries.len(),
+            prefix_enrich_ms = prefix_started.elapsed().as_millis() as u64,
+            total_ms = started.elapsed().as_millis() as u64,
+            "[search] inactive scan prefix enrich"
+        );
+
+        entries.sort_by_key(|entry| entry.feature.qualified_name());
+        Ok(entries)
+    }
+
+    /// Whether a FeatureSet needs the second-pass member-resolution walk.
+    fn feature_set_needs_resolution_pass(feature_set: &FeatureSet) -> bool {
+        feature_set.members.iter().any(|member| {
+            member.member_type == MemberType::FeatureSet
+                || (member.member_type == MemberType::Feature && member.mode == MemberMode::Exclude)
+        })
+    }
+
+    /// Collect inactive tools from flat `feature` include members on one FeatureSet.
+    fn collect_inactive_from_flat_includes(
+        by_key: &mut HashMap<(String, String), InactiveDiscoveryEntry>,
+        features_by_id: &HashMap<String, ServerFeature>,
+        feature_set: &FeatureSet,
+        invokable_keys: &HashSet<(String, String)>,
+    ) {
+        for member in &feature_set.members {
+            if member.member_type != MemberType::Feature || member.mode != MemberMode::Include {
+                continue;
+            }
+            let Some(feature) = features_by_id.get(&member.member_id) else {
+                continue;
+            };
+            if !feature.is_available || feature.feature_type != FeatureType::Tool {
+                continue;
+            }
+            let key = (feature.server_id.clone(), feature.feature_name.clone());
+            if invokable_keys.contains(&key) {
+                continue;
+            }
+            by_key.entry(key).or_insert_with(|| InactiveDiscoveryEntry {
+                feature: feature.clone(),
+                bindable_feature_set_id: feature_set.id.clone(),
+            });
+        }
+    }
+
+    /// Merge inactive tools from resolved feature IDs; first FeatureSet row wins.
+    fn merge_inactive_from_feature_ids(
+        by_key: &mut HashMap<(String, String), InactiveDiscoveryEntry>,
+        features_by_id: &HashMap<String, ServerFeature>,
+        allowed_feature_ids: &HashSet<String>,
+        excluded_feature_ids: &HashSet<String>,
+        bindable_feature_set_id: &str,
+        invokable_keys: &HashSet<(String, String)>,
+    ) {
+        for feature_id in allowed_feature_ids {
+            if excluded_feature_ids.contains(feature_id) {
+                continue;
+            }
+            let Some(feature) = features_by_id.get(feature_id) else {
+                continue;
+            };
+            if !feature.is_available || feature.feature_type != FeatureType::Tool {
+                continue;
+            }
+            let key = (feature.server_id.clone(), feature.feature_name.clone());
+            if invokable_keys.contains(&key) {
+                continue;
+            }
+            by_key.entry(key).or_insert_with(|| InactiveDiscoveryEntry {
+                feature: feature.clone(),
+                bindable_feature_set_id: bindable_feature_set_id.to_string(),
+            });
+        }
     }
 
     async fn resolve_members(

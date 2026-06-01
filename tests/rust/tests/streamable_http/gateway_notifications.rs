@@ -200,7 +200,6 @@ impl TestGateway {
         let notifier = Arc::new(MCPNotifier::new(
             services.feature_set_resolver.clone(),
             services.pool_services.feature_service.clone(),
-            services.session_overrides.clone(),
         ));
 
         // Start MCPNotifier listening for domain events

@@ -37,7 +37,6 @@ pub trait GatewayWriteRuntime: Send + Sync {
     async fn cancel_auth_v2(&self, space_id: String, server_id: String) -> Result<Value>;
     async fn retry_connection(&self, space_id: String, server_id: String) -> Result<Value>;
     async fn logout_server(&self, space_id: String, server_id: String) -> Result<Value>;
-    async fn clear_session_overrides(&self, session_id: String) -> Result<Value>;
     async fn respond_to_meta_tool_approval(
         &self,
         request_id: String,
@@ -159,10 +158,6 @@ impl GatewayWriteRuntime for StubGatewayWriteRuntime {
 
     async fn logout_server(&self, _space_id: String, _server_id: String) -> Result<Value> {
         Err(gateway_not_running())
-    }
-
-    async fn clear_session_overrides(&self, _session_id: String) -> Result<Value> {
-        Ok(serde_json::json!({ "ok": true }))
     }
 
     async fn respond_to_meta_tool_approval(

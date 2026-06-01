@@ -10,14 +10,16 @@ use async_trait::async_trait;
 use mcpmux_core::service::app_settings_service::keys;
 use mcpmux_core::service::is_port_available;
 use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
-use mcpmux_gateway::admin::bridge_context::AdminBridgeCtx;
 use mcpmux_gateway::admin::event_hub::AdminEventHub;
 use mcpmux_gateway::admin::runtime::GatewayRuntime;
 use mcpmux_gateway::admin::ui_events::AdminUiEventBus;
+use mcpmux_gateway::admin::{AdminBridgeCtx, BackendBuildStamp};
 use mcpmux_gateway::pool::ConnectionStatus as GatewayConnectionStatus;
 use mcpmux_gateway::{AdminConfig, AdminServer, AdminServerHandle};
+use serde::Deserialize;
 use serde_json::json;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -242,37 +244,6 @@ impl GatewayRuntime for DesktopGatewayRuntime {
             "connected_instances": stats.connected_instances,
             "total_space_server_mappings": stats.connecting_instances + stats.failed_instances + stats.oauth_pending_instances,
         }))
-    }
-
-    async fn list_session_overrides(
-        &self,
-        session_id: Option<String>,
-    ) -> anyhow::Result<serde_json::Value> {
-        let state = self.gateway_state.read().await;
-        let Some(ref overrides) = state.session_overrides else {
-            return Ok(json!([]));
-        };
-        let roots_by_session: std::collections::HashMap<String, Vec<String>> = state
-            .session_roots
-            .as_ref()
-            .map(|registry| registry.list_all_sessions().into_iter().collect())
-            .unwrap_or_default();
-        let mut rows = overrides
-            .list_all()
-            .into_iter()
-            .map(|entry| {
-                json!({
-                    "session_id": entry.session_id,
-                    "enabled": entry.enabled,
-                    "disabled": entry.disabled,
-                    "roots": roots_by_session.get(&entry.session_id).cloned().unwrap_or_default(),
-                })
-            })
-            .collect::<Vec<_>>();
-        if let Some(session_id) = session_id {
-            rows.retain(|row| row["session_id"] == session_id);
-        }
-        Ok(json!(rows))
     }
 
     async fn list_reported_workspace_roots(&self) -> anyhow::Result<serde_json::Value> {
@@ -515,8 +486,15 @@ pub async fn start_admin_server_if_enabled(
         auto_launch_enabled,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         bundle_version: get_bundle_version(),
-        build_git_sha: env!("MCPMUX_BUILD_GIT_SHA").to_string(),
+        backend_build: BackendBuildStamp {
+            git_sha: env!("MCPMUX_BUILD_GIT_SHA").to_string(),
+            git_branch: env!("MCPMUX_BUILD_GIT_BRANCH").to_string(),
+            commit_time: env!("MCPMUX_BUILD_COMMIT_TIME").to_string(),
+            build_time: env!("MCPMUX_BUILD_TIME").to_string(),
+        },
     });
+    let backend_git_sha = env!("MCPMUX_BUILD_GIT_SHA").to_string();
+    let frontend_dist_log = frontend_dist.clone();
     let server = match AdminServer::new(
         config.clone(),
         services,
@@ -541,6 +519,16 @@ pub async fn start_admin_server_if_enabled(
         config.host, config.port, config.trust_cf_access, dist_ready
     );
     info!(
+        "[Admin] Backend | sha: {} | branch: {} | committed: {} | built: {}",
+        backend_git_sha,
+        env!("MCPMUX_BUILD_GIT_BRANCH"),
+        env!("MCPMUX_BUILD_COMMIT_TIME"),
+        env!("MCPMUX_BUILD_TIME"),
+    );
+    if dist_ready {
+        log_spa_build_stamp(&frontend_dist_log, &backend_git_sha);
+    }
+    info!(
         "[Admin] Dev HMR UI: http://127.0.0.1:1420 (Vite proxies /api → :{}) — run pnpm dev:web:admin or pnpm dev:admin",
         config.port
     );
@@ -553,6 +541,51 @@ pub async fn start_admin_server_if_enabled(
 
     let mut guard = admin_state.write().await;
     guard.handle = Some(handle);
+}
+
+/// SPA build metadata written by `pnpm build:web:admin` into `dist/build-stamp.json`.
+#[derive(Debug, Deserialize)]
+struct SpaBuildStamp {
+    git_sha: String,
+    git_branch: String,
+    commit_time: String,
+    #[serde(default)]
+    commit_at: String,
+    build_time: String,
+    #[serde(default)]
+    build_at: String,
+}
+
+/// Log SPA bundle stamp and warn when it diverges from the running backend binary.
+fn log_spa_build_stamp(dist: &Path, backend_sha: &str) {
+    let path = dist.join("build-stamp.json");
+    let Ok(contents) = fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(stamp) = serde_json::from_str::<SpaBuildStamp>(&contents) else {
+        warn!("[Admin] SPA bundle build-stamp.json is invalid or unreadable");
+        return;
+    };
+    let committed = if stamp.commit_at.is_empty() {
+        stamp.commit_time.as_str()
+    } else {
+        stamp.commit_at.as_str()
+    };
+    let built = if stamp.build_at.is_empty() {
+        stamp.build_time.as_str()
+    } else {
+        stamp.build_at.as_str()
+    };
+    info!(
+        "[Admin] SPA bundle | sha: {} | branch: {} | committed: {} | built: {}",
+        stamp.git_sha, stamp.git_branch, committed, built
+    );
+    if !backend_sha.is_empty() && stamp.git_sha != backend_sha {
+        warn!(
+            "[Admin] SPA bundle sha {} != backend sha {} — run `pnpm build:web:admin`",
+            stamp.git_sha, backend_sha
+        );
+    }
 }
 
 /// Sync gateway liveness into the admin health endpoint.

@@ -2,6 +2,7 @@
 
 mod app_settings_repository;
 mod credential_repository;
+mod embedding_repository;
 mod feature_set_repository;
 mod inbound_client_repository;
 mod inbound_mcp_client_repository;
@@ -14,6 +15,7 @@ mod workspace_binding_repository;
 
 pub use app_settings_repository::SqliteAppSettingsRepository;
 pub use credential_repository::SqliteCredentialRepository;
+pub use embedding_repository::{hash_embedding_content, SqliteEmbeddingRepository};
 pub use feature_set_repository::SqliteFeatureSetRepository;
 pub use inbound_client_repository::{
     AuthorizationCode, InboundClient, InboundClientRepository, RegistrationType, TokenRecord,

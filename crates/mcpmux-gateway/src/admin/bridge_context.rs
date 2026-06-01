@@ -12,6 +12,15 @@ use mcpmux_core::{
 use super::runtime::GatewayRuntime;
 use super::write_runtime::GatewayWriteRuntime;
 
+/// Git/build metadata compiled into the desktop binary at build time.
+#[derive(Clone, Debug, Default)]
+pub struct BackendBuildStamp {
+    pub git_sha: String,
+    pub git_branch: String,
+    pub commit_time: String,
+    pub build_time: String,
+}
+
 /// Shared dependency graph used by admin bridge functions.
 ///
 /// This mirrors the desktop `AppState` dependency surface so handlers can stay
@@ -39,6 +48,6 @@ pub struct AdminBridgeCtx {
     pub app_version: String,
     /// Desktop bundle version when available (macOS app bundle).
     pub bundle_version: Option<String>,
-    /// Git short SHA compiled into the desktop binary (`MCPMUX_BUILD_GIT_SHA`).
-    pub build_git_sha: String,
+    /// Git/build metadata compiled into the desktop binary (`MCPMUX_BUILD_*`).
+    pub backend_build: BackendBuildStamp,
 }

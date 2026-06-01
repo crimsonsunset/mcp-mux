@@ -1,6 +1,5 @@
 //! Admin read runtime backed by a live [`GatewayServer`].
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -13,9 +12,7 @@ use uuid::Uuid;
 use crate::admin::runtime::GatewayRuntime;
 use crate::pool::{ConnectionStatus, PoolService, ServerManager};
 use crate::server::{GatewayServer, GatewayState};
-use crate::services::{
-    ApprovalBroker, GrantService, SessionOverrideRegistry, SessionRootsRegistry,
-};
+use crate::services::{ApprovalBroker, GrantService, SessionRootsRegistry};
 
 /// Admin read runtime wired to a running MCP gateway.
 pub struct LiveGatewayRuntime {
@@ -24,7 +21,6 @@ pub struct LiveGatewayRuntime {
     listen_url: String,
     pool_service: Arc<PoolService>,
     server_manager: Arc<ServerManager>,
-    session_overrides: Arc<SessionOverrideRegistry>,
     session_roots: Arc<SessionRootsRegistry>,
     approval_broker: Arc<ApprovalBroker>,
     grant_service: Arc<GrantService>,
@@ -43,7 +39,6 @@ impl LiveGatewayRuntime {
             listen_url: listen_url.into(),
             pool_service: server.pool_service(),
             server_manager: server.server_manager(),
-            session_overrides: server.session_overrides(),
             session_roots: server.session_roots(),
             approval_broker: server.approval_broker(),
             grant_service: server.grant_service(),
@@ -125,28 +120,6 @@ impl GatewayRuntime for LiveGatewayRuntime {
                 + stats.failed_instances
                 + stats.oauth_pending_instances,
         }))
-    }
-
-    async fn list_session_overrides(&self, session_id: Option<String>) -> Result<Value> {
-        let roots_by_session: HashMap<String, Vec<String>> =
-            self.session_roots.list_all_sessions().into_iter().collect();
-        let mut rows = self
-            .session_overrides
-            .list_all()
-            .into_iter()
-            .map(|entry| {
-                json!({
-                    "session_id": entry.session_id,
-                    "enabled": entry.enabled,
-                    "disabled": entry.disabled,
-                    "roots": roots_by_session.get(&entry.session_id).cloned().unwrap_or_default(),
-                })
-            })
-            .collect::<Vec<_>>();
-        if let Some(session_id) = session_id {
-            rows.retain(|row| row["session_id"] == session_id);
-        }
-        Ok(json!(rows))
     }
 
     async fn list_reported_workspace_roots(&self) -> Result<Value> {

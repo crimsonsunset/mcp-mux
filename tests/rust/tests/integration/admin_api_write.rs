@@ -55,7 +55,7 @@ async fn create_space_round_trip_via_http() {
         .iter()
         .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
         .collect();
-    assert!(names.iter().any(|n| *n == "Round Trip Space"));
+    assert!(names.contains(&"Round Trip Space"));
 
     let bridge_list = bridge_read::list_spaces(&harness.bridge)
         .await

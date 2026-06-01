@@ -310,16 +310,11 @@ impl MetaTool for InvokeToolTool {
 
         let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
-        let session_id = call.session_id;
 
         let invokable = call
             .ctx
             .feature_service
-            .get_invokable_tools_for_grants(
-                &space_id.to_string(),
-                &resolved.feature_set_ids,
-                session_id,
-            )
+            .get_invokable_tools_for_grants(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
@@ -333,23 +328,8 @@ impl MetaTool for InvokeToolTool {
             .iter()
             .map(|f| f.server_id.clone())
             .collect();
-        let session_enabled = session_id
-            .map(|sid| call.ctx.session_overrides.enabled_set(sid))
-            .unwrap_or_default();
-        let session_disabled = session_id
-            .map(|sid| call.ctx.session_overrides.disabled_set(sid))
-            .unwrap_or_default();
 
-        let is_server_active = binding_servers.contains(&server_id)
-            || (session_enabled.contains(&server_id) && !session_disabled.contains(&server_id));
-
-        if session_disabled.contains(&server_id) {
-            return Ok(invoke_error(format!(
-                "server '{server_id}' is disabled for this session → mcpmux_enable_server({{ \"server_id\": \"{server_id}\" }})"
-            )));
-        }
-
-        if !is_server_active {
+        if !binding_servers.contains(&server_id) {
             return Ok(invoke_error(format_server_inactive_error(&server_id)));
         }
 
@@ -386,13 +366,7 @@ impl MetaTool for InvokeToolTool {
             .as_ref()
             .ok_or_else(|| MetaToolError::Internal("invoke routing not configured".into()))?;
         match backend
-            .call_tool(
-                space_id,
-                &resolved.feature_set_ids,
-                session_id,
-                &qualified_name,
-                args,
-            )
+            .call_tool(space_id, &resolved.feature_set_ids, &qualified_name, args)
             .await
         {
             Ok(result) => {

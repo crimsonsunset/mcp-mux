@@ -41,7 +41,7 @@ pub use oauth::{
 
 // SOLID Services
 pub use connection::{ConnectionResult, ConnectionService};
-pub use features::{CachedFeatures, FeatureService};
+pub use features::{CachedFeatures, FeatureService, InactiveDiscoveryEntry};
 pub use routing::{
     format_direct_call_redirect, format_direct_fetch_prompt_redirect, format_direct_read_redirect,
     format_invoke_permission_denied, format_server_inactive_error,

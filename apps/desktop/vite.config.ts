@@ -1,15 +1,48 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { execSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'path';
 
-/** Git short SHA at build/dev-server start — compared against the backend in web-admin prod mode. */
-function getGitSha(): string {
-  try {
-    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
-  } catch {
-    return '';
-  }
+import {
+  buildStampJson,
+  formatBuildStampLine,
+  getBuildStamp,
+} from '../../scripts/build-stamp.mjs';
+
+const stamp = getBuildStamp();
+const isAdminWeb = process.env.VITE_ADMIN_WEB === 'true';
+
+/**
+ * Log build metadata on dev-server start and production builds (web admin only).
+ */
+function mcpmuxBuildBannerPlugin(): Plugin {
+  return {
+    name: 'mcpmux-build-banner',
+    configureServer() {
+      if (!isAdminWeb) {
+        return;
+      }
+      console.log(formatBuildStampLine('[WebAdmin] Dev server', stamp));
+    },
+    writeBundle(options) {
+      if (!isAdminWeb) {
+        return;
+      }
+      const outDir = options.dir ?? path.resolve(__dirname, 'dist');
+      fs.writeFileSync(
+        path.join(outDir, 'build-stamp.json'),
+        `${JSON.stringify(buildStampJson(stamp), null, 2)}\n`,
+        'utf8',
+      );
+    },
+    closeBundle() {
+      if (!isAdminWeb) {
+        return;
+      }
+      console.log(formatBuildStampLine('[WebAdmin] Built', stamp));
+      console.log('[WebAdmin] Output: apps/desktop/dist — hard-refresh admin UI after deploy');
+    },
+  };
 }
 
 // @ts-expect-error process is a nodejs global
@@ -18,10 +51,15 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   define: {
-    'import.meta.env.VITE_ADMIN_WEB': JSON.stringify(process.env.VITE_ADMIN_WEB === 'true'),
-    'import.meta.env.VITE_BUILD_GIT_SHA': JSON.stringify(getGitSha()),
+    'import.meta.env.VITE_ADMIN_WEB': JSON.stringify(isAdminWeb),
+    'import.meta.env.VITE_BUILD_GIT_SHA': JSON.stringify(stamp.gitSha),
+    'import.meta.env.VITE_BUILD_GIT_BRANCH': JSON.stringify(stamp.gitBranch),
+    'import.meta.env.VITE_BUILD_COMMIT_TIME': JSON.stringify(stamp.commitTime),
+    'import.meta.env.VITE_BUILD_COMMIT_AT': JSON.stringify(stamp.commitAt),
+    'import.meta.env.VITE_BUILD_TIME': JSON.stringify(stamp.buildTime),
+    'import.meta.env.VITE_BUILD_AT': JSON.stringify(stamp.buildAt),
   },
-  plugins: [react()],
+  plugins: [react(), mcpmuxBuildBannerPlugin()],
 
   // Path aliases
   resolve: {

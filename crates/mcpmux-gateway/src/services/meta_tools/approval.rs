@@ -35,10 +35,31 @@ use uuid::Uuid;
 
 use super::MetaToolError;
 
+/// Tauri / admin SSE channel for pending meta-tool approval dialogs.
+pub const META_TOOL_APPROVAL_EVENT: &str = "meta-tool-approval-request";
+
+/// Tauri / admin SSE channel emitted when an approval is resolved (approved
+/// or denied) from any surface. Both Tauri and browser dialogs listen for
+/// this to auto-dismiss when the other surface acts first.
+pub const META_TOOL_APPROVAL_RESOLVED_EVENT: &str = "meta-tool-approval-resolved";
+
+/// Callback invoked by the broker whenever an approval is resolved.
+///
+/// Receives `(request_id, decision)`. Used to broadcast the resolution to
+/// all attached surfaces so orphaned dialogs can self-dismiss.
+pub type ResolutionNotifier = Arc<
+    dyn Fn(String, ApprovalDecision) -> futures::future::BoxFuture<'static, ()>
+        + Send
+        + Sync
+        + 'static,
+>;
+
 /// Default timeout for a single approval prompt.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Rate limit: max pending approvals per (client_id) within the window.
+/// Rate limit: max approval *requests* per `client_id` within
+/// `RATE_LIMIT_WINDOW` (a sliding request-rate window, not a count of
+/// currently-pending dialogs).
 const RATE_LIMIT_MAX_PENDING: usize = 10;
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
@@ -77,6 +98,11 @@ pub struct ApprovalPayload {
     /// activation) don't shift the caller's resolved toolset.
     pub diff: Option<serde_json::Value>,
     /// Raw arguments the LLM supplied; shown verbatim for auditability.
+    ///
+    /// TODO(redaction): no write meta tool accepts credential-bearing args
+    /// today, so rendering this unredacted in the dialog / SSE is safe. If a
+    /// future write tool takes secrets, add a per-tool redaction allowlist
+    /// before this payload crosses the Tauri / admin-SSE boundary.
     pub raw_args: serde_json::Value,
     /// Does this change affect clients other than the caller? Dictates
     /// whether the dialog shows the "also affects other connections" warning.
@@ -116,6 +142,9 @@ pub struct ApprovalBroker {
     rate_limit: DashMap<String, Vec<Instant>>,
     /// Published to the desktop layer; `None` means headless.
     publisher: Mutex<Option<ApprovalPublisher>>,
+    /// Called after every `respond()` so all surfaces (Tauri + browser) can
+    /// dismiss orphaned dialogs for the resolved request_id.
+    resolution_notifier: Mutex<Option<ResolutionNotifier>>,
     timeout: Duration,
 }
 
@@ -132,6 +161,7 @@ impl ApprovalBroker {
             always_allow: DashMap::new(),
             rate_limit: DashMap::new(),
             publisher: Mutex::new(None),
+            resolution_notifier: Mutex::new(None),
             timeout: DEFAULT_TIMEOUT,
         }
     }
@@ -146,6 +176,15 @@ impl ApprovalBroker {
         *self.publisher.lock().await = Some(publisher);
     }
 
+    /// Attach the resolution notifier. Call once alongside `set_publisher`.
+    ///
+    /// The notifier is called after every `respond()` so all surfaces (Tauri
+    /// and browser SSE) can dismiss orphaned dialogs for the resolved
+    /// `request_id`.
+    pub async fn set_resolution_notifier(&self, notifier: ResolutionNotifier) {
+        *self.resolution_notifier.lock().await = Some(notifier);
+    }
+
     /// For tests / headless scenarios: pre-approve everything from a
     /// specific client.
     #[cfg(test)]
@@ -154,9 +193,13 @@ impl ApprovalBroker {
             .insert((client_id.to_string(), tool_name.to_string()), ());
     }
 
-    /// Resolve a pending approval. Called from Tauri command when the user
-    /// clicks a dialog button. `scope` converts "allow" into an optional
-    /// always-allow entry.
+    /// Resolve a pending approval. Called from Tauri command or admin HTTP
+    /// handler when the user clicks a dialog button. `scope` converts "allow"
+    /// into an optional always-allow entry.
+    ///
+    /// After resolving the oneshot, fires the `resolution_notifier` so every
+    /// attached surface (Tauri + browser SSE) can dismiss its dialog for this
+    /// `request_id`, preventing orphaned dialogs when both surfaces are open.
     pub fn respond(
         &self,
         request_id: &str,
@@ -170,7 +213,7 @@ impl ApprovalBroker {
             self.always_allow
                 .insert((client_id.to_string(), tool_name.to_string()), ());
         }
-        if let Some((_, tx)) = self.pending.remove(request_id) {
+        let resolved = if let Some((_, tx)) = self.pending.remove(request_id) {
             tx.send(decision).is_ok()
         } else {
             warn!(
@@ -178,7 +221,22 @@ impl ApprovalBroker {
                 "[ApprovalBroker] respond() for unknown/expired request",
             );
             false
+        };
+
+        // Notify all surfaces so orphaned dialogs can self-dismiss.
+        // Fire-and-forget: clone the notifier out of the Mutex synchronously
+        // (try_lock) to avoid async in a sync fn. If the lock is contended
+        // the notification is skipped — the dialog will close on timeout.
+        if resolved {
+            if let Ok(guard) = self.resolution_notifier.try_lock() {
+                if let Some(ref notifier) = *guard {
+                    let fut = notifier(request_id.to_string(), decision);
+                    tokio::spawn(fut);
+                }
+            }
         }
+
+        resolved
     }
 
     /// List currently pending (unresolved) approvals. Useful for UI recovery

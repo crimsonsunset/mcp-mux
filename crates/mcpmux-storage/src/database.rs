@@ -133,6 +133,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "workspace_icons",
         sql: include_str!("migrations/020_workspace_icons.sql"),
     },
+    Migration {
+        version: 21,
+        name: "tool_embeddings",
+        sql: include_str!("migrations/021_tool_embeddings.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

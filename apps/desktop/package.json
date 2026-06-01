@@ -12,7 +12,7 @@
     "dev:web": "VITE_ADMIN_WEB=true vite",
     "dev:web:admin": "VITE_ADMIN_WEB=true vite",
     "build:web": "tsc && vite build",
-    "build:web:admin": "VITE_ADMIN_WEB=true tsc && vite build",
+    "build:web:admin": "node ../../scripts/build-web-admin.mjs",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",

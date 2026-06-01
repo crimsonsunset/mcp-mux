@@ -53,8 +53,8 @@
 
 pub mod crypto;
 mod database;
-pub mod keychain;
 mod key_migration;
+pub mod keychain;
 #[cfg(windows)]
 pub mod keychain_dpapi;
 #[cfg(not(windows))]
@@ -63,6 +63,7 @@ mod repositories;
 
 pub use crypto::{generate_master_key, FieldEncryptor, KEY_SIZE};
 pub use database::Database;
+pub use key_migration::migrate_file_key_encrypted_fields;
 pub use keychain::{
     generate_jwt_secret, JwtSecretProvider, KeychainJwtSecretProvider, KeychainKeyProvider,
     MasterKeyProvider, JWT_SECRET_SIZE,
@@ -71,7 +72,6 @@ pub use keychain::{
 pub use keychain_dpapi::{DpapiJwtSecretProvider, DpapiKeyProvider};
 #[cfg(not(windows))]
 pub use keychain_file::{FileJwtSecretProvider, FileKeyProvider};
-pub use key_migration::migrate_file_key_encrypted_fields;
 pub use repositories::*;
 
 /// Default database file name.

@@ -17,7 +17,7 @@ mod server;
 pub mod ui_events;
 pub mod write_runtime;
 
-pub use bridge_context::AdminBridgeCtx;
+pub use bridge_context::{AdminBridgeCtx, BackendBuildStamp};
 pub use config::{AdminConfig, CF_ACCESS_JWT_HEADER, DEFAULT_ADMIN_PORT};
 pub use event_hub::AdminEventHub;
 #[cfg(any(test, feature = "test-utils"))]

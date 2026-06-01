@@ -4,13 +4,17 @@
 //! dispatches a tool name to its handler and exposes `list()` for the MCP
 //! `tools/list` response.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use mcpmux_core::{
-    DomainEvent, FeatureSetRepository, InboundMcpClientRepository, InstalledServerRepository,
-    ServerFeatureRepository, ServerLogManager, SpaceRepository, WorkspaceBindingRepository,
+    DomainEvent, EmbeddingRepository, FeatureSetRepository, InboundMcpClientRepository,
+    InstalledServerRepository, ServerFeatureRepository, ServerLogManager, SpaceRepository,
+    WorkspaceBindingRepository,
 };
 use rmcp::model::{CallToolResult, Tool};
 use serde_json::Value;
@@ -22,18 +26,24 @@ use super::disclosure_backend::DisclosureBackend;
 use super::invoke_backend::InvokeToolBackend;
 use crate::pool::{FeatureService, ServerManager};
 use crate::services::{
-    FeatureSetResolverService, PromptDiscoveryService, ResourceDiscoveryService,
-    SessionOverrideRegistry, SessionRootsRegistry, ToolDiscoveryService,
+    EmbeddingService, FeatureSetResolverService, PromptDiscoveryService, ResourceDiscoveryService,
+    SessionRootsRegistry, ToolDiscoveryService, ToolIndex,
 };
+
+/// Stable hash of sorted `feature_set_ids` for per-session search cache keys.
+pub fn feature_set_ids_fingerprint(feature_set_ids: &[String]) -> u64 {
+    let mut ids = feature_set_ids.to_vec();
+    ids.sort();
+    let mut hasher = DefaultHasher::new();
+    for id in ids {
+        id.hash(&mut hasher);
+    }
+    hasher.finish()
+}
 
 /// App-settings key that toggles the entire `mcpmux_*` namespace.
 /// Present + "false" → hidden; missing or anything else → enabled.
 pub const META_TOOLS_ENABLED_KEY: &str = "gateway.meta_tools_enabled";
-
-/// When `"true"`, session-scope enable/disable routes through the approval
-/// broker. Default (missing / unparseable): auto-allow.
-pub const SESSION_OVERRIDES_REQUIRE_APPROVAL_KEY: &str =
-    "gateway.session_overrides_require_approval";
 
 /// Context injected into every meta-tool invocation.
 ///
@@ -57,7 +67,6 @@ pub struct MetaToolContext {
     /// Backend read/fetch path — required for `mcpmux_read_resource` / `mcpmux_fetch_prompt`.
     pub disclosure_backend: Option<Arc<dyn DisclosureBackend>>,
     pub session_roots: Arc<SessionRootsRegistry>,
-    pub session_overrides: Arc<SessionOverrideRegistry>,
     pub approval_broker: Arc<ApprovalBroker>,
     /// Broadcast domain events (e.g. ToolsChanged) so MCPNotifier can push
     /// `tools/list_changed` to connected peers after a write mutates state.
@@ -70,6 +79,14 @@ pub struct MetaToolContext {
     pub server_manager: Arc<ServerManager>,
     /// Per-server log tail reader (`current.log`); same source as the desktop UI.
     pub log_manager: Arc<ServerLogManager>,
+    /// Per-session active tool index for `mcpmux_search_tools` (fingerprint-keyed).
+    pub search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
+    /// Global embedding vectors keyed by content hash.
+    pub embedding_store: Arc<DashMap<String, Vec<f32>>>,
+    /// Persistent embedding repository backing `embedding_store` hydration.
+    pub embedding_repo: Arc<dyn EmbeddingRepository>,
+    /// Local ONNX embedding service for hybrid tool ranking.
+    pub embeddings: Arc<EmbeddingService>,
 }
 
 /// Per-request metadata threaded through every tool call.
@@ -84,7 +101,7 @@ pub struct MetaToolCall<'a> {
     pub args: Value,
     pub ctx: &'a MetaToolContext,
     /// Write tools set this before returning `Ok` to override the default
-    /// `"allow_once"` audit decision (e.g. `"session_override"`).
+    /// `"allow_once"` audit decision (e.g. workspace bind).
     pub audit_decision: Arc<Mutex<Option<&'static str>>>,
 }
 
@@ -289,5 +306,15 @@ impl MetaToolRegistry {
 
     pub fn context(&self) -> &MetaToolContext {
         &self.ctx
+    }
+
+    /// Evict cached active index for one MCP session.
+    pub fn evict_search_cache_for_session(&self, session_id: &str) {
+        self.ctx.search_cache.remove(session_id);
+    }
+
+    /// Whether a session has a cached active search index entry.
+    pub fn search_cache_contains(&self, session_id: &str) -> bool {
+        self.ctx.search_cache.contains_key(session_id)
     }
 }
