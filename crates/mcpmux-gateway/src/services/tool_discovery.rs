@@ -541,11 +541,24 @@ fn extract_input_schema(raw_json: Option<&Value>) -> Option<Value> {
     })
 }
 
+/// Extract required parameter names from an `inputSchema` value.
+///
+/// Returns an empty vec when the schema is absent or has no `required` array.
+fn extract_required_params(input_schema: Option<&Value>) -> Vec<String> {
+    input_schema
+        .and_then(|schema| schema.get("required"))
+        .and_then(|r| r.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+
 fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
+    let required_params = extract_required_params(entry.input_schema.as_ref());
     let mut obj = json!({
         "server_id": entry.server_id,
         "qualified_name": entry.qualified_name,
         "available": entry.is_available,
+        "required_params": required_params,
     });
     if let Some(status) = &entry.status {
         obj["status"] = json!(status);
