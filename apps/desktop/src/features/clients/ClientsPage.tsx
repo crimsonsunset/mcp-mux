@@ -248,17 +248,7 @@ export default function ClientsPage() {
   // Snapshot `now` each time the clients list changes so the staleness
   // indicators refresh when the underlying data refreshes — without making
   // the component body impure.
-  const clientsStalenessKey = useMemo(
-    () =>
-      clients
-        .map((c) => `${c.client_id}:${c.last_seen ?? ''}`)
-        .join('|'),
-    [clients]
-  );
-  const renderNow = useMemo(
-    () => (clientsStalenessKey.length >= 0 ? Date.now() : Date.now()),
-    [clientsStalenessKey]
-  );
+  const renderNow = useMemo(() => Date.now(), [clients]);
 
   return (
     <div className="h-full flex flex-col relative" data-testid="clients-page">

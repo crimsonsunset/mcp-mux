@@ -595,11 +595,18 @@ impl MetaTool for SearchToolsTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(20) as usize;
 
-        let include_inactive = call
+        let scope_all = call
             .args
-            .get("include_inactive")
-            .and_then(|v| v.as_bool())
+            .get("scope")
+            .and_then(|v| v.as_str())
+            .map(|s| s == "all")
             .unwrap_or(false);
+        let include_inactive = scope_all
+            || call
+                .args
+                .get("include_inactive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
         let fingerprint = feature_set_ids_fingerprint(&resolved.feature_set_ids);
 

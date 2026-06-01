@@ -306,7 +306,12 @@ impl MetaTool for InvokeToolTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| MetaToolError::InvalidArgument("missing `tool`".into()))?
             .to_string();
-        let args = call.args.get("args").cloned().unwrap_or_else(|| json!({}));
+        let args = call
+            .args
+            .get("args")
+            .or_else(|| call.args.get("params"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let filter = parse_invoke_filter(call.args.get("filter"));
 
         let resolved = caller_resolution(&call).await?;
