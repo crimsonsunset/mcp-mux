@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md). Read that doc first; come here for the root-race fix, inactive scan SQL rewrite, and per-session cache implementation detail.
+
 # search_tools Latency & Root-Race Fixes
 
 **Last Updated:** May 29, 2026

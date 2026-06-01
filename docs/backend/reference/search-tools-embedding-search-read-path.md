@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md) and [`../technical/embedding-cache.md`](../technical/embedding-cache.md). Read those docs first; come here for read-path diagnosis detail and O0b failure analysis.
+
 # search_tools Embedding Search Read Path
 
 **Last Updated:** May 30, 2026

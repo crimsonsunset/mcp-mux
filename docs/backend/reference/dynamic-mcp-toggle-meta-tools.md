@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/consent-and-binding.md`](../technical/consent-and-binding.md) (session-override model this doc introduced is removed in the consent model). Read that doc first; come here for the original design and phasing history.
+
 # Dynamic MCP Toggling via Meta Tools
 
 **Last Updated:** May 23, 2026

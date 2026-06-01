@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md). Read that doc first; come here for the original design decisions, phasing history, and QA results.
+
 # Meta-Gateway Invoke (Search → Schema → Invoke)
 
 **Last Updated:** May 26, 2026

@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/consent-and-binding.md`](../technical/consent-and-binding.md). Read that doc first; come here for implementation detail and phasing history.
+
 # Feature Sets as the Capability Consent Unit
 
 **Last Updated:** May 28, 2026

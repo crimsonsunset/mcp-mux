@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md). Read that doc first; come here for implementation detail, output schema, and phasing history.
+
 # mcpmux_diagnose_server Meta Tool
 
 | Field            | Value                             |

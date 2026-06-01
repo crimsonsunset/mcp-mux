@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md). Read that doc first; come here for ranking design decisions, fusion weights, and observability detail.
+
 # search_tools Hybrid Semantic Ranking
 
 **Last Updated:** May 29, 2026

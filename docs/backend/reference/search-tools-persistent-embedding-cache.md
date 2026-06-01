@@ -1,3 +1,5 @@
+> **Synthesis:** This doc is synthesized into [`../technical/embedding-cache.md`](../technical/embedding-cache.md). Read that doc first; come here for architecture diagrams, storage schema, phasing detail, and shipped reconciliation.
+
 # search_tools Persistent Embedding Cache
 
 **Last Updated:** May 30, 2026
