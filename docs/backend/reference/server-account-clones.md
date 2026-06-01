@@ -1,5 +1,7 @@
 # Server Account Clones (UI-Assisted Multi-Account)
 
+> **Synthesized into:** [`../technical/server-lifecycle-and-pool.md`](../technical/server-lifecycle-and-pool.md) — read that doc first for a concise overview; come here for implementation detail and phasing.
+
 **Last Updated:** May 23, 2026
 **Status:** Complete — Phases 1–4 shipped; Phase 5 (first-class instances) optional/deferred
 **Branch:** `feat/server-account-clones` (merged or ready to merge)

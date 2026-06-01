@@ -1,5 +1,7 @@
 # Gateway Warm Pool Startup
 
+> **Synthesized into:** [`../technical/server-lifecycle-and-pool.md`](../technical/server-lifecycle-and-pool.md) — read that doc first for a concise overview; come here for the tiered startup design decisions and phasing.
+
 **Last Updated:** May 25, 2026  
 **Status:** Planned — decisions locked, not started  
 **Branch:** TBD (suggest `feat/gateway-warm-pool` off `main`)  

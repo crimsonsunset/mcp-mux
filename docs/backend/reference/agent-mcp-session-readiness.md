@@ -1,5 +1,7 @@
 # Agent MCP Session Readiness
 
+> **Synthesized into:** [`../technical/server-lifecycle-and-pool.md`](../technical/server-lifecycle-and-pool.md) — read that doc first for a concise overview; come here for the full four-track umbrella plan and root-cause dig pointers.
+
 **Last Updated:** May 25, 2026  
 **Status:** Planned — umbrella initiative; child doc [`gateway-warm-pool-startup.md`](./gateway-warm-pool-startup.md) has Phase 1 decisions locked  
 **Branch:** TBD (multiple tracks; see phasing)  

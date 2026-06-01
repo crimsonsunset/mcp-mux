@@ -1,5 +1,7 @@
 # Tool-Level Session Pin Meta Tool (`mcpmux_pin_this_session`)
 
+> **Synthesized into:** [`../technical/server-lifecycle-and-pool.md`](../technical/server-lifecycle-and-pool.md) — read that doc first for the session pin model; come here for the full decision table, composition rule, and phasing.
+
 **Last Updated:** May 25, 2026
 **Status:** Deferred — superseded by [`meta-gateway-invoke.md`](./meta-gateway-invoke.md) for token budget. May revive as Phase F (invoke ACL only) if search + invoke proves insufficient.
 **Branch:** TBD — branch off `main` once [`dynamic-mcp-toggle-meta-tools`](./dynamic-mcp-toggle-meta-tools.md) merges
