@@ -290,13 +290,27 @@ xattr -dr com.apple.quarantine /Applications/McpMux.app 2>/dev/null || true
 codesign --force --deep --sign - /Applications/McpMux.app
 ```
 
-#### 5. Launch
+#### 5. Launch the new build
 
 ```bash
 open /Applications/McpMux.app
 ```
 
 Verify: spaces, installed servers, and gateway on `localhost:45818` should look exactly as before. First launch will trigger 1–2 Keychain prompts because the new ad-hoc signature is a different signer than the previous build — click **Always Allow** once and you're set until the next swap.
+
+#### 6. Confirm the running process is the build you just made
+
+Make sure macOS launched the freshly-swapped bundle (not a stale copy) and that the gateway is live:
+
+```bash
+# The running binary should resolve to /Applications/McpMux.app
+pgrep -lf '/Applications/McpMux.app/Contents/MacOS/mcpmux'
+
+# Gateway should answer on the loopback MCP port
+curl -fsS http://localhost:45818/health >/dev/null && echo "gateway up" || echo "gateway not responding yet"
+```
+
+If `pgrep` returns nothing, the app didn't start — re-run step 5. If the gateway isn't up after ~5s, check **Console → McpMux** logs or `~/Library/Application Support/com.mcpmux.desktop/logs/`.
 
 ### Option B — Binary-only swap (fast path)
 

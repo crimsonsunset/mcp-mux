@@ -7,6 +7,7 @@ use crate::{
     get_bundle_version,
 };
 use async_trait::async_trait;
+#[cfg(debug_assertions)]
 use mcpmux_core::service::app_settings_service::keys;
 use mcpmux_core::service::is_port_available;
 use mcpmux_core::{AppSettingsService, ApplicationServices, EventBus};
