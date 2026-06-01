@@ -259,15 +259,26 @@ target/release/bundle/dmg/McpMux_*.dmg   # optional installer artifact
 
 #### 3. Backup and swap
 
+If `/Applications/McpMux.app` is owned by your user, no `sudo` is needed (and you won't be prompted for a password). Apps that were drag-installed or `cp`'d in are user-owned; only `.pkg`/App Store installs are `root`-owned. Check with `ls -ld /Applications/McpMux.app` — if the owner is your username, use the password-free path:
+
 ```bash
 # Backup current install (skip if you already have a recent .bak)
-sudo mv /Applications/McpMux.app /Applications/McpMux.app.bak
+rm -rf /Applications/McpMux.app.bak
+mv /Applications/McpMux.app /Applications/McpMux.app.bak
 
 # Install the new build
-sudo cp -R target/release/bundle/macos/McpMux.app /Applications/
+cp -R target/release/bundle/macos/McpMux.app /Applications/
+```
 
-# Fix ownership (sudo cp leaves root-owned files)
-sudo chown -R "$(whoami):admin" /Applications/McpMux.app
+> **Once you've swapped without `sudo` once, the bundle stays user-owned, so every future swap is password-free.**
+
+If the bundle is `root`-owned (you'll hit `Permission denied`), use `sudo` and fix ownership afterward so subsequent swaps need no password:
+
+```bash
+sudo rm -rf /Applications/McpMux.app.bak
+sudo mv /Applications/McpMux.app /Applications/McpMux.app.bak
+sudo cp -R target/release/bundle/macos/McpMux.app /Applications/
+sudo chown -R "$(whoami):admin" /Applications/McpMux.app   # makes future swaps sudo-free
 ```
 
 #### 4. Re-sign (required after manual swap)
@@ -318,10 +329,12 @@ If a swapped build is broken, restore the previous `/Applications/McpMux.app`. D
 
 ### Full build rollback
 
+Drop the `sudo` here too if the bundle is user-owned (the common case after a sudo-free swap):
+
 ```bash
 osascript -e 'tell application "McpMux" to quit' 2>/dev/null || true
-sudo rm -rf /Applications/McpMux.app
-sudo mv /Applications/McpMux.app.bak /Applications/McpMux.app
+rm -rf /Applications/McpMux.app
+mv /Applications/McpMux.app.bak /Applications/McpMux.app
 open /Applications/McpMux.app
 ```
 
@@ -345,7 +358,8 @@ open /Applications/McpMux.app
 | Gateway port already in use                         | Both              | `pnpm dev:stop` then relaunch — avoid bare `pkill -f mcpmux`                                                                                             |
 | Cursor OAuth fails after swap                       | Both              | Re-trigger MCP OAuth in Cursor (DCR redirect URI validation may have changed)                                                                            |
 | Empty app / missing UI                              | Flow 2 (Option B) | You used binary-only swap but frontend changed — run Option A (full build)                                                                               |
-| Permission denied on `/Applications`                | Flow 2            | Use `sudo` for mv/cp/chown, or install to `~/Applications/` and skip sudo                                                                                |
+| `sudo: a password is required` during swap          | Flow 2            | The swap doesn't need `sudo` if the bundle is user-owned — drop it. Use `sudo` only on a `root`-owned bundle, then `chown` so the next swap is password-free |
+| Permission denied on `/Applications`                | Flow 2            | Bundle is `root`-owned — use `sudo` for mv/cp + `chown -R "$(whoami):admin"` once, or install to `~/Applications/`                                        |
 | Keychain prompts on every launch of the same binary | Both              | Click **Always Allow** (not just **Allow**); check Keychain Access for duplicate `master-encryption-key` / `jwt-signing-secret` entries from old signers |
 | `pnpm dev` won't start — `EADDRINUSE 45818`         | Flow 1            | The installed `.app` is still running — quit it before `pnpm dev`                                                                                        |
 
@@ -353,18 +367,20 @@ open /Applications/McpMux.app
 
 ## One-liner (full build + swap)
 
-Assumes you're in repo root and have a recent backup:
+Assumes you're in repo root. No `sudo`, no password prompt — works as long as `/Applications/McpMux.app` is user-owned (it stays that way once you've done one sudo-free swap). Rotates a `.bak` for rollback:
 
 ```bash
-osascript -e 'tell application "McpMux" to quit' 2>/dev/null; sleep 2 && \
+osascript -e 'tell application "McpMux" to quit' 2>/dev/null; pnpm dev:stop; sleep 2 && \
 pnpm build && \
-sudo rm -rf /Applications/McpMux.app && \
-sudo cp -R target/release/bundle/macos/McpMux.app /Applications/ && \
-sudo chown -R "$(whoami):admin" /Applications/McpMux.app && \
+rm -rf /Applications/McpMux.app.bak && \
+mv /Applications/McpMux.app /Applications/McpMux.app.bak && \
+cp -R target/release/bundle/macos/McpMux.app /Applications/ && \
 xattr -dr com.apple.quarantine /Applications/McpMux.app 2>/dev/null; \
 codesign --force --deep --sign - /Applications/McpMux.app && \
 open /Applications/McpMux.app
 ```
+
+> If you hit `Permission denied` (bundle is `root`-owned), prefix the `mv`/`cp` with `sudo` and run `sudo chown -R "$(whoami):admin" /Applications/McpMux.app` once — every swap after that is password-free.
 
 ---
 
