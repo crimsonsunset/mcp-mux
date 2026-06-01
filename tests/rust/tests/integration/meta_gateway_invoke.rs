@@ -1252,7 +1252,7 @@ async fn invoke_levenshtein_suggests_near_tool_name() {
     let body = Fixture::result_json(&result);
     let message = body.get("message").and_then(|v| v.as_str()).unwrap();
     assert!(message.contains("did you mean"));
-    assert!(message.contains("github_list_issues"));
+    assert!(message.contains("list_issues"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

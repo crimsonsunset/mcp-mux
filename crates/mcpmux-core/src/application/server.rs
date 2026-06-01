@@ -1022,7 +1022,16 @@ mod tests {
 
         // None leaves the existing override untouched.
         let untouched = service
-            .update_config(space_id, "posthog", HashMap::new(), None, None, None, None, None)
+            .update_config(
+                space_id,
+                "posthog",
+                HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .expect("update without display name");
         assert_eq!(

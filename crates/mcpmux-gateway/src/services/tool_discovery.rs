@@ -548,7 +548,11 @@ fn extract_required_params(input_schema: Option<&Value>) -> Vec<String> {
     input_schema
         .and_then(|schema| schema.get("required"))
         .and_then(|r| r.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
