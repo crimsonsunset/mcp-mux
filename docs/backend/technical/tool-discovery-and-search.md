@@ -32,20 +32,24 @@ Non-surfaced backend tools are **not** in `tools/list`. Attempting to call a bac
 
 ## Search → Schema → Invoke
 
-The canonical three-step agent workflow:
+The canonical agent workflow (two or three steps depending on tool complexity):
 
 ```
 1. mcpmux_search_tools({ query: "list issues", server_id: "github", detail_level: "description" })
-      → ranked list of matching tools with status + description
+      → ranked list of matching tools with status, description, and required_params (param names only)
 
-2. mcpmux_get_tool_schema({ tools: ["github_list_issues"] })
-      → JSON input schema; compact: true strips examples/descriptions
+2. mcpmux_get_tool_schema({ tools: ["github_list_issues"] })   ← optional when required_params is enough
+      → full JSON input schema; compact: true strips examples/descriptions
 
 3. mcpmux_invoke_tool({ server_id: "github", tool: "list_issues", args: { … } })
       → backend tool result (optionally shaped via filter)
 ```
 
-This replaces the prior model of dumping all tool definitions into context. An agent makes 3–4 predictable meta calls per backend tool instead of guessing parameter names from a stale descriptor file.
+Search hits always include `required_params: string[]` (from cached `inputSchema.required`), at every `detail_level`. For parameter-light tools, an agent can skip step 2 and invoke directly from search. For complex shapes or optional params, `mcpmux_get_tool_schema` remains the source of truth.
+
+Sticky per-server tool arguments (`cloudId`, `projectKey`, etc.) can be preset via **`default_params`** so agents do not repeat them every invoke — see [`server-config-lanes.md`](../guides/server-config-lanes.md#default_params).
+
+This replaces the prior model of dumping all tool definitions into context. An agent makes 2–4 predictable meta calls per backend tool instead of guessing parameter names from a stale descriptor file.
 
 ---
 
@@ -90,7 +94,11 @@ invokable_tools   = Tool features for effective_servers ∩ FeatureSet members
 Invoking a tool outside the effective set returns an actionable error, not a silent proxy. Examples:
 
 - `"github inactive → mcpmux_enable_server('github')"` (pre-consent-model only; now: bind a FeatureSet)
-- `"unknown tool → did you mean github_list_issues?"` (Levenshtein suggestion via `strsim`)
+- `"unknown tool → did you mean list_issues?"` (Levenshtein on bare `feature_name` — paste directly into the `tool` arg)
+
+### Per-server default tool arguments
+
+Shallow merge at `mcpmux_invoke_tool`: `{ ...default_params, ...caller_args }` (caller wins). Full lane guide — when to use vs `env_overrides` / `extra_headers`, Atlassian example, UI path: [`server-config-lanes.md`](../guides/server-config-lanes.md#default_params).
 
 ---
 

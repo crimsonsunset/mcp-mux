@@ -119,18 +119,18 @@ Connected AI clients see a fixed ~11-tool meta surface instead of every backend 
 
 McpMux exposes a built-in `mcpmux_*` tool namespace for search → schema → invoke workflows:
 
-1. Call **`mcpmux_search_tools`** — find tools by query (active by default; set `include_inactive: true` to discover bindable bundles).
+1. Call **`mcpmux_search_tools`** — find tools by query; each hit includes **`required_params`** (required argument names). Active by default; set `include_inactive: true` to discover bindable bundles.
 2. Call **`mcpmux_list_feature_sets`** or **`mcpmux_list_servers`** — roster with active/inactive status and bind affordances.
 3. Call **`mcpmux_bind_current_workspace`** — persistently append an existing FeatureSet to the workspace binding (requires approval; the only agent write tool).
-4. Call **`mcpmux_get_tool_schema`** — load parameter schemas before invoking.
-5. Call **`mcpmux_invoke_tool`** — invoke any permitted backend tool through one entry point.
+4. Call **`mcpmux_get_tool_schema`** — load full parameter schemas when search hits are not enough (optional params, complex shapes).
+5. Call **`mcpmux_invoke_tool`** — invoke any permitted backend tool through one entry point. Set sticky args once per server via **Default Tool Parameters** ([`docs/backend/guides/server-config-lanes.md`](docs/backend/guides/server-config-lanes.md#default_params), e.g. Atlassian `cloudId`).
 
 | Tool | Type | Purpose |
 | ---- | ---- | ------- |
 | `mcpmux_list_feature_sets` | read | FeatureSets available in the resolved Space |
 | `mcpmux_list_servers` | read | Server-level manifest with status |
 | `mcpmux_diagnose_server` | read | Runtime status, config, missing inputs, and log tail for unhealthy servers |
-| `mcpmux_search_tools` | read | Search tools with optional schema detail and inactive discovery |
+| `mcpmux_search_tools` | read | Search tools with optional schema detail, **`required_params` on every hit**, and inactive discovery |
 | `mcpmux_get_tool_schema` | read | Load input schemas before invoke |
 | `mcpmux_invoke_tool` | read | Invoke a backend tool by server_id + tool name |
 | `mcpmux_search_resources` / `mcpmux_read_resource` | read | Resource discovery and read |

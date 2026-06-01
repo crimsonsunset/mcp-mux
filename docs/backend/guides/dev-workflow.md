@@ -54,6 +54,8 @@ pnpm dev:restart:fast  # same but skips the cargo rebuild (if already built)
 pnpm dev:rebuild       # cargo build only — no restart
 ```
 
+After gateway or meta-tool changes, **reload MCP tools in Cursor** (Settings → MCP → Reload) so the client picks up behavior changes even when `tools/list` size is unchanged.
+
 `dev:restart` is the safe choice after Rust changes. It calls `cargo build -p mcpmux-gateway -p mcpmux` before relaunching so the running binary is fresh. Tauri hot-reload does not trigger Rust rebuilds.
 
 ---
@@ -153,3 +155,4 @@ pnpm test:coverage
 
 - [`run-from-source.md`](./run-from-source.md) — first-time setup, prerequisites, initial build
 - [`../technical/services-overview.md`](../technical/services-overview.md) — port roles and gateway internals
+- [`server-config-lanes.md`](./server-config-lanes.md) — per-server env, headers, args, and default tool parameters

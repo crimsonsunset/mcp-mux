@@ -43,6 +43,7 @@ pub struct InstalledServer {
     pub env_overrides:      HashMap<String, String>,
     pub args_append:        Vec<String>,
     pub extra_headers:      HashMap<String, String>,
+    pub default_params:     HashMap<String, Value>, // default tool-call args — see guides/server-config-lanes.md
     pub oauth_connected:    bool,
     pub source:             InstallationSource,
     pub cloned_from:        Option<String>,    // display-only clone lineage

@@ -138,6 +138,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "tool_embeddings",
         sql: include_str!("migrations/021_tool_embeddings.sql"),
     },
+    Migration {
+        version: 22,
+        name: "installed_server_default_params",
+        sql: include_str!("migrations/022_installed_server_default_params.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

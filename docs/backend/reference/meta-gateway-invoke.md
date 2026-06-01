@@ -382,6 +382,8 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–D 
 
 **Phase D (May 26, 2026):** Resource/prompt hard cut shipped — `resources/list` and `prompts/list` advertised-only (surfaced escape hatch); 4 new meta tools; TF-IDF search rank; Levenshtein invoke suggestions; FeatureSet Surface toggle for resources/prompts. Meta tool count **14**. GAIT v2 Run 2 **SHIP**; Issue #4 (`read_resource` clone routing) fixed in `a4a212a`.
 
+**Invoke ergonomics (Jun 1, 2026):** Per-server `default_params` on `installed_servers` — shallow-merged under caller args in `mcpmux_invoke_tool` only. Search hits include `required_params: string[]` at all detail levels. Invoke "did you mean" suggestions use bare `feature_name` (paste into `tool`). Lane guide: [`server-config-lanes.md`](../guides/server-config-lanes.md). Design: [`meta-tool-invoke-ergonomics.md`](../../planning/meta-tool-invoke-ergonomics.md). Flow: [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md).
+
 **Manual QA progress (May 26, 2026):** Overall **Ship** (Phases A–D). Full section results in [`meta-gateway-invoke-qa.md`](../../testing/meta-gateway-invoke-qa.md). Highlights:
 
 | QA section                                | Result  | Notes                                                                                    |
