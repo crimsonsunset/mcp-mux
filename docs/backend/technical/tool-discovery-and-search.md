@@ -8,23 +8,27 @@
 
 ## The Meta Surface
 
-AI clients connected to McpMux see a fixed set of ~14–15 `mcpmux_*` meta tools at startup — not the full backend catalog. Backend tools are discovered and invoked progressively. This keeps the client context window proportional to the task, not the total server count.
+AI clients connected to McpMux see **4 `mcpmux_*` meta tools** in `tools/list` at startup — the hot path for every session. The remaining 7 meta tools are registered (always callable) but hidden from the advertised list. Agents reach hidden tools through the error/hint recovery strings that name them exactly when needed.
 
 ```
-tools/list (always small):
-├── mcpmux_list_servers              server roster with per-server status
-├── mcpmux_search_tools              search by intent; returns name/description/schema
+tools/list (core — always advertised):
+├── mcpmux_list_servers              server roster with per-server status + bindable_feature_set_ids
+├── mcpmux_search_tools              search by intent; returns name/description/schema + required_params
 ├── mcpmux_get_tool_schema           single or batch schema fetch
 ├── mcpmux_invoke_tool               single invoke entry point for all backend calls
-├── mcpmux_search_resources          resource discovery
-├── mcpmux_read_resource             resource fetch (surfaced-only redirect otherwise)
-├── mcpmux_search_prompts            prompt discovery
-├── mcpmux_fetch_prompt              prompt fetch (surfaced-only redirect otherwise)
-├── mcpmux_list_feature_sets         bundles visible from this workspace
-├── mcpmux_bind_current_workspace    bind a FeatureSet (approval required)
-├── mcpmux_diagnose_server           debug unhealthy servers (health + config + logs)
 └── [0–N surfaced backend tools]     opt-in per FeatureSet member; default zero
+
+hidden-but-callable (registered, not advertised — reached via recovery strings):
+├── mcpmux_list_feature_sets         → named in search_tools empty-results hint
+├── mcpmux_bind_current_workspace    → named in server-inactive error + inactive-tool redirect
+├── mcpmux_search_resources          → named in direct read_resource redirect
+├── mcpmux_read_resource             → named in direct read_resource redirect
+├── mcpmux_search_prompts            → named in direct get_prompt redirect
+├── mcpmux_fetch_prompt              → named in direct get_prompt redirect
+└── mcpmux_diagnose_server           → operator tool; human-callable directly
 ```
+
+Advertisement and dispatch are decoupled: `list_as_tools()` filters to the 4 core tools; `MetaToolRegistry::call()` gates on `registry.contains(name)` — unchanged, covering all 11. This eliminates the `notifications/tools/list_changed` dependency that dynamic surface options required, and saves ~800 Claude tokens of startup context for the common tool-only binding case.
 
 Non-surfaced backend tools are **not** in `tools/list`. Attempting to call a backend tool directly returns a redirect error pointing at `mcpmux_invoke_tool`.
 

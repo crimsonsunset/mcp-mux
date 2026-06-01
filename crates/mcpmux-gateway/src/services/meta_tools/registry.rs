@@ -221,9 +221,14 @@ impl MetaToolRegistry {
     }
 
     /// The `rmcp::model::Tool` list advertised to clients.
+    ///
+    /// Only [`super::CORE_META_TOOLS`] are included. The remaining registered
+    /// tools are hidden from `tools/list` but remain fully callable — agents
+    /// reach them through the error/hint recovery strings that name them.
     pub fn list_as_tools(&self) -> Vec<Tool> {
         self.tools
             .values()
+            .filter(|t| super::CORE_META_TOOLS.contains(&t.name()))
             .map(|t| {
                 let schema: serde_json::Map<String, Value> =
                     serde_json::from_value(t.input_schema()).unwrap_or_default();

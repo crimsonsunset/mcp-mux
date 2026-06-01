@@ -143,7 +143,7 @@ export default function ClientsPage() {
     }
   };
 
-  const refreshClients = async () => {
+  const refreshClients = useCallback(async () => {
     setIsRefreshing(true);
     try {
       setClients(await listOAuthClients());
@@ -152,7 +152,7 @@ export default function ClientsPage() {
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadClients();
@@ -186,7 +186,7 @@ export default function ClientsPage() {
   useOAuthClientEventListener(
     useCallback(() => {
       void refreshClients();
-    }, [])
+    }, [refreshClients])
   );
 
   const openPanel = (client: OAuthClient) => {
@@ -248,7 +248,17 @@ export default function ClientsPage() {
   // Snapshot `now` each time the clients list changes so the staleness
   // indicators refresh when the underlying data refreshes — without making
   // the component body impure.
-  const renderNow = useMemo(() => Date.now(), [clients]);
+  const clientsStalenessKey = useMemo(
+    () =>
+      clients
+        .map((c) => `${c.client_id}:${c.last_seen ?? ''}`)
+        .join('|'),
+    [clients]
+  );
+  const renderNow = useMemo(
+    () => (clientsStalenessKey.length >= 0 ? Date.now() : Date.now()),
+    [clientsStalenessKey]
+  );
 
   return (
     <div className="h-full flex flex-col relative" data-testid="clients-page">

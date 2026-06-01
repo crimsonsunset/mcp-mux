@@ -123,7 +123,7 @@ export function ServerInstallModal() {
         }
       })
       .catch(console.error);
-  }, [selectedSpaceId]);
+  }, [modalState, selectedSpaceId]);
 
   const handleInstall = async () => {
     if (modalState.type !== 'ready' || !selectedSpaceId) return;

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { X, Download, Trash2, RefreshCw, Copy } from 'lucide-react';
 import { useToast, ToastContainer, useConfirm } from '@mcpmux/ui';
 import { getServerLogs, clearServerLogs, getServerLogFile, type ServerLogEntry } from '@/lib/api/logs';
@@ -67,7 +67,7 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
   const { toasts, success, error: showError, dismiss } = useToast();
   const { confirm, ConfirmDialogElement } = useConfirm();
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -92,7 +92,7 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
     } finally {
       setLoading(false);
     }
-  };
+  }, [levelFilter, serverId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -103,19 +103,19 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
   }, [onClose]);
 
   useEffect(() => {
-    loadLogs();
-  }, [serverId, levelFilter]);
+    void loadLogs();
+  }, [loadLogs]);
 
   // Auto-refresh every 2 seconds if enabled
   useEffect(() => {
     if (!autoRefresh) return;
-    
+
     const interval = setInterval(() => {
-      loadLogs();
+      void loadLogs();
     }, 2000);
-    
+
     return () => clearInterval(interval);
-  }, [autoRefresh, serverId, levelFilter]);
+  }, [autoRefresh, loadLogs]);
 
   // Track scroll position
   const handleScroll = () => {

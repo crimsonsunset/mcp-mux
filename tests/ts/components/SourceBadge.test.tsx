@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { SourceBadge } from '../../../apps/desktop/src/components/SourceBadge';
 import {
-  SourceBadge,
   getUninstallLabel,
   getUninstallConfirmMessage,
-} from '../../../apps/desktop/src/components/SourceBadge';
+} from '../../../apps/desktop/src/components/source-badge.helpers';
 import type { InstallationSource } from '../../../apps/desktop/src/types/registry';
 
 describe('SourceBadge', () => {

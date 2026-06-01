@@ -17,7 +17,6 @@ import {
   FileText,
   Loader2,
   Clock,
-  FileJson,
   FolderOpen,
   UnfoldVertical,
   FoldVertical,
@@ -317,115 +316,69 @@ export function ServersPage() {
   }, [authProgress]);
 
   // Show toast notification
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
-  };
-
-  // Clear any pending filter that was consumed during initialisation
-  useEffect(() => {
-    if (pendingServersFilter) {
-      setPendingServersFilter(null);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Load data on mount only
-  useEffect(() => {
-    loadData();
   }, []);
 
-  useEffect(() => {
-    setServerFeatures({});
-    setExpandedServers(new Set());
-    setLoadingFeatures(new Set());
-    loadData();
-  }, [viewSpace?.id]);
-
-  // Subscribe to gateway events for reactive updates (no polling!)
-  useGatewayEvents((payload: GatewayChangedPayload) => {
-    if (payload.action === 'started') {
-      setGatewayRunning(true);
-      setGatewayUrl(payload.url || null);
-      // Status changes are handled via per-space events
-    } else if (payload.action === 'stopped') {
-      setGatewayRunning(false);
-      setGatewayUrl(null);
-    }
-  });
-
-  // Subscribe to server lifecycle events (install/uninstall)
-  const { subscribe } = useDomainEvents();
-  useEffect(() => {
-    return subscribe('server-changed', (payload: ServerChangedPayload) => {
-      if (!viewSpace || payload.space_id !== viewSpace.id) {
-        return;
-      }
-      
-      // Reload server list when a server is installed or uninstalled
-      if (payload.action === 'installed' || payload.action === 'uninstalled') {
-        console.log('[ServersPage] Server lifecycle event:', payload.action, payload.server_id);
-        loadData();
-      }
-    });
-  }, [viewSpace?.id]);
-
-  // Note: Server status changes are handled by useServerManager hook
-  // which updates serverStatuses state via events. No need to re-fetch
-  // server definitions on status changes - they don't change.
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      
+
       // Use allSettled so we can show installed servers even if registry is offline
-      const [installedResult, gatewayResult, definitionsResult, statusesResult] = await Promise.allSettled([
-        import('@/lib/api/registry').then((m) => m.listInstalledServers(viewSpace?.id)),
-        import('@/lib/api/gateway').then((m) => m.getGatewayStatus(viewSpace?.id)),
-        import('@/lib/api/registry').then((m) => m.discoverServers()),
-        viewSpace?.id ? fetchServerStatuses(viewSpace.id) : Promise.resolve({} as Record<string, ServerStatusResponse>),
-      ]);
+      const [installedResult, gatewayResult, definitionsResult, statusesResult] =
+        await Promise.allSettled([
+          import('@/lib/api/registry').then((m) => m.listInstalledServers(viewSpace?.id)),
+          import('@/lib/api/gateway').then((m) => m.getGatewayStatus(viewSpace?.id)),
+          import('@/lib/api/registry').then((m) => m.discoverServers()),
+          viewSpace?.id
+            ? fetchServerStatuses(viewSpace.id)
+            : Promise.resolve({} as Record<string, ServerStatusResponse>),
+        ]);
 
       // Extract values, using fallbacks for failures
       const installed = installedResult.status === 'fulfilled' ? installedResult.value : [];
-      const gateway = gatewayResult.status === 'fulfilled'
-        ? gatewayResult.value
-        : { running: false, url: null };
-      const definitions = definitionsResult.status === 'fulfilled'
-        ? definitionsResult.value
-        : [];
-      const runtimeStatuses: Record<string, ServerStatusResponse> = statusesResult.status === 'fulfilled'
-        ? statusesResult.value
-        : {};
+      const gateway =
+        gatewayResult.status === 'fulfilled'
+          ? gatewayResult.value
+          : { running: false, url: null };
+      const definitions =
+        definitionsResult.status === 'fulfilled' ? definitionsResult.value : [];
+      const runtimeStatuses: Record<string, ServerStatusResponse> =
+        statusesResult.status === 'fulfilled' ? statusesResult.value : {};
 
-      
       // Log if registry is offline but we have installed servers
       if (definitionsResult.status === 'rejected' && installed.length > 0) {
-        console.warn('[ServersPage] Registry offline, showing installed servers with cached/minimal info');
+        console.warn(
+          '[ServersPage] Registry offline, showing installed servers with cached/minimal info'
+        );
         showToast('Registry offline - showing cached server info', 'info');
       }
-      
+
       // Merge definitions with installed states
       // If definitions are missing, create minimal ServerViewModels from installed states
       let mergedServers: ServerViewModelWithClone[];
-      
+
       if (definitions.length > 0) {
         // Normal case: merge definitions with states
         const allMerged = mergeDefinitionsWithStates(definitions, installed);
-        mergedServers = allMerged.filter(s => s.is_installed);
+        mergedServers = allMerged.filter((s) => s.is_installed);
 
         // Handle installed servers not present in registry definitions
         // (e.g., registry changed, using different registry, or servers installed from user config)
-        const matchedServerIds = new Set(mergedServers.map(s => s.id));
-        const unmatchedInstalled = installed.filter(s => !matchedServerIds.has(s.server_id));
+        const matchedServerIds = new Set(mergedServers.map((s) => s.id));
+        const unmatchedInstalled = installed.filter((s) => !matchedServerIds.has(s.server_id));
         if (unmatchedInstalled.length > 0) {
-          const offlineViewModels = unmatchedInstalled.map(state => createOfflineServerViewModel(state));
+          const offlineViewModels = unmatchedInstalled.map((state) =>
+            createOfflineServerViewModel(state)
+          );
           mergedServers = [...mergedServers, ...offlineViewModels];
         }
       } else {
         // Offline case: create minimal view models from installed states only
-        mergedServers = installed.map(state => createOfflineServerViewModel(state));
+        mergedServers = installed.map((state) => createOfflineServerViewModel(state));
       }
-      
+
       // Apply runtime statuses from ServerManager to fix initial connection_status
       // (mergeDefinitionsWithStates hardcodes 'connecting' for enabled servers)
       const mapStatus = (s: ConnectionStatus): ServerViewModel['connection_status'] => {
@@ -464,7 +417,56 @@ export function ServersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [viewSpace?.id, showToast]);
+
+  // Clear any pending filter that was consumed during initialisation
+  useEffect(() => {
+    if (pendingServersFilter) {
+      setPendingServersFilter(null);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    setServerFeatures({});
+    setExpandedServers(new Set());
+    setLoadingFeatures(new Set());
+  }, [viewSpace?.id]);
+
+  // Subscribe to gateway events for reactive updates (no polling!)
+  useGatewayEvents((payload: GatewayChangedPayload) => {
+    if (payload.action === 'started') {
+      setGatewayRunning(true);
+      setGatewayUrl(payload.url || null);
+      // Status changes are handled via per-space events
+    } else if (payload.action === 'stopped') {
+      setGatewayRunning(false);
+      setGatewayUrl(null);
+    }
+  });
+
+  // Subscribe to server lifecycle events (install/uninstall)
+  const { subscribe } = useDomainEvents();
+  useEffect(() => {
+    return subscribe('server-changed', (payload: ServerChangedPayload) => {
+      if (!viewSpace || payload.space_id !== viewSpace.id) {
+        return;
+      }
+      
+      // Reload server list when a server is installed or uninstalled
+      if (payload.action === 'installed' || payload.action === 'uninstalled') {
+        console.log('[ServersPage] Server lifecycle event:', payload.action, payload.server_id);
+        void loadData();
+      }
+    });
+  }, [loadData, subscribe, viewSpace]);
+
+  // Note: Server status changes are handled by useServerManager hook
+  // which updates serverStatuses state via events. No need to re-fetch
+  // server definitions on status changes - they don't change.
 
   // Load features for a specific server
   const loadFeaturesForServer = async (serverId: string) => {
@@ -1008,7 +1010,7 @@ export function ServersPage() {
       }
     }
 
-    const { getUninstallLabel } = await import('@/components/SourceBadge');
+    const { getUninstallLabel } = await import('@/components/source-badge.helpers');
     const actionLabel = getUninstallLabel(server.installation_source);
 
     setActionLoading(`uninstall-${server.id}`);
@@ -1028,7 +1030,7 @@ export function ServersPage() {
     }
 
     const { server } = uninstallClonesDialog;
-    const { getUninstallLabel } = await import('@/components/SourceBadge');
+    const { getUninstallLabel } = await import('@/components/source-badge.helpers');
     const actionLabel = getUninstallLabel(server.installation_source);
 
     setUninstallClonesDialog(null);

@@ -50,6 +50,20 @@ use crate::services::{EmbeddingService, ToolDiscoveryService};
 /// can intercept it before routing to backend servers.
 pub const MCPMUX_PREFIX: &str = "mcpmux_";
 
+/// Tools advertised in `tools/list` on every session. The remainder are
+/// registered (callable) but hidden — agents reach them through the
+/// error/hint recovery strings that name them when needed.
+///
+/// Core = the hot path every session: discover → schema → invoke + roster.
+/// Everything else (bind, diagnose, resource/prompt quartet, list_feature_sets)
+/// is reachable on demand without being in the startup context budget.
+pub const CORE_META_TOOLS: &[&str] = &[
+    "mcpmux_search_tools",
+    "mcpmux_invoke_tool",
+    "mcpmux_get_tool_schema",
+    "mcpmux_list_servers",
+];
+
 /// Convenience: is this tool name one of ours?
 pub fn is_meta_tool(name: &str) -> bool {
     name.starts_with(MCPMUX_PREFIX)
