@@ -14,14 +14,14 @@ McpMux is a desktop app + local gateway that lets users configure MCP servers on
 
 This is a multi-project workspace with 6 independent projects (not a unified monorepo):
 
-| Project | Tech | Purpose |
-|---------|------|---------|
-| `mcp-mux/` | Tauri 2 (Rust + React 19), pnpm workspace | Desktop app + local MCP gateway |
-| `mcpmux.bundler/` | Cloudflare Worker | GitHub webhook receiver that processes server definitions into D1/R2 |
-| `mcpmux.serverhub.api/` | Cloudflare Worker (Hono) | REST API for server registry discovery (KV -> D1 -> R2 fallback chain) |
-| `mcpmux.discover.ui/` | Next.js 16, shadcn/ui, Tailwind 4 | Web UI for browsing the server registry |
-| `mcp-servers/` | JSON + AJV validation | Community MCP server definitions repository |
-| `mcpmux.space/` | Docs | Documentation and design space |
+| Project                 | Tech                                      | Purpose                                                                |
+| ----------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
+| `mcp-mux/`              | Tauri 2 (Rust + React 19), pnpm workspace | Desktop app + local MCP gateway                                        |
+| `mcpmux.bundler/`       | Cloudflare Worker                         | GitHub webhook receiver that processes server definitions into D1/R2   |
+| `mcpmux.serverhub.api/` | Cloudflare Worker (Hono)                  | REST API for server registry discovery (KV -> D1 -> R2 fallback chain) |
+| `mcpmux.discover.ui/`   | Next.js 16, shadcn/ui, Tailwind 4         | Web UI for browsing the server registry                                |
+| `mcp-servers/`          | JSON + AJV validation                     | Community MCP server definitions repository                            |
+| `mcpmux.space/`         | Docs                                      | Documentation and design space                                         |
 
 ## mcp-mux (Desktop App) - Main Project
 
@@ -79,17 +79,17 @@ The Cargo workspace has 4 library crates + 1 app crate + 1 test crate:
 - **apps/desktop/src-tauri** - Tauri 2 app shell, Tauri commands, system tray, deep-link handler (`mcpmux://`)
 - **tests/rust** - Integration test crate
 
-Key patterns: event-driven architecture (EventBus), repository pattern (trait-based storage abstraction), service layer pattern with DI via ApplicationServices builders.
+Key patterns: event-driven architecture (EventBus), repository pattern (trait-based storage abstraction), service layer pattern with DI via ApplicationServices builders. Full architecture doc: [`docs/backend/technical/architecture.md`](docs/backend/technical/architecture.md).
 
 ### Frontend Architecture
 
 - **Entry**: `apps/desktop/src/main.tsx` -> `App.tsx`
-- **Backend facade**: import `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. See `AGENTS.md` Frontend Notes. Deprecated `@/lib/api/*` shims re-export the same surface.
+- **Backend facade**: import `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. See [`docs/frontend/technical/backend-facade.md`](docs/frontend/technical/backend-facade.md) and `AGENTS.md` Frontend Notes. Deprecated `@/lib/api/*` shims re-export the same surface.
 - **State**: Zustand store (`stores/appStore.ts`)
 - **Hooks**: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (via `backend/events`), `useDataSync` (data synchronization)
 - **UI**: React 19 + Tailwind CSS + Lucide icons + Monaco Editor (config editing)
 - **Path aliases**: `@/` -> `src/`, `@mcpmux/ui` -> shared UI package
-- **Web admin dev**: `pnpm dev:admin` / `pnpm dev:web:admin` — admin API on `:45819`; `pnpm dev:stop` frees ports. See `AGENTS.md` Build & Dev Commands.
+- **Web admin dev**: `pnpm dev:admin` / `pnpm dev:web:admin` — admin API on `:45819`; `pnpm dev:stop` frees ports. See [`docs/frontend/technical/web-admin-and-remote-access.md`](docs/frontend/technical/web-admin-and-remote-access.md) and `AGENTS.md` Build & Dev Commands.
 
 ### Data Flow
 
@@ -132,12 +132,14 @@ The JSON schema at `schemas/server-definition.schema.json` defines the structure
 Each worker is an independent project with its own `package.json`:
 
 **mcpmux.serverhub.api/** - Hono-based registry API:
+
 ```bash
 cd mcpmux.serverhub.api && pnpm dev    # wrangler dev
 cd mcpmux.serverhub.api && pnpm test   # vitest (cloudflare pool)
 ```
 
 **mcpmux.bundler/** - Webhook-triggered bundle processor:
+
 ```bash
 cd mcpmux.bundler && pnpm dev          # wrangler dev
 cd mcpmux.bundler && pnpm test         # vitest run
@@ -156,6 +158,7 @@ cd mcpmux.discover.ui && pnpm test:e2e # playwright
 ### Child Process Platform Flags
 
 When spawning child processes (e.g., stdio MCP servers), **always** use `configure_child_process_platform()` from `mcpmux_gateway::pool::transport`. This applies:
+
 - **Windows**: `CREATE_NO_WINDOW` (`0x08000000`) — prevents visible console windows in release builds (where `windows_subsystem = "windows"` means the app is a GUI subsystem process)
 - **Unix**: `process_group(0)` — isolates child from parent terminal signals (SIGINT, SIGTSTP)
 
@@ -164,16 +167,17 @@ Note: `tokio::process::Command` already exposes `creation_flags()` (Windows) and
 ### Cross-Platform CI Awareness
 
 The pre-commit hook runs `cargo clippy --workspace -- -D warnings` locally, but `#[cfg(unix)]` / `#[cfg(windows)]` blocks are only compiled on the matching platform. **CI runs on Linux**, so:
+
 - `#[cfg(unix)]` code is only linted in CI, not on a Windows dev machine
 - `#[cfg(windows)]` code is only linted locally on Windows, not in CI
 - Always validate that platform-conditional code compiles correctly on both platforms before pushing
 
 ### macOS TCC Permissions for Child MCP Servers
 
-macOS attributes TCC (Privacy & Security) decisions to the *responsible process* — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux bundle, not the child. Two things must line up for a child to read a TCC-protected resource (e.g. `jsg-beeper-mcp` reading `~/Library/Application Support/AddressBook`):
+macOS attributes TCC (Privacy & Security) decisions to the _responsible process_ — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux bundle, not the child. Two things must line up for a child to read a TCC-protected resource (e.g. `jsg-beeper-mcp` reading `~/Library/Application Support/AddressBook`):
 
 1. **Usage description in `Info.plist`.** McpMux ships `apps/desktop/src-tauri/Info.plist` with `NSContactsUsageDescription`, `NSCalendarsUsageDescription`, `NSRemindersUsageDescription`, `NSAppleEventsUsageDescription`. Tauri 2 auto-merges this file into the bundle.
-2. **The bundle requests access at least once.** Apple only lists an app in System Settings → Privacy & Security → *Category* after it has called the corresponding framework. McpMux does this for Contacts at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()` (calls `CNContactStore.requestAccess(for: .contacts, ...)` through `objc2-contacts`).
+2. **The bundle requests access at least once.** Apple only lists an app in System Settings → Privacy & Security → _Category_ after it has called the corresponding framework. McpMux does this for Contacts at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()` (calls `CNContactStore.requestAccess(for: .contacts, ...)` through `objc2-contacts`).
 
 To add a new TCC class, follow the same two-step pattern. Don't expect the OS to "just prompt" — the prompt is gated on the responsible process making the call itself.
 

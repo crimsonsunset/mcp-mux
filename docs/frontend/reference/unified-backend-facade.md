@@ -1,5 +1,7 @@
 # Unified Backend Facade (Option 4A)
 
+> **Synthesized into:** [`docs/frontend/technical/backend-facade.md`](../technical/backend-facade.md) — read that doc first for a navigable overview; return here for decision rationale, phasing history, and the full file inventory.
+
 **Last Updated:** May 26, 2026  
 **Status:** Complete — Phases 1–5 on `feat/web-ui`  
 **Branch:** `feat/web-ui`

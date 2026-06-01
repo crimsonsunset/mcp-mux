@@ -27,43 +27,43 @@ mcp-mux/
 
 Run everything from `mcp-mux/`:
 
-| Command | What it does |
-|---------|--------------|
-| `pnpm setup` | First-time dev environment setup (PowerShell on Windows). |
-| `pnpm dev` | Tauri desktop dev mode (Rust + React hot-reload). Runs `predev` to free `:1420` / `:45818`. |
-| `pnpm dev:restart` | After gateway crate edits — stop orphans, rebuild, start dev. |
-| `pnpm dev:stop` | Kill repo dev processes without starting. |
-| `pnpm dev:web` | Web UI only via Vite (`VITE_ADMIN_WEB`) — needs admin API on `:45819` for data. |
-| `pnpm dev:admin` | Tauri dev with web admin enabled for the session; opens HMR URL. |
-| `pnpm dev:web:admin` | Prep ports, start backend if needed, Vite with admin HTTP transport. |
-| `pnpm build` | Production Tauri build for the current platform. |
-| `pnpm build:web:admin` | Production SPA build (`VITE_ADMIN_WEB`) for admin static serving. |
-| `pnpm validate` | Full correctness gate — runs the items below in sequence. |
-| `pnpm lint` | ESLint (recursive) + `cargo clippy --workspace -- -D warnings`. |
-| `pnpm lint:fix` | Auto-fix lint issues. |
-| `pnpm format` | `prettier --write .` + `cargo fmt --all`. |
-| `pnpm format:check` | Formatting check (no writes). |
-| `pnpm typecheck` | Recursive TypeScript typecheck. |
+| Command                | What it does                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `pnpm setup`           | First-time dev environment setup (PowerShell on Windows).                                   |
+| `pnpm dev`             | Tauri desktop dev mode (Rust + React hot-reload). Runs `predev` to free `:1420` / `:45818`. |
+| `pnpm dev:restart`     | After gateway crate edits — stop orphans, rebuild, start dev.                               |
+| `pnpm dev:stop`        | Kill repo dev processes without starting.                                                   |
+| `pnpm dev:web`         | Web UI only via Vite (`VITE_ADMIN_WEB`) — needs admin API on `:45819` for data.             |
+| `pnpm dev:admin`       | Tauri dev with web admin enabled for the session; opens HMR URL.                            |
+| `pnpm dev:web:admin`   | Prep ports, start backend if needed, Vite with admin HTTP transport.                        |
+| `pnpm build`           | Production Tauri build for the current platform.                                            |
+| `pnpm build:web:admin` | Production SPA build (`VITE_ADMIN_WEB`) for admin static serving.                           |
+| `pnpm validate`        | Full correctness gate — runs the items below in sequence.                                   |
+| `pnpm lint`            | ESLint (recursive) + `cargo clippy --workspace -- -D warnings`.                             |
+| `pnpm lint:fix`        | Auto-fix lint issues.                                                                       |
+| `pnpm format`          | `prettier --write .` + `cargo fmt --all`.                                                   |
+| `pnpm format:check`    | Formatting check (no writes).                                                               |
+| `pnpm typecheck`       | Recursive TypeScript typecheck.                                                             |
 
 **Before claiming a change is done**, run `pnpm validate` (or the relevant subset) — it mirrors what CI enforces.
 
 ## Testing
 
-| Command | Scope |
-|---------|-------|
-| `pnpm test` | Rust + TypeScript, everything. |
-| `pnpm test:rust` | `cargo nextest run --workspace`. |
-| `pnpm test:rust:unit` | `cargo nextest run --workspace --lib`. |
-| `pnpm test:rust:int` | `cargo nextest run -p tests` — integration crate in `tests/rust`. |
-| `pnpm test:rust:doc` | `cargo test --workspace --doc`. |
-| `pnpm test:ts` | Vitest run (`tests/ts/vitest.config.ts`). |
-| `pnpm test:ts:watch` | Vitest watch. |
-| `pnpm test:e2e` | Desktop E2E via WebDriver IO — requires `MCPMUX_REGISTRY_URL`. |
-| `pnpm test:e2e:file -- tests/e2e/specs/foo.ts` | One WDIO spec file. |
-| `pnpm test:e2e:grep -- "test name"` | WDIO tests matching a name. |
-| `pnpm test:e2e:web` | Playwright on the web UI (mocked Tauri). |
-| `pnpm test:e2e:web:admin` | Playwright admin catalog against real `:45819` (requires admin server running). |
-| `pnpm test:coverage` | `cargo llvm-cov` + Vitest coverage. |
+| Command                                        | Scope                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| `pnpm test`                                    | Rust + TypeScript, everything.                                                  |
+| `pnpm test:rust`                               | `cargo nextest run --workspace`.                                                |
+| `pnpm test:rust:unit`                          | `cargo nextest run --workspace --lib`.                                          |
+| `pnpm test:rust:int`                           | `cargo nextest run -p tests` — integration crate in `tests/rust`.               |
+| `pnpm test:rust:doc`                           | `cargo test --workspace --doc`.                                                 |
+| `pnpm test:ts`                                 | Vitest run (`tests/ts/vitest.config.ts`).                                       |
+| `pnpm test:ts:watch`                           | Vitest watch.                                                                   |
+| `pnpm test:e2e`                                | Desktop E2E via WebDriver IO — requires `MCPMUX_REGISTRY_URL`.                  |
+| `pnpm test:e2e:file -- tests/e2e/specs/foo.ts` | One WDIO spec file.                                                             |
+| `pnpm test:e2e:grep -- "test name"`            | WDIO tests matching a name.                                                     |
+| `pnpm test:e2e:web`                            | Playwright on the web UI (mocked Tauri).                                        |
+| `pnpm test:e2e:web:admin`                      | Playwright admin catalog against real `:45819` (requires admin server running). |
+| `pnpm test:coverage`                           | `cargo llvm-cov` + Vitest coverage.                                             |
 
 Prefer narrow commands over `pnpm test` while iterating — the full suite is slow.
 
@@ -73,7 +73,7 @@ Prefer narrow commands over `pnpm test` while iterating — the full suite is sl
 - **TypeScript / JSX:** Prettier — single quotes, 2-space indent, 100-char width, trailing commas (es5), Tailwind CSS plugin for class ordering.
 - **Path aliases:** `@/` → `apps/desktop/src/`; `@mcpmux/ui` → `packages/ui`.
 - **No emojis in code or commits** unless the user explicitly asks for them.
-- **Comments:** only when the *why* is non-obvious. Identifiers should explain the *what*.
+- **Comments:** only when the _why_ is non-obvious. Identifiers should explain the _what_.
 
 ## Commit & PR Guidelines
 
@@ -97,14 +97,14 @@ Anything that spawns a child process (stdio MCP servers, installers, etc.) **mus
 
 - The pre-commit hook runs `cargo clippy --workspace -- -D warnings` on your dev machine.
 - `#[cfg(unix)]` only compiles on Unix; `#[cfg(windows)]` only on Windows. CI is Linux, so Windows-gated code is **not** linted in CI, and Unix-gated code is not linted on a Windows dev box.
-- When you touch platform-conditional code, check the *other* platform compiles before pushing — CI won't catch a Windows-only clippy regression.
+- When you touch platform-conditional code, check the _other_ platform compiles before pushing — CI won't catch a Windows-only clippy regression.
 
 ### macOS TCC permissions for child MCP servers
 
-macOS evaluates TCC (Privacy & Security) against the *responsible process* — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux app bundle, not the child. Two things must line up for a child server (e.g. `jsg-beeper-mcp` reading the AddressBook SQLite) to work:
+macOS evaluates TCC (Privacy & Security) against the _responsible process_ — for MCP servers spawned via `posix_spawn` from McpMux, that's the McpMux app bundle, not the child. Two things must line up for a child server (e.g. `jsg-beeper-mcp` reading the AddressBook SQLite) to work:
 
 1. **`Info.plist` declares the usage description.** McpMux ships `apps/desktop/src-tauri/Info.plist` with `NSContactsUsageDescription`, `NSCalendarsUsageDescription`, `NSRemindersUsageDescription`, and `NSAppleEventsUsageDescription`. Tauri 2 auto-merges this with the bundler-generated plist. Add new keys here when an MCP server needs a new TCC class.
-2. **The bundle calls into the framework at least once.** Apple only lists apps in System Settings → Privacy & Security → *Category* once they've actually requested access. For Contacts this happens at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()`, which calls `CNContactStore.requestAccess(for: .contacts, ...)`. Without this call the panel stays empty and the user has no way to grant access.
+2. **The bundle calls into the framework at least once.** Apple only lists apps in System Settings → Privacy & Security → _Category_ once they've actually requested access. For Contacts this happens at startup via `apps/desktop/src-tauri/src/macos_permissions.rs::ensure_contacts_registered()`, which calls `CNContactStore.requestAccess(for: .contacts, ...)`. Without this call the panel stays empty and the user has no way to grant access.
 
 When you add a new TCC class (Photos / Location / etc.) follow the same pattern: usage description in `Info.plist` + a one-time framework call in `macos_permissions.rs` from the setup hook. Don't try to "trust the OS to prompt" — it won't, because the prompt is gated on the responsible process making the call itself.
 
@@ -118,7 +118,8 @@ When you add a new TCC class (Photos / Location / etc.) follow the same pattern:
 
 ## Frontend Notes
 
-- **Backend facade:** UI code imports `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. Channels: `backend/data` (`apiCall` — Tauri invoke vs admin fetch), `backend/events` (Tauri listeners + SSE), `backend/shell` (dialogs, updater, OS integrations). ESLint blocks `@tauri-apps/*` outside `lib/backend/**`.
+- **Backend facade:** UI code imports `@/lib/backend` (data, events, shell) — not `@tauri-apps/*` directly. Channels: `backend/data` (`apiCall` — Tauri invoke vs admin fetch), `backend/events` (Tauri listeners + SSE), `backend/shell` (dialogs, updater, OS integrations). ESLint blocks `@tauri-apps/*` outside `lib/backend/**`. Full doc: [`docs/frontend/technical/backend-facade.md`](docs/frontend/technical/backend-facade.md).
+- **Web admin server** (`:45819`) and remote access via Cloudflare Tunnel + Access: [`docs/frontend/technical/web-admin-and-remote-access.md`](docs/frontend/technical/web-admin-and-remote-access.md).
 - Entry point: `apps/desktop/src/main.tsx` → `App.tsx`.
 - Global state: a single Zustand store at `src/stores/appStore.ts`.
 - Key hooks: `useServerManager` (server CRUD), `useSpaces` (workspace switching), `useDomainEvents` (Rust-side EventBus listener), `useDataSync`.
@@ -131,6 +132,7 @@ When you add a new TCC class (Photos / Location / etc.) follow the same pattern:
 - Cross-layer communication goes through the `EventBus` in `mcpmux-core`. Prefer emitting a domain event over reaching across module boundaries directly.
 - Storage is behind repository traits — don't call SQLx or SQLite APIs directly from gateway or app code; add or use a repo method.
 - Services are wired up via the `ApplicationServices` builders in `mcpmux-core`. New services should follow the same DI pattern.
+- Full backend architecture: [`docs/backend/technical/architecture.md`](docs/backend/technical/architecture.md) — subsystem map linking to each technical doc.
 
 ## MCP Specification
 

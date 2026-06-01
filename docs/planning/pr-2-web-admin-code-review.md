@@ -27,11 +27,11 @@ Three architectural moves landed together:
 
 Three follow-up commits on `feat/web-ui` after the initial review:
 
-| Commit | Scope |
-| ------ | ----- |
+| Commit    | Scope                                                                                                                                                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0c1a017` | Critical/major hardening: `test-utils` feature gate, OAuth log fix, event hub leak, CSRF improvements, typed mutation bodies, CF Access error propagation, web-only admin settings hide |
-| `cc7bf54` | Lower-priority: SPA build-hint fallback, negative Playwright specs, OAuth log unit test, event hub regression test, CF health docs |
-| `558a319` | Medium architecture: `fetch-api.routes/*` split, remove fake `open_url` REST endpoint, `LiveGatewayRuntime` + live gateway integration tests |
+| `cc7bf54` | Lower-priority: SPA build-hint fallback, negative Playwright specs, OAuth log unit test, event hub regression test, CF health docs                                                      |
+| `558a319` | Medium architecture: `fetch-api.routes/*` split, remove fake `open_url` REST endpoint, `LiveGatewayRuntime` + live gateway integration tests                                            |
 
 **Verdict after remediation:** 🟢 **Approve** — all critical items fixed; remaining items are explicit follow-up tickets (see checklist below).
 
@@ -39,14 +39,14 @@ Three follow-up commits on `feat/web-ui` after the initial review:
 
 Six commits on `feat/web-ui` after PR #2 review remediation — implements [`unified-backend-facade.md`](./unified-backend-facade.md) Phases 1–5:
 
-| Commit | Scope |
-| ------ | ----- |
+| Commit    | Scope                                                                                                             |
+| --------- | ----------------------------------------------------------------------------------------------------------------- |
 | `1f36ad9` | Phase 1 — `lib/backend/` scaffold; transport + fetch-api moved to `backend/data/`; ESLint `no-restricted-imports` |
-| `f72af83` | Phase 2 — event hooks under `backend/events/`; `useBackendEventSubscription` for ad-hoc channels |
-| `e9a0e49` | Phase 3 — shell facade; all `@tauri-apps` imports confined to `lib/backend/**`; web hides shell-only UI |
-| `90cbd9f` | Phase 4 — config-export REST parity via `apiCall`; oauth/settings shell/data split |
-| `2267884` | Phase 5 — deprecation comments on `@/lib/api/*`; planning docs reconciled |
-| `c236a06` | Lint — resolve `set-state-in-effect` blockers in `HoverTooltip`, `ServerIcon`, `WorkspacesPage` |
+| `f72af83` | Phase 2 — event hooks under `backend/events/`; `useBackendEventSubscription` for ad-hoc channels                  |
+| `e9a0e49` | Phase 3 — shell facade; all `@tauri-apps` imports confined to `lib/backend/**`; web hides shell-only UI           |
+| `90cbd9f` | Phase 4 — config-export REST parity via `apiCall`; oauth/settings shell/data split                                |
+| `2267884` | Phase 5 — deprecation comments on `@/lib/api/*`; planning docs reconciled                                         |
+| `c236a06` | Lint — resolve `set-state-in-effect` blockers in `HoverTooltip`, `ServerIcon`, `WorkspacesPage`                   |
 
 **Outcome:** The "dual hooks / scattered guards / stragglers" items called out in the original review and `unified-backend-facade.md` pre-facade table are addressed. `@/lib/backend` is the preferred import for new code.
 
@@ -54,8 +54,8 @@ Six commits on `feat/web-ui` after PR #2 review remediation — implements [`uni
 
 End-to-end manual smoke against a real Cloudflare Tunnel + Access policy (`mux.joe-hassio.com` → `localhost:45819`) surfaced **two ship-blocker bugs** the original review missed because the CF cert-fetch path was never exercised against real Cloudflare during PR development.
 
-| Commit | Scope |
-| ------ | ----- |
+| Commit    | Scope                                                                  |
+| --------- | ---------------------------------------------------------------------- |
 | `d18afdc` | CF Access JWT validation actually works end-to-end (see #22–#24 below) |
 
 The `from_team_domain` code path had **zero** integration tests against the real `/cdn-cgi/access/certs` endpoint, and any test fixtures used the wrong response shape. The "JWKS-based RS256" description in [What This PR Does](#-what-this-pr-does) is now factually true (was aspirational before — pre-fix, the validator parsed X.509 certs through an API that doesn't accept them).
@@ -76,8 +76,8 @@ The `from_team_domain` code path had **zero** integration tests against the real
 2. **Authorization code logged at INFO level.** — **✅ Fixed** (redirect URL log removed; `tracing_test` unit test asserts no `code=mc_` in logs)
 3. **CF Access cert refresh is missing.** — **⬜ Open** (follow-up ticket: hourly refresh or refresh-on-`UnknownKeyId`)
 4. **`AdminEventHub::start()` leaks task handles on every restart.** — **✅ Fixed** (abort prior fan-in handles; regression test in `admin_api_regression.rs`)
-22. **`from_team_domain` cert parsing was broken twice.** — **✅ Fixed in `d18afdc`** — (a) deserialized `public_certs` as `Vec<String>` but CF returns `Vec<{kid, cert}>`; (b) even with correct shape, `DecodingKey::from_rsa_pem` cannot parse X.509 certificate PEM (only PKCS#1 / PKCS#8 SPKI). Silently built a malformed key, failed every verify with `InvalidSignature`. Switched to `keys` (JWKS) field via `DecodingKey::from_jwk`. **Ship-blocker; whole CF Access feature was dead on arrival.**
-23. **`Validation::new` defaults `validate_aud = true` rejects valid CF JWTs.** — **✅ Fixed in `d18afdc`** — when no audience is configured but the JWT carries an `aud` claim (CF Access always does), `jsonwebtoken` 9.x rejects the token even with a valid signature and issuer. Gate `validate_aud = self.audience.is_some()`. **Ship-blocker for any operator who hadn't pasted the optional AUD tag.**
+5. **`from_team_domain` cert parsing was broken twice.** — **✅ Fixed in `d18afdc`** — (a) deserialized `public_certs` as `Vec<String>` but CF returns `Vec<{kid, cert}>`; (b) even with correct shape, `DecodingKey::from_rsa_pem` cannot parse X.509 certificate PEM (only PKCS#1 / PKCS#8 SPKI). Silently built a malformed key, failed every verify with `InvalidSignature`. Switched to `keys` (JWKS) field via `DecodingKey::from_jwk`. **Ship-blocker; whole CF Access feature was dead on arrival.**
+6. **`Validation::new` defaults `validate_aud = true` rejects valid CF JWTs.** — **✅ Fixed in `d18afdc`** — when no audience is configured but the JWT carries an `aud` claim (CF Access always does), `jsonwebtoken` 9.x rejects the token even with a valid signature and issuer. Gate `validate_aud = self.audience.is_some()`. **Ship-blocker for any operator who hadn't pasted the optional AUD tag.**
 
 ### ⚠️ Major Concerns
 
@@ -87,7 +87,7 @@ The `from_team_domain` code path had **zero** integration tests against the real
 8. **`open_url` admin endpoint is a no-op echo.** — **✅ Fixed** (REST endpoint removed; `openUrl` lives in `backend/shell` — Tauri opener on desktop, `window.open` on web)
 9. **Admin settings card in web mode.** — **✅ Fixed** (`SettingsPage` returns `null` when `!isTauri()`)
 10. **`/api/v1/test/events/publish` in production.** — **✅ Fixed** (`#[cfg(feature = "test-utils")]` route registration)
-24. **CF team domain field unreachable through Settings UI.** — **✅ Fixed in `d18afdc`** — the input was rendered conditionally on `adminWeb.trustCfAccess`, but the toggle auto-persists on flip and the backend rejects with "team domain required" when the field is empty. State never updates → field never appears → no way out through the UI. Fix: render the field whenever web admin is enabled, so the operator can populate it *before* flipping the trust toggle. Required a SQL workaround on the running instance to unblock during testing.
+11. **CF team domain field unreachable through Settings UI.** — **✅ Fixed in `d18afdc`** — the input was rendered conditionally on `adminWeb.trustCfAccess`, but the toggle auto-persists on flip and the backend rejects with "team domain required" when the field is empty. State never updates → field never appears → no way out through the UI. Fix: render the field whenever web admin is enabled, so the operator can populate it _before_ flipping the trust toggle. Required a SQL workaround on the running instance to unblock during testing.
 
 ### 🟡 Minor Issues / Nitpicks
 
@@ -155,4 +155,4 @@ All four original critical items plus the three smoke-discovered ship-blockers (
 
 **Caveat for upstream:** the CF Access feature would not have functioned for any end user without `d18afdc`. Whoever lands this upstream should also land the #22 follow-up test (recorded CF certs response + synthetic JWT against `from_team_domain`) so the regression cannot recur. The phased commit structure made review possible — web admin phases, review remediation, facade Phases 1–5, and the post-smoke CF Access fix are each individually digestible.
 
-Sources: [`crates/mcpmux-gateway/src/admin/`](../../crates/mcpmux-gateway/src/admin/), [`crates/mcpmux-gateway/src/admin/middleware/cf_access.rs`](../../crates/mcpmux-gateway/src/admin/middleware/cf_access.rs), [`oauth/inbound_consent.rs`](../../crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [`apps/desktop/src/lib/backend/`](../../apps/desktop/src/lib/backend/), [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx), [`docs/planning/unified-backend-facade.md`](./unified-backend-facade.md).
+Sources: [`crates/mcpmux-gateway/src/admin/`](../../crates/mcpmux-gateway/src/admin/), [`crates/mcpmux-gateway/src/admin/middleware/cf_access.rs`](../../crates/mcpmux-gateway/src/admin/middleware/cf_access.rs), [`oauth/inbound_consent.rs`](../../crates/mcpmux-gateway/src/oauth/inbound_consent.rs), [`apps/desktop/src/lib/backend/`](../../apps/desktop/src/lib/backend/), [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx), [`docs/frontend/reference/unified-backend-facade.md`](../frontend/reference/unified-backend-facade.md).

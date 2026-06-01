@@ -1,7 +1,7 @@
 # Docs Restructure — Domain Architecture Layout
 
 **Last Updated:** Jun 1, 2026
-**Status:** Planning — decisions locked; not yet started
+**Status:** Complete — all 4 phases done; docs tree coherent
 **Branch:** TBD (docs-only; no Rust/TS changes)
 **Base branch:** `main`
 **Depends on:** nothing — pure doc reorganization; all source material exists
@@ -154,17 +154,17 @@ docs/
 
 ## Key files referenced
 
-| File                                                                                                       | Note                                           |
-| ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| [`docs/planning/feature-set-consent-model.md`](./feature-set-consent-model.md)                             | Primary source for consent + binding synthesis |
-| [`docs/planning/meta-gateway-invoke.md`](./meta-gateway-invoke.md)                                         | Primary source for tool-discovery synthesis    |
-| [`docs/planning/search-tools-hybrid-semantic-ranking.md`](./search-tools-hybrid-semantic-ranking.md)       | Hybrid ranking design                          |
-| [`docs/planning/search-tools-persistent-embedding-cache.md`](./search-tools-persistent-embedding-cache.md) | Embedding cache design                         |
-| [`docs/planning/server-account-clones.md`](./server-account-clones.md)                                     | Clones; feeds server-lifecycle doc             |
-| [`docs/planning/unified-backend-facade.md`](./unified-backend-facade.md)                                   | Frontend transport; feeds backend-facade doc   |
-| [`docs/planning/web-admin-parity-matrix.md`](./web-admin-parity-matrix.md)                                 | Web admin; feeds web-admin doc                 |
-| `CLAUDE.md`                                                                                                | Updated in Phase 4 to link new paths           |
-| `AGENTS.md`                                                                                                | Updated in Phase 4 to link new paths           |
+| File                                                                                                                                   | Note                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| [`docs/backend/reference/feature-set-consent-model.md`](../backend/reference/feature-set-consent-model.md)                             | Primary source for consent + binding synthesis |
+| [`docs/backend/reference/meta-gateway-invoke.md`](../backend/reference/meta-gateway-invoke.md)                                         | Primary source for tool-discovery synthesis    |
+| [`docs/backend/reference/search-tools-hybrid-semantic-ranking.md`](../backend/reference/search-tools-hybrid-semantic-ranking.md)       | Hybrid ranking design                          |
+| [`docs/backend/reference/search-tools-persistent-embedding-cache.md`](../backend/reference/search-tools-persistent-embedding-cache.md) | Embedding cache design                         |
+| [`docs/backend/reference/server-account-clones.md`](../backend/reference/server-account-clones.md)                                     | Clones; feeds server-lifecycle doc             |
+| [`docs/frontend/reference/unified-backend-facade.md`](../frontend/reference/unified-backend-facade.md)                                 | Frontend transport; feeds backend-facade doc   |
+| [`docs/frontend/reference/web-admin-parity-matrix.md`](../frontend/reference/web-admin-parity-matrix.md)                               | Web admin; feeds web-admin doc                 |
+| `CLAUDE.md`                                                                                                                            | Updated in Phase 4 to link new paths           |
+| `AGENTS.md`                                                                                                                            | Updated in Phase 4 to link new paths           |
 
 ## Open questions (deferred, not blocking)
 

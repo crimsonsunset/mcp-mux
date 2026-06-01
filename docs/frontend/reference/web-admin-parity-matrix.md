@@ -1,5 +1,7 @@
 # Web Admin Parity Matrix
 
+> **Synthesized into:** [`docs/frontend/technical/web-admin-and-remote-access.md`](../technical/web-admin-and-remote-access.md) — read that doc first for a navigable overview; return here for the full command table, SSE channel registry, and anomaly history.
+
 **Generated:** May 25, 2026 (from `apps/desktop/src` invoke scan + `lib.rs` handler registry)
 **Re-scanned:** May 25, 2026 — Phase 5 desktop cleanup sign-off ([pre-web-admin-desktop-cleanup.md](./pre-web-admin-desktop-cleanup.md))
 **Phase 8 closure:** May 26, 2026 — all rows resolved (`[x]` or `N/A`)
