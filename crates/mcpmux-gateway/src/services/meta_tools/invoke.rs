@@ -350,7 +350,7 @@ impl MetaTool for InvokeToolTool {
             let candidates: Vec<String> = invokable
                 .iter()
                 .filter(|f| f.server_id == server_id)
-                .map(|f| f.qualified_name())
+                .map(|f| f.feature_name.clone())
                 .collect();
             let suggestions = levenshtein_suggestions(&tool_name, &candidates, 5);
             return Ok(invoke_error(format_invoke_permission_denied(
