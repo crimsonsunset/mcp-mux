@@ -91,6 +91,7 @@ export async function saveServerInputs(
   envOverrides?: Record<string, string>,
   argsAppend?: string[],
   extraHeaders?: Record<string, string>,
+  defaultParams?: Record<string, unknown>,
   displayNameOverride?: string
 ): Promise<void> {
   return apiCall<void>('save_server_inputs', {
@@ -100,6 +101,7 @@ export async function saveServerInputs(
     envOverrides,
     argsAppend,
     extraHeaders,
+    defaultParams,
     displayNameOverride,
   });
 }

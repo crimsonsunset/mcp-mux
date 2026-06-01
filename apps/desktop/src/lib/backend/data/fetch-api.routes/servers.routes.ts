@@ -30,6 +30,7 @@ export const serversRoutes: Record<string, RouteHandler> = {
       env_overrides: args.envOverrides,
       args_append: args.argsAppend,
       extra_headers: args.extraHeaders,
+      default_params: args.defaultParams,
       display_name_override: args.displayNameOverride,
     },
   }),

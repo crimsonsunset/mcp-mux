@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use mcpmux_core::{InstallationSource, InstalledServer, InstalledServerRepository};
 use rusqlite::{params, OptionalExtension};
+use serde_json::Value;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -32,6 +33,7 @@ struct RawServerRow {
     source: Option<String>,
     cloned_from: Option<String>,
     display_name_override: Option<String>,
+    default_params: Option<String>,
 }
 
 /// SQLite-backed implementation of InstalledServerRepository.
@@ -103,6 +105,17 @@ impl SqliteInstalledServerRepository {
         serde_json::to_string(vec).unwrap_or_else(|_| "[]".to_string())
     }
 
+    /// Parse JSON string to HashMap of arbitrary JSON values.
+    fn parse_json_value_map(s: Option<String>) -> HashMap<String, Value> {
+        s.and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    }
+
+    /// Serialize HashMap of arbitrary JSON values to JSON string.
+    fn serialize_json_value_map(map: &HashMap<String, Value>) -> String {
+        serde_json::to_string(map).unwrap_or_else(|_| "{}".to_string())
+    }
+
     /// Serialize InstallationSource to database string format.
     /// Format: "registry" | "user_config:/path/to/file.json" | "manual_entry"
     fn serialize_source(source: &InstallationSource) -> String {
@@ -134,7 +147,7 @@ impl SqliteInstalledServerRepository {
     const SELECT_COLUMNS: &'static str =
         "id, space_id, server_id, server_name, cached_definition, input_values, enabled, env_overrides,
          args_append, extra_headers, oauth_connected, created_at, updated_at, source, cloned_from,
-         display_name_override";
+         display_name_override, default_params";
 
     /// Extract raw row data (used in the closure passed to rusqlite).
     fn extract_row(row: &rusqlite::Row) -> rusqlite::Result<RawServerRow> {
@@ -155,6 +168,7 @@ impl SqliteInstalledServerRepository {
             source: row.get(13)?,
             cloned_from: row.get(14)?,
             display_name_override: row.get(15)?,
+            default_params: row.get(16)?,
         })
     }
 
@@ -171,6 +185,7 @@ impl SqliteInstalledServerRepository {
             env_overrides: Self::parse_json_map(row.env_overrides),
             args_append: Self::parse_json_vec(row.args_append),
             extra_headers: Self::parse_json_map(row.extra_headers),
+            default_params: Self::parse_json_value_map(row.default_params),
             oauth_connected: row.oauth_connected,
             source: Self::parse_source(row.source),
             cloned_from: row.cloned_from,
@@ -283,8 +298,8 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
             "INSERT INTO installed_servers
              (id, space_id, server_id, server_name, cached_definition, input_values, enabled, env_overrides,
               args_append, extra_headers, oauth_connected, created_at, updated_at, source, cloned_from,
-              display_name_override)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+              display_name_override, default_params)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 server.id.to_string(),
                 server.space_id,
@@ -302,6 +317,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 Self::serialize_source(&server.source),
                 server.cloned_from,
                 server.display_name_override,
+                Self::serialize_json_value_map(&server.default_params),
             ],
         )?;
         Ok(())
@@ -317,7 +333,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
             "UPDATE installed_servers
              SET server_name = ?2, cached_definition = ?3, input_values = ?4, enabled = ?5,
                  env_overrides = ?6, args_append = ?7, extra_headers = ?8, oauth_connected = ?9,
-                 updated_at = ?10, source = ?11, display_name_override = ?12
+                 updated_at = ?10, source = ?11, display_name_override = ?12, default_params = ?13
              WHERE id = ?1",
             params![
                 server.id.to_string(),
@@ -332,6 +348,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 Utc::now().to_rfc3339(),
                 Self::serialize_source(&server.source),
                 server.display_name_override,
+                Self::serialize_json_value_map(&server.default_params),
             ],
         )?;
         Ok(())

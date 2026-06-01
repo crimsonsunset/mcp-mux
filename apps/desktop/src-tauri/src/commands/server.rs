@@ -137,6 +137,7 @@ pub async fn save_server_inputs(
     env_overrides: Option<HashMap<String, String>>,
     args_append: Option<Vec<String>>,
     extra_headers: Option<HashMap<String, String>>,
+    default_params: Option<HashMap<String, serde_json::Value>>,
     display_name_override: Option<String>,
 ) -> Result<InstalledServer, String> {
     let service_lock = app_service.read().await;
@@ -154,6 +155,7 @@ pub async fn save_server_inputs(
             env_overrides,
             args_append,
             extra_headers,
+            default_params,
             display_name_override,
         )
         .await

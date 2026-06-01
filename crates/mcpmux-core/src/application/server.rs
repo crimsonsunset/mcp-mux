@@ -3,6 +3,7 @@
 //! Manages server installation and configuration with automatic event emission.
 
 use anyhow::{anyhow, Result};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -360,7 +361,7 @@ impl ServerAppService {
         Ok(())
     }
 
-    /// Update server configuration (inputs, env overrides, args, headers, display label).
+    /// Update server configuration (inputs, env overrides, args, headers, default params, display label).
     ///
     /// `display_name_override` semantics:
     /// - `None` — leave existing override unchanged.
@@ -377,6 +378,7 @@ impl ServerAppService {
         env_overrides: Option<HashMap<String, String>>,
         args_append: Option<Vec<String>>,
         extra_headers: Option<HashMap<String, String>>,
+        default_params: Option<HashMap<String, Value>>,
         display_name_override: Option<String>,
     ) -> Result<InstalledServer> {
         let space_id_str = space_id.to_string();
@@ -396,6 +398,9 @@ impl ServerAppService {
         }
         if let Some(headers) = extra_headers {
             server.extra_headers = headers;
+        }
+        if let Some(params) = default_params {
+            server.default_params = params;
         }
         if let Some(value) = display_name_override {
             server.display_name_override = Some(value)
@@ -1004,6 +1009,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some("My Calendar".into()),
             )
             .await
@@ -1016,7 +1022,7 @@ mod tests {
 
         // None leaves the existing override untouched.
         let untouched = service
-            .update_config(space_id, "posthog", HashMap::new(), None, None, None, None)
+            .update_config(space_id, "posthog", HashMap::new(), None, None, None, None, None)
             .await
             .expect("update without display name");
         assert_eq!(
@@ -1030,6 +1036,7 @@ mod tests {
                 space_id,
                 "posthog",
                 HashMap::new(),
+                None,
                 None,
                 None,
                 None,

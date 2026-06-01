@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::tools::{caller_resolution, caller_space_id};
@@ -360,13 +361,25 @@ impl MetaTool for InvokeToolTool {
             )));
         }
 
+        let installed = call
+            .ctx
+            .installed_server_repo
+            .get_by_server_id(&space_id.to_string(), &server_id)
+            .await
+            .ok()
+            .flatten();
+        let effective_args = match installed {
+            Some(server) => merge_default_params(args, &server.default_params),
+            None => args,
+        };
+
         let backend = call
             .ctx
             .invoke_backend
             .as_ref()
             .ok_or_else(|| MetaToolError::Internal("invoke routing not configured".into()))?;
         match backend
-            .call_tool(space_id, &resolved.feature_set_ids, &qualified_name, args)
+            .call_tool(space_id, &resolved.feature_set_ids, &qualified_name, effective_args)
             .await
         {
             Ok(result) => {
@@ -642,6 +655,25 @@ fn byte_truncation_envelope(text: &str, max_bytes: usize) -> Value {
         "truncated": true,
         "text": truncated,
     })
+}
+
+/// Merge per-server default params under caller-supplied args.
+///
+/// Produces `{ ...defaults, ...caller_args }` — caller wins on key collision.
+/// Returns `args` unchanged when `defaults` is empty or `args` is not an Object.
+fn merge_default_params(args: Value, defaults: &HashMap<String, Value>) -> Value {
+    if defaults.is_empty() {
+        return args;
+    }
+    let Value::Object(caller_map) = args else {
+        return args;
+    };
+    let mut merged: Map<String, Value> = defaults
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    merged.extend(caller_map);
+    Value::Object(merged)
 }
 
 /// Build a structured MCP error payload for invoke failures.

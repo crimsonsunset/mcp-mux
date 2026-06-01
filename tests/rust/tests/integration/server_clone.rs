@@ -156,6 +156,7 @@ async fn two_clones_have_distinct_prefixes_and_env() {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -169,6 +170,7 @@ async fn two_clones_have_distinct_prefixes_and_env() {
                 "ACCOUNT".to_string(),
                 "personal-account".to_string(),
             )])),
+            None,
             None,
             None,
             None,

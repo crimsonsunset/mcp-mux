@@ -113,6 +113,7 @@ pub struct SaveServerInputsBody {
     pub env_overrides: Option<HashMap<String, String>>,
     pub args_append: Option<Vec<String>>,
     pub extra_headers: Option<HashMap<String, String>>,
+    pub default_params: Option<HashMap<String, Value>>,
     pub display_name_override: Option<String>,
 }
 
@@ -803,6 +804,7 @@ pub async fn save_server_inputs(
             body.env_overrides,
             body.args_append,
             body.extra_headers,
+            body.default_params,
             body.display_name_override,
         )
         .await?;

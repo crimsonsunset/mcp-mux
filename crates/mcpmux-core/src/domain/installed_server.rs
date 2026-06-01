@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -74,6 +75,13 @@ pub struct InstalledServer {
     #[serde(default)]
     pub extra_headers: HashMap<String, String>,
 
+    /// Default tool-call arguments merged into every call routed to this server.
+    ///
+    /// Shallow merge at invoke time: `{ ...default_params, ...caller_args }` — caller wins on
+    /// key collision. Non-secret values only (e.g. cloudId, projectKey).
+    #[serde(default)]
+    pub default_params: HashMap<String, Value>,
+
     /// Whether OAuth authentication has been completed
     pub oauth_connected: bool,
 
@@ -117,6 +125,7 @@ impl InstalledServer {
             env_overrides: HashMap::new(),
             args_append: Vec::new(),
             extra_headers: HashMap::new(),
+            default_params: HashMap::new(),
             oauth_connected: false,
             source: InstallationSource::default(),
             cloned_from: None,
@@ -264,6 +273,10 @@ mod tests {
         assert!(
             server.extra_headers.is_empty(),
             "New server should have empty extra_headers"
+        );
+        assert!(
+            server.default_params.is_empty(),
+            "New server should have empty default_params"
         );
     }
 

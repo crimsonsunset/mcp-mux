@@ -99,6 +99,8 @@ export interface InstalledServerState {
   env_overrides: Record<string, string>;
   args_append: string[];
   extra_headers: Record<string, string>;
+  /** Default tool-call arguments merged into every call routed to this server. */
+  default_params?: Record<string, unknown>;
   oauth_connected: boolean;
   source: InstallationSource; // How this server was installed
   /** User-supplied display label that survives user-config sync. */
@@ -125,6 +127,8 @@ export interface ServerViewModel extends ServerDefinition {
   args_append?: string[];
   /** Extra HTTP headers (http only) */
   extra_headers?: Record<string, string>;
+  /** Default tool-call arguments merged into every call routed to this server. */
+  default_params?: Record<string, unknown>;
 }
 
 /** Registry category */

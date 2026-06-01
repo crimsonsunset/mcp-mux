@@ -116,6 +116,7 @@ function mergeDefinitionsWithStates(
       env_overrides: state?.env_overrides ?? {},
       args_append: state?.args_append ?? [],
       extra_headers: state?.extra_headers ?? {},
+      default_params: state?.default_params ?? {},
     } as ServerViewModel;
   });
 }
@@ -151,6 +152,7 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
         env_overrides: state.env_overrides ?? {},
         args_append: state.args_append ?? [],
         extra_headers: state.extra_headers ?? {},
+        default_params: state.default_params ?? {},
       } as ServerViewModel;
     } catch (e) {
       console.warn('[ServersPage] Failed to parse cached_definition, using minimal fallback:', e);
@@ -187,6 +189,7 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
     env_overrides: state.env_overrides ?? {},
     args_append: state.args_append ?? [],
     extra_headers: state.extra_headers ?? {},
+    default_params: state.default_params ?? {},
   } as ServerViewModel;
 }
 
@@ -203,6 +206,8 @@ interface ConfigModalState {
   argsAppend: string[];
   /** Extra HTTP headers (http only) */
   extraHeaders: Record<string, string>;
+  /** Default tool-call arguments (JSON textarea). */
+  defaultParamsJson: string;
   /** User-supplied display label (empty string = clear override). */
   displayName: string;
   /** Display name when the modal opened — used to detect changes on save. */
@@ -232,6 +237,7 @@ export function ServersPage() {
     envOverrides: {},
     argsAppend: [],
     extraHeaders: {},
+    defaultParamsJson: '{}',
     displayName: '',
     initialDisplayName: '',
   });
@@ -689,6 +695,7 @@ export function ServersPage() {
         envOverrides: { ...(server.env_overrides ?? {}) },
         argsAppend: [...(server.args_append ?? [])],
         extraHeaders: { ...(server.extra_headers ?? {}) },
+        defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
         displayName: initialDisplayName,
         initialDisplayName,
       });
@@ -762,6 +769,7 @@ export function ServersPage() {
       envOverrides: { ...(server.env_overrides ?? {}) },
       argsAppend: [...(server.args_append ?? [])],
       extraHeaders: { ...(server.extra_headers ?? {}) },
+      defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
       displayName: initialDisplayName,
       initialDisplayName,
     });
@@ -799,6 +807,7 @@ export function ServersPage() {
         env_overrides: cloned.env_overrides ?? {},
         args_append: cloned.args_append ?? [],
         extra_headers: cloned.extra_headers ?? {},
+        default_params: cloned.default_params ?? {},
       };
     } catch (e) {
       console.warn('[ServersPage] Failed to parse cloned server definition:', e);
@@ -840,6 +849,16 @@ export function ServersPage() {
       const displayNameOverride =
         trimmedDisplayName === trimmedInitial ? undefined : trimmedDisplayName;
 
+      let defaultParams: Record<string, unknown> | undefined;
+      try {
+        const parsed = JSON.parse(configModal.defaultParamsJson.trim() || '{}');
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          defaultParams = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // ignore parse errors — backend will keep the existing value
+      }
+
       await saveServerInputs(
         serverId,
         configModal.inputValues,
@@ -847,6 +866,7 @@ export function ServersPage() {
         configModal.envOverrides,
         configModal.argsAppend,
         configModal.extraHeaders,
+        defaultParams,
         displayNameOverride,
       );
 
@@ -857,6 +877,7 @@ export function ServersPage() {
         envOverrides: {},
         argsAppend: [],
         extraHeaders: {},
+        defaultParamsJson: '{}',
         displayName: '',
         initialDisplayName: '',
       });
@@ -904,6 +925,7 @@ export function ServersPage() {
       envOverrides: {},
       argsAppend: [],
       extraHeaders: {},
+      defaultParamsJson: '{}',
       displayName: '',
       initialDisplayName: '',
     });
@@ -2058,6 +2080,28 @@ export function ServersPage() {
                   </div>
                 </div>
               )}
+
+              {/* Default Tool Parameters */}
+              <div>
+                <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
+                  Default Tool Parameters
+                </label>
+                <p className="text-xs text-[rgb(var(--muted))] mb-2">
+                  JSON object merged into every tool call for this server. Caller-supplied args win
+                  on collision. Example: <code className="font-mono">{`{"cloudId": "abc123"}`}</code>
+                </p>
+                <textarea
+                  value={configModal.defaultParamsJson}
+                  onChange={(e) =>
+                    setConfigModal({ ...configModal, defaultParamsJson: e.target.value })
+                  }
+                  placeholder="{}"
+                  rows={3}
+                  className="input w-full font-mono text-sm resize-y"
+                  data-testid="config-default-params"
+                  spellCheck={false}
+                />
+              </div>
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
