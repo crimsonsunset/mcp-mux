@@ -65,6 +65,13 @@ pub fn format_server_inactive_error(server_id: &str) -> String {
     )
 }
 
+/// Actionable error when a bound server is not connected.
+pub fn format_server_bound_offline_error(server_id: &str) -> String {
+    format!(
+        "Server '{server_id}' is bound but not connected. Run mcpmux_diagnose_server to see why."
+    )
+}
+
 /// Actionable error when invoke targets a tool outside the permission set.
 pub fn format_invoke_permission_denied(
     qualified_name: &str,

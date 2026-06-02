@@ -18,7 +18,9 @@ use super::diagnose::{
     classify_health, connection_status_label, parse_missing_required_inputs, ServerHealth,
 };
 use super::registry::{feature_set_ids_fingerprint, MetaTool, MetaToolCall, MetaToolError};
-use crate::pool::ConnectionStatus;
+use crate::pool::{
+    format_server_bound_offline_error, format_server_inactive_error, ConnectionStatus,
+};
 use crate::services::ResolvedFeatureSet;
 
 /// Fire a `FeatureSetMembersChanged` event so MCPNotifier pushes a
@@ -107,7 +109,7 @@ fn blocking_reason_from_health(health: ServerHealth) -> Option<&'static str> {
 ///
 /// `ready` requires binding + `Connected` + no missing required inputs; `bound` covers
 /// bound-but-offline/auth/setup cases; `bindable` means not in the active binding.
-fn derive_server_readiness(
+pub(crate) fn derive_server_readiness(
     in_binding: bool,
     connection_status: ConnectionStatus,
     has_missing_inputs: bool,
@@ -127,6 +129,44 @@ fn derive_server_readiness(
     let health = classify_health(connection_status, false);
     let blocking = blocking_reason_from_health(health).or(Some("disconnected"));
     ("bound", blocking)
+}
+
+/// Structured invoke denial reason and remedy meta tool when a server cannot accept calls.
+pub(crate) fn classify_invoke_denial(
+    in_binding: bool,
+    connection_status: ConnectionStatus,
+    has_missing_inputs: bool,
+) -> Option<(&'static str, &'static str)> {
+    let (readiness, blocking_reason) =
+        derive_server_readiness(in_binding, connection_status, has_missing_inputs);
+
+    match readiness {
+        "ready" => None,
+        "bindable" => Some(("inactive", "mcpmux_bind_current_workspace")),
+        "bound" => {
+            let reason = match blocking_reason {
+                Some("needs_setup") => "needs_setup",
+                Some("auth_required") => "auth_required",
+                _ => "bound_offline",
+            };
+            Some((reason, "mcpmux_diagnose_server"))
+        }
+        _ => None,
+    }
+}
+
+/// Human-readable `action` string for structured invoke denial payloads.
+pub(crate) fn format_invoke_not_ready_action(reason: &str, server_id: &str) -> String {
+    match reason {
+        "inactive" => format_server_inactive_error(server_id),
+        "auth_required" => format!(
+            "Server '{server_id}' requires authentication. Run mcpmux_diagnose_server to connect."
+        ),
+        "needs_setup" => format!(
+            "Server '{server_id}' has missing required setup inputs. Run mcpmux_diagnose_server to see what's needed."
+        ),
+        _ => format_server_bound_offline_error(server_id),
+    }
 }
 
 /// Whether the caller omitted or blanked the search query.

@@ -5,9 +5,10 @@ use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
+use super::diagnose::parse_missing_required_inputs;
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
-use super::tools::{caller_resolution, caller_space_id};
-use crate::pool::{format_invoke_permission_denied, format_server_inactive_error};
+use super::tools::{caller_resolution, caller_space_id, classify_invoke_denial, format_invoke_not_ready_action};
+use crate::pool::{format_invoke_permission_denied, ConnectionStatus};
 use crate::services::levenshtein_suggestions;
 use mcpmux_core::FeatureType;
 
@@ -367,7 +368,13 @@ impl MetaTool for InvokeToolTool {
             .collect();
 
         if !binding_servers.contains(&server_id) {
-            return Ok(invoke_error(format_server_inactive_error(&server_id)));
+            let (reason, tool) = classify_invoke_denial(false, ConnectionStatus::Disconnected, false)
+                .expect("not in binding always yields inactive denial");
+            return Ok(invoke_not_ready(
+                reason,
+                format_invoke_not_ready_action(reason, &server_id),
+                tool,
+            ));
         }
 
         let matched = invokable.iter().find(|f| {
@@ -411,6 +418,27 @@ impl MetaTool for InvokeToolTool {
             .await
             .ok()
             .flatten();
+
+        let pool_statuses = call.ctx.server_manager.get_all_statuses(space_id).await;
+        let connection_status = pool_statuses
+            .get(&server_id)
+            .map(|(status, _, _, _)| *status)
+            .unwrap_or(ConnectionStatus::Disconnected);
+        let has_missing_inputs = installed
+            .as_ref()
+            .map(|server| !parse_missing_required_inputs(server).is_empty())
+            .unwrap_or(false);
+
+        if let Some((reason, tool)) =
+            classify_invoke_denial(true, connection_status, has_missing_inputs)
+        {
+            return Ok(invoke_not_ready(
+                reason,
+                format_invoke_not_ready_action(reason, &server_id),
+                tool,
+            ));
+        }
+
         let effective_args = match installed {
             Some(server) => merge_default_params(args, &server.default_params),
             None => args,
@@ -729,6 +757,17 @@ fn invoke_error(message: String) -> CallToolResult {
     let payload = json!({
         "error": "invoke_failed",
         "message": message,
+    });
+    CallToolResult::error(vec![Content::text(payload.to_string())])
+}
+
+/// Build a structured not-ready denial before backend dispatch.
+fn invoke_not_ready(reason: &str, action: String, tool: &str) -> CallToolResult {
+    let payload = json!({
+        "error": "not_ready",
+        "reason": reason,
+        "action": action,
+        "tool": tool,
     });
     CallToolResult::error(vec![Content::text(payload.to_string())])
 }
