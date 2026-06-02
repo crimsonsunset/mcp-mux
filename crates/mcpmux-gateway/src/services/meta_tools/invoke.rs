@@ -26,14 +26,14 @@ pub struct InvokeResultFilter {
     pub format: Option<String>,
 }
 
-/// Strip a leading `{server_id}_` prefix when agents pass the qualified name from search.
+/// Strip repeated `{server_id}_` prefixes when agents pass a qualified name from search.
 pub fn normalize_invoke_tool_name(server_id: &str, tool: &str) -> String {
     let prefix = format!("{server_id}_");
-    if let Some(bare) = tool.strip_prefix(&prefix) {
-        bare.to_string()
-    } else {
-        tool.to_string()
+    let mut bare = tool;
+    while let Some(stripped) = bare.strip_prefix(&prefix) {
+        bare = stripped;
     }
+    bare.to_string()
 }
 
 /// Whether an invokable feature matches the caller's `tool` (bare or qualified).
@@ -775,6 +775,14 @@ mod tests {
     fn normalize_invoke_tool_name_passes_bare_through() {
         assert_eq!(
             normalize_invoke_tool_name("github", "list_issues"),
+            "list_issues"
+        );
+    }
+
+    #[test]
+    fn normalize_invoke_tool_name_strips_repeated_prefix() {
+        assert_eq!(
+            normalize_invoke_tool_name("github", "github_github_list_issues"),
             "list_issues"
         );
     }

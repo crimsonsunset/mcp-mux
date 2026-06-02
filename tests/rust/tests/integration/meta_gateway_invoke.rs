@@ -333,6 +333,76 @@ async fn invoke_tool_accepts_qualified_tool_name() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn invoke_tool_accepts_params_key_as_args_fallback() {
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": json!({ "ok": true }).to_string(),
+        })],
+        structured_content: Some(json!({ "ok": true })),
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("github_list_issues", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+    f.grant_github_feature_set().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "list_issues",
+                "params": { "owner": "mcpmux", "repo": "mcp-mux" }
+            }),
+        )
+        .await;
+
+    assert!(
+        !result.is_error.unwrap_or(true),
+        "params key must route as args fallback: {:?}",
+        Fixture::result_json(&result)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_tool_strips_repeated_server_prefix() {
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": json!({ "ok": true }).to_string(),
+        })],
+        structured_content: Some(json!({ "ok": true })),
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("github_list_issues", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+    f.grant_github_feature_set().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "github_github_list_issues",
+                "args": { "owner": "mcpmux", "repo": "mcp-mux" }
+            }),
+        )
+        .await;
+
+    assert!(
+        !result.is_error.unwrap_or(true),
+        "double-prefixed tool name must normalize: {:?}",
+        Fixture::result_json(&result)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_tools_includes_bare_name_and_required_param_types() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;

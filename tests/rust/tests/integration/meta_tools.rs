@@ -1619,12 +1619,11 @@ async fn registry_advertises_core_tools_read_only_in_list() {
     for hidden in [
         "mcpmux_list_feature_sets",
         "mcpmux_bind_current_workspace",
+        "mcpmux_search_resources",
+        "mcpmux_read_resource",
+        "mcpmux_search_prompts",
+        "mcpmux_fetch_prompt",
         "mcpmux_diagnose_server",
-        "mcpmux_enable_server",
-        "mcpmux_disable_server",
-        "mcpmux_create_feature_set",
-        "mcpmux_describe_resolution",
-        "mcpmux_describe_workspace",
     ] {
         assert!(
             !names.iter().any(|n| n == hidden),
