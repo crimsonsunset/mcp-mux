@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use mcpmux_core::{FeatureType, ServerFeature, ServerFeatureRepository};
 
 use crate::pool::InactiveDiscoveryEntry;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tracing::{debug, info, trace};
 
 use super::discovery_rank::{
@@ -194,6 +194,7 @@ impl ToolDiscoveryService {
         query_id: Option<&str>,
         hybrid: Option<SearchContext<'_>>,
         server_readiness: Option<&std::collections::HashMap<String, &'static str>>,
+        include_invoke_example: bool,
     ) -> SearchToolsResult {
         let limit = limit.clamp(1, 100);
         let offset = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
@@ -255,7 +256,7 @@ impl ToolDiscoveryService {
                         .copied()
                         .unwrap_or("bindable")
                 });
-                entry_to_json(entry, detail_level, readiness)
+                entry_to_json(entry, detail_level, readiness, include_invoke_example)
             })
             .collect();
         let paginate_ms = paginate_started.elapsed().as_millis() as u64;
@@ -652,10 +653,36 @@ fn input_schema_is_complex(input_schema: Option<&Value>) -> bool {
         .any(|prop| schema_property_type(prop) == "unknown" || schema_property_is_complex(prop))
 }
 
+/// Placeholder value for one required param in a copy-paste `invoke_example`.
+fn param_invoke_placeholder(param_type: &str) -> String {
+    format!("<{param_type}>")
+}
+
+/// Copy-paste-ready `mcpmux_invoke_tool` shape for browse hits.
+fn build_invoke_example(entry: &ToolIndexEntry, required_params: &[Value]) -> Value {
+    let mut args = Map::new();
+    for param in required_params {
+        let Some(name) = param.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let param_type = param
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("string");
+        args.insert(name.to_string(), json!(param_invoke_placeholder(param_type)));
+    }
+    json!({
+        "server_id": entry.server_id,
+        "tool": entry.feature_name,
+        "args": Value::Object(args),
+    })
+}
+
 fn entry_to_json(
     entry: &ToolIndexEntry,
     detail_level: DetailLevel,
     server_readiness: Option<&str>,
+    include_invoke_example: bool,
 ) -> Value {
     let required_params = extract_required_param_specs(entry.input_schema.as_ref());
     let optional_params = extract_optional_param_specs(entry.input_schema.as_ref());
@@ -669,6 +696,9 @@ fn entry_to_json(
         "optional_params": optional_params,
         "schema_complex": schema_complex,
     });
+    if include_invoke_example {
+        obj["invoke_example"] = build_invoke_example(entry, &required_params);
+    }
     if let Some(readiness) = server_readiness {
         obj["server_readiness"] = json!(readiness);
     }

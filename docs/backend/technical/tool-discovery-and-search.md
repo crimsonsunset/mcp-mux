@@ -12,10 +12,10 @@ AI clients connected to McpMux see **4 `mcpmux_*` meta tools** in `tools/list` a
 
 ```
 tools/list (core — always advertised):
-├── mcpmux_list_servers              server roster with per-server status + bindable_feature_set_ids
-├── mcpmux_search_tools              search by intent; returns qualified_name, bare_name, required_params (name+type)
+├── mcpmux_list_servers              server roster with readiness, connection, health, blocking_reason
+├── mcpmux_search_tools              search by intent; browse mode; optional_params; invoke_example on browse
 ├── mcpmux_get_tool_schema           single or batch schema fetch
-├── mcpmux_invoke_tool               single invoke entry point for all backend calls
+├── mcpmux_invoke_tool               single invoke entry point; optional preflight
 └── [0–N surfaced backend tools]     opt-in per FeatureSet member; default zero
 
 hidden-but-callable (registered, not advertised — reached via recovery strings):
@@ -40,7 +40,7 @@ The canonical agent workflow (one to three steps depending on tool complexity):
 
 ```
 1. mcpmux_search_tools({ query: "list issues", server_id: "github", detail_level: "description" })
-      → ranked hits with qualified_name, bare_name, required_params [{ name, type }, …], status, description
+      → ranked hits with qualified_name, bare_name, required_params, optional_params, server_readiness, schema_complex
 
 2. mcpmux_get_tool_schema({ tools: ["github_list_issues"] })   ← optional when required_params is enough
       → full JSON input schema; compact: true strips examples/descriptions
@@ -49,7 +49,15 @@ The canonical agent workflow (one to three steps depending on tool complexity):
       → backend tool result (optionally shaped via filter)
 ```
 
-Search hits always include `bare_name` (use as `invoke_tool.tool` when unsure) and `required_params` as `{ name, type }` objects (from cached `inputSchema.required` + `properties`), at every `detail_level` except `detail_level=schema` (which adds full `input_schema` instead). For parameter-light tools, an agent can skip step 2 and invoke from search using `bare_name` or `qualified_name`. For complex shapes or optional params, `mcpmux_get_tool_schema` remains the source of truth.
+**Direct invoke (no search hop):** When you already know the tool name, skip step 1 and call `mcpmux_invoke_tool` with `bare_name` or `qualified_name` from a prior session or browse hit. Bare and qualified names route identically.
+
+**Browse mode:** `mcpmux_search_tools({ server_id: "posthog" })` or `{ server_id: "posthog", mode: "browse" }` returns a paginated A–Z catalog (default limit **50**). Each browse hit includes an **`invoke_example`** object — copy-paste into `mcpmux_invoke_tool` (required args as `<type>` placeholders).
+
+**Opt-in preflight:** `mcpmux_invoke_tool({ server_id, tool, preflight: true })` returns `{ ready: true }` or the same structured `not_ready` error as a failed invoke, without calling the backend.
+
+Search hits always include `bare_name` (use as `invoke_tool.tool` when unsure), `required_params` and `optional_params` (capped ~8) as `{ name, type }` objects, `server_readiness` (`bindable` | `bound` | `ready`), and `schema_complex` (call `get_tool_schema` when true). At `detail_level=schema`, full `input_schema` is included instead of the shallow param lists.
+
+For parameter-light tools, an agent can skip step 2 and invoke from search using `bare_name` or `qualified_name`. When `schema_complex: true`, `mcpmux_get_tool_schema` is the source of truth.
 
 `mcpmux_invoke_tool` accepts **bare or qualified** `tool` values (strips a leading `{server_id}_` prefix when present). Passing the `qualified_name` from search no longer produces a double-prefixed permission error.
 
@@ -110,6 +118,44 @@ search_tools({ query })
 
 When the embedding model is not yet `Ready` (downloading or absent), search degrades cleanly to lexical-only and annotates `ranking: "lexical"` in the response. An agent or UI can read this field to know.
 
+### Browse mode
+
+Empty or absent `query` with `server_id` set (or explicit `mode: "browse"`) lists all matching tools alphabetically by `qualified_name`. Default **limit 50** (ranked search defaults to 20). Response includes `"mode": "browse"`. Each hit carries **`invoke_example`** for one-hop invoke:
+
+```json
+{
+  "invoke_example": {
+    "server_id": "github",
+    "tool": "list_issues",
+    "args": { "owner": "<string>", "repo": "<string>" }
+  }
+}
+```
+
+Ranked search hits do **not** include `invoke_example` (token budget).
+
+### Search hit shape
+
+| Field | When | Notes |
+| ----- | ---- | ----- |
+| `required_params` | always (except `detail_level=schema`) | `{ name, type }[]` |
+| `optional_params` | always (except schema level) | capped ~8; shallow types only |
+| `schema_complex` | always | `true` → call `get_tool_schema` |
+| `server_readiness` | always | `bindable` \| `bound` \| `ready` — point-in-time pool snapshot |
+| `invoke_example` | browse mode only | copy-paste into `mcpmux_invoke_tool` |
+
+### Server readiness (`list_servers`)
+
+Replaces the old binary `status` field:
+
+| `readiness` | Meaning |
+| ----------- | ------- |
+| `bindable` | Not in active binding; `bindable_feature_set_ids` lists FeatureSets that can activate it |
+| `bound` | In binding but not invokable — see `blocking_reason` (`auth_required`, `needs_setup`, `disconnected`, `error`) |
+| `ready` | Bound + connected + no missing required inputs |
+
+Each entry also includes `connection`, `health`, and `missing_inputs` when setup is incomplete.
+
 **`include_inactive: true`** widens search to tools in installed-but-unbound FeatureSets. Inactive matches carry `{ status: "inactive", bindable_feature_set_id }`. The wide scan uses an optimized single JOIN query (replaced a per-FS `resolve_feature_sets` loop that caused 84 s hangs on large bundles).
 
 ---
@@ -125,8 +171,10 @@ invokable_tools   = Tool features for effective_servers ∩ FeatureSet members
 
 Invoking a tool outside the effective set returns an actionable error, not a silent proxy. Examples:
 
-- `"github inactive → mcpmux_enable_server('github')"` (pre-consent-model only; now: bind a FeatureSet)
-- `"unknown tool → did you mean list_issues?"` (Levenshtein on bare `feature_name` — paste directly into the `tool` arg)
+- Structured **not_ready** before backend dispatch: `{ error: "not_ready", reason: "inactive"|"bound_offline"|"auth_required"|"needs_setup", action, tool }` — `tool` names `mcpmux_bind_current_workspace` or `mcpmux_diagnose_server`
+- `"unknown tool → did you mean list_issues?"` (Levenshtein on bare `feature_name`)
+
+**Preflight:** `preflight: true` runs the same readiness and permission gates; on success returns `{ ready: true }` without backend dispatch.
 
 ### Per-server default tool arguments
 

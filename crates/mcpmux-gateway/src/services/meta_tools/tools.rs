@@ -174,7 +174,7 @@ fn is_query_empty(query: Option<&str>) -> bool {
     query.map(str::trim).is_none_or(str::is_empty)
 }
 
-/// Point-in-time `readiness` label per installed server for search hit enrichment.
+/// Point-in-time `readiness` label per server for search hit enrichment.
 async fn build_server_readiness_map(
     call: &MetaToolCall<'_>,
     space_id: &Uuid,
@@ -196,22 +196,34 @@ async fn build_server_readiness_map(
         .list_for_space(&space_id.to_string())
         .await
         .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+    let installed_by_id: HashMap<String, mcpmux_core::InstalledServer> = installed
+        .into_iter()
+        .map(|s| (s.server_id.clone(), s))
+        .collect();
 
     let pool_statuses = call.ctx.server_manager.get_all_statuses(*space_id).await;
 
-    let map = installed
+    let server_ids: HashSet<String> = binding_servers
+        .iter()
+        .chain(installed_by_id.keys())
+        .cloned()
+        .collect();
+
+    let map = server_ids
         .into_iter()
-        .map(|server| {
-            let in_binding = binding_servers.contains(&server.server_id);
+        .map(|server_id| {
+            let in_binding = binding_servers.contains(&server_id);
             let connection_status = pool_statuses
-                .get(&server.server_id)
+                .get(&server_id)
                 .map(|(status, _, _, _)| *status)
                 .unwrap_or(ConnectionStatus::Disconnected);
-            let missing_inputs = parse_missing_required_inputs(&server);
-            let has_missing_inputs = !missing_inputs.is_empty();
+            let has_missing_inputs = installed_by_id
+                .get(&server_id)
+                .map(|server| !parse_missing_required_inputs(server).is_empty())
+                .unwrap_or(false);
             let (readiness, _) =
                 derive_server_readiness(in_binding, connection_status, has_missing_inputs);
-            (server.server_id, readiness)
+            (server_id, readiness)
         })
         .collect();
     Ok(map)
@@ -651,7 +663,8 @@ impl MetaTool for SearchToolsTool {
         "Search backend tools in the caller's resolved Space. Each match includes \
          qualified_name, bare_name (use as mcpmux_invoke_tool.tool), required_params, \
          optional_params (name + type, capped), server_readiness (bindable | bound | ready), \
-         and schema_complex (call mcpmux_get_tool_schema when true). Omit query with server_id \
+         schema_complex (call mcpmux_get_tool_schema when true), and invoke_example on browse \
+         hits (copy-paste into mcpmux_invoke_tool). Omit query with server_id \
          (or set mode: \"browse\") for a paginated A–Z catalog of that server's tools (default \
          limit 50). Ranked search uses default limit 20. By default only invokable tools match; \
          set include_inactive: true (or scope \"all\") for unbound FeatureSets. Supports \
@@ -903,6 +916,7 @@ impl MetaTool for SearchToolsTool {
             Some(query_id.as_str()),
             hybrid,
             Some(&readiness_map),
+            is_browse,
         );
         let rank_ms = rank_started.elapsed().as_millis() as u64;
 
@@ -953,6 +967,7 @@ impl MetaTool for SearchToolsTool {
                 Some(query_id.as_str()),
                 None,
                 Some(&readiness_map),
+                is_browse,
             );
             if catalog_result.total > 0 {
                 payload["hint"] = json!(

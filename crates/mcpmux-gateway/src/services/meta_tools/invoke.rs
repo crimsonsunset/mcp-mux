@@ -266,10 +266,13 @@ impl MetaTool for InvokeToolTool {
 
     fn description(&self) -> &'static str {
         "Invoke a backend MCP tool by server_id and tool (bare or qualified from \
-         mcpmux_search_tools). Requires the server to be active and the tool in the \
-         current permission set. Search results include required_params types — \
-         mcpmux_get_tool_schema is optional for complex tools. Pass an optional filter \
-         to bound large payloads; omit filter to return the backend response as-is."
+         mcpmux_search_tools). Skip search when you already know the tool — pass \
+         bare_name or qualified_name directly. Set preflight: true to check readiness \
+         without calling the backend (returns { ready: true } or a structured not_ready \
+         error). Requires the server to be ready and the tool in the current permission \
+         set. Search results include required_params types — mcpmux_get_tool_schema is \
+         optional for complex tools. Pass an optional filter to bound large payloads; omit \
+         filter to return the backend response as-is."
     }
 
     fn input_schema(&self) -> Value {
@@ -283,7 +286,12 @@ impl MetaTool for InvokeToolTool {
                 },
                 "tool": {
                     "type": "string",
-                    "description": "Tool name on that server — bare (e.g. list_issues) or qualified from mcpmux_search_tools (e.g. github_list_issues); bare_name in search results is the invoke value when unsure"
+                    "description": "Tool name on that server — bare (e.g. list_issues) or qualified from mcpmux_search_tools (e.g. github_list_issues); bare_name in search results is the invoke value when unsure. Known tools can be invoked directly without a prior search."
+                },
+                "preflight": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, verify server and tool readiness without calling the backend. Returns { ready: true } on success or a structured not_ready error (same shape as a failed invoke)."
                 },
                 "args": {
                     "type": "object",
@@ -343,6 +351,11 @@ impl MetaTool for InvokeToolTool {
             })?
             .to_string();
         let bare_tool_name = normalize_invoke_tool_name(&server_id, &tool_input);
+        let preflight = call
+            .args
+            .get("preflight")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let args = resolve_invoke_tool_args(&call.args);
         let filter = parse_invoke_filter(call.args.get("filter"));
 
@@ -437,6 +450,10 @@ impl MetaTool for InvokeToolTool {
                 format_invoke_not_ready_action(reason, &server_id),
                 tool,
             ));
+        }
+
+        if preflight {
+            return Ok(invoke_preflight_ok());
         }
 
         let effective_args = match installed {
@@ -770,6 +787,11 @@ fn invoke_not_ready(reason: &str, action: String, tool: &str) -> CallToolResult 
         "tool": tool,
     });
     CallToolResult::error(vec![Content::text(payload.to_string())])
+}
+
+/// Successful preflight response — readiness verified, no backend call.
+fn invoke_preflight_ok() -> CallToolResult {
+    CallToolResult::success(vec![Content::text(json!({ "ready": true }).to_string())])
 }
 
 #[cfg(test)]

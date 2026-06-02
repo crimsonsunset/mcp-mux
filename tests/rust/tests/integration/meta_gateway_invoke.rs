@@ -234,6 +234,25 @@ impl Fixture {
         self.grant_feature_set(&fs_id).await;
         fs_id
     }
+
+    /// Mark a server connected so invoke passes the readiness gate (Phase 4+).
+    async fn connect_server(&self, server_id: &str) {
+        self.registry
+            .context()
+            .server_manager
+            .set_connected(
+                &mcpmux_gateway::pool::ServerKey::new(self.space_id, server_id),
+                mcpmux_gateway::pool::CachedFeatures::default(),
+            )
+            .await;
+    }
+
+    /// Grant GitHub tools and mark the server ready for invoke.
+    async fn grant_github_connected(&self) -> String {
+        let fs_id = self.grant_github_feature_set().await;
+        self.connect_server("github").await;
+        fs_id
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -261,7 +280,7 @@ async fn invoke_tool_applies_filter_end_to_end() {
         .into_arc();
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -312,7 +331,7 @@ async fn invoke_tool_accepts_qualified_tool_name() {
         .into_arc();
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -347,7 +366,7 @@ async fn invoke_tool_accepts_params_key_as_args_fallback() {
         .into_arc();
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -382,7 +401,7 @@ async fn invoke_tool_strips_repeated_server_prefix() {
         .into_arc();
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -403,9 +422,135 @@ async fn invoke_tool_strips_repeated_server_prefix() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn search_tools_includes_bare_name_and_required_param_types() {
+async fn search_tools_includes_optional_params_and_schema_complex() {
+    let f = Fixture::new().await;
+    f.grant_github_connected().await;
+
+    let search = f
+        .call("mcpmux_search_tools", json!({ "server_id": "github" }))
+        .await;
+    let search_body = Fixture::result_json(&search);
+    let tool = search_body
+        .get("tools")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("github_list_issues")))
+        .expect("list_issues in browse");
+    assert_eq!(tool.get("schema_complex"), Some(&json!(false)));
+    let optional = tool.get("optional_params").unwrap().as_array().unwrap();
+    assert!(optional.is_empty(), "list_issues has no optional params: {optional:?}");
+    assert!(tool.get("invoke_example").is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_schema_complex_when_one_of_present() {
+    let f = Fixture::new().await;
+
+    let mut complex_tool = ServerFeature::tool(f.space_id, "github", "complex_body");
+    complex_tool.raw_json = Some(json!({
+        "name": "complex_body",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "payload": { "oneOf": [{ "type": "string" }, { "type": "object" }] }
+            },
+            "required": ["payload"]
+        }
+    }));
+    f.server_feature_repo.upsert(&complex_tool).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Complex tool", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: complex_tool.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+
+    let search = f
+        .call(
+            "mcpmux_search_tools",
+            json!({ "server_id": "github", "mode": "browse" }),
+        )
+        .await;
+    let body = Fixture::result_json(&search);
+    let tool = body
+        .get("tools")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("github_complex_body")))
+        .expect("complex_body in results");
+    assert_eq!(tool.get("schema_complex"), Some(&json!(true)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_preflight_ready_without_backend_call() {
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": json!({ "should_not_run": true }).to_string(),
+        })],
+        structured_content: None,
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("github_list_issues", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+    f.grant_github_connected().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "list_issues",
+                "preflight": true
+            }),
+        )
+        .await;
+
+    assert!(!result.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("ready"), Some(&json!(true)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invoke_bound_offline_returns_structured_denial() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "list_issues",
+                "args": { "owner": "a", "repo": "b" }
+            }),
+        )
+        .await;
+
+    assert!(result.is_error.unwrap_or(false));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("error"), Some(&json!("not_ready")));
+    assert_eq!(body.get("reason"), Some(&json!("bound_offline")));
+    assert_eq!(body.get("tool"), Some(&json!("mcpmux_diagnose_server")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_includes_bare_name_and_required_param_types() {
+    let f = Fixture::new().await;
+    f.grant_github_connected().await;
 
     let search = f
         .call("mcpmux_search_tools", json!({ "server_id": "github" }))
@@ -474,9 +619,9 @@ async fn github_read_path_enable_search_schema() {
         .and_then(|s| s.as_array())
         .and_then(|arr| arr.iter().find(|s| s.get("id") == Some(&json!("github"))))
         .expect("github server listed");
-    assert_eq!(github.get("status"), Some(&json!("inactive")));
+    assert_eq!(github.get("readiness"), Some(&json!("bindable")));
 
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let search = f
         .call(
@@ -523,9 +668,14 @@ async fn invoke_denied_when_server_inactive() {
         .await;
     assert!(result.is_error.unwrap_or(false));
     let body = Fixture::result_json(&result);
-    let message = body.get("message").and_then(|m| m.as_str()).unwrap_or("");
-    assert!(message.contains("inactive"));
-    assert!(message.contains("mcpmux_bind_current_workspace"));
+    assert_eq!(body.get("error"), Some(&json!("not_ready")));
+    assert_eq!(body.get("reason"), Some(&json!("inactive")));
+    assert_eq!(
+        body.get("tool"),
+        Some(&json!("mcpmux_bind_current_workspace"))
+    );
+    let action = body.get("action").and_then(|m| m.as_str()).unwrap_or("");
+    assert!(action.contains("bind"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -876,7 +1026,7 @@ async fn direct_backend_call_gate_allows_surfaced_only() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_tool_schema_accepts_string_array() {
     let f = Fixture::new().await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -897,7 +1047,7 @@ async fn get_tool_schema_accepts_string_array() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_tool_schema_accepts_json_encoded_array_string() {
     let f = Fixture::new().await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -917,7 +1067,7 @@ async fn get_tool_schema_accepts_json_encoded_array_string() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_tool_schema_reports_missing_tools() {
     let f = Fixture::new().await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -952,7 +1102,7 @@ async fn invoke_max_bytes_truncates_json_array_without_max_rows() {
         .into_arc();
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -974,7 +1124,7 @@ async fn invoke_max_bytes_truncates_json_array_without_max_rows() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_tool_schema_reports_empty_string_in_missing() {
     let f = Fixture::new().await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -1026,6 +1176,7 @@ async fn invoke_filter_shapes_structured_insights_payload() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
+    f.connect_server("posthog-personal-gait").await;
     let result = f
         .call(
             "mcpmux_invoke_tool",
@@ -1098,6 +1249,7 @@ async fn invoke_filter_shapes_posthog_paginated_results_in_content_json() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
+    f.connect_server("posthog-personal-gait").await;
     let result = f
         .call(
             "mcpmux_invoke_tool",
@@ -1157,6 +1309,7 @@ async fn invoke_filter_shapes_posthog_paginated_results_in_content_yaml() {
     });
     f.feature_set_repo.create(&fs).await.unwrap();
     f.grant_feature_set(&fs.id).await;
+    f.connect_server("posthog-personal-gait").await;
     let result = f
         .call(
             "mcpmux_invoke_tool",
@@ -1201,7 +1354,7 @@ async fn invoke_filter_aggregates_multi_block_content() {
         .into_arc();
 
     let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(
@@ -1395,7 +1548,7 @@ async fn search_prompts_returns_fetchable_matches() {
 #[tokio::test(flavor = "multi_thread")]
 async fn invoke_levenshtein_suggests_near_tool_name() {
     let f = Fixture::new().await;
-    f.grant_github_feature_set().await;
+    f.grant_github_connected().await;
 
     let result = f
         .call(

@@ -1,6 +1,6 @@
 # Meta-Gateway Invoke — Manual QA Runbook
 
-**Last Updated:** May 26, 2026  
+**Last Updated:** Jun 2, 2026  
 **Branch:** `dev`  
 **Related:** [`meta-gateway-invoke.md`](../backend/reference/meta-gateway-invoke.md)
 
@@ -344,6 +344,32 @@ Rules: McpMux meta tools only, read schemas before invoke, note truncation if an
 | Surfaced prompt in client list          | ⏭   | ☐    | GAIT v2 §9 SKIP                                  |
 | Direct one-hop works for surfaced items | ⏭   | ☐    | Run when operator surfaces a resource/prompt     |
 | Non-surfaced still meta-only            | ☐    | ☐    | Implicit from §12 pass; optional explicit retest |
+
+---
+
+## 15. Agent UX path — readiness, browse, preflight (Jun 2026)
+
+**Prompt:**
+
+```
+1. mcpmux_list_servers — report readiness (bindable/bound/ready) for github and one unbound server.
+2. mcpmux_search_tools({ server_id: "<large-server>", mode: "browse", limit: 50 }) — confirm mode browse, alphabetical order, invoke_example on hits, server_readiness on each hit.
+3. mcpmux_invoke_tool({ server_id: "github", tool: "list_issues", preflight: true }) on an unbound workspace — expect structured not_ready with reason inactive.
+4. Bind github, preflight again — expect { ready: true } (no backend call).
+5. Invoke directly with bare_name (no prior search) — same result as qualified_name path.
+6. Ranked search hit — confirm no invoke_example; optional_params present when schema is simple.
+```
+
+| Check | Pass | Fail | Notes |
+| ----- | ---- | ---- | ----- |
+| `list_servers` exposes `readiness` + `blocking_reason` for bound-but-offline | ☐ | ☐ | |
+| Browse default limit 50 + `next_cursor` pagination | ☐ | ☐ | |
+| Browse hits include `invoke_example` with `<type>` arg placeholders | ☐ | ☐ | |
+| Ranked search hits omit `invoke_example` | ☐ | ☐ | |
+| `optional_params` + `schema_complex` on search hits | ☐ | ☐ | |
+| Structured invoke denial (`not_ready`, reason, remedy tool) | ☐ | ☐ | |
+| `preflight: true` returns `{ ready: true }` without backend side effects | ☐ | ☐ | |
+| Direct bare/qualified invoke without search hop | ☐ | ☐ | |
 
 ---
 
