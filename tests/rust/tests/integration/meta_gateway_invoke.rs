@@ -440,7 +440,10 @@ async fn search_tools_includes_optional_params_and_schema_complex() {
         .expect("list_issues in browse");
     assert_eq!(tool.get("schema_complex"), Some(&json!(false)));
     let optional = tool.get("optional_params").unwrap().as_array().unwrap();
-    assert!(optional.is_empty(), "list_issues has no optional params: {optional:?}");
+    assert!(
+        optional.is_empty(),
+        "list_issues has no optional params: {optional:?}"
+    );
     assert!(tool.get("invoke_example").is_some());
 }
 

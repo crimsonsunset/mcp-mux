@@ -2024,7 +2024,9 @@ async fn browse_hits_include_invoke_example_and_server_readiness() {
         .find(|t| t.get("qualified_name") == Some(&json!("github_create_issue")))
         .expect("create_issue in browse");
     assert_eq!(tool.get("server_readiness"), Some(&json!("bound")));
-    let example = tool.get("invoke_example").expect("invoke_example on browse");
+    let example = tool
+        .get("invoke_example")
+        .expect("invoke_example on browse");
     assert_eq!(example.get("server_id"), Some(&json!("github")));
     assert_eq!(example.get("tool"), Some(&json!("create_issue")));
 }

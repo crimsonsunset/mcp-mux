@@ -746,8 +746,7 @@ impl MetaTool for SearchToolsTool {
             .get("mode")
             .and_then(|v| v.as_str())
             .is_some_and(|m| m == "browse");
-        let is_browse =
-            mode_browse || (is_query_empty(query_str) && server_id_filter.is_some());
+        let is_browse = mode_browse || (is_query_empty(query_str) && server_id_filter.is_some());
         let effective_query = if is_browse { None } else { query_str };
 
         let detail_level = call
@@ -794,8 +793,7 @@ impl MetaTool for SearchToolsTool {
             debug!(query_id = %query_id, query, "[search] query text");
         }
 
-        let readiness_map =
-            build_server_readiness_map(&call, &space_id, &resolved).await?;
+        let readiness_map = build_server_readiness_map(&call, &space_id, &resolved).await?;
 
         let mut index_cache_hit = false;
         let active_index_started = Instant::now();

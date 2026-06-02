@@ -7,7 +7,9 @@ use std::collections::HashMap;
 
 use super::diagnose::parse_missing_required_inputs;
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
-use super::tools::{caller_resolution, caller_space_id, classify_invoke_denial, format_invoke_not_ready_action};
+use super::tools::{
+    caller_resolution, caller_space_id, classify_invoke_denial, format_invoke_not_ready_action,
+};
 use crate::pool::{format_invoke_permission_denied, ConnectionStatus};
 use crate::services::levenshtein_suggestions;
 use mcpmux_core::FeatureType;
@@ -381,8 +383,9 @@ impl MetaTool for InvokeToolTool {
             .collect();
 
         if !binding_servers.contains(&server_id) {
-            let (reason, tool) = classify_invoke_denial(false, ConnectionStatus::Disconnected, false)
-                .expect("not in binding always yields inactive denial");
+            let (reason, tool) =
+                classify_invoke_denial(false, ConnectionStatus::Disconnected, false)
+                    .expect("not in binding always yields inactive denial");
             return Ok(invoke_not_ready(
                 reason,
                 format_invoke_not_ready_action(reason, &server_id),

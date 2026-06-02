@@ -251,11 +251,8 @@ impl ToolDiscoveryService {
             .skip(offset)
             .take(limit)
             .map(|entry| {
-                let readiness = server_readiness.map(|map| {
-                    map.get(&entry.server_id)
-                        .copied()
-                        .unwrap_or("bindable")
-                });
+                let readiness = server_readiness
+                    .map(|map| map.get(&entry.server_id).copied().unwrap_or("bindable"));
                 entry_to_json(entry, detail_level, readiness, include_invoke_example)
             })
             .collect();
@@ -627,9 +624,9 @@ fn schema_property_is_complex(prop: &Value) -> bool {
     }
     match prop.get("type") {
         Some(Value::String(t)) if t == "object" => prop.get("properties").is_some(),
-        Some(Value::Array(types)) => types.iter().any(|t| {
-            t.as_str() == Some("object") && prop.get("properties").is_some()
-        }),
+        Some(Value::Array(types)) => types
+            .iter()
+            .any(|t| t.as_str() == Some("object") && prop.get("properties").is_some()),
         _ => false,
     }
 }
@@ -669,7 +666,10 @@ fn build_invoke_example(entry: &ToolIndexEntry, required_params: &[Value]) -> Va
             .get("type")
             .and_then(|v| v.as_str())
             .unwrap_or("string");
-        args.insert(name.to_string(), json!(param_invoke_placeholder(param_type)));
+        args.insert(
+            name.to_string(),
+            json!(param_invoke_placeholder(param_type)),
+        );
     }
     json!({
         "server_id": entry.server_id,
