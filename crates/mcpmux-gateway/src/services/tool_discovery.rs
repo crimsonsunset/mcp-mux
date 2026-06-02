@@ -193,6 +193,7 @@ impl ToolDiscoveryService {
         cursor: Option<&str>,
         query_id: Option<&str>,
         hybrid: Option<SearchContext<'_>>,
+        server_readiness: Option<&std::collections::HashMap<String, &'static str>>,
     ) -> SearchToolsResult {
         let limit = limit.clamp(1, 100);
         let offset = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
@@ -248,7 +249,14 @@ impl ToolDiscoveryService {
             .iter()
             .skip(offset)
             .take(limit)
-            .map(|entry| entry_to_json(entry, detail_level))
+            .map(|entry| {
+                let readiness = server_readiness.map(|map| {
+                    map.get(&entry.server_id)
+                        .copied()
+                        .unwrap_or("bindable")
+                });
+                entry_to_json(entry, detail_level, readiness)
+            })
             .collect();
         let paginate_ms = paginate_started.elapsed().as_millis() as u64;
 
@@ -644,7 +652,11 @@ fn input_schema_is_complex(input_schema: Option<&Value>) -> bool {
         .any(|prop| schema_property_type(prop) == "unknown" || schema_property_is_complex(prop))
 }
 
-fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
+fn entry_to_json(
+    entry: &ToolIndexEntry,
+    detail_level: DetailLevel,
+    server_readiness: Option<&str>,
+) -> Value {
     let required_params = extract_required_param_specs(entry.input_schema.as_ref());
     let optional_params = extract_optional_param_specs(entry.input_schema.as_ref());
     let schema_complex = input_schema_is_complex(entry.input_schema.as_ref());
@@ -657,6 +669,9 @@ fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
         "optional_params": optional_params,
         "schema_complex": schema_complex,
     });
+    if let Some(readiness) = server_readiness {
+        obj["server_readiness"] = json!(readiness);
+    }
     if let Some(status) = &entry.status {
         obj["status"] = json!(status);
     }

@@ -129,6 +129,54 @@ fn derive_server_readiness(
     ("bound", blocking)
 }
 
+/// Whether the caller omitted or blanked the search query.
+fn is_query_empty(query: Option<&str>) -> bool {
+    query.map(str::trim).is_none_or(str::is_empty)
+}
+
+/// Point-in-time `readiness` label per installed server for search hit enrichment.
+async fn build_server_readiness_map(
+    call: &MetaToolCall<'_>,
+    space_id: &Uuid,
+    resolved: &ResolvedFeatureSet,
+) -> Result<HashMap<String, &'static str>, MetaToolError> {
+    let binding_features = call
+        .ctx
+        .feature_service
+        .resolve_feature_sets(&space_id.to_string(), &resolved.feature_set_ids)
+        .await?;
+    let binding_servers: HashSet<String> = binding_features
+        .iter()
+        .map(|f| f.server_id.clone())
+        .collect();
+
+    let installed = call
+        .ctx
+        .installed_server_repo
+        .list_for_space(&space_id.to_string())
+        .await
+        .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+
+    let pool_statuses = call.ctx.server_manager.get_all_statuses(*space_id).await;
+
+    let map = installed
+        .into_iter()
+        .map(|server| {
+            let in_binding = binding_servers.contains(&server.server_id);
+            let connection_status = pool_statuses
+                .get(&server.server_id)
+                .map(|(status, _, _, _)| *status)
+                .unwrap_or(ConnectionStatus::Disconnected);
+            let missing_inputs = parse_missing_required_inputs(&server);
+            let has_missing_inputs = !missing_inputs.is_empty();
+            let (readiness, _) =
+                derive_server_readiness(in_binding, connection_status, has_missing_inputs);
+            (server.server_id, readiness)
+        })
+        .collect();
+    Ok(map)
+}
+
 // ---------------------------------------------------------------------------
 // mcpmux_list_all_tools — read (not registered on the agent surface; desktop/admin only)
 // ---------------------------------------------------------------------------
@@ -561,13 +609,13 @@ impl MetaTool for SearchToolsTool {
 
     fn description(&self) -> &'static str {
         "Search backend tools in the caller's resolved Space. Each match includes \
-         qualified_name, bare_name (use as mcpmux_invoke_tool.tool), required_params, and \
-         optional_params (name + type, capped) so simple tools can be invoked without \
-         mcpmux_get_tool_schema. When schema_complex is true, call mcpmux_get_tool_schema for \
-         the full input shape (oneOf, nested objects, or unresolved types). By default only \
-         invokable (active/bound) tools match. Set include_inactive: true (or scope \"all\") \
-         to also match unbound FeatureSets. Supports query, server_id filter, detail_level \
-         (name | description | schema), and pagination."
+         qualified_name, bare_name (use as mcpmux_invoke_tool.tool), required_params, \
+         optional_params (name + type, capped), server_readiness (bindable | bound | ready), \
+         and schema_complex (call mcpmux_get_tool_schema when true). Omit query with server_id \
+         (or set mode: \"browse\") for a paginated A–Z catalog of that server's tools (default \
+         limit 50). Ranked search uses default limit 20. By default only invokable tools match; \
+         set include_inactive: true (or scope \"all\") for unbound FeatureSets. Supports \
+         detail_level (name | description | schema) and cursor pagination."
     }
 
     fn input_schema(&self) -> Value {
@@ -590,7 +638,18 @@ impl MetaTool for SearchToolsTool {
                     "enum": ["name", "description", "schema"],
                     "default": "description"
                 },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["browse"],
+                    "description": "Explicit browse alias: paginated A–Z catalog for server_id (default limit 50). Same as omitting query with server_id set."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 20,
+                    "description": "Default 20 for ranked search; 50 when browsing (empty query + server_id or mode browse)"
+                },
                 "cursor": { "type": "string" }
             }
         })
@@ -628,6 +687,16 @@ impl MetaTool for SearchToolsTool {
 
         let query_str = call.args.get("query").and_then(|v| v.as_str());
 
+        let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
+        let mode_browse = call
+            .args
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .is_some_and(|m| m == "browse");
+        let is_browse =
+            mode_browse || (is_query_empty(query_str) && server_id_filter.is_some());
+        let effective_query = if is_browse { None } else { query_str };
+
         let detail_level = call
             .args
             .get("detail_level")
@@ -635,11 +704,12 @@ impl MetaTool for SearchToolsTool {
             .and_then(crate::services::tool_discovery::DetailLevel::parse)
             .unwrap_or(crate::services::tool_discovery::DetailLevel::Description);
 
+        let default_limit = if is_browse { 50 } else { 20 };
         let limit = call
             .args
             .get("limit")
             .and_then(|v| v.as_u64())
-            .unwrap_or(20) as usize;
+            .unwrap_or(default_limit) as usize;
 
         let scope_all = call
             .args
@@ -663,12 +733,16 @@ impl MetaTool for SearchToolsTool {
             query_len = query_str.map(str::len).unwrap_or(0),
             detail_level = ?detail_level,
             limit,
+            is_browse,
             include_inactive,
             "[search] call entry"
         );
-        if let Some(query) = query_str {
+        if let Some(query) = effective_query {
             debug!(query_id = %query_id, query, "[search] query text");
         }
+
+        let readiness_map =
+            build_server_readiness_map(&call, &space_id, &resolved).await?;
 
         let mut index_cache_hit = false;
         let active_index_started = Instant::now();
@@ -718,7 +792,6 @@ impl MetaTool for SearchToolsTool {
         let mut index = active_index.clone();
         let index_clone_ms = clone_started.elapsed().as_millis() as u64;
 
-        let server_id_filter = call.args.get("server_id").and_then(|v| v.as_str());
         let mut inactive_tool_count = 0usize;
         let mut inactive_widen_ms = 0_u64;
 
@@ -766,13 +839,13 @@ impl MetaTool for SearchToolsTool {
             );
         }
 
-        let hydrate_ms = if query_str.is_some() {
+        let hydrate_ms = if effective_query.is_some() {
             hydrate_active_embeddings(&call, query_id.as_str(), active_index.as_slice()).await?
         } else {
             0
         };
 
-        let hybrid = query_str.map(|_| crate::services::tool_discovery::SearchContext {
+        let hybrid = effective_query.map(|_| crate::services::tool_discovery::SearchContext {
             embeddings: call.ctx.embeddings.as_ref(),
             embedding_store: call.ctx.embedding_store.as_ref(),
             active_index: active_index.as_slice(),
@@ -782,13 +855,14 @@ impl MetaTool for SearchToolsTool {
         let rank_started = Instant::now();
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
             &index,
-            query_str,
+            effective_query,
             server_id_filter,
             detail_level,
             limit,
             call.args.get("cursor").and_then(|v| v.as_str()),
             Some(query_id.as_str()),
             hybrid,
+            Some(&readiness_map),
         );
         let rank_ms = rank_started.elapsed().as_millis() as u64;
 
@@ -807,6 +881,10 @@ impl MetaTool for SearchToolsTool {
             "ranking": result.ranking,
             "scope": if include_inactive { "active_and_inactive" } else { "active_only" },
         });
+
+        if is_browse {
+            payload["mode"] = json!("browse");
+        }
 
         if include_inactive && inactive_tool_count > 50 && server_id_filter.is_none() {
             payload["hint"] = json!("Narrow with `server_id` for faster results.");
@@ -827,13 +905,14 @@ impl MetaTool for SearchToolsTool {
                 .map_err(|e| MetaToolError::Internal(e.to_string()))?;
             let catalog_result = crate::services::tool_discovery::ToolDiscoveryService::search(
                 &catalog,
-                query_str,
+                effective_query,
                 call.args.get("server_id").and_then(|v| v.as_str()),
                 detail_level,
                 limit,
                 call.args.get("cursor").and_then(|v| v.as_str()),
                 Some(query_id.as_str()),
                 None,
+                Some(&readiness_map),
             );
             if catalog_result.total > 0 {
                 payload["hint"] = json!(
