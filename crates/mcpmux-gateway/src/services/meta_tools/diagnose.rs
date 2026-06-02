@@ -157,7 +157,7 @@ fn build_config_view_from_definition(definition: &ServerDefinition) -> ConfigVie
 }
 
 /// Serialize a pool [`ConnectionStatus`] as the diagnose runtime status string.
-fn connection_status_label(status: ConnectionStatus) -> &'static str {
+pub(crate) fn connection_status_label(status: ConnectionStatus) -> &'static str {
     match status {
         ConnectionStatus::Disconnected => "disconnected",
         ConnectionStatus::Connecting => "connecting",

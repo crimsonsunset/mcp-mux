@@ -14,7 +14,11 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::approval::{ApprovalPayload, ApprovalScope};
+use super::diagnose::{
+    classify_health, connection_status_label, parse_missing_required_inputs, ServerHealth,
+};
 use super::registry::{feature_set_ids_fingerprint, MetaTool, MetaToolCall, MetaToolError};
+use crate::pool::ConnectionStatus;
 use crate::services::ResolvedFeatureSet;
 
 /// Fire a `FeatureSetMembersChanged` event so MCPNotifier pushes a
@@ -88,13 +92,41 @@ pub(crate) async fn caller_resolution(
         .map_err(|e| MetaToolError::Internal(e.to_string()))
 }
 
-/// Derive the manifest status for one server in the caller's binding.
-fn derive_server_status(server_id: &str, binding_servers: &HashSet<String>) -> &'static str {
-    if binding_servers.contains(server_id) {
-        "enabled_via_binding"
-    } else {
-        "inactive"
+/// Map a health bucket to the `blocking_reason` string for bound-but-not-ready servers.
+fn blocking_reason_from_health(health: ServerHealth) -> Option<&'static str> {
+    match health {
+        ServerHealth::Healthy => None,
+        ServerHealth::AuthRequired => Some("auth_required"),
+        ServerHealth::NeedsSetup => Some("needs_setup"),
+        ServerHealth::Disconnected => Some("disconnected"),
+        ServerHealth::Error => Some("error"),
     }
+}
+
+/// Derive agent-facing readiness from binding membership and live pool state.
+///
+/// `ready` requires binding + `Connected` + no missing required inputs; `bound` covers
+/// bound-but-offline/auth/setup cases; `bindable` means not in the active binding.
+fn derive_server_readiness(
+    in_binding: bool,
+    connection_status: ConnectionStatus,
+    has_missing_inputs: bool,
+) -> (&'static str, Option<&'static str>) {
+    if !in_binding {
+        return ("bindable", None);
+    }
+
+    if has_missing_inputs {
+        return ("bound", Some("needs_setup"));
+    }
+
+    if connection_status == ConnectionStatus::Connected {
+        return ("ready", None);
+    }
+
+    let health = classify_health(connection_status, false);
+    let blocking = blocking_reason_from_health(health).or(Some("disconnected"));
+    ("bound", blocking)
 }
 
 // ---------------------------------------------------------------------------
@@ -260,10 +292,12 @@ impl MetaTool for ListServersTool {
 
     fn description(&self) -> &'static str {
         "List every MCP server installed in the caller's resolved Space with \
-         a coarse status per server: enabled_via_binding or inactive. Inactive \
-         servers include `bindable_feature_set_ids` — pass one to \
-         mcpmux_bind_current_workspace to activate persistently. Clone installs \
-         include optional `cloned_from` (source server_id)."
+         readiness per server: bindable (not in the active binding — use \
+         bindable_feature_set_ids with mcpmux_bind_current_workspace), bound \
+         (in binding but not invokable — see blocking_reason), or ready (safe \
+         to invoke). Each entry includes connection, health, and conditional \
+         missing_inputs when setup is incomplete. Clone installs include \
+         optional cloned_from (source server_id)."
     }
 
     fn input_schema(&self) -> Value {
@@ -298,25 +332,12 @@ impl MetaTool for ListServersTool {
             .list_for_space(&space_id.to_string())
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-        // Per-server lookup of effective display name (override → server_name → tail)
-        // and clone lineage. Centralized so JSON output and UI agree on the label.
-        struct InstalledMeta {
-            display_name: String,
-            cloned_from: Option<String>,
-        }
-        let installed_meta_by_server: HashMap<String, InstalledMeta> = installed
+        let installed_by_server: HashMap<String, mcpmux_core::InstalledServer> = installed
             .into_iter()
-            .map(|s| {
-                let display_name = s.display_name().to_string();
-                (
-                    s.server_id,
-                    InstalledMeta {
-                        display_name,
-                        cloned_from: s.cloned_from,
-                    },
-                )
-            })
+            .map(|s| (s.server_id.clone(), s))
             .collect();
+
+        let pool_statuses = call.ctx.server_manager.get_all_statuses(space_id).await;
 
         let inactive_by_server: HashMap<String, HashSet<String>> = call
             .ctx
@@ -349,25 +370,44 @@ impl MetaTool for ListServersTool {
         let mut servers: Vec<Value> = by_server
             .into_iter()
             .map(|(id, (feature_display_name, tool_count))| {
-                // Prefer the installed row's effective display name (override or
-                // server_name) so users see "Joe Calendar" instead of the catalog name.
-                let installed_meta = installed_meta_by_server.get(&id);
-                let name = installed_meta
-                    .map(|meta| meta.display_name.clone())
+                let installed = installed_by_server.get(&id);
+                let name = installed
+                    .map(|s| s.display_name().to_string())
                     .or(feature_display_name)
                     .unwrap_or_else(|| id.clone());
-                let status = derive_server_status(&id, &binding_servers);
+
+                let in_binding = binding_servers.contains(&id);
+                let connection_status = pool_statuses
+                    .get(&id)
+                    .map(|(status, _, _, _)| *status)
+                    .unwrap_or(ConnectionStatus::Disconnected);
+                let missing_inputs = installed
+                    .map(parse_missing_required_inputs)
+                    .unwrap_or_default();
+                let has_missing_inputs = !missing_inputs.is_empty();
+                let health = classify_health(connection_status, has_missing_inputs);
+                let (readiness, blocking_reason) =
+                    derive_server_readiness(in_binding, connection_status, has_missing_inputs);
+
                 let mut entry = json!({
                     "id": id,
                     "name": name,
                     "tool_count": tool_count,
-                    "status": status,
+                    "readiness": readiness,
+                    "connection": connection_status_label(connection_status),
+                    "health": health,
                 });
-                if let Some(cloned_from) = installed_meta.and_then(|meta| meta.cloned_from.as_ref())
-                {
+
+                if let Some(reason) = blocking_reason {
+                    entry["blocking_reason"] = json!(reason);
+                }
+                if health == ServerHealth::NeedsSetup {
+                    entry["missing_inputs"] = json!(missing_inputs);
+                }
+                if let Some(cloned_from) = installed.and_then(|s| s.cloned_from.as_ref()) {
                     entry["cloned_from"] = json!(cloned_from);
                 }
-                if status == "inactive" {
+                if readiness == "bindable" {
                     if let Some(fs_ids) = inactive_by_server.get(&id) {
                         let mut ids: Vec<_> = fs_ids.iter().cloned().collect();
                         ids.sort();
