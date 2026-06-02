@@ -1,5 +1,6 @@
 import { formatStampInstant } from '@/utils/build-date.helpers';
 import { getBuildInfo, getVersion } from '@/lib/api/app';
+import { isTauri } from '@/lib/backend/shell';
 
 /** Git/build metadata stamped into the web-admin SPA at Vite build time. */
 export interface BuildStamp {
@@ -46,21 +47,19 @@ function logConsoleRow(label: string, value: string): void {
 }
 
 /**
- * Log SPA and backend build metadata to the browser console (web-admin transport only).
+ * Log SPA and backend build metadata to the browser console on every boot
+ * (dev, production Tauri, and web-admin static bundle).
  * Visual style matches generAIt Frontend startup banner (group + gray labels).
  */
 export async function logWebAdminBuildInfo(): Promise<void> {
-  if (!import.meta.env.VITE_ADMIN_WEB) {
-    return;
-  }
-
   const headerColor = import.meta.env.DEV ? '#70e000' : '#DA7756';
+  const appLabel = import.meta.env.VITE_ADMIN_WEB ? 'McpMux Web Admin' : 'McpMux';
   console.group(
-    '%c McpMux Web Admin ',
+    `%c ${appLabel} `,
     `background: ${headerColor}; color: #000; font-weight: bold; border-radius: 4px; padding: 2px 6px;`,
   );
 
-  logConsoleRow('Transport', 'admin-http');
+  logConsoleRow('Transport', isTauri() ? 'tauri' : 'admin-http');
   logConsoleRow('Host', window.location.hostname);
   logConsoleRow('Mode', import.meta.env.DEV ? 'development' : 'production');
 
