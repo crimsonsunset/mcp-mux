@@ -387,6 +387,58 @@ async fn invoke_tool_accepts_params_key_as_args_fallback() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn invoke_tool_accepts_agent_parameter_aliases() {
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": json!({ "title": "Example page" }).to_string(),
+        })],
+        structured_content: Some(json!({ "title": "Example page" })),
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("com.notion-mcp-http_notion-fetch", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+
+    let mut fetch = ServerFeature::tool(f.space_id, "com.notion-mcp-http", "notion-fetch");
+    fetch.description = Some("Fetch a Notion page".into());
+    f.server_feature_repo.upsert(&fetch).await.unwrap();
+
+    let mut fs = FeatureSet::new_custom("Notion fetch", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: fetch.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+    f.connect_server("com.notion-mcp-http").await;
+
+    let page_id = "https://www.notion.so/example-page";
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server": "com.notion-mcp-http",
+                "tool_name": "notion-fetch",
+                "arguments": { "id": page_id }
+            }),
+        )
+        .await;
+
+    assert!(
+        !result.is_error.unwrap_or(true),
+        "agent aliases must resolve: {:?}",
+        Fixture::result_json(&result)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn invoke_tool_strips_repeated_server_prefix() {
     let backend_result = ToolCallResult {
         content: vec![json!({

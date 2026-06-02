@@ -40,6 +40,33 @@ pub fn normalize_invoke_tool_name(server_id: &str, tool: &str) -> String {
     bare.to_string()
 }
 
+/// First non-empty string value for any of `keys` on a JSON object (agent alias resolution).
+fn first_nonempty_str(args: &Value, keys: &[&str]) -> Option<String> {
+    let obj = args.as_object()?;
+    for key in keys {
+        let Some(value) = obj.get(*key) else {
+            continue;
+        };
+        let Some(text) = value.as_str() else {
+            continue;
+        };
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
+/// Resolve `server_id` from invoke call args (`server_id`, alias `serverId`, alias `server`).
+pub fn resolve_invoke_server_id(args: &Value) -> Option<String> {
+    first_nonempty_str(args, &["server_id", "serverId", "server"])
+}
+
+/// Resolve `tool` from invoke call args (`tool`, alias `tool_name`).
+pub fn resolve_invoke_tool(args: &Value) -> Option<String> {
+    first_nonempty_str(args, &["tool", "tool_name"])
+}
+
 /// Whether an invokable feature matches the caller's `tool` (bare or qualified).
 fn feature_matches_tool_name(
     feature_name: &str,
@@ -52,10 +79,11 @@ fn feature_matches_tool_name(
 
 /// Resolve backend tool arguments from `mcpmux_invoke_tool` call args.
 ///
-/// Prefers `args`; falls back to `params` for agents that use the wrong key.
+/// Prefers `args`, then `params`, then `arguments` (common agent/UI aliases).
 pub fn resolve_invoke_tool_args(args: &Value) -> Value {
     args.get("args")
         .or_else(|| args.get("params"))
+        .or_else(|| args.get("arguments"))
         .cloned()
         .unwrap_or_else(|| json!({}))
 }
@@ -285,11 +313,23 @@ impl MetaTool for InvokeToolTool {
             "properties": {
                 "server_id": {
                     "type": "string",
-                    "description": "Registry server id (e.g. github)"
+                    "description": "Registry server id (e.g. github). Aliases: server, serverId (server_id wins if multiple are set)."
+                },
+                "server": {
+                    "type": "string",
+                    "description": "Alias for server_id"
+                },
+                "serverId": {
+                    "type": "string",
+                    "description": "Alias for server_id"
                 },
                 "tool": {
                     "type": "string",
-                    "description": "Tool name on that server — bare (e.g. list_issues) or qualified from mcpmux_search_tools (e.g. github_list_issues); bare_name in search results is the invoke value when unsure. Known tools can be invoked directly without a prior search."
+                    "description": "Tool name on that server — bare (e.g. list_issues) or qualified from mcpmux_search_tools (e.g. github_list_issues); bare_name in search results is the invoke value when unsure. Known tools can be invoked directly without a prior search. Alias: tool_name (tool wins if both are set)."
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Alias for tool"
                 },
                 "preflight": {
                     "type": "boolean",
@@ -298,8 +338,16 @@ impl MetaTool for InvokeToolTool {
                 },
                 "args": {
                     "type": "object",
-                    "description": "Arguments object passed to the backend tool (alias: params — same object, args wins if both are set)",
+                    "description": "Arguments object passed to the backend tool. Aliases: params, arguments (args wins if multiple are set).",
                     "default": {}
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Alias for args"
+                },
+                "arguments": {
+                    "type": "object",
+                    "description": "Alias for args"
                 },
                 "filter": {
                     "type": "object",
@@ -336,23 +384,17 @@ impl MetaTool for InvokeToolTool {
     }
 
     async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
-        let server_id = call
-            .args
-            .get("server_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| MetaToolError::InvalidArgument("missing `server_id`".into()))?
-            .to_string();
-        let tool_input = call
-            .args
-            .get("tool")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                MetaToolError::InvalidArgument(
-                    "missing `tool` (bare or qualified, e.g. \"list_issues\" or \"github_list_issues\")"
-                        .into(),
-                )
-            })?
-            .to_string();
+        let server_id = resolve_invoke_server_id(&call.args).ok_or_else(|| {
+            MetaToolError::InvalidArgument(
+                "missing `server_id` (aliases: server, serverId)".into(),
+            )
+        })?;
+        let tool_input = resolve_invoke_tool(&call.args).ok_or_else(|| {
+            MetaToolError::InvalidArgument(
+                "missing `tool` (aliases: tool_name; bare or qualified, e.g. \"list_issues\" or \"github_list_issues\")"
+                    .into(),
+            )
+        })?;
         let bare_tool_name = normalize_invoke_tool_name(&server_id, &tool_input);
         let preflight = call
             .args
@@ -840,6 +882,70 @@ mod tests {
     #[test]
     fn resolve_invoke_tool_args_defaults_to_empty_object() {
         assert_eq!(resolve_invoke_tool_args(&json!({})), json!({}));
+    }
+
+    #[test]
+    fn resolve_invoke_tool_args_falls_back_to_arguments() {
+        let call_args = json!({ "arguments": { "id": "page-1" } });
+        assert_eq!(
+            resolve_invoke_tool_args(&call_args),
+            json!({ "id": "page-1" })
+        );
+    }
+
+    #[test]
+    fn resolve_invoke_tool_args_prefers_args_over_arguments() {
+        let call_args = json!({
+            "args": { "id": "a" },
+            "arguments": { "id": "b" }
+        });
+        assert_eq!(resolve_invoke_tool_args(&call_args), json!({ "id": "a" }));
+    }
+
+    #[test]
+    fn resolve_invoke_server_id_accepts_aliases() {
+        assert_eq!(
+            resolve_invoke_server_id(&json!({ "server_id": "github" })),
+            Some("github".to_string())
+        );
+        assert_eq!(
+            resolve_invoke_server_id(&json!({ "server": "notion" })),
+            Some("notion".to_string())
+        );
+        assert_eq!(
+            resolve_invoke_server_id(&json!({ "serverId": "jira" })),
+            Some("jira".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_invoke_server_id_prefers_server_id_over_aliases() {
+        let call_args = json!({
+            "server_id": "canonical",
+            "server": "alias",
+            "serverId": "other"
+        });
+        assert_eq!(
+            resolve_invoke_server_id(&call_args),
+            Some("canonical".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_invoke_tool_accepts_tool_name_alias() {
+        assert_eq!(
+            resolve_invoke_tool(&json!({ "tool_name": "notion-fetch" })),
+            Some("notion-fetch".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_invoke_tool_prefers_tool_over_tool_name() {
+        let call_args = json!({
+            "tool": "bare",
+            "tool_name": "alias"
+        });
+        assert_eq!(resolve_invoke_tool(&call_args), Some("bare".to_string()));
     }
 
     #[test]
