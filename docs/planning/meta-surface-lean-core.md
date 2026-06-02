@@ -91,13 +91,17 @@ const CORE_META_TOOLS: &[&str] = &[
 ];
 ```
 
-### Token budget (tiktoken cl100k_base; ×1.1 for Claude estimate)
+### Token budget (slim MCP JSON: name + description + inputSchema; bytes÷4 tiktoken proxy; ×1.1 Claude est.)
 
-| Surface | tiktoken | ~Claude est. |
-| ------- | -------: | -----------: |
-| All 11 (current) | 1,471 | ~1,618 |
-| Core 4 (post) | 738 | ~812 |
-| **Saved** | **733** | **~806** |
+Re-measured on `feat/meta-surface-lean-core` after agent-UX description growth (`pnpm count-tokens` / `meta_tools_token_budget_report`):
+
+| Surface | tiktoken (proxy) | ~Claude est. | serialized bytes |
+| ------- | ---------------: | -----------: | ---------------: |
+| All 11 registered | 2,111 | ~2,323 | 8,444 |
+| Core 4 advertised | 1,255 | ~1,381 | 5,019 |
+| **Saved** | **856** | **~942** | **3,425** |
+
+Earlier scoping (~738 / ~806 saved) used shorter pre-UX descriptions; the lean-core split still saves **~900+ Claude-est tokens** per session at today's copy.
 
 ### Recovery string coverage (hidden tools → how agents reach them)
 

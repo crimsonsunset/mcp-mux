@@ -159,6 +159,10 @@ pub(crate) fn classify_invoke_denial(
 pub(crate) fn format_invoke_not_ready_action(reason: &str, server_id: &str) -> String {
     match reason {
         "inactive" => format_server_inactive_error(server_id),
+        "permission_denied" => format!(
+            "Tool not granted for server '{server_id}'. \
+             Use mcpmux_search_tools to discover invokable tools with current grants."
+        ),
         "auth_required" => format!(
             "Server '{server_id}' requires authentication. Run mcpmux_diagnose_server to connect."
         ),
@@ -727,13 +731,10 @@ impl MetaTool for SearchToolsTool {
                 "no Space resolved for this caller (no default Space configured?)".into(),
             )
         })?;
-        let space_id_ms = 0u64;
 
         debug!(
             query_id = %query_id,
             resolve_ms,
-            space_id_ms,
-            resolver_total_ms = resolve_ms + space_id_ms,
             feature_set_count = resolved.feature_set_ids.len(),
             "[search] resolver timing"
         );
@@ -980,7 +981,6 @@ impl MetaTool for SearchToolsTool {
 
         let total_ms = started.elapsed().as_millis() as u64;
         let accounted_ms = resolve_ms
-            + space_id_ms
             + active_index_ms
             + index_clone_ms
             + inactive_widen_ms
@@ -1001,7 +1001,6 @@ impl MetaTool for SearchToolsTool {
         info!(
             query_id = %query_id,
             resolve_ms,
-            space_id_ms,
             active_index_ms,
             index_clone_ms,
             inactive_widen_ms,

@@ -28,7 +28,7 @@ hidden-but-callable (registered, not advertised — reached via recovery strings
 └── mcpmux_diagnose_server           → operator tool; human-callable directly
 ```
 
-Advertisement and dispatch are decoupled: `list_as_tools()` filters to the 4 core tools; `MetaToolRegistry::call()` gates on `registry.contains(name)` — unchanged, covering all 11. This eliminates the `notifications/tools/list_changed` dependency that dynamic surface options required, and saves ~800 Claude tokens of startup context for the common tool-only binding case.
+Advertisement and dispatch are decoupled: `list_as_tools()` filters to the 4 core tools; `MetaToolRegistry::call()` gates on `registry.contains(name)` — unchanged, covering all 11. This eliminates the `notifications/tools/list_changed` dependency that dynamic surface options required, and saves **~940 Claude-est tokens** of startup context vs advertising all 11 meta tools (re-measure: `pnpm count-tokens`, Jun 2026).
 
 Non-surfaced backend tools are **not** in `tools/list`. Attempting to call a backend tool directly returns a redirect error pointing at `mcpmux_invoke_tool`.
 

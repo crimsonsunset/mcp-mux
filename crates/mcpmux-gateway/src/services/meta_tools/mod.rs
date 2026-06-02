@@ -28,6 +28,7 @@ pub mod disclosure_backend;
 pub mod invoke;
 pub mod invoke_backend;
 mod registry;
+mod token_budget;
 mod tools;
 
 pub use approval::{
@@ -41,6 +42,7 @@ pub use registry::{
     feature_set_ids_fingerprint, MetaToolContext, MetaToolError, MetaToolRegistry,
     META_TOOLS_ENABLED_KEY,
 };
+pub use token_budget::{measure_meta_tool_token_budget, MetaToolTokenBudget};
 
 use std::path::PathBuf;
 

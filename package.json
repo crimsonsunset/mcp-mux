@@ -42,6 +42,7 @@
     "format:check": "prettier --check . && cargo fmt --all --check",
     "typecheck": "pnpm -r typecheck",
     "validate": "cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo check --workspace && pnpm lint && pnpm typecheck",
+    "count-tokens": "cargo test -p mcpmux-gateway meta_tools_token_budget_report -- --nocapture && python3 scripts/count-meta-tool-tokens.py",
     "clean": "pnpm -r clean && cargo clean"
   },
   "devDependencies": {

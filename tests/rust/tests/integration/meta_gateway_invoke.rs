@@ -528,6 +528,29 @@ async fn invoke_preflight_ready_without_backend_call() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn invoke_preflight_denied_tool_returns_not_ready_permission_denied() {
+    let f = Fixture::new().await;
+    f.grant_github_connected().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "totally_unknown_tool",
+                "preflight": true
+            }),
+        )
+        .await;
+
+    assert!(result.is_error.unwrap_or(false));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("error"), Some(&json!("not_ready")));
+    assert_eq!(body.get("reason"), Some(&json!("permission_denied")));
+    assert_eq!(body.get("tool"), Some(&json!("mcpmux_search_tools")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn invoke_bound_offline_returns_structured_denial() {
     let f = Fixture::new().await;
     f.grant_github_feature_set().await;
@@ -1680,4 +1703,97 @@ fn direct_read_and_fetch_redirect_messages() {
     assert!(fetch.contains("mcpmux_search_prompts"));
     assert!(fetch.contains("mcpmux_fetch_prompt"));
     assert!(fetch.contains("summarize_issue"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_disclosure_quartet_callable_not_in_tools_list() {
+    let f = Fixture::new().await;
+    let advertised: Vec<String> = f
+        .registry
+        .list_as_tools()
+        .into_iter()
+        .map(|t| t.name.to_string())
+        .collect();
+
+    for hidden in [
+        "mcpmux_search_resources",
+        "mcpmux_read_resource",
+        "mcpmux_search_prompts",
+        "mcpmux_fetch_prompt",
+    ] {
+        assert!(
+            !advertised.iter().any(|n| n == hidden),
+            "{hidden} must not be in tools/list: {advertised:?}"
+        );
+        assert!(f.registry.contains(hidden), "{hidden} must remain callable");
+    }
+
+    let resource = ServerFeature::resource(f.space_id, "github", "github://docs/readme");
+    f.server_feature_repo.upsert(&resource).await.unwrap();
+    let mut fs = FeatureSet::new_custom("Hidden resource search", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: resource.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+
+    let search = f
+        .call(
+            "mcpmux_search_resources",
+            json!({ "query": "readme", "server_id": "github" }),
+        )
+        .await;
+    assert!(!search.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&search);
+    assert_eq!(
+        body.get("resources")
+            .and_then(|v| v.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resource_discovery_redirect_chain_reaches_hidden_search() {
+    let uri = "github://docs/readme";
+    let redirect = format_direct_read_redirect(uri);
+    assert!(redirect.contains("mcpmux_search_resources"));
+    assert!(redirect.contains("mcpmux_read_resource"));
+
+    let f = Fixture::new().await;
+    assert!(!f
+        .registry
+        .list_as_tools()
+        .iter()
+        .any(|t| t.name.as_ref() == "mcpmux_search_resources"));
+
+    let resource = ServerFeature::resource(f.space_id, "github", uri);
+    f.server_feature_repo.upsert(&resource).await.unwrap();
+    let mut fs = FeatureSet::new_custom("Redirect chain resource", f.space_id.to_string());
+    fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: resource.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    f.feature_set_repo.create(&fs).await.unwrap();
+    f.grant_feature_set(&fs.id).await;
+
+    let search = f
+        .call(
+            "mcpmux_search_resources",
+            json!({ "query": "readme", "server_id": "github" }),
+        )
+        .await;
+    assert!(!search.is_error.unwrap_or(true));
+    let body = Fixture::result_json(&search);
+    let resources = body.get("resources").unwrap().as_array().unwrap();
+    assert_eq!(resources[0].get("uri"), Some(&json!(uri)));
 }

@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use tracing::debug;
 
 use super::diagnose::parse_missing_required_inputs;
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
@@ -385,7 +386,7 @@ impl MetaTool for InvokeToolTool {
         if !binding_servers.contains(&server_id) {
             let (reason, tool) =
                 classify_invoke_denial(false, ConnectionStatus::Disconnected, false)
-                    .expect("not in binding always yields inactive denial");
+                    .unwrap_or(("inactive", "mcpmux_bind_current_workspace"));
             return Ok(invoke_not_ready(
                 reason,
                 format_invoke_not_ready_action(reason, &server_id),
@@ -413,6 +414,13 @@ impl MetaTool for InvokeToolTool {
         let is_invokable = matched.map(|f| f.is_available).unwrap_or(false);
 
         if !is_invokable {
+            if preflight {
+                return Ok(invoke_not_ready(
+                    "permission_denied",
+                    format_invoke_not_ready_action("permission_denied", &server_id),
+                    "mcpmux_search_tools",
+                ));
+            }
             let candidates: Vec<String> = invokable
                 .iter()
                 .filter(|f| f.server_id == server_id)
@@ -740,13 +748,19 @@ fn enforce_byte_limit(value: Value, filter: &InvokeResultFilter) -> Value {
 }
 
 /// Build a `{ returned, total, truncated, text }` envelope for byte-capped plain text or JSON.
+///
+/// Floors `max_bytes` to the nearest valid UTF-8 char boundary before slicing so that
+/// multi-byte characters (emoji, CJK, accented text) never cause a panic.
 fn byte_truncation_envelope(text: &str, max_bytes: usize) -> Value {
     let total_bytes = text.len();
-    let mut truncated = text.to_string();
-    truncated.truncate(max_bytes);
+    let mut end = max_bytes.min(total_bytes);
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = text[..end].to_string();
     truncated.push_str("...[truncated]");
     json!({
-        "returned": truncated.len(),
+        "returned": end,
         "total": total_bytes,
         "truncated": true,
         "text": truncated,
@@ -762,6 +776,7 @@ fn merge_default_params(args: Value, defaults: &HashMap<String, Value>) -> Value
         return args;
     }
     let Value::Object(caller_map) = args else {
+        debug!("merge_default_params: args is not an Object; server defaults not applied");
         return args;
     };
     let mut merged: Map<String, Value> = defaults
@@ -1281,5 +1296,32 @@ mod tests {
             serde_json::from_str(shaped.get("text").unwrap().as_str().unwrap()).unwrap();
         assert_eq!(parsed.get("truncated"), Some(&json!(true)));
         assert_eq!(parsed.get("total"), Some(&json!(100)));
+    }
+
+    #[test]
+    fn byte_trunc_mid_multibyte_char_does_not_panic() {
+        // Each rocket emoji is 4 bytes. A max_bytes of 5 would land in the middle of
+        // the second emoji — the char-boundary floor must step back to byte 4.
+        let text = "🚀🚀🚀🚀".to_string(); // 16 bytes total
+        let envelope = byte_truncation_envelope(&text, 5);
+        assert_eq!(envelope.get("truncated"), Some(&json!(true)));
+        assert_eq!(envelope.get("total"), Some(&json!(16)));
+        // returned must be ≤ max_bytes and land on a char boundary (4, not 5)
+        let returned = envelope.get("returned").and_then(|v| v.as_u64()).unwrap();
+        assert!(returned <= 5, "returned {returned} exceeds max_bytes 5");
+        // The text field must be valid UTF-8 (would panic on deser otherwise)
+        let text_val = envelope.get("text").and_then(|v| v.as_str()).unwrap();
+        assert!(text_val.ends_with("...[truncated]"));
+    }
+
+    #[test]
+    fn byte_trunc_exact_char_boundary_does_not_regress() {
+        // "café" = 5 bytes (c-a-f-é where é is 2 bytes). max_bytes=4 lands exactly at
+        // a boundary — no backward walk needed, output is "caf".
+        let text = "café";
+        let envelope = byte_truncation_envelope(text, 4);
+        assert_eq!(envelope.get("truncated"), Some(&json!(true)));
+        let text_val = envelope.get("text").and_then(|v| v.as_str()).unwrap();
+        assert!(text_val.starts_with("caf"), "got: {text_val}");
     }
 }
