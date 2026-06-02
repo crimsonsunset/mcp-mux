@@ -561,11 +561,13 @@ impl MetaTool for SearchToolsTool {
 
     fn description(&self) -> &'static str {
         "Search backend tools in the caller's resolved Space. Each match includes \
-         qualified_name, bare_name (use as mcpmux_invoke_tool.tool), and required_params \
-         (name + type) so predictable tools can be invoked without mcpmux_get_tool_schema. \
-         By default only invokable (active/bound) tools match. Set include_inactive: true \
-         (or scope \"all\") to also match unbound FeatureSets. Supports query, server_id \
-         filter, detail_level (name | description | schema), and pagination."
+         qualified_name, bare_name (use as mcpmux_invoke_tool.tool), required_params, and \
+         optional_params (name + type, capped) so simple tools can be invoked without \
+         mcpmux_get_tool_schema. When schema_complex is true, call mcpmux_get_tool_schema for \
+         the full input shape (oneOf, nested objects, or unresolved types). By default only \
+         invokable (active/bound) tools match. Set include_inactive: true (or scope \"all\") \
+         to also match unbound FeatureSets. Supports query, server_id filter, detail_level \
+         (name | description | schema), and pagination."
     }
 
     fn input_schema(&self) -> Value {

@@ -554,6 +554,9 @@ fn schema_property_type(prop: &Value) -> String {
     }
 }
 
+/// Max optional params inlined in search hits (token budget guard).
+const OPTIONAL_PARAM_CAP: usize = 8;
+
 /// Required parameter name + type for search results (minimal schema-lite).
 fn extract_required_param_specs(input_schema: Option<&Value>) -> Vec<Value> {
     let Some(schema) = input_schema else {
@@ -577,14 +580,82 @@ fn extract_required_param_specs(input_schema: Option<&Value>) -> Vec<Value> {
         .collect()
 }
 
+/// Optional parameter name + type for search results (minimal schema-lite, capped).
+fn extract_optional_param_specs(input_schema: Option<&Value>) -> Vec<Value> {
+    let Some(schema) = input_schema else {
+        return Vec::new();
+    };
+    let Some(properties) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    let required: HashSet<&str> = schema
+        .get("required")
+        .and_then(|r| r.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    let mut optional: Vec<(String, &Value)> = properties
+        .iter()
+        .filter(|(name, _)| !required.contains(name.as_str()))
+        .map(|(name, prop)| (name.clone(), prop))
+        .collect();
+    optional.sort_by(|a, b| a.0.cmp(&b.0));
+
+    optional
+        .into_iter()
+        .take(OPTIONAL_PARAM_CAP)
+        .map(|(name, prop)| {
+            let param_type = schema_property_type(prop);
+            json!({ "name": name, "type": param_type })
+        })
+        .collect()
+}
+
+/// Whether a property schema exceeds shallow type resolution (oneOf, $ref, nested object, …).
+fn schema_property_is_complex(prop: &Value) -> bool {
+    if prop.get("oneOf").is_some() || prop.get("anyOf").is_some() || prop.get("$ref").is_some() {
+        return true;
+    }
+    match prop.get("type") {
+        Some(Value::String(t)) if t == "object" => prop.get("properties").is_some(),
+        Some(Value::Array(types)) => types.iter().any(|t| {
+            t.as_str() == Some("object") && prop.get("properties").is_some()
+        }),
+        _ => false,
+    }
+}
+
+/// Whether the input schema needs a full read via get_tool_schema.
+fn input_schema_is_complex(input_schema: Option<&Value>) -> bool {
+    let Some(schema) = input_schema else {
+        return false;
+    };
+    if schema.get("oneOf").is_some()
+        || schema.get("anyOf").is_some()
+        || schema.get("$ref").is_some()
+    {
+        return true;
+    }
+    let Some(properties) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return false;
+    };
+    properties
+        .values()
+        .any(|prop| schema_property_type(prop) == "unknown" || schema_property_is_complex(prop))
+}
+
 fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
     let required_params = extract_required_param_specs(entry.input_schema.as_ref());
+    let optional_params = extract_optional_param_specs(entry.input_schema.as_ref());
+    let schema_complex = input_schema_is_complex(entry.input_schema.as_ref());
     let mut obj = json!({
         "server_id": entry.server_id,
         "qualified_name": entry.qualified_name,
         "bare_name": entry.feature_name,
         "available": entry.is_available,
         "required_params": required_params,
+        "optional_params": optional_params,
+        "schema_complex": schema_complex,
     });
     if let Some(status) = &entry.status {
         obj["status"] = json!(status);
