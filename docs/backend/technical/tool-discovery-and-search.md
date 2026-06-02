@@ -13,7 +13,7 @@ AI clients connected to McpMux see **4 `mcpmux_*` meta tools** in `tools/list` a
 ```
 tools/list (core — always advertised):
 ├── mcpmux_list_servers              server roster with per-server status + bindable_feature_set_ids
-├── mcpmux_search_tools              search by intent; returns name/description/schema + required_params
+├── mcpmux_search_tools              search by intent; returns qualified_name, bare_name, required_params (name+type)
 ├── mcpmux_get_tool_schema           single or batch schema fetch
 ├── mcpmux_invoke_tool               single invoke entry point for all backend calls
 └── [0–N surfaced backend tools]     opt-in per FeatureSet member; default zero
@@ -36,20 +36,22 @@ Non-surfaced backend tools are **not** in `tools/list`. Attempting to call a bac
 
 ## Search → Schema → Invoke
 
-The canonical agent workflow (two or three steps depending on tool complexity):
+The canonical agent workflow (one to three steps depending on tool complexity):
 
 ```
 1. mcpmux_search_tools({ query: "list issues", server_id: "github", detail_level: "description" })
-      → ranked list of matching tools with status, description, and required_params (param names only)
+      → ranked hits with qualified_name, bare_name, required_params [{ name, type }, …], status, description
 
 2. mcpmux_get_tool_schema({ tools: ["github_list_issues"] })   ← optional when required_params is enough
       → full JSON input schema; compact: true strips examples/descriptions
 
-3. mcpmux_invoke_tool({ server_id: "github", tool: "list_issues", args: { … } })
+3. mcpmux_invoke_tool({ server_id: "github", tool: "list_issues" | "github_list_issues", args: { … } })
       → backend tool result (optionally shaped via filter)
 ```
 
-Search hits always include `required_params: string[]` (from cached `inputSchema.required`), at every `detail_level`. For parameter-light tools, an agent can skip step 2 and invoke directly from search. For complex shapes or optional params, `mcpmux_get_tool_schema` remains the source of truth.
+Search hits always include `bare_name` (use as `invoke_tool.tool` when unsure) and `required_params` as `{ name, type }` objects (from cached `inputSchema.required` + `properties`), at every `detail_level` except `detail_level=schema` (which adds full `input_schema` instead). For parameter-light tools, an agent can skip step 2 and invoke from search using `bare_name` or `qualified_name`. For complex shapes or optional params, `mcpmux_get_tool_schema` remains the source of truth.
+
+`mcpmux_invoke_tool` accepts **bare or qualified** `tool` values (strips a leading `{server_id}_` prefix when present). Passing the `qualified_name` from search no longer produces a double-prefixed permission error.
 
 Sticky per-server tool arguments (`cloudId`, `projectKey`, etc.) can be preset via **`default_params`** so agents do not repeat them every invoke — see [`server-config-lanes.md`](../guides/server-config-lanes.md#default_params).
 

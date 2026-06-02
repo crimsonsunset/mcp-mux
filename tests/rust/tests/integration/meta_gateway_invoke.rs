@@ -298,6 +298,72 @@ async fn invoke_tool_applies_filter_end_to_end() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn invoke_tool_accepts_qualified_tool_name() {
+    let backend_result = ToolCallResult {
+        content: vec![json!({
+            "type": "text",
+            "text": json!({ "ok": true }).to_string(),
+        })],
+        structured_content: Some(json!({ "ok": true })),
+        is_error: false,
+    };
+    let invoke_backend = CannedInvokeBackend::new()
+        .with_response("github_list_issues", backend_result)
+        .into_arc();
+
+    let f = Fixture::with_invoke_backend(Some(invoke_backend)).await;
+    f.grant_github_feature_set().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "github_list_issues",
+                "args": { "owner": "mcpmux", "repo": "mcp-mux" }
+            }),
+        )
+        .await;
+
+    assert!(
+        !result.is_error.unwrap_or(true),
+        "qualified tool name must resolve without double-prefix: {:?}",
+        Fixture::result_json(&result)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_tools_includes_bare_name_and_required_param_types() {
+    let f = Fixture::new().await;
+    f.grant_github_feature_set().await;
+
+    let search = f
+        .call("mcpmux_search_tools", json!({ "server_id": "github" }))
+        .await;
+    let search_body = Fixture::result_json(&search);
+    let tools = search_body.get("tools").unwrap().as_array().unwrap();
+    assert!(!tools.is_empty(), "expected github tools: {search_body}");
+    let tool = tools
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("github_list_issues")))
+        .expect("list_issues in search results");
+    assert_eq!(tool.get("bare_name"), Some(&json!("list_issues")));
+    let required = tool.get("required_params").unwrap().as_array().unwrap();
+    assert!(
+        required.iter().any(|p| {
+            p.get("name") == Some(&json!("owner")) && p.get("type") == Some(&json!("string"))
+        }),
+        "owner param spec: {required:?}"
+    );
+    assert!(
+        required.iter().any(|p| {
+            p.get("name") == Some(&json!("repo")) && p.get("type") == Some(&json!("string"))
+        }),
+        "repo param spec: {required:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn advertised_tools_empty_without_surfaced_members() {
     let f = Fixture::new().await;
     let fs_ids = vec![
@@ -444,7 +510,7 @@ async fn direct_backend_call_redirect_message() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn registry_lists_new_meta_tools() {
+async fn registry_lists_only_core_meta_tools() {
     let f = Fixture::new().await;
     let names: Vec<String> = f
         .registry
@@ -452,19 +518,43 @@ async fn registry_lists_new_meta_tools() {
         .into_iter()
         .map(|t| t.name.to_string())
         .collect();
-    assert!(names.iter().any(|n| n == "mcpmux_search_tools"));
-    assert!(names.iter().any(|n| n == "mcpmux_get_tool_schema"));
-    assert!(names.iter().any(|n| n == "mcpmux_invoke_tool"));
-    assert!(names.iter().any(|n| n == "mcpmux_search_resources"));
-    assert!(names.iter().any(|n| n == "mcpmux_read_resource"));
-    assert!(names.iter().any(|n| n == "mcpmux_search_prompts"));
-    assert!(names.iter().any(|n| n == "mcpmux_fetch_prompt"));
-    assert!(names.iter().any(|n| n == "mcpmux_diagnose_server"));
+    for core in meta_tools::CORE_META_TOOLS {
+        assert!(
+            names.iter().any(|n| n == *core),
+            "missing core tool {core}: {names:?}"
+        );
+    }
+    for hidden in [
+        "mcpmux_list_feature_sets",
+        "mcpmux_bind_current_workspace",
+        "mcpmux_search_resources",
+        "mcpmux_read_resource",
+        "mcpmux_search_prompts",
+        "mcpmux_fetch_prompt",
+        "mcpmux_diagnose_server",
+    ] {
+        assert!(
+            !names.iter().any(|n| n == hidden),
+            "{hidden} must not appear in tools/list: {names:?}"
+        );
+        assert!(f.registry.contains(hidden), "{hidden} must remain callable");
+    }
     assert!(
-        !names.iter().any(|n| n == "mcpmux_list_all_tools"),
-        "list_all_tools removed from agent registry"
+        !f.registry.contains("mcpmux_list_all_tools"),
+        "list_all_tools is not registered on the agent surface"
     );
-    assert_eq!(names.len(), 11);
+    assert_eq!(names.len(), meta_tools::CORE_META_TOOLS.len());
+    for window in names.windows(2) {
+        let a = meta_tools::CORE_META_TOOLS
+            .iter()
+            .position(|n| *n == window[0])
+            .unwrap();
+        let b = meta_tools::CORE_META_TOOLS
+            .iter()
+            .position(|n| *n == window[1])
+            .unwrap();
+        assert!(a < b, "tools/list order must follow CORE_META_TOOLS");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1355,11 +1445,13 @@ async fn read_resource_routes_clone_server_not_inactive_parent() {
 #[test]
 fn direct_read_and_fetch_redirect_messages() {
     let read = format_direct_read_redirect("posthog://skills/foo");
+    assert!(read.contains("mcpmux_search_resources"));
     assert!(read.contains("mcpmux_read_resource"));
     assert!(read.contains("posthog://skills/foo"));
 
     let fetch =
         format_direct_fetch_prompt_redirect("github_summarize_issue", "github", "summarize_issue");
+    assert!(fetch.contains("mcpmux_search_prompts"));
     assert!(fetch.contains("mcpmux_fetch_prompt"));
     assert!(fetch.contains("summarize_issue"));
 }

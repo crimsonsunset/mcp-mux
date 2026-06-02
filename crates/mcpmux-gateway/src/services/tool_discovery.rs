@@ -541,26 +541,48 @@ fn extract_input_schema(raw_json: Option<&Value>) -> Option<Value> {
     })
 }
 
-/// Extract required parameter names from an `inputSchema` value.
-///
-/// Returns an empty vec when the schema is absent or has no `required` array.
-fn extract_required_params(input_schema: Option<&Value>) -> Vec<String> {
-    input_schema
-        .and_then(|schema| schema.get("required"))
-        .and_then(|r| r.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
+/// JSON Schema `type` for one property (string or first element of a type array).
+fn schema_property_type(prop: &Value) -> String {
+    match prop.get("type") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(arr)) => arr
+            .first()
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+/// Required parameter name + type for search results (minimal schema-lite).
+fn extract_required_param_specs(input_schema: Option<&Value>) -> Vec<Value> {
+    let Some(schema) = input_schema else {
+        return Vec::new();
+    };
+    let Some(required) = schema.get("required").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    let properties = schema.get("properties").and_then(|p| p.as_object());
+
+    required
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(|name| {
+            let param_type = properties
+                .and_then(|props| props.get(name))
+                .map(schema_property_type)
+                .unwrap_or_else(|| "unknown".to_string());
+            json!({ "name": name, "type": param_type })
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn entry_to_json(entry: &ToolIndexEntry, detail_level: DetailLevel) -> Value {
-    let required_params = extract_required_params(entry.input_schema.as_ref());
+    let required_params = extract_required_param_specs(entry.input_schema.as_ref());
     let mut obj = json!({
         "server_id": entry.server_id,
         "qualified_name": entry.qualified_name,
+        "bare_name": entry.feature_name,
         "available": entry.is_available,
         "required_params": required_params,
     });

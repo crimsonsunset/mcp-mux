@@ -1608,19 +1608,18 @@ async fn invalid_feature_set_argument_rejected() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
-async fn registry_advertises_every_default_tool_with_annotations() {
+async fn registry_advertises_core_tools_read_only_in_list() {
     let f = Fixture::new().await;
     let tools = f.registry.list_as_tools();
     let names: Vec<_> = tools.iter().map(|t| t.name.to_string()).collect();
-    for expected in [
+    assert_eq!(names.len(), meta_tools::CORE_META_TOOLS.len());
+    for core in meta_tools::CORE_META_TOOLS {
+        assert!(names.iter().any(|n| n == *core), "missing {core}");
+    }
+    for hidden in [
         "mcpmux_list_feature_sets",
-        "mcpmux_list_servers",
         "mcpmux_bind_current_workspace",
         "mcpmux_diagnose_server",
-    ] {
-        assert!(names.iter().any(|n| n == expected), "missing {expected}");
-    }
-    for removed in [
         "mcpmux_enable_server",
         "mcpmux_disable_server",
         "mcpmux_create_feature_set",
@@ -1628,22 +1627,77 @@ async fn registry_advertises_every_default_tool_with_annotations() {
         "mcpmux_describe_workspace",
     ] {
         assert!(
-            !names.iter().any(|n| n == removed),
-            "{removed} should be removed; got {names:?}"
+            !names.iter().any(|n| n == hidden),
+            "{hidden} must not be advertised; got {names:?}"
         );
     }
-    // bind_current_workspace is the sole write tool.
-    let write_tools: Vec<_> = tools
+    for tool in &tools {
+        let destructive = tool
+            .annotations
+            .as_ref()
+            .and_then(|a| a.destructive_hint)
+            .unwrap_or(false);
+        assert!(
+            !destructive,
+            "advertised core tools must be read-only hints: {:?}",
+            tool.name
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_bind_tool_callable_but_not_advertised() {
+    let f = Fixture::new().await;
+    let advertised: Vec<_> = f
+        .registry
+        .list_as_tools()
         .iter()
-        .filter(|t| {
-            t.annotations
-                .as_ref()
-                .and_then(|a| a.destructive_hint)
-                .unwrap_or(false)
-        })
         .map(|t| t.name.to_string())
         .collect();
-    assert_eq!(write_tools, vec!["mcpmux_bind_current_workspace"]);
+    assert!(!advertised
+        .iter()
+        .any(|n| n == "mcpmux_bind_current_workspace"));
+    assert!(f.registry.contains("mcpmux_bind_current_workspace"));
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_list_feature_sets",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({}),
+        )
+        .await;
+    assert!(result.is_ok(), "hidden read tool must remain callable");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_scope_all_matches_include_inactive() {
+    let f = Fixture::new().await;
+    let fs_id = github_only_fs(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "issue", "scope": "all" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("scope"), Some(&json!("active_and_inactive")));
+    let tool = body
+        .get("tools")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("github_create_issue")))
+        .expect("inactive github tool in results");
+    assert_eq!(tool.get("status"), Some(&json!("inactive")));
+    assert_eq!(tool.get("bindable_feature_set_id"), Some(&json!(fs_id)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1865,7 +1919,7 @@ fn _unused(_: ApprovalPayload) {}
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
-async fn diagnose_server_registered_in_tools_list() {
+async fn diagnose_server_callable_but_not_in_tools_list() {
     let f = Fixture::new().await;
     let names: Vec<_> = f
         .registry
@@ -1874,9 +1928,10 @@ async fn diagnose_server_registered_in_tools_list() {
         .map(|t| t.name.to_string())
         .collect();
     assert!(
-        names.iter().any(|n| n == "mcpmux_diagnose_server"),
-        "expected mcpmux_diagnose_server in {names:?}"
+        !names.iter().any(|n| n == "mcpmux_diagnose_server"),
+        "diagnose_server is hidden from tools/list: {names:?}"
     );
+    assert!(f.registry.contains("mcpmux_diagnose_server"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

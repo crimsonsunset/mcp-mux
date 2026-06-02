@@ -1,11 +1,24 @@
 # Meta-Tool Invoke Ergonomics — Default Params & First-Call UX
 
 **Last Updated:** Jun 1, 2026
-**Status:** Shipped on `dev` (commits `a92111c`–`b58c693`)
+**Status:** Shipped on `dev` (commits `a92111c`–`b58c693`); **round 2** (name-compat + param types in search) on `feat/meta-surface-lean-core` → PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4)
 **Branch:** merged to `dev`
 **Base branch:** `dev`
 **Depends on:** nothing — builds on the shipped consent/invoke model
 **Unblocks:** agents invoking parameter-heavy servers (Atlassian, anything needing org/projectKey/cloudId) without a guaranteed first-call failure
+
+---
+
+## Round 2 (PR #4 — invoke ergonomics follow-up)
+
+Agent feedback on the lean-core surface: search returned `qualified_name` but invoke expected bare `tool`, producing double-prefixed errors (`github_github_*`). **Shipped in this branch:**
+
+| Change | Detail |
+| ------ | ------ |
+| `bare_name` in search hits | Same as `feature_name` — the value to pass to `mcpmux_invoke_tool.tool` |
+| `required_params` shape | `[{ "name": "owner", "type": "string" }, …]` at default `detail_level` (required keys only) |
+| `invoke_tool.tool` | Accepts bare **or** qualified; strips `{server_id}_` prefix when present |
+| Deferred | `tool` → `tool_name` rename; optional-param inlining; full schema in search |
 
 ---
 

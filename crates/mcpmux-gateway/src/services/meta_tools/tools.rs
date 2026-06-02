@@ -520,12 +520,12 @@ impl MetaTool for SearchToolsTool {
     }
 
     fn description(&self) -> &'static str {
-        "Search backend tools in the caller's resolved Space. By default only \
-         invokable (active/bound) tools match. Set include_inactive: true to \
-         also match tools in unbound FeatureSets (annotated with status and \
-         bindable_feature_set_id — activate via mcpmux_bind_current_workspace). \
-         Supports query, server_id filter, detail_level (name | description | \
-         schema), and pagination."
+        "Search backend tools in the caller's resolved Space. Each match includes \
+         qualified_name, bare_name (use as mcpmux_invoke_tool.tool), and required_params \
+         (name + type) so predictable tools can be invoked without mcpmux_get_tool_schema. \
+         By default only invokable (active/bound) tools match. Set include_inactive: true \
+         (or scope \"all\") to also match unbound FeatureSets. Supports query, server_id \
+         filter, detail_level (name | description | schema), and pagination."
     }
 
     fn input_schema(&self) -> Value {
@@ -537,7 +537,11 @@ impl MetaTool for SearchToolsTool {
                 "include_inactive": {
                     "type": "boolean",
                     "default": false,
-                    "description": "When true, include tools from FeatureSets not bound to this workspace (inactive matches carry bindable_feature_set_id)"
+                    "description": "When true, include tools from FeatureSets not bound to this workspace (inactive matches carry bindable_feature_set_id). Alias: scope \"all\" — same effect."
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Optional alias for include_inactive: use \"all\" to search active and inactive tools (prefer include_inactive in new calls)"
                 },
                 "detail_level": {
                     "type": "string",

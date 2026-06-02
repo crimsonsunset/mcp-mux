@@ -226,7 +226,8 @@ impl MetaToolRegistry {
     /// tools are hidden from `tools/list` but remain fully callable — agents
     /// reach them through the error/hint recovery strings that name them.
     pub fn list_as_tools(&self) -> Vec<Tool> {
-        self.tools
+        let mut tools: Vec<_> = self
+            .tools
             .values()
             .filter(|t| super::CORE_META_TOOLS.contains(&t.name()))
             .map(|t| {
@@ -246,7 +247,14 @@ impl MetaToolRegistry {
                 }
                 tool
             })
-            .collect()
+            .collect();
+        tools.sort_by_key(|t| {
+            super::CORE_META_TOOLS
+                .iter()
+                .position(|name| *name == t.name.as_ref())
+                .unwrap_or(usize::MAX)
+        });
+        tools
     }
 
     /// Dispatch. Caller (the MCP handler) has already verified the name

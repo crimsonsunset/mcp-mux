@@ -1,7 +1,7 @@
 # Meta-Surface Lean Core — Hidden-but-Callable Tool Trimming
 
 **Last Updated:** Jun 1, 2026
-**Status:** Shipped — `feat/meta-surface-lean-core` → PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4) → `dev`
+**Status:** In review (draft PR) — `feat/meta-surface-lean-core` → PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4) → `dev`
 **Branch:** `feat/meta-surface-lean-core`
 **Base branch:** `dev`
 **Depends on:** Nothing — builds on the shipped invoke-ergonomics model (default_params, required_params, bare-name suggestions)

@@ -26,6 +26,36 @@ pub struct InvokeResultFilter {
     pub format: Option<String>,
 }
 
+/// Strip a leading `{server_id}_` prefix when agents pass the qualified name from search.
+pub fn normalize_invoke_tool_name(server_id: &str, tool: &str) -> String {
+    let prefix = format!("{server_id}_");
+    if let Some(bare) = tool.strip_prefix(&prefix) {
+        bare.to_string()
+    } else {
+        tool.to_string()
+    }
+}
+
+/// Whether an invokable feature matches the caller's `tool` (bare or qualified).
+fn feature_matches_tool_name(
+    feature_name: &str,
+    qualified_name: &str,
+    tool_input: &str,
+    bare: &str,
+) -> bool {
+    feature_name == bare || qualified_name == tool_input
+}
+
+/// Resolve backend tool arguments from `mcpmux_invoke_tool` call args.
+///
+/// Prefers `args`; falls back to `params` for agents that use the wrong key.
+pub fn resolve_invoke_tool_args(args: &Value) -> Value {
+    args.get("args")
+        .or_else(|| args.get("params"))
+        .cloned()
+        .unwrap_or_else(|| json!({}))
+}
+
 /// Parse the optional `filter` object from `mcpmux_invoke_tool` arguments.
 pub fn parse_invoke_filter(value: Option<&Value>) -> Option<InvokeResultFilter> {
     let filter = value?;
@@ -234,10 +264,10 @@ impl MetaTool for InvokeToolTool {
     }
 
     fn description(&self) -> &'static str {
-        "Invoke a backend MCP tool by server_id and tool name. Requires the \
-         server to be active (binding or session enable) and the tool to be \
-         in the current permission set. Use mcpmux_search_tools and \
-         mcpmux_get_tool_schema before calling. Pass an optional filter object \
+        "Invoke a backend MCP tool by server_id and tool (bare or qualified from \
+         mcpmux_search_tools). Requires the server to be active and the tool in the \
+         current permission set. Search results include required_params types — \
+         mcpmux_get_tool_schema is optional for complex tools. Pass an optional filter \
          to bound large payloads; omit filter to return the backend response as-is."
     }
 
@@ -252,11 +282,11 @@ impl MetaTool for InvokeToolTool {
                 },
                 "tool": {
                     "type": "string",
-                    "description": "Bare tool name on that server (e.g. list_issues), not the qualified name"
+                    "description": "Tool name on that server — bare (e.g. list_issues) or qualified from mcpmux_search_tools (e.g. github_list_issues); bare_name in search results is the invoke value when unsure"
                 },
                 "args": {
                     "type": "object",
-                    "description": "Arguments object passed to the backend tool",
+                    "description": "Arguments object passed to the backend tool (alias: params — same object, args wins if both are set)",
                     "default": {}
                 },
                 "filter": {
@@ -300,18 +330,19 @@ impl MetaTool for InvokeToolTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| MetaToolError::InvalidArgument("missing `server_id`".into()))?
             .to_string();
-        let tool_name = call
+        let tool_input = call
             .args
             .get("tool")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| MetaToolError::InvalidArgument("missing `tool`".into()))?
+            .ok_or_else(|| {
+                MetaToolError::InvalidArgument(
+                    "missing `tool` (bare or qualified, e.g. \"list_issues\" or \"github_list_issues\")"
+                        .into(),
+                )
+            })?
             .to_string();
-        let args = call
-            .args
-            .get("args")
-            .or_else(|| call.args.get("params"))
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let bare_tool_name = normalize_invoke_tool_name(&server_id, &tool_input);
+        let args = resolve_invoke_tool_args(&call.args);
         let filter = parse_invoke_filter(call.args.get("filter"));
 
         let resolved = caller_resolution(&call).await?;
@@ -339,17 +370,24 @@ impl MetaTool for InvokeToolTool {
             return Ok(invoke_error(format_server_inactive_error(&server_id)));
         }
 
-        let qualified_name = invokable
-            .iter()
-            .find(|f| f.server_id == server_id && f.feature_name == tool_name)
-            .map(|f| f.qualified_name())
-            .unwrap_or_else(|| format!("{server_id}_{tool_name}"));
-        let is_invokable = invokable.iter().any(|f| {
+        let matched = invokable.iter().find(|f| {
             f.feature_type == FeatureType::Tool
                 && f.server_id == server_id
-                && f.feature_name == tool_name
-                && f.is_available
+                && feature_matches_tool_name(
+                    &f.feature_name,
+                    &f.qualified_name(),
+                    &tool_input,
+                    &bare_tool_name,
+                )
         });
+        let qualified_name = matched.map(|f| f.qualified_name()).unwrap_or_else(|| {
+            if tool_input.starts_with(&format!("{server_id}_")) {
+                tool_input.clone()
+            } else {
+                format!("{server_id}_{bare_tool_name}")
+            }
+        });
+        let is_invokable = matched.map(|f| f.is_available).unwrap_or(false);
 
         if !is_invokable {
             let candidates: Vec<String> = invokable
@@ -357,11 +395,11 @@ impl MetaTool for InvokeToolTool {
                 .filter(|f| f.server_id == server_id)
                 .map(|f| f.feature_name.clone())
                 .collect();
-            let suggestions = levenshtein_suggestions(&tool_name, &candidates, 5);
+            let suggestions = levenshtein_suggestions(&bare_tool_name, &candidates, 5);
             return Ok(invoke_error(format_invoke_permission_denied(
                 &qualified_name,
                 &server_id,
-                &tool_name,
+                &bare_tool_name,
                 &suggestions,
             )));
         }
@@ -698,6 +736,70 @@ fn invoke_error(message: String) -> CallToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_invoke_tool_args_prefers_args_over_params() {
+        let call_args = json!({
+            "args": { "owner": "a" },
+            "params": { "owner": "b" }
+        });
+        assert_eq!(
+            resolve_invoke_tool_args(&call_args),
+            json!({ "owner": "a" })
+        );
+    }
+
+    #[test]
+    fn resolve_invoke_tool_args_falls_back_to_params() {
+        let call_args = json!({ "params": { "repo": "mcp-mux" } });
+        assert_eq!(
+            resolve_invoke_tool_args(&call_args),
+            json!({ "repo": "mcp-mux" })
+        );
+    }
+
+    #[test]
+    fn resolve_invoke_tool_args_defaults_to_empty_object() {
+        assert_eq!(resolve_invoke_tool_args(&json!({})), json!({}));
+    }
+
+    #[test]
+    fn normalize_invoke_tool_name_strips_server_prefix() {
+        assert_eq!(
+            normalize_invoke_tool_name("github", "github_list_issues"),
+            "list_issues"
+        );
+    }
+
+    #[test]
+    fn normalize_invoke_tool_name_passes_bare_through() {
+        assert_eq!(
+            normalize_invoke_tool_name("github", "list_issues"),
+            "list_issues"
+        );
+    }
+
+    #[test]
+    fn feature_matches_tool_name_accepts_qualified_or_bare() {
+        assert!(feature_matches_tool_name(
+            "list_issues",
+            "github_list_issues",
+            "github_list_issues",
+            "list_issues"
+        ));
+        assert!(feature_matches_tool_name(
+            "list_issues",
+            "github_list_issues",
+            "list_issues",
+            "list_issues"
+        ));
+        assert!(!feature_matches_tool_name(
+            "other_tool",
+            "github_other_tool",
+            "list_issues",
+            "list_issues"
+        ));
+    }
 
     fn issue_rows(count: usize) -> Vec<Value> {
         (0..count)
