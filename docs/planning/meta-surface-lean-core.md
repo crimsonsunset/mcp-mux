@@ -1,7 +1,7 @@
 # Meta-Surface Lean Core — Hidden-but-Callable Tool Trimming
 
-**Last Updated:** Jun 1, 2026
-**Status:** In review (draft PR) — `feat/meta-surface-lean-core` → PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4) → `dev`
+**Last Updated:** Jun 2, 2026
+**Status:** Shipped on `feat/meta-surface-lean-core` (through `9532ce0`) — PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4) → `dev`; agent-validated in Cursor (Jun 2, 2026)
 **Branch:** `feat/meta-surface-lean-core`
 **Base branch:** `dev`
 **Depends on:** Nothing — builds on the shipped invoke-ergonomics model (default_params, required_params, bare-name suggestions)
@@ -115,7 +115,7 @@ const CORE_META_TOOLS: &[&str] = &[
 
 ## Phases
 
-### Phase 1 — Filter `list_as_tools()` to core set (~1 hr)
+### Phase 1 — Filter `list_as_tools()` to core set (~1 hr) — **Done**
 
 - Define `CORE_META_TOOLS: &[&str]` constant in `meta_tools/mod.rs` (or `registry.rs`) with the 4 core names
 - Update `MetaToolRegistry::list_as_tools()` to filter `self.tools` to only entries in `CORE_META_TOOLS`
@@ -126,7 +126,7 @@ const CORE_META_TOOLS: &[&str] = &[
 
 ---
 
-### Phase 2 — Recovery string audit (~half day)
+### Phase 2 — Recovery string audit (~half day) — **Done**
 
 - Walk each of the 6 hidden agent-facing tools (excludes `diagnose_server`):
   - Trace the exact call path that first fails without the tool
@@ -138,7 +138,7 @@ const CORE_META_TOOLS: &[&str] = &[
 
 ---
 
-### Phase 3 — Doc update + cleanup (~half day)
+### Phase 3 — Doc update + cleanup (~half day) — **Done**
 
 - Update `docs/backend/technical/tool-discovery-and-search.md`:
   - "The Meta Surface" section: update prose count (now 4 advertised, 7 hidden-but-callable)
@@ -179,6 +179,23 @@ const CORE_META_TOOLS: &[&str] = &[
 | [`crates/mcpmux-gateway/src/pool/features/facade.rs`](../../crates/mcpmux-gateway/src/pool/features/facade.rs) | `get_readable_resources_for_grants` / `get_fetchable_prompts_for_grants` — the free capability signal (Option 2's mechanism; not used here but available if Option 6 ever needs gating) |
 | [`docs/backend/technical/tool-discovery-and-search.md`](../backend/technical/tool-discovery-and-search.md) | "The Meta Surface" section — stale count fixed in prior session; diagram + hidden-tool model to be added in Phase 3 |
 | `scripts/count-meta-tool-tokens.py` | tiktoken-based per-tool token count (baseline for confirming the ~800 token saving post-implementation) |
+
+---
+
+## Agent validation (Jun 2, 2026)
+
+Cursor session against a live `pnpm dev:restart` build on `localhost:45818`:
+
+| Check | Result |
+| ----- | ------ |
+| `tools/list` meta count | 4 — `search_tools`, `invoke_tool`, `get_tool_schema`, `list_servers` |
+| Search hit shape | `bare_name` + `required_params: [{ name, type }]` present |
+| Invoke with `qualified_name` as `tool` | OK — no `server_server_tool` double-prefix |
+| Invoke with `bare_name` as `tool` | OK — same routing |
+| `get_tool_schema` skipped | Context7 `resolve-library-id` → `query-docs` succeeded using search `required_params` only |
+| Hidden tools | Not in `tools/list`; still reachable by name when needed |
+
+Bundled in the same branch: invoke ergonomics round 2 ([`meta-tool-invoke-ergonomics.md`](./meta-tool-invoke-ergonomics.md)).
 
 ---
 

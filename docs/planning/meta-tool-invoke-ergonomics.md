@@ -1,7 +1,7 @@
 # Meta-Tool Invoke Ergonomics — Default Params & First-Call UX
 
-**Last Updated:** Jun 1, 2026
-**Status:** Shipped on `dev` (commits `a92111c`–`b58c693`); **round 2** (name-compat + param types in search) on `feat/meta-surface-lean-core` → PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4)
+**Last Updated:** Jun 2, 2026
+**Status:** Phase 1–3 on `dev` (`a92111c`–`b58c693`); **round 2** shipped on `feat/meta-surface-lean-core` (`9532ce0`) — PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4); agent-validated Jun 2, 2026
 **Branch:** merged to `dev`
 **Base branch:** `dev`
 **Depends on:** nothing — builds on the shipped consent/invoke model
@@ -19,6 +19,8 @@ Agent feedback on the lean-core surface: search returned `qualified_name` but in
 | `required_params` shape | `[{ "name": "owner", "type": "string" }, …]` at default `detail_level` (required keys only) |
 | `invoke_tool.tool` | Accepts bare **or** qualified; strips `{server_id}_` prefix when present |
 | Deferred | `tool` → `tool_name` rename; optional-param inlining; full schema in search |
+
+**Agent validation (Jun 2, 2026):** `mcpmux_search_tools` → `mcpmux_invoke_tool` on Context7 without `get_tool_schema`: `resolve-library-id` with `bare_name` + `required_params` types; then `query-docs` with `/reactjs/react.dev`. GitHub `github_search_code` and bare `search_code` both invoked successfully. Wrong-tool errors suggest bare names only (no double-prefix).
 
 ---
 
@@ -46,7 +48,7 @@ The remaining flags are smaller: an internal inconsistency in invoke error sugge
 | 3 | Session-cache idea (original pain point #5) | **Dropped** — static per-server defaults strictly dominate | Caching a discovered value per session still fails the first call and evaporates each conversation. Static defaults set once, survive restarts, never fail first-call. |
 | 4 | Storage shape | **New `default_params` JSON column on `installed_servers`**, sibling to `env_overrides` / `extra_headers` / `args_append` | Same per-install config lane already exists; no new table. `cloudId`/`projectKey` are not secrets — store as plaintext JSON like `env_overrides`, not in the encrypted `input_values` lane. |
 | 5 | Name-suggestion consistency (pain point #2) | **Invoke "did you mean" suggestions emit bare `feature_name`s**, matching the `tool` arg | `invoke.rs` matches on bare `feature_name` but suggests `qualified_name()` (prefixed). The suggestion you copy must be the string invoke accepts. |
-| 6 | Search schema gap (pain point #3) | **Inline `required_params` (names only) in `mcpmux_search_tools` results** | Collapses search→`get_tool_schema`→invoke into one call for simple tools. Names only — full schemas would bloat the search payload; `get_tool_schema` stays for complex shapes. |
+| 6 | Search schema gap (pain point #3) | **Inline `required_params` in search** — Phase 3 shipped names on `dev`; round 2 adds `{ name, type }` for required keys only | Collapses search→invoke for simple tools; full/optional shapes stay in `get_tool_schema`. |
 | 7 | Latency (pain point #4) | **Defer** — profiling task, not a feature | ~200–400ms/hop is "not a dealbreaker." Needs a measured profiling pass (resolver/active-index cost per call), not speculative optimization. |
 
 ---
@@ -102,7 +104,7 @@ Concretely, for the Atlassian server with `default_params = { "cloudId": "<S2H c
 
 ### Search result shape
 
-`mcpmux_search_tools` hits gain a `required_params: string[]` field (parameter names pulled from the cached tool schema). Optional params and full types stay out — they live in `mcpmux_get_tool_schema`.
+`mcpmux_search_tools` hits include `bare_name`, `qualified_name`, and `required_params: [{ name, type }, …]` for required keys only (from cached `inputSchema`). Optional params and full shapes stay in `mcpmux_get_tool_schema`. `invoke_tool.tool` accepts bare or qualified names (round 2).
 
 ---
 
@@ -129,12 +131,12 @@ Concretely, for the Atlassian server with `default_params = { "cloudId": "<S2H c
 
 ---
 
-### Phase 3 — `required_params` in search results (~half day) — **P2**
+### Phase 3 — `required_params` in search results (~half day) — **P2** (names on `dev`; types in round 2)
 
-- Extend the `mcpmux_search_tools` result shape with `required_params: string[]`, sourced from the cached tool schema in `tool_discovery.rs`
-- Keep the field names-only; defer full shapes to `mcpmux_get_tool_schema`
+- Extend the `mcpmux_search_tools` result shape with `required_params`, sourced from the cached tool schema in `tool_discovery.rs`
+- Round 2 (`9532ce0`): `[{ name, type }]` for required keys; also `bare_name` and qualified/bare `invoke_tool.tool`
 
-**Outcome:** A search hit for a parameter-light tool exposes its required params inline, so the agent invokes it directly — collapsing search→schema→invoke into search→invoke for the common case. `mcpmux_get_tool_schema` still answers for complex/optional shapes.
+**Outcome:** A search hit for a parameter-light tool exposes required param names and types inline, so the agent invokes it directly — collapsing search→schema→invoke into search→invoke for the common case. `mcpmux_get_tool_schema` still answers for complex/optional shapes.
 
 ---
 

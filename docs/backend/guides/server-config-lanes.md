@@ -154,6 +154,6 @@ The gateway forwards `{ "cloudId": "...", "issueIdOrKey": "PROJ-123" }` to the b
 
 ## Related docs
 
-- [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md) — search → invoke workflow, `required_params` on search hits
+- [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md) — search → invoke workflow, `bare_name` and `required_params` (`{ name, type }`) on search hits
 - [`server-lifecycle-and-pool.md`](../technical/server-lifecycle-and-pool.md) — when env/args/headers are applied (connect time vs invoke time)
 - [`meta-tool-invoke-ergonomics.md`](../../planning/meta-tool-invoke-ergonomics.md) — design rationale for `default_params`

@@ -2,7 +2,7 @@
 
 **Synthesizes:** [`meta-gateway-invoke.md`](../reference/meta-gateway-invoke.md), [`search-tools-hybrid-semantic-ranking.md`](../reference/search-tools-hybrid-semantic-ranking.md), [`search-tools-embedding-search-read-path.md`](../reference/search-tools-embedding-search-read-path.md), [`search-tools-latency-and-root-race.md`](../reference/search-tools-latency-and-root-race.md), [`mcpmux-diagnose-server.md`](../reference/mcpmux-diagnose-server.md)
 
-**Last Updated:** Jun 1, 2026
+**Last Updated:** Jun 2, 2026
 
 ---
 
@@ -55,7 +55,33 @@ Search hits always include `bare_name` (use as `invoke_tool.tool` when unsure) a
 
 Sticky per-server tool arguments (`cloudId`, `projectKey`, etc.) can be preset via **`default_params`** so agents do not repeat them every invoke — see [`server-config-lanes.md`](../guides/server-config-lanes.md#default_params).
 
-This replaces the prior model of dumping all tool definitions into context. An agent makes 2–4 predictable meta calls per backend tool instead of guessing parameter names from a stale descriptor file.
+This replaces the prior model of dumping all tool definitions into context. An agent makes 1–3 predictable meta calls per backend tool instead of guessing parameter names from a stale descriptor file.
+
+### Example agent session (validated Jun 2, 2026)
+
+Context7 documentation lookup without `get_tool_schema`:
+
+```
+mcpmux_search_tools({ server_id: "com.context7-mcp-npx", query: "resolve library", limit: 3 })
+  → bare_name: "resolve-library-id", required_params: [{ name: "libraryName", type: "string" }, { name: "query", type: "string" }]
+
+mcpmux_invoke_tool({
+  server_id: "com.context7-mcp-npx",
+  tool: "resolve-library-id",   // bare_name from search
+  args: { libraryName: "react", query: "hooks" }
+})
+  → library ID /reactjs/react.dev
+
+mcpmux_invoke_tool({
+  server_id: "com.context7-mcp-npx",
+  tool: "query-docs",
+  args: { libraryId: "/reactjs/react.dev", query: "useEffect cleanup" },
+  filter: { max_bytes: 2000 }
+})
+  → truncated doc snippets
+```
+
+The same `tool` field accepts `com.context7-mcp-npx_resolve-library-id` (qualified) with identical routing.
 
 ---
 

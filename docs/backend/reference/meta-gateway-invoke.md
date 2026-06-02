@@ -382,7 +382,9 @@ This doc is the source of truth for the meta-gateway invoke model. Phases A–D 
 
 **Phase D (May 26, 2026):** Resource/prompt hard cut shipped — `resources/list` and `prompts/list` advertised-only (surfaced escape hatch); 4 new meta tools; TF-IDF search rank; Levenshtein invoke suggestions; FeatureSet Surface toggle for resources/prompts. Meta tool count **14**. GAIT v2 Run 2 **SHIP**; Issue #4 (`read_resource` clone routing) fixed in `a4a212a`.
 
-**Invoke ergonomics (Jun 1, 2026):** Per-server `default_params` on `installed_servers` — shallow-merged under caller args in `mcpmux_invoke_tool` only. Search hits include `bare_name`, `qualified_name`, and `required_params: [{ name, type }]` at all detail levels. `invoke_tool` accepts bare or qualified `tool` (no double-prefix). Invoke "did you mean" suggestions use bare `feature_name`. Lane guide: [`server-config-lanes.md`](../guides/server-config-lanes.md). Design: [`meta-tool-invoke-ergonomics.md`](../../planning/meta-tool-invoke-ergonomics.md). Flow: [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md).
+**Lean meta surface (Jun 2026):** `tools/list` advertises 4 core `mcpmux_*` tools; 7 remain callable by name. See [`meta-surface-lean-core.md`](../../planning/meta-surface-lean-core.md).
+
+**Invoke ergonomics (Jun 1–2, 2026):** Per-server `default_params` on `installed_servers` — shallow-merged under caller args in `mcpmux_invoke_tool` only. Search hits include `bare_name`, `qualified_name`, and `required_params: [{ name, type }]` at all detail levels. `invoke_tool` accepts bare or qualified `tool` (no double-prefix). Invoke "did you mean" suggestions use bare `feature_name`. Agent-validated: Context7 search→invoke without `get_tool_schema`. Lane guide: [`server-config-lanes.md`](../guides/server-config-lanes.md). Design: [`meta-tool-invoke-ergonomics.md`](../../planning/meta-tool-invoke-ergonomics.md). Flow: [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md).
 
 **Manual QA progress (May 26, 2026):** Overall **Ship** (Phases A–D). Full section results in [`meta-gateway-invoke-qa.md`](../../testing/meta-gateway-invoke-qa.md). Highlights:
 

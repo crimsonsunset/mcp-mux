@@ -115,27 +115,25 @@ Not every AI client should have the same power. Create Feature Sets — permissi
 
 ### Self-Management Meta Tools (mcpmux_*)
 
-Connected AI clients see a fixed ~11-tool meta surface instead of every backend tool definition. FeatureSets define what is **invokable**; optional **surfaced** tools (0–N per set) can be promoted into `tools/list` for one-hop hot paths. Humans author bundles in the desktop or web UI; agents discover capability and **bind** existing FeatureSets to the workspace through one approval.
+Connected AI clients see **4 advertised `mcpmux_*` meta tools** in `tools/list` (lean startup context) instead of every backend tool definition. Seven additional meta tools stay **registered and callable by name** but hidden from the list — agents reach them via error/hint recovery strings. FeatureSets define what is **invokable**; optional **surfaced** backend tools (0–N per set) can still be promoted into `tools/list`. Humans author bundles in the desktop or web UI; agents **bind** existing FeatureSets through approval (`mcpmux_bind_current_workspace`, hidden but callable).
 
-McpMux exposes a built-in `mcpmux_*` tool namespace for search → schema → invoke workflows:
+McpMux exposes a built-in `mcpmux_*` tool namespace for search → (optional schema) → invoke:
 
-1. Call **`mcpmux_search_tools`** — find tools by query; each hit includes **`bare_name`**, **`qualified_name`**, and **`required_params`** (`{ name, type }` for required args). Active by default; set `include_inactive: true` to discover bindable bundles.
-2. Call **`mcpmux_list_feature_sets`** or **`mcpmux_list_servers`** — roster with active/inactive status and bind affordances.
-3. Call **`mcpmux_bind_current_workspace`** — persistently append an existing FeatureSet to the workspace binding (requires approval; the only agent write tool).
-4. Call **`mcpmux_get_tool_schema`** — load full parameter schemas when search hits are not enough (optional params, complex shapes).
-5. Call **`mcpmux_invoke_tool`** — invoke any permitted backend tool through one entry point (`tool` accepts bare or qualified names from search). Set sticky args once per server via **Default Tool Parameters** ([`docs/backend/guides/server-config-lanes.md`](docs/backend/guides/server-config-lanes.md#default_params), e.g. Atlassian `cloudId`).
+1. Call **`mcpmux_search_tools`** — find tools by query; each hit includes **`bare_name`**, **`qualified_name`**, and **`required_params`** (`{ name, type }` for required args). Active by default; `include_inactive: true` or `scope: "all"` for bindable bundles.
+2. Call **`mcpmux_list_servers`** — server roster with status and `bindable_feature_set_ids` (advertised).
+3. Call **`mcpmux_get_tool_schema`** — optional when `required_params` from search is enough.
+4. Call **`mcpmux_invoke_tool`** — invoke any permitted backend tool (`tool` accepts **bare or qualified** names from search). Sticky args via **Default Tool Parameters** ([`docs/backend/guides/server-config-lanes.md`](docs/backend/guides/server-config-lanes.md#default_params)).
 
-| Tool | Type | Purpose |
-| ---- | ---- | ------- |
-| `mcpmux_list_feature_sets` | read | FeatureSets available in the resolved Space |
-| `mcpmux_list_servers` | read | Server-level manifest with status |
-| `mcpmux_diagnose_server` | read | Runtime status, config, missing inputs, and log tail for unhealthy servers |
-| `mcpmux_search_tools` | read | Search tools with **`bare_name`**, **`required_params` (name+type)**, optional full schema, inactive discovery |
-| `mcpmux_get_tool_schema` | read | Load input schemas before invoke |
-| `mcpmux_invoke_tool` | read | Invoke a backend tool by server_id + tool name |
-| `mcpmux_search_resources` / `mcpmux_read_resource` | read | Resource discovery and read |
-| `mcpmux_search_prompts` / `mcpmux_fetch_prompt` | read | Prompt discovery and fetch |
-| `mcpmux_bind_current_workspace` | write | Bind an existing FeatureSet to the workspace (approval-gated) |
+**Advertised in `tools/list` (core):**
+
+| Tool | Purpose |
+| ---- | ------- |
+| `mcpmux_list_servers` | Server roster with status |
+| `mcpmux_search_tools` | Search with `bare_name`, `required_params` (name+type), inactive discovery |
+| `mcpmux_get_tool_schema` | Full input schemas when search is not enough |
+| `mcpmux_invoke_tool` | Invoke backend tools by `server_id` + `tool` |
+
+**Hidden but callable** (not in `tools/list`; named in errors/hints): `list_feature_sets`, `bind_current_workspace`, resource/prompt quartet, `diagnose_server`. See [`docs/backend/technical/tool-discovery-and-search.md`](docs/backend/technical/tool-discovery-and-search.md).
 
 If no FeatureSet contains a needed tool, the agent cannot author one — it surfaces a message asking the user to create a bundle in the McpMux UI, then bind it.
 
