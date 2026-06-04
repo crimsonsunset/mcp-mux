@@ -11,12 +11,13 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 use crate::crypto::FieldEncryptor;
-use crate::keychain::MasterKeyProvider;
+#[cfg(not(windows))]
 use crate::keychain_file::FileKeyProvider;
 use crate::Database;
 
 /// Re-encrypt credential and installed-server fields that were encrypted with the
 /// legacy file fallback key so they work under the active keychain key.
+#[cfg(not(windows))]
 pub fn migrate_file_key_encrypted_fields(
     db: &Database,
     data_dir: &Path,
@@ -44,7 +45,18 @@ pub fn migrate_file_key_encrypted_fields(
     Ok(migrated)
 }
 
+/// Windows uses DPAPI file storage only; file-keychain fallback migration is Unix-only.
+#[cfg(windows)]
+pub fn migrate_file_key_encrypted_fields(
+    _db: &Database,
+    _data_dir: &Path,
+    _active_encryptor: &FieldEncryptor,
+) -> Result<u32> {
+    Ok(0)
+}
+
 /// Migrate encrypted credential values.
+#[cfg(not(windows))]
 fn migrate_credentials(
     db: &Database,
     active: &FieldEncryptor,
@@ -80,6 +92,7 @@ fn migrate_credentials(
 }
 
 /// Migrate encrypted installed-server input_values blobs.
+#[cfg(not(windows))]
 fn migrate_installed_server_inputs(
     db: &Database,
     active: &FieldEncryptor,
@@ -115,7 +128,7 @@ fn migrate_installed_server_inputs(
     Ok(migrated)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
     use crate::crypto::generate_master_key;
