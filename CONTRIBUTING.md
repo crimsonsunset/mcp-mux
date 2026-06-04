@@ -75,6 +75,15 @@ By making a contribution to this project, I certify that:
 5. Sign off your commits (`git commit -s`)
 6. Push and create a Pull Request
 
+### CI on pull requests
+
+GitHub Actions workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pushes and pull requests targeting **`main`** or **`dev`**.
+
+- **Local pre-push:** run `pnpm validate` (or at minimum `pnpm lint`, `pnpm typecheck`, and the test subset you changed).
+- **Forks** that use `dev` as the default branch get the same CI as `main`; open PRs against either branch to trigger checks.
+- **Upstream** ([mcpmux/mcp-mux](https://github.com/mcpmux/mcp-mux)): open pull requests against **`main`**; CI runs on that repository’s Actions, not on your fork’s workflow for upstream-targeting PRs.
+- **Faster iteration:** add `[skip e2e]` to a commit message to skip Playwright web and desktop E2E jobs (lint, typecheck, and Rust/TS unit tests still run).
+
 ### Code Style
 
 - Run `pnpm lint` before submitting
