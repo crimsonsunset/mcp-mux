@@ -7,9 +7,9 @@
 
 use std::path::Path;
 
-use anyhow::Result;
 #[cfg(not(windows))]
 use anyhow::Context;
+use anyhow::Result;
 #[cfg(not(windows))]
 use tracing::info;
 
