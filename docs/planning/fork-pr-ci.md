@@ -44,9 +44,9 @@ Add matrix legs (`rust-test` per OS), `build`, `e2e-web`, and `e2e-desktop` when
 
 ## Verification
 
-- [x] `ci.yml` triggers include `dev`
-- [ ] `gh pr checks 4 --repo crimsonsunset/mcp-mux` lists CI jobs after push
-- [ ] Branch protection on `dev` with required checks + admin bypass
+- [x] `ci.yml` triggers include `dev` (on `dev` default branch, commit `7f44923`)
+- [x] `gh pr checks 4 --repo crimsonsunset/mcp-mux` lists CI jobs after push to `dev` + PR synchronize
+- [x] Branch protection on `dev`: `rust-check`, `ts-check` required; `enforce_admins: false` (admins may bypass)
 
 ## Notes
 
