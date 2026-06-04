@@ -4,16 +4,16 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use super::diagnose::DiagnoseServerTool;
 use super::disclosure::{
     FetchPromptTool, ReadResourceTool, SearchPromptsTool, SearchResourcesTool,
 };
-use super::diagnose::DiagnoseServerTool;
 use super::invoke::InvokeToolTool;
+use super::registry::MetaTool;
 use super::tools::{
     BindCurrentWorkspaceTool, GetToolSchemaTool, ListFeatureSetsTool, ListServersTool,
     SearchToolsTool,
 };
-use super::registry::MetaTool;
 use super::CORE_META_TOOLS;
 use rmcp::model::Tool;
 
@@ -117,7 +117,8 @@ pub fn measure_meta_tool_token_budget() -> MetaToolTokenBudget {
     let core_bytes = serialized_bytes(CORE_META_TOOLS, slim_tool_json);
     let full_bytes = serialized_bytes(ALL_REGISTERED_META_TOOL_NAMES, slim_tool_json);
     let core_rmcp_bytes = serialized_bytes(CORE_META_TOOLS, list_as_tools_entry_json);
-    let full_rmcp_bytes = serialized_bytes(ALL_REGISTERED_META_TOOL_NAMES, list_as_tools_entry_json);
+    let full_rmcp_bytes =
+        serialized_bytes(ALL_REGISTERED_META_TOOL_NAMES, list_as_tools_entry_json);
     let core_tiktoken = tiktoken_estimate_from_bytes(core_bytes);
     let full_tiktoken = tiktoken_estimate_from_bytes(full_bytes);
     let core_claude_est = claude_estimate(core_tiktoken);

@@ -385,9 +385,7 @@ impl MetaTool for InvokeToolTool {
 
     async fn call(&self, call: MetaToolCall<'_>) -> Result<CallToolResult, MetaToolError> {
         let server_id = resolve_invoke_server_id(&call.args).ok_or_else(|| {
-            MetaToolError::InvalidArgument(
-                "missing `server_id` (aliases: server, serverId)".into(),
-            )
+            MetaToolError::InvalidArgument("missing `server_id` (aliases: server, serverId)".into())
         })?;
         let tool_input = resolve_invoke_tool(&call.args).ok_or_else(|| {
             MetaToolError::InvalidArgument(
