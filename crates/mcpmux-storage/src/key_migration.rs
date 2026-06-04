@@ -12,6 +12,8 @@ use tracing::info;
 
 use crate::crypto::FieldEncryptor;
 #[cfg(not(windows))]
+use crate::keychain::MasterKeyProvider;
+#[cfg(not(windows))]
 use crate::keychain_file::FileKeyProvider;
 use crate::Database;
 
