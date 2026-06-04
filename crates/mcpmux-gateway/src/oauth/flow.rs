@@ -187,7 +187,7 @@ impl OAuthFlow {
 fn generate_state() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..16).map(|_| rng.gen()).collect();
+    let bytes: Vec<u8> = (0..16).map(|_| rng.gen::<u8>()).collect();
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     URL_SAFE_NO_PAD.encode(&bytes)
 }

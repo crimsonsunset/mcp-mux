@@ -22,7 +22,7 @@ impl PkceChallenge {
     pub fn generate() -> Self {
         // Generate 32 random bytes for the verifier
         let mut rng = rand::thread_rng();
-        let random_bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+        let random_bytes: Vec<u8> = (0..32).map(|_| rng.gen::<u8>()).collect();
 
         // Base64-URL encode to create verifier (43-128 characters)
         let verifier = URL_SAFE_NO_PAD.encode(&random_bytes);

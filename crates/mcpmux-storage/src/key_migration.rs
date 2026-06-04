@@ -7,7 +7,10 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[cfg(not(windows))]
+use anyhow::Context;
+#[cfg(not(windows))]
 use tracing::info;
 
 use crate::crypto::FieldEncryptor;
