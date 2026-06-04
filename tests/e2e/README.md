@@ -16,6 +16,36 @@ pnpm test:e2e:web:headed  # With browser visible
 
 **Test files**: `specs/*.spec.ts`
 
+## 1b. Admin web E2E (Playwright, real `:45819`)
+
+Exercises the built admin SPA against a live AdminServer (Tauri dev or CI fixture). Not mocked.
+
+```bash
+pnpm build:web:admin
+pnpm test:e2e:web:admin
+
+# Fast iteration (one test, trace on failure)
+pnpm exec playwright test -c tests/e2e/playwright.admin.config.ts -g "read browse" --trace on
+
+# Suite stops after first failure (maxFailures: 1) — read console [e2e:admin] lines, not a 2min hang
+# After failure — trace on retry only; use show-trace if needed
+pnpm exec playwright show-trace test-results/<run>/trace.zip
+```
+
+**Conventions** (aligned with CLI-first scaffold flow):
+
+| Practice | Why |
+|----------|-----|
+| `specs/admin/_helpers/admin-diagnostics.helpers.ts` | Domain waits (`waitForAdminAppReady`, `waitForServersPage`) + `[e2e:admin]` selector snapshots |
+| `attachAdminPageDiagnostics(page)` before `goto` | Logs `useDataSync` / `/api/v1/*` responses when a test flakes |
+| `workers: 1` in `playwright.admin.config.ts` | One AdminServer + SQLite — parallel workers race startup sync |
+| `waitForAdminAppReady` after shell visible | Space switcher must leave `Loading...` (polls `data-testid="space-switcher"`) |
+| CF Access | Set `MCPMUX_CF_ACCESS_CLIENT_ID` + `SECRET` in repo `.env`; Playwright sends service-token headers |
+
+**Prereqs**: `scripts/admin-e2e-fixture.mjs` via config `webServer`, or `pnpm dev:admin` with matching `.env`.
+
+**Test files**: `specs/admin/*.spec.ts`
+
 ## 2. Tauri E2E (WebdriverIO) - Full Integration
 
 Tests the actual built Tauri application with real backend. Complex setup.

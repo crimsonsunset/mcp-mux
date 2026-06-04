@@ -30,17 +30,38 @@ export function cfAccessCurlFlagsFromEnv() {
 }
 
 /**
+ * Headers for loopback admin probes when CF Access trust is on (JWT or service token).
+ * @returns {Record<string, string>}
+ */
+export function adminCfProbeHeaders() {
+  const jwt = process.env.MCPMUX_ADMIN_CF_JWT?.trim();
+  if (jwt) {
+    return { 'CF-Access-Jwt-Assertion': jwt };
+  }
+  return cfAccessHeadersFromEnv();
+}
+
+/**
+ * @returns {boolean} True when admin HTTP probes should send CF Access credentials.
+ */
+export function hasAdminCfProbeAuth() {
+  return Object.keys(adminCfProbeHeaders()).length > 0;
+}
+
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+/**
  * Load `.env` from the repo root when present (optional; no dependency on dotenv).
+ * @param {string} repoRoot
  */
 export function loadRepoDotEnv(repoRoot) {
   try {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const dotenvPath = path.join(repoRoot, '.env');
-    if (!fs.existsSync(dotenvPath)) {
+    const dotenvPath = join(repoRoot, '.env');
+    if (!existsSync(dotenvPath)) {
       return;
     }
-    const text = fs.readFileSync(dotenvPath, 'utf8');
+    const text = readFileSync(dotenvPath, 'utf8');
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) {

@@ -26,7 +26,15 @@ import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { useDataSync } from '@/hooks/useDataSync';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { initAnalytics, capture, optIn, optOut } from '@/lib/analytics';
-import { useAppStore, useViewSpace, useTheme, useAnalyticsEnabled, useActiveNav, useNavigateTo } from '@/stores';
+import {
+  useAppStore,
+  useViewSpace,
+  useTheme,
+  useAnalyticsEnabled,
+  useActiveNav,
+  useNavigateTo,
+  useIsLoading,
+} from '@/stores';
 import { RegistryPage } from '@/features/registry';
 import { FeatureSetsPage } from '@/features/featuresets';
 import { ClientsPage } from '@/features/clients';
@@ -112,15 +120,19 @@ function AppContent() {
   const theme = useTheme();
   const setTheme = useAppStore((state) => state.setTheme);
   const viewSpace = useViewSpace();
+  const isLoadingSpaces = useIsLoading('spaces');
   const analyticsEnabled = useAnalyticsEnabled();
 
   // App version from Rust backend
   const [appVersion, setAppVersion] = useState('');
   useEffect(() => {
+    if (isLoadingSpaces) {
+      return;
+    }
     getVersion()
       .then(setAppVersion)
       .catch((err) => console.error('Failed to get version:', err));
-  }, []);
+  }, [isLoadingSpaces]);
 
   // Initialize analytics once we have the app version
   useEffect(() => {
@@ -165,8 +177,11 @@ function AppContent() {
   }, [viewSpace?.id]);
 
   useEffect(() => {
-    loadGatewayUrl();
-  }, [loadGatewayUrl]);
+    if (isLoadingSpaces) {
+      return;
+    }
+    void loadGatewayUrl();
+  }, [loadGatewayUrl, isLoadingSpaces]);
 
   useGatewayEvents((payload) => {
     if (payload.action === 'started') {

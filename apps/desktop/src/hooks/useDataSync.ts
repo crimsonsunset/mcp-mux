@@ -6,6 +6,7 @@ import {
   refreshOAuthTokensOnStartup,
   waitForAdminReady,
 } from '@/lib/backend';
+import { enableAdminSse } from '@/lib/backend/events/admin-sse-hub';
 
 let startupSyncPromise: Promise<void> | null = null;
 
@@ -28,7 +29,8 @@ export function useDataSync() {
       try {
         if (!isTauri()) {
           console.log('[useDataSync] Waiting for admin API...');
-          await waitForAdminReady();
+          // Admin cold start (Tauri dev + CF Access) can exceed the default 15s health poll.
+          await waitForAdminReady(60_000);
         }
 
         console.log('[useDataSync] Calling listSpaces...');
@@ -52,6 +54,9 @@ export function useDataSync() {
         }
       } finally {
         setLoading('spaces', false);
+        if (!isTauri()) {
+          enableAdminSse();
+        }
         console.log('[useDataSync] Data sync complete');
       }
     }

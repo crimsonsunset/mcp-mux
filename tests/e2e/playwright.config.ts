@@ -19,6 +19,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './specs',
   testMatch: '**/*.spec.ts', // Only .spec.ts files (not .wdio.ts)
+  // Admin specs need AdminServer on :45819 — use playwright.admin.config.ts + test:e2e:web:admin
+  testIgnore: ['**/admin/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

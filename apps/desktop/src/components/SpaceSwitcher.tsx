@@ -67,17 +67,19 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
       <ToastContainer toasts={toasts} onClose={dismiss} />
       {/* Trigger Button */}
       <button
+        type="button"
+        data-testid="space-switcher"
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] hover:bg-[rgb(var(--surface-hover))] hover:border-[rgb(var(--primary))/30] transition-all duration-150 group"
       >
         <span className="flex items-center gap-3 min-w-0">
-          {isLoadingSpaces ? (
+          {isLoadingSpaces && spaces.length === 0 ? (
             <Loader2 className="h-5 w-5 animate-spin text-[rgb(var(--primary))]" />
           ) : (
             <span className="text-xl">{viewSpace?.icon || '🌐'}</span>
           )}
           <span className="font-medium text-sm truncate">
-            {isLoadingSpaces
+            {isLoadingSpaces && spaces.length === 0
               ? 'Loading...'
               : viewSpace?.name || (spaces.length > 0 ? 'Select Space' : 'No Spaces')}
           </span>

@@ -365,8 +365,24 @@ jobs:
     needs: [ts-check]
     if: "!contains(github.event.head_commit.message, '[skip e2e]')"
     runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        uses: ./.github/actions/install-linux-deps
+        with:
+          e2e: 'true'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-e2e-web
+          shared-key: rust-x86_64-unknown-linux-gnu
+          cache-on-failure: true
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -374,6 +390,9 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Build web admin SPA
+        run: pnpm build:web:admin
 
       # Cache Playwright browsers
       - name: Cache Playwright browsers
@@ -387,8 +406,13 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run web-only E2E tests
+      - name: Run web-only E2E tests (mocked UI, :1420)
         run: pnpm test:e2e:web --project=chromium
+
+      - name: Run admin web E2E tests (:45819)
+        run: pnpm test:e2e:web:admin --project=chromium
+        env:
+          MCPMUX_ADMIN_TEST: '1'
 
       - name: Upload E2E web test results
         uses: actions/upload-artifact@v4
@@ -404,6 +428,15 @@ jobs:
         with:
           name: '🌐 E2E Web Tests'
           path: tests/e2e/reports/junit.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: 'Report: E2E Admin Web Tests'
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: '🌐 E2E Admin Web Tests'
+          path: tests/e2e/reports/admin-junit.xml
           reporter: java-junit
           fail-on-error: false
 

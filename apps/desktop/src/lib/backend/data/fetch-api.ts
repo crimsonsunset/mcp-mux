@@ -74,7 +74,7 @@ async function waitForAdminReadyOnce(timeoutMs: number): Promise<void> {
         if (attempt > 0) {
           console.info(`[fetchApi] Admin API ready after ${attempt + 1} health probe(s)`);
         }
-        await ensureCsrfToken();
+        // CSRF is fetched lazily on the first mutating request — do not block GET startup sync.
         return;
       }
     } catch {

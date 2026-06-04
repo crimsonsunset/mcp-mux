@@ -4,10 +4,9 @@ import { listFeatureSets, listFeatureSetsBySpace } from '@/lib/api/featureSets';
 import { getGatewayStatus } from '@/lib/api/gateway';
 import { listInstalledServers } from '@/lib/api/registry';
 import { getServerStatuses } from '@/lib/api/serverManager';
-import { listSpaces } from '@/lib/api/spaces';
 import { listWorkspaceBindings } from '@/lib/api/workspaceBindings';
 import { useGatewayEvents, useServerStatusEvents } from '@/hooks/useDomainEvents';
-import { useSpaces, useViewSpace } from '@/stores';
+import { useIsLoading, useSpaces, useViewSpace } from '@/stores';
 import {
   buildAttentionServers,
   type AttentionServer,
@@ -29,6 +28,7 @@ const EMPTY_STATS: DashboardStats = {
 export function useDashboardData() {
   const viewSpace = useViewSpace();
   const spaces = useSpaces();
+  const isLoadingSpaces = useIsLoading('spaces');
   const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [attentionServers, setAttentionServers] = useState<AttentionServer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,20 +68,14 @@ export function useDashboardData() {
     }
   }, [spaces.length, viewSpace?.id]);
 
+  // Wait for useDataSync before fan-out GETs — avoids HTTP/1.1 connection starvation with SSE.
   useEffect(() => {
+    if (isLoadingSpaces) {
+      return;
+    }
     setIsLoading(true);
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    listSpaces()
-      .then((nextSpaces) => {
-        setStats((prev) => ({ ...prev, spaces: nextSpaces.length }));
-      })
-      .catch(() => {
-        /* keep store-backed count */
-      });
-  }, []);
+    void reload();
+  }, [reload, isLoadingSpaces]);
 
   useGatewayEvents((payload) => {
     if (payload.action === 'started') {

@@ -2,12 +2,18 @@
  * SSE-based domain event listener for web admin mode.
  *
  * Mirrors the `useDomainEvents` API (`subscribe`, `subscribeAll`, `subscribeMany`)
- * using `GET /api/v1/events`.
+ * using a single shared `GET /api/v1/events` connection (`admin-sse-hub.ts`).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-import { isTauri } from '../data/transport';
+import {
+  acquireAdminSseConsumer,
+  onAdminSseLastEvent,
+  releaseAdminSseConsumer,
+  subscribeAdminSseAll,
+  subscribeAdminSseChannel,
+} from './admin-sse-hub';
 
 import type {
   AllEventsCallback,
@@ -16,62 +22,23 @@ import type {
   DomainEventPayload,
   PayloadTypeMap,
 } from './useDomainEvents';
-
-/** All domain channels streamed over SSE. */
-const ALL_CHANNELS: DomainEventChannel[] = [
-  'space-changed',
-  'server-changed',
-  'server-status-changed',
-  'server-auth-progress',
-  'server-features-refreshed',
-  'feature-set-changed',
-  'client-changed',
-  'client-grant-changed',
-  'gateway-changed',
-  'mcp-notification',
-];
+import { ADMIN_SSE_CHANNELS } from './admin-sse-hub';
 
 /**
- * Subscribe to admin SSE domain events in web mode.
+ * Subscribe to admin SSE domain events in web mode (shared EventSource).
  */
 export function useDomainEventsWeb() {
-  const handlersRef = useRef<Map<DomainEventChannel, Set<(payload: DomainEventPayload) => void>>>(
-    new Map()
-  );
-  const allHandlersRef = useRef<Set<AllEventsCallback>>(new Set());
-  const sourceRef = useRef<EventSource | null>(null);
   const [lastEvent, setLastEvent] = useState<{
     channel: DomainEventChannel;
     payload: DomainEventPayload;
   } | null>(null);
 
   useEffect(() => {
-    if (isTauri()) {
-      return;
-    }
-    const source = new EventSource('/api/v1/events');
-    sourceRef.current = source;
-
-    const dispatch = (channel: DomainEventChannel, payload: DomainEventPayload) => {
-      setLastEvent({ channel, payload });
-      handlersRef.current.get(channel)?.forEach((handler) => handler(payload));
-      allHandlersRef.current.forEach((handler) => handler(channel, payload));
-    };
-
-    for (const channel of ALL_CHANNELS) {
-      source.addEventListener(channel, (event: MessageEvent<string>) => {
-        try {
-          const payload = JSON.parse(event.data) as DomainEventPayload;
-          dispatch(channel, payload);
-        } catch {
-          // ignore malformed frames
-        }
-      });
-    }
-
+    acquireAdminSseConsumer();
+    const offLast = onAdminSseLastEvent(setLastEvent);
     return () => {
-      source.close();
-      sourceRef.current = null;
+      offLast();
+      releaseAdminSseConsumer();
     };
   }, []);
 
@@ -80,14 +47,8 @@ export function useDomainEventsWeb() {
    */
   const subscribe = useCallback(
     <T extends DomainEventChannel>(channel: T, callback: ChannelCallback<T>): (() => void) => {
-      if (!handlersRef.current.has(channel)) {
-        handlersRef.current.set(channel, new Set());
-      }
       const wrapped = callback as (payload: DomainEventPayload) => void;
-      handlersRef.current.get(channel)!.add(wrapped);
-      return () => {
-        handlersRef.current.get(channel)?.delete(wrapped);
-      };
+      return subscribeAdminSseChannel(channel, wrapped);
     },
     []
   );
@@ -95,11 +56,8 @@ export function useDomainEventsWeb() {
   /**
    * Subscribe to all domain SSE channels.
    */
-  const subscribeAll = useCallback((callback: AllEventsCallback): (() => void) => {
-    allHandlersRef.current.add(callback);
-    return () => {
-      allHandlersRef.current.delete(callback);
-    };
+  const subscribeAll = useCallback((callback: AllEventsCallback): () => void => {
+    return subscribeAdminSseAll(callback);
   }, []);
 
   /**
@@ -124,6 +82,6 @@ export function useDomainEventsWeb() {
     subscribeAll,
     subscribeMany,
     lastEvent,
-    channels: ALL_CHANNELS,
+    channels: ADMIN_SSE_CHANNELS,
   };
 }

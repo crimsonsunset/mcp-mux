@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { getGatewayStatus, takePendingPortConflict } from '@/lib/backend';
+import { getGatewayStatus, isTauri, takePendingPortConflict } from '@/lib/backend';
+import { useIsLoading } from '@/stores';
 import { useGatewayControl } from './useGatewayControl';
 
 /**
@@ -39,8 +40,13 @@ const POLL_SCHEDULE_MS = [0, 150, 300, 600, 1200, 2400];
  */
 export function AutoStartConflictResolver() {
   const gatewayControl = useGatewayControl();
+  const isLoadingSpaces = useIsLoading('spaces');
 
   useEffect(() => {
+    if (!isTauri() && isLoadingSpaces) {
+      return;
+    }
+
     let cancelled = false;
 
     (async () => {
@@ -94,10 +100,7 @@ export function AutoStartConflictResolver() {
     return () => {
       cancelled = true;
     };
-    // `gatewayControl` is stable for the lifetime of this component; we
-    // deliberately run this once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [gatewayControl, isLoadingSpaces]);
 
   return <>{gatewayControl.ConfirmDialogElement}</>;
 }
