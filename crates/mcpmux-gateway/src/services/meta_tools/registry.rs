@@ -20,6 +20,7 @@ use rmcp::model::{CallToolResult, Tool};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::sync::broadcast;
+use tracing::debug;
 
 use super::approval::ApprovalBroker;
 use super::disclosure_backend::DisclosureBackend;
@@ -231,9 +232,17 @@ impl MetaToolRegistry {
             .values()
             .filter(|t| super::CORE_META_TOOLS.contains(&t.name()))
             .map(|t| {
-                let schema: serde_json::Map<String, Value> =
-                    serde_json::from_value(t.input_schema()).unwrap_or_default();
-                let mut tool = Tool::new(t.name(), t.description(), Arc::new(schema));
+                let name = t.name();
+                let schema: serde_json::Map<String, Value> = match serde_json::from_value(
+                    t.input_schema(),
+                ) {
+                    Ok(map) => map,
+                    Err(e) => {
+                        debug!(tool = name, error = %e, "meta tool input_schema parse failed; advertising empty schema");
+                        serde_json::Map::new()
+                    }
+                };
+                let mut tool = Tool::new(name, t.description(), Arc::new(schema));
                 // Annotate writes so well-behaved clients surface the hint.
                 if t.is_write() {
                     let mut ann = tool.annotations.unwrap_or_default();

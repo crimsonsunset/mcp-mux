@@ -2075,6 +2075,43 @@ async fn browse_hits_include_invoke_example_and_server_readiness() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn browse_mode_without_server_id_lists_whole_space() {
+    let f = Fixture::new().await;
+    bind_github_only_to_session_root(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "mode": "browse" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("mode"), Some(&json!("browse")));
+    let tools = body.get("tools").unwrap().as_array().expect("browse page");
+    assert!(
+        !tools.is_empty(),
+        "whole-space browse must return tools: {body}"
+    );
+    assert!(
+        tools
+            .iter()
+            .any(|t| t.get("server_id") == Some(&json!("github"))),
+        "expected github tools in whole-space browse: {tools:?}"
+    );
+    let names: Vec<_> = tools
+        .iter()
+        .filter_map(|t| t.get("qualified_name").and_then(|v| v.as_str()))
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "browse must be alphabetical");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn ranked_search_omits_invoke_example() {
     let f = Fixture::new().await;
     bind_github_only_to_session_root(&f).await;

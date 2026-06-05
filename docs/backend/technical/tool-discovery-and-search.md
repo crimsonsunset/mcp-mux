@@ -51,7 +51,7 @@ The canonical agent workflow (one to three steps depending on tool complexity):
 
 **Direct invoke (no search hop):** When you already know the tool name, skip step 1 and call `mcpmux_invoke_tool` with `bare_name` or `qualified_name` from a prior session or browse hit. Bare and qualified names route identically.
 
-**Browse mode:** `mcpmux_search_tools({ server_id: "posthog" })` or `{ server_id: "posthog", mode: "browse" }` returns a paginated A–Z catalog (default limit **50**). Each browse hit includes an **`invoke_example`** object — copy-paste into `mcpmux_invoke_tool` (required args as `<type>` placeholders).
+**Browse mode:** Per-server: `mcpmux_search_tools({ server_id: "posthog" })` or `{ server_id: "posthog", mode: "browse" }`. Whole Space: `{ mode: "browse" }` without `server_id`. All browse paths return a paginated A–Z catalog (default limit **50**). Each browse hit includes an **`invoke_example`** object — copy-paste into `mcpmux_invoke_tool` (required args as `<type>` placeholders).
 
 **Opt-in preflight:** `mcpmux_invoke_tool({ server_id, tool, preflight: true })` returns `{ ready: true }` or the same structured `not_ready` error as a failed invoke, without calling the backend.
 

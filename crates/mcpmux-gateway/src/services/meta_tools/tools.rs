@@ -673,11 +673,11 @@ impl MetaTool for SearchToolsTool {
          qualified_name, bare_name (use as mcpmux_invoke_tool.tool), required_params, \
          optional_params (name + type, capped), server_readiness (bindable | bound | ready), \
          schema_complex (call mcpmux_get_tool_schema when true), and invoke_example on browse \
-         hits (copy-paste into mcpmux_invoke_tool). Omit query with server_id \
-         (or set mode: \"browse\") for a paginated A–Z catalog of that server's tools (default \
-         limit 50). Ranked search uses default limit 20. By default only invokable tools match; \
-         set include_inactive: true (or scope \"all\") for unbound FeatureSets. Supports \
-         detail_level (name | description | schema) and cursor pagination."
+         hits (copy-paste into mcpmux_invoke_tool). Browse mode: omit query with server_id for \
+         that server's A–Z catalog, or set mode: \"browse\" alone for the whole Space (default \
+         limit 50, paginated). Ranked search uses default limit 20. By default only invokable \
+         tools match; set include_inactive: true (or scope \"all\") for unbound FeatureSets. \
+         Supports detail_level (name | description | schema) and cursor pagination."
     }
 
     fn input_schema(&self) -> Value {
@@ -703,7 +703,7 @@ impl MetaTool for SearchToolsTool {
                 "mode": {
                     "type": "string",
                     "enum": ["browse"],
-                    "description": "Explicit browse alias: paginated A–Z catalog for server_id (default limit 50). Same as omitting query with server_id set."
+                    "description": "Explicit browse alias: paginated A–Z catalog (default limit 50). With server_id, scopes to that server; without server_id, lists invokable tools across the whole Space. Same as omitting query when server_id is set."
                 },
                 "limit": {
                     "type": "integer",
@@ -951,8 +951,8 @@ impl MetaTool for SearchToolsTool {
         if !include_inactive && result.total == 0 {
             payload["hint"] = json!(
                 "No active tools matched. Retry with include_inactive: true to discover \
-                 bindable capability, or call mcpmux_list_feature_sets then \
-                 mcpmux_bind_current_workspace with a feature_set_id."
+                 bindable capability, or call mcpmux_bind_current_workspace with a \
+                 feature_set_id (use mcpmux_list_feature_sets to list bundles if needed)."
             );
         } else if include_inactive && result.total == 0 {
             let catalog = call

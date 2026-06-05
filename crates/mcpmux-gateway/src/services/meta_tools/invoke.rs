@@ -434,6 +434,34 @@ impl MetaTool for InvokeToolTool {
             ));
         }
 
+        let installed = call
+            .ctx
+            .installed_server_repo
+            .get_by_server_id(&space_id.to_string(), &server_id)
+            .await
+            .ok()
+            .flatten();
+
+        let pool_statuses = call.ctx.server_manager.get_all_statuses(space_id).await;
+        let connection_status = pool_statuses
+            .get(&server_id)
+            .map(|(status, _, _, _)| *status)
+            .unwrap_or(ConnectionStatus::Disconnected);
+        let has_missing_inputs = installed
+            .as_ref()
+            .map(|server| !parse_missing_required_inputs(server).is_empty())
+            .unwrap_or(false);
+
+        if let Some((reason, tool)) =
+            classify_invoke_denial(true, connection_status, has_missing_inputs)
+        {
+            return Ok(invoke_not_ready(
+                reason,
+                format_invoke_not_ready_action(reason, &server_id),
+                tool,
+            ));
+        }
+
         let matched = invokable.iter().find(|f| {
             f.feature_type == FeatureType::Tool
                 && f.server_id == server_id
@@ -473,34 +501,6 @@ impl MetaTool for InvokeToolTool {
                 &bare_tool_name,
                 &suggestions,
             )));
-        }
-
-        let installed = call
-            .ctx
-            .installed_server_repo
-            .get_by_server_id(&space_id.to_string(), &server_id)
-            .await
-            .ok()
-            .flatten();
-
-        let pool_statuses = call.ctx.server_manager.get_all_statuses(space_id).await;
-        let connection_status = pool_statuses
-            .get(&server_id)
-            .map(|(status, _, _, _)| *status)
-            .unwrap_or(ConnectionStatus::Disconnected);
-        let has_missing_inputs = installed
-            .as_ref()
-            .map(|server| !parse_missing_required_inputs(server).is_empty())
-            .unwrap_or(false);
-
-        if let Some((reason, tool)) =
-            classify_invoke_denial(true, connection_status, has_missing_inputs)
-        {
-            return Ok(invoke_not_ready(
-                reason,
-                format_invoke_not_ready_action(reason, &server_id),
-                tool,
-            ));
         }
 
         if preflight {
@@ -774,6 +774,8 @@ fn should_truncate(length: usize, filter: &InvokeResultFilter) -> bool {
     }
 }
 
+/// Cap serialized JSON/text size. Uses `Value::to_string()` byte length as a proxy —
+/// not identical to on-wire MCP payload size, but stable enough for agent-facing truncation.
 fn enforce_byte_limit(value: Value, filter: &InvokeResultFilter) -> Value {
     let Some(max_bytes) = filter.max_bytes else {
         return value;

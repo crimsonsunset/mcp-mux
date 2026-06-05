@@ -626,6 +626,33 @@ async fn invoke_bound_offline_returns_structured_denial() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn invoke_bound_offline_prefers_readiness_over_permission_denied() {
+    let f = Fixture::new().await;
+    f.grant_github_feature_set().await;
+
+    let result = f
+        .call(
+            "mcpmux_invoke_tool",
+            json!({
+                "server_id": "github",
+                "tool": "definitely_not_a_real_tool",
+                "args": {}
+            }),
+        )
+        .await;
+
+    assert!(result.is_error.unwrap_or(false));
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("error"), Some(&json!("not_ready")));
+    assert_eq!(
+        body.get("reason"),
+        Some(&json!("bound_offline")),
+        "readiness must trump permission suggestions when server is bound but offline: {body}"
+    );
+    assert_eq!(body.get("tool"), Some(&json!("mcpmux_diagnose_server")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_tools_includes_bare_name_and_required_param_types() {
     let f = Fixture::new().await;
     f.grant_github_connected().await;
