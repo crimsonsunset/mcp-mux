@@ -49,6 +49,7 @@ pub fn parse_missing_required_inputs(installed: &InstalledServer) -> Vec<String>
 }
 
 /// Whether any required input is unset (see [`parse_missing_required_inputs`]).
+#[allow(dead_code)]
 pub fn has_missing_required_inputs(installed: &InstalledServer) -> bool {
     !parse_missing_required_inputs(installed).is_empty()
 }

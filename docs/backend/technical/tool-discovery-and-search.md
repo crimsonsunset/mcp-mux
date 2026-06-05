@@ -250,24 +250,34 @@ Key log targets: `[search]` for ranking/fusion, `[embed]` for the embedding serv
 
 ## Architecture (maintainers)
 
-Meta-tool implementations live under `crates/mcpmux-gateway/src/services/meta_tools/` as flat sibling modules (see [`meta-tools-module-split.md`](../../planning/meta-tools-module-split.md) and [`meta-tools-module-split-phase-2.md`](../../planning/meta-tools-module-split-phase-2.md) for split rationale). `mod.rs` registers tools via `build_default_registry`; shared helpers (`caller_space_id`, readiness, `with_approval`, etc.) are in `meta_tool_common.rs`. Per-tool files: `list_servers.rs`, `search_tools.rs` (+ index/cache helpers), `feature_set_tools.rs` (`ListFeatureSetsTool`, `GetToolSchemaTool`), `bind_workspace.rs`. Invoke is split across `invoke_tool.rs` (handler + alias resolution + permission gates), `invoke_result_filter.rs` (public filter API), `invoke_payload_parse.rs` (text/JSON/YAML parsing), and `invoke_result_shaping.rs` (byte/row/field shaping); unit tests live in `invoke_result_filter_tests.rs` via `#[path]`. Diagnose is split across `diagnose_view.rs` (types + view builders) and `diagnose_server.rs` (`DiagnoseServerTool` + health helpers); tests in `diagnose_tests.rs`. `disclosure.rs`, `registry.rs`, and `token_budget.rs` are unchanged in role.
+Meta-tool implementations live under `crates/mcpmux-gateway/src/services/meta_tools/` as flat sibling modules (see [`meta-tools-module-split.md`](../../planning/meta-tools-module-split.md) and [`meta-tools-module-split-phase-2.md`](../../planning/meta-tools-module-split-phase-2.md) for split rationale). `mod.rs` registers tools via `build_default_registry`; shared helpers (`caller_space_id`, readiness, `with_approval`, etc.) are in `meta_tool_common.rs`. Per-tool files: `list_servers.rs`, `search_tools.rs` (handler), `search_tools_index.rs` (active-index cache + embedding hydration), `feature_set_tools.rs` (`ListFeatureSetsTool`, `GetToolSchemaTool`), `bind_workspace.rs`. Invoke: `invoke_tool.rs` (handler), `invoke_alias.rs` (name/server/args resolution), `invoke_result_filter.rs` (public filter API), `invoke_payload_parse.rs`, `invoke_result_shaping.rs`; filter tests in `invoke_result_filter_tests.rs`, alias tests in `invoke_tool_tests.rs` via `#[path]`. Diagnose: `diagnose_view.rs` + `diagnose_server.rs`; tests in `diagnose_tests.rs`. Disclosure: `disclosure_search.rs` (search resources/prompts) + `disclosure_read.rs` (read/fetch). Approval: `approval.rs` façade re-exporting `approval_types.rs` + `approval_broker.rs` (broker tests in `approval_broker_tests.rs`). `registry.rs` and `token_budget.rs` unchanged in role.
+
+`ToolDiscoveryService` lives outside `meta_tools/` as a slim `tool_discovery.rs` façade over `tool_discovery_types.rs`, `tool_discovery_index.rs`, and `tool_discovery_search.rs` (tests in `tool_discovery_tests.rs`).
 
 ## Key Source Locations
 
 | Path | Role |
 | ---- | ---- |
-| `crates/mcpmux-gateway/src/services/tool_discovery.rs` | `ToolDiscoveryService`, `ToolIndexEntry`, hybrid search, `rank_with_hybrid` |
+| `crates/mcpmux-gateway/src/services/tool_discovery.rs` | `ToolDiscoveryService` façade + re-exports |
+| `crates/mcpmux-gateway/src/services/tool_discovery_types.rs` | `DetailLevel`, `SearchContext`, `ToolIndexEntry`, `SearchToolsResult` |
+| `crates/mcpmux-gateway/src/services/tool_discovery_index.rs` | Catalog index build, `entry_content_hash` |
+| `crates/mcpmux-gateway/src/services/tool_discovery_search.rs` | Hybrid search, schema lookup, `rank_with_hybrid` |
 | `crates/mcpmux-gateway/src/services/discovery_rank.rs` | Token-overlap lexical match, TF-IDF score, score fusion |
-| `crates/mcpmux-gateway/src/services/meta_tools/search_tools.rs` | `SearchToolsTool`, `hydrate_active_embeddings`, active-index cache |
+| `crates/mcpmux-gateway/src/services/meta_tools/search_tools.rs` | `SearchToolsTool` handler |
+| `crates/mcpmux-gateway/src/services/meta_tools/search_tools_index.rs` | `build_active_index`, `hydrate_active_embeddings`, cache |
 | `crates/mcpmux-gateway/src/services/meta_tools/feature_set_tools.rs` | `GetToolSchemaTool`, `ListFeatureSetsTool` |
-| `crates/mcpmux-gateway/src/services/meta_tools/invoke_tool.rs` | `InvokeToolTool`, alias resolution, permission check |
+| `crates/mcpmux-gateway/src/services/meta_tools/invoke_tool.rs` | `InvokeToolTool` handler + permission check |
+| `crates/mcpmux-gateway/src/services/meta_tools/invoke_alias.rs` | Invoke name/server/args alias resolution |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke_result_filter.rs` | Public filter API (`InvokeResultFilter`, `apply_invoke_result_filter`) |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke_payload_parse.rs` | Text/JSON/YAML payload parsing for invoke filters |
 | `crates/mcpmux-gateway/src/services/meta_tools/invoke_result_shaping.rs` | Row/byte/field shaping and truncation |
 | `crates/mcpmux-gateway/src/services/meta_tools/meta_tool_common.rs` | Shared helpers: readiness, `text_result`, `with_approval` |
 | `crates/mcpmux-gateway/src/services/meta_tools/diagnose_view.rs` | `ServerHealth`, `ConfigView`, runtime/config view builders |
 | `crates/mcpmux-gateway/src/services/meta_tools/diagnose_server.rs` | `DiagnoseServerTool`, health classification helpers |
-| `crates/mcpmux-gateway/src/services/meta_tools/disclosure.rs` | Resource/prompt search, read, fetch meta tools |
+| `crates/mcpmux-gateway/src/services/meta_tools/disclosure_search.rs` | `SearchResourcesTool`, `SearchPromptsTool` |
+| `crates/mcpmux-gateway/src/services/meta_tools/disclosure_read.rs` | `ReadResourceTool`, `FetchPromptTool` |
+| `crates/mcpmux-gateway/src/services/meta_tools/approval_types.rs` | `ApprovalPayload`, `ApprovalRequest` |
+| `crates/mcpmux-gateway/src/services/meta_tools/approval_broker.rs` | `ApprovalBroker`, session-scoped always-allow |
 | `crates/mcpmux-gateway/src/pool/features/facade.rs` | `get_advertised_tools_for_grants` vs `get_invokable_tools_for_grants` |
 | `crates/mcpmux-gateway/src/pool/features/resolution.rs` | Inactive scan JOIN query; `resolve_surfaced_feature_ids` |
 | `crates/mcpmux-gateway/src/mcp/handler.rs` | `ensure_roots_probed` call; advertised-only `tools/list`; redirect gate |
