@@ -1,0 +1,24 @@
+name: Resolve updater signing
+description: Gate Tauri updater artifacts on a valid minisign secret key
+inputs:
+  signing_key:
+    description: TAURI_SIGNING_PRIVATE_KEY secret value
+    required: false
+    default: ''
+outputs:
+  signing_enabled:
+    description: Whether updater signing should run
+    value: ${{ steps.resolve.outputs.signing_enabled }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        SIGNING_KEY: ${{ inputs.signing_key }}
+      run: |
+        if [ -n "$SIGNING_KEY" ] && printf '%s' "$SIGNING_KEY" | grep -qE '(un)?trusted comment:'; then
+          echo "signing_enabled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "signing_enabled=false" >> "$GITHUB_OUTPUT"
+        fi

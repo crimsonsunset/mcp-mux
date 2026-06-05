@@ -97,20 +97,36 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build app (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Resolve updater signing
+        id: updater_signing
+        uses: ./.github/actions/resolve-updater-signing
+        with:
+          signing_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Build app (Linux, with updater signing)
+        if: matrix.os == 'ubuntu-latest' && steps.updater_signing.outputs.signing_enabled == 'true'
         run: pnpm --filter @mcpmux/desktop exec tauri build --bundles deb,rpm,updater
         env:
           PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      - name: Build app (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build app (Linux, updater gated off)
+        if: matrix.os == 'ubuntu-latest' && steps.updater_signing.outputs.signing_enabled != 'true'
+        run: pnpm --filter @mcpmux/desktop exec tauri build --bundles deb,rpm --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        env:
+          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+
+      - name: Build app (Windows, with updater signing)
+        if: matrix.os == 'windows-latest' && steps.updater_signing.outputs.signing_enabled == 'true'
         run: pnpm build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Build app (Windows, updater gated off)
+        if: matrix.os == 'windows-latest' && steps.updater_signing.outputs.signing_enabled != 'true'
+        run: pnpm --filter @mcpmux/desktop exec tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Run desktop E2E tests (Linux)
         if: matrix.os == 'ubuntu-latest'

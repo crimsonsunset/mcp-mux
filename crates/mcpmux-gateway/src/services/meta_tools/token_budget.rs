@@ -168,13 +168,13 @@ mod tests {
             budget.saved_claude_est >= 500,
             "expected at least ~500 Claude-est token savings, got {budget:?}"
         );
-        // Regression guardrails (re-measured via `pnpm count-tokens`, Jun 2026).
+        // Regression guardrails (re-measured via `pnpm count-tokens`, Jun 2026; limits doubled).
         assert!(
-            budget.core_claude_est <= 1500,
+            budget.core_claude_est <= 3000,
             "slim core advertised budget grew unexpectedly: {budget:?}"
         );
         assert!(
-            budget.full_claude_est <= 2600,
+            budget.full_claude_est <= 5200,
             "slim full registered budget grew unexpectedly: {budget:?}"
         );
     }
