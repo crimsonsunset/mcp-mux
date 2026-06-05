@@ -21,10 +21,12 @@
 //! (`mcpmux_`) so the handler can route them before feature-set filtering.
 
 pub mod approval;
+mod bind_workspace;
 pub mod diagnose;
 pub mod diff;
 pub mod disclosure;
 pub mod disclosure_backend;
+mod feature_set_tools;
 pub mod invoke;
 pub mod invoke_backend;
 mod list_servers;
@@ -32,7 +34,6 @@ mod meta_tool_common;
 mod registry;
 mod search_tools;
 mod token_budget;
-mod tools;
 
 pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
@@ -45,6 +46,10 @@ pub use registry::{
     feature_set_ids_fingerprint, MetaToolContext, MetaToolError, MetaToolRegistry,
     META_TOOLS_ENABLED_KEY,
 };
+pub use bind_workspace::BindCurrentWorkspaceTool;
+pub use feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
+pub use list_servers::ListServersTool;
+pub use search_tools::SearchToolsTool;
 pub use token_budget::{measure_meta_tool_token_budget, MetaToolTokenBudget};
 
 use std::path::PathBuf;
@@ -138,10 +143,10 @@ pub fn build_default_registry(
 
     let mut registry = MetaToolRegistry::new(ctx);
     // Reads — no approval needed.
-    registry.register(Box::new(tools::ListFeatureSetsTool));
+    registry.register(Box::new(feature_set_tools::ListFeatureSetsTool));
     registry.register(Box::new(list_servers::ListServersTool));
     registry.register(Box::new(search_tools::SearchToolsTool));
-    registry.register(Box::new(tools::GetToolSchemaTool));
+    registry.register(Box::new(feature_set_tools::GetToolSchemaTool));
     registry.register(Box::new(diagnose::DiagnoseServerTool));
     registry.register(Box::new(invoke::InvokeToolTool));
     registry.register(Box::new(disclosure::SearchResourcesTool));
@@ -149,6 +154,6 @@ pub fn build_default_registry(
     registry.register(Box::new(disclosure::SearchPromptsTool));
     registry.register(Box::new(disclosure::FetchPromptTool));
     // Writes — gated by ApprovalBroker (bind-only; humans author bundles in UI).
-    registry.register(Box::new(tools::BindCurrentWorkspaceTool));
+    registry.register(Box::new(bind_workspace::BindCurrentWorkspaceTool));
     std::sync::Arc::new(registry)
 }

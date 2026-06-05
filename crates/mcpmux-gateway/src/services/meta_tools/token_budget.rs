@@ -10,10 +10,10 @@ use super::disclosure::{
 };
 use super::invoke::InvokeToolTool;
 use super::registry::MetaTool;
-use super::tools::{
-    BindCurrentWorkspaceTool, GetToolSchemaTool, ListFeatureSetsTool, ListServersTool,
-    SearchToolsTool,
-};
+use super::bind_workspace::BindCurrentWorkspaceTool;
+use super::feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
+use super::list_servers::ListServersTool;
+use super::search_tools::SearchToolsTool;
 use super::CORE_META_TOOLS;
 use rmcp::model::Tool;
 
