@@ -22,15 +22,17 @@
 
 pub mod approval;
 mod bind_workspace;
-pub mod diagnose;
+mod diagnose_server;
+mod diagnose_view;
 pub mod diff;
 pub mod disclosure;
 pub mod disclosure_backend;
 mod feature_set_tools;
-pub mod invoke;
 pub mod invoke_backend;
+mod invoke_payload_parse;
 mod invoke_result_filter;
-mod invoke_tool;
+mod invoke_result_shaping;
+pub mod invoke_tool;
 mod list_servers;
 mod meta_tool_common;
 mod registry;
@@ -42,10 +44,12 @@ pub use approval::{
     ApprovalScope, ResolutionNotifier, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use bind_workspace::BindCurrentWorkspaceTool;
+pub use diagnose_server::DiagnoseServerTool;
 pub use diff::ToolDiff;
 pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};
 pub use feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
 pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
+pub use invoke_tool::InvokeToolTool;
 pub use list_servers::ListServersTool;
 pub use registry::{
     feature_set_ids_fingerprint, MetaToolContext, MetaToolError, MetaToolRegistry,
@@ -149,8 +153,8 @@ pub fn build_default_registry(
     registry.register(Box::new(list_servers::ListServersTool));
     registry.register(Box::new(search_tools::SearchToolsTool));
     registry.register(Box::new(feature_set_tools::GetToolSchemaTool));
-    registry.register(Box::new(diagnose::DiagnoseServerTool));
-    registry.register(Box::new(invoke::InvokeToolTool));
+    registry.register(Box::new(diagnose_server::DiagnoseServerTool));
+    registry.register(Box::new(invoke_tool::InvokeToolTool));
     registry.register(Box::new(disclosure::SearchResourcesTool));
     registry.register(Box::new(disclosure::ReadResourceTool));
     registry.register(Box::new(disclosure::SearchPromptsTool));

@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use super::approval::ApprovalPayload;
-use super::diagnose::{classify_health, parse_missing_required_inputs, ServerHealth};
+use super::diagnose_server::{classify_health, parse_missing_required_inputs, ServerHealth};
 use super::registry::{MetaToolCall, MetaToolError};
 use crate::pool::{
     format_server_bound_offline_error, format_server_inactive_error, ConnectionStatus,

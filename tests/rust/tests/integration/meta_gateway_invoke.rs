@@ -12,7 +12,7 @@ use mcpmux_gateway::pool::{
     format_direct_call_redirect, format_direct_fetch_prompt_redirect, format_direct_read_redirect,
     FeatureService, ToolCallResult,
 };
-use mcpmux_gateway::services::meta_tools::invoke::{
+use mcpmux_gateway::services::meta_tools::invoke_result_filter::{
     apply_invoke_result_filter, parse_invoke_filter, shape_json_value, InvokeResultFilter,
 };
 use mcpmux_gateway::services::{

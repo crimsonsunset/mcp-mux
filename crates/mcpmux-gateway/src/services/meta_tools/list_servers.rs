@@ -6,7 +6,7 @@ use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
-use super::diagnose::{
+use super::diagnose_server::{
     classify_health, connection_status_label, parse_missing_required_inputs, ServerHealth,
 };
 use super::meta_tool_common::{caller_resolution, derive_server_readiness, text_result};

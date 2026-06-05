@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use tracing::debug;
 
-use super::diagnose::parse_missing_required_inputs;
+use super::diagnose_server::parse_missing_required_inputs;
 use super::invoke_result_filter::{apply_invoke_result_filter, parse_invoke_filter};
 use super::meta_tool_common::{
     caller_resolution, caller_space_id, classify_invoke_denial, format_invoke_not_ready_action,
