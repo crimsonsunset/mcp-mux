@@ -28,6 +28,8 @@ pub mod disclosure;
 pub mod disclosure_backend;
 mod feature_set_tools;
 pub mod invoke;
+mod invoke_result_filter;
+mod invoke_tool;
 pub mod invoke_backend;
 mod list_servers;
 mod meta_tool_common;
