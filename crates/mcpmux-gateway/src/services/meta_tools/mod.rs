@@ -38,6 +38,7 @@ mod list_servers;
 mod meta_tool_common;
 mod registry;
 mod search_tools;
+mod search_tools_index;
 mod token_budget;
 
 pub use approval::{
