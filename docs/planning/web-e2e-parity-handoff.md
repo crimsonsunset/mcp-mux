@@ -1,10 +1,10 @@
 # Web E2E parity — thread handoff & grouped test index
 
-**Status:** In progress — local fixes landed; full-suite re-run not completed after last edits  
+**Status:** Phase 3 complete locally; committed + pushed (`f926c31`) — awaiting CI proof (Phase 4)  
 **Last updated:** 2026-06-04  
 **Branch:** `feat/meta-surface-lean-core` (fork)  
 **PR:** [crimsonsunset/mcp-mux#4](https://github.com/crimsonsunset/mcp-mux/pull/4) → `dev`  
-**CI job:** `e2e-web` in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — `pnpm test:e2e:web` + `pnpm test:e2e:web:admin` (chromium)
+**CI job:** `e2e-web` in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — `pnpm test:e2e:web` + `pnpm test:e2e:web:admin` (chromium), `MCPMUX_ADMIN_TEST=1`
 
 ---
 
@@ -20,7 +20,7 @@ The Playwright suite in [`tests/e2e/playwright.config.ts`](../../tests/e2e/playw
 | 89 passed locally *without* backend, 0 passed *with* backend (parallel) | No `:45819` → proxy fails fast → network idles; with backend + many workers → SQLite/SSE contention |
 | `ECONNREFUSED` spam in CI step 1 (old) | Job ran web specs with no AdminServer; Vite proxy retried forever |
 
-### Fixes already in the working tree (uncommitted unless noted)
+### Fixes shipped (`f926c31`)
 
 | Area | Change |
 |------|--------|
@@ -30,19 +30,23 @@ The Playwright suite in [`tests/e2e/playwright.config.ts`](../../tests/e2e/playw
 | Backend boot | `webServer` → [`scripts/admin-e2e-fixture.mjs`](../../scripts/admin-e2e-fixture.mjs); Linux CI `xvfb-run` for `tauri dev` |
 | Smoke scripts | `pnpm test:e2e:web:wiring`, `pnpm test:e2e:web:smoke` |
 | Tauri-only skips | `test.describe.skip('Software Updates')`, `test.skip` open-logs button |
-| Locator refresh | Connections heading, `Connect a client`, `gateway-status-chip`, `stat-active-space-value`, dashboard copy scroll |
+| Locator refresh | `clients-title` (not `getByRole('Connections')` — sidebar duplicate), `Connect a client`, `gateway-status-chip`, `stat-active-space-value`, copy `getByText(/Copied/)`, registry `expect.poll` on server count |
 
-### Last full-suite numbers (before locator/skip pass)
+### Full-suite numbers
 
-**Run:** local, chromium, `--trace on --max-failures=0`, ~4.6m  
-**Result:** **83 passed · 15 failed · 26 skipped** (124 tests) — log: terminal capture `769675.txt` / full run 2026-06-04
+| Run | When | Result |
+|-----|------|--------|
+| Pre-fix audit | 2026-06-04, ~4.6m | **83 passed · 15 failed · 26 skipped** (124 tests) — log `769675.txt` |
+| Post-fix audit | 2026-06-04, ~1.0m | **94 passed · 0 failed · 30 skipped** (124 tests) — commit `f926c31` |
+
+Skipped count rose by 4: entire **Software Updates** describe + **open logs folder** (intentional Tauri-only).
 
 ### Next agent actions
 
-1. Re-run full suite (command in [Verification](#verification)) and update failure table below.
-2. Add `package.json` group scripts from [Group commands](#group-commands-copy-paste) if still useful.
-3. Push + babysit fork PR `e2e-web` (needs live backend + xvfb on Linux).
-4. Optional: `test:e2e:web:admin` is separate config — do not mix with web-only groups.
+1. Babysit fork PR `e2e-web` on Ubuntu — fixture + xvfb + `MCPMUX_ADMIN_TEST=1` (`gh pr checks 4`).
+2. Optional: add `test:e2e:web:group-*` npm scripts from [Group commands](#group-commands-copy-paste).
+3. Optional: wire [`desktop-only.helpers.ts`](../../tests/e2e/helpers/desktop-only.helpers.ts) into remaining `test.skip` titles (Phase 5).
+4. Do not mix `test:e2e:web:admin` with web-only groups — separate config.
 
 **Prereqs local:** McpMux on `:45819` (or let fixture start it in CI only); repo `.env` with `MCPMUX_CF_ACCESS_*` when CF trust is on.
 
@@ -73,34 +77,30 @@ Bring **`pnpm test:e2e:web`** (CI `e2e-web` step 1) to a stable green state agai
 | 2 | CI parallelism | **`workers: 1`** | One AdminServer + SQLite |
 | 3 | Backend in CI | **Reuse `admin-e2e-fixture.mjs`** for web config | Same as local “pnpm dev + CF headers” wiring that passed smoke |
 | 4 | Tauri-only UI | **`describe.skip` / `test.skip`**, not fake DOM | `UpdateChecker`, `open-logs-btn` gated on `isTauri()` in [`SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx) |
-| 5 | Stale copy | **Update locators** to current UI (`Connections`, `Connect a client`, etc.) | Renames in ConnectionCard / dashboard, not product bugs |
+| 5 | Stale copy | **Update locators** to current UI (`clients-title`, `Connect a client`, etc.) | Renames in ConnectionCard / dashboard; use testids where sidebar duplicates headings |
 | 6 | Fail-fast default | **`maxFailures: 1`** in config; **`--max-failures=0`** for full audit runs | Smokes stay fast; full runs enumerate all reds |
 
 ---
 
-## Failure catalog (15) — last full run index
+## Failure catalog (15) — resolved in `f926c31`
 
-Playwright list indices are **1-based per run order** (alphabetical spec files). Use **`file:line`** for stable grouped runs — indices shift if files are added.
+Pre-fix run indexed failures G1–G8 (83/15/26). All 15 reds fixed or skipped; post-fix audit **0 failed**. Use **`file:line`** for grouped re-runs — list indices shift if spec files are added.
 
-| Group | Idx (last run) | Spec locator | Title | Failure mode | Resolution |
-|-------|----------------|--------------|-------|--------------|------------|
-| **G1** | 82–84 | `settings.spec.ts:54` | Software Updates › should display update checker section | `update-checker` missing | **Skip** — `describe.skip` entire block |
-| **G1** | | `settings.spec.ts:66` | Software Updates › should display current version | `current-version` missing | **Skip** (same block) |
-| **G1** | | `settings.spec.ts:77` | Software Updates › should have check for updates button | `check-updates-btn` missing | **Skip** (same block) |
-| **G1** | 89 | `settings.spec.ts:164` | Logs › should have open logs folder button | `open-logs-btn` missing | **Skip** — Tauri-only render |
-| **G1** | 91 | `settings.spec.ts:186` | Page Layout › should display all sections in order | Expected `Software Updates` | **Fix** — drop Tauri section from list |
-| **G2** | 15 | `confirm-dialog.spec.ts:78` | ConfirmDialog – Clients › Remove Client | `Connected Clients` h1 | **Fix** — `Connections` heading |
-| **G3** | 18 | `dashboard.spec.ts:25` | Dashboard › should display connect IDEs section | `Connect Your IDEs` | **Fix** — `Connect a client` + `client-grid` |
-| **G3** | 19 | `dashboard.spec.ts:34` | Dashboard › should copy config via JSON button | copy popover | **Fix** — scroll + `.first()` on icon |
-| **G3** | 118 | `user-flows.spec.ts:123` | Dashboard Interactions › connect IDEs section | same as dashboard:25 | **Fix** (same locators) |
-| **G4** | 35 | `navigation.spec.ts:21` | Navigation › should navigate to all main pages | `Connected Clients` h1 | **Fix** — `Connections` |
-| **G4** | 114 | `user-flows.spec.ts:32` | Complete User Flows › navigate all main sections | same | **Fix** (same) |
-| **G5** | 103 | `spaces.spec.ts:49` | Space Switcher › current space name on dashboard | `Currently viewing` | **Fix** — `stat-active-space-value` |
-| **G6** | 69 | `servers.spec.ts:16` | My Servers › gateway status banner | text `Gateway Running` | **Fix** — `gateway-status-chip` |
-| **G7** | 45 | `registry.spec.ts:34` | Registry › should filter servers when searching | count assertion (~1.2s) | **Fix** — wait for `serverCount`; verify registry data |
-| **G8** | 97 | `settings.spec.ts:282` | Startup › disable start minimized when auto-launch off | `toBeDisabled` | **Fix** — wait `settings-startup-section`; may be env-conditional |
+| Group | Spec locator | Title | Was | Resolution |
+|-------|--------------|-------|-----|------------|
+| **G1** | `settings.spec.ts:54–77` | Software Updates (3 tests) | `update-checker` missing | ✅ `describe.skip` entire block |
+| **G1** | `settings.spec.ts:164` | Logs › open logs folder | `open-logs-btn` missing | ✅ `test.skip` — Tauri-only |
+| **G1** | `settings.spec.ts:186` | Page Layout › sections in order | Expected `Software Updates` | ✅ Drop Tauri section from list |
+| **G2** | `confirm-dialog.spec.ts:78` | ConfirmDialog – Clients | `Connected Clients` h1 | ✅ `getByTestId('clients-title')` (strict mode: sidebar also has "Connections") |
+| **G3** | `dashboard.spec.ts:25,34` | Connect IDEs + copy JSON | Stale copy / popover | ✅ `Connect a client`, scroll + `.first()`, `getByText(/Copied/)` |
+| **G3** | `user-flows.spec.ts:123` | Dashboard Interactions | same as dashboard:25 | ✅ Same locators |
+| **G4** | `navigation.spec.ts:21`, `user-flows.spec.ts:32` | Navigate all sections | `Connected Clients` h1 | ✅ `clients-title` |
+| **G5** | `spaces.spec.ts:49` | Current space on dashboard | `Currently viewing` | ✅ `stat-active-space-value` |
+| **G6** | `servers.spec.ts:16` | Gateway status banner | `Gateway Running` text | ✅ `gateway-status-chip` |
+| **G7** | `registry.spec.ts:34` | Filter when searching | count race (`0` vs `3`) | ✅ `expect.poll` until count &gt; 0, then `≤ initial` |
+| **G8** | `settings.spec.ts:282` | Start minimized disabled | timing | ✅ Wait `settings-startup-section` |
 
-**Not failures (context):** 26 tests marked `-` skipped in suite (toast/mutation/desktop-only tests already `test.skip`).
+**Skipped (not failures):** 30 tests `-` in list reporter — 26 pre-existing toast/desktop-only + 4 new Tauri-only skips above.
 
 ---
 
@@ -172,20 +172,22 @@ pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=chromium \
 
 ---
 
-## Files to create / modify
+## Files created / modified (`f926c31`)
 
-| File | Purpose |
-|------|---------|
-| [`tests/e2e/helpers/web-app-ready.helpers.ts`](../../tests/e2e/helpers/web-app-ready.helpers.ts) | App-ready gate + diagnostics (**new**) |
-| [`tests/e2e/helpers/desktop-only.helpers.ts`](../../tests/e2e/helpers/desktop-only.helpers.ts) | Shared skip reason string (**new**) |
-| [`tests/e2e/specs/web-wiring.spec.ts`](../../tests/e2e/specs/web-wiring.spec.ts) | Minimal wiring smoke (**new**) |
-| [`tests/e2e/pages/BasePage.ts`](../../tests/e2e/pages/BasePage.ts) | Remove `networkidle`; call `waitForWebAppReady` |
-| [`tests/e2e/pages/DashboardPage.ts`](../../tests/e2e/pages/DashboardPage.ts) | ConnectionCard testids; dedupe `navigate()` |
-| [`tests/e2e/playwright.config.ts`](../../tests/e2e/playwright.config.ts) | Fixture, CF headers, workers, timeouts, NO_COLOR |
-| [`scripts/admin-e2e-fixture.mjs`](../../scripts/admin-e2e-fixture.mjs) | `xvfb-run` on Linux CI |
-| [`package.json`](../../package.json) | `test:e2e:web:wiring`, `test:e2e:web:smoke` |
-| `tests/e2e/specs/{settings,dashboard,navigation,user-flows,spaces,servers,registry,confirm-dialog}.spec.ts` | Skips + locator updates |
-| [`docs/planning/web-e2e-parity-handoff.md`](web-e2e-parity-handoff.md) | This doc |
+| File | Purpose | Status |
+|------|---------|--------|
+| [`tests/e2e/helpers/web-app-ready.helpers.ts`](../../tests/e2e/helpers/web-app-ready.helpers.ts) | App-ready gate + diagnostics | ✅ |
+| [`tests/e2e/helpers/desktop-only.helpers.ts`](../../tests/e2e/helpers/desktop-only.helpers.ts) | `DESKTOP_TAURI_ONLY` skip reason constant | ✅ created; not wired into specs yet |
+| [`tests/e2e/specs/web-wiring.spec.ts`](../../tests/e2e/specs/web-wiring.spec.ts) | Minimal wiring smoke | ✅ |
+| [`tests/e2e/pages/BasePage.ts`](../../tests/e2e/pages/BasePage.ts) | Remove `networkidle`; call `waitForWebAppReady` | ✅ |
+| [`tests/e2e/pages/DashboardPage.ts`](../../tests/e2e/pages/DashboardPage.ts) | ConnectionCard testids; dedupe `navigate()` | ✅ |
+| [`tests/e2e/playwright.config.ts`](../../tests/e2e/playwright.config.ts) | Fixture, CF headers, workers, timeouts, NO_COLOR | ✅ |
+| [`tests/e2e/playwright.admin.config.ts`](../../tests/e2e/playwright.admin.config.ts) | `delete process.env.NO_COLOR` (same IDE warning fix) | ✅ |
+| [`scripts/admin-e2e-fixture.mjs`](../../scripts/admin-e2e-fixture.mjs) | `xvfb-run` on Linux CI | ✅ |
+| [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | Step 1 label + `MCPMUX_ADMIN_TEST=1` | ✅ |
+| [`package.json`](../../package.json) | `test:e2e:web:wiring`, `test:e2e:web:smoke` | ✅ |
+| `tests/e2e/specs/{settings,dashboard,navigation,user-flows,spaces,servers,registry,confirm-dialog}.spec.ts` | Skips + locator updates | ✅ |
+| [`docs/planning/web-e2e-parity-handoff.md`](web-e2e-parity-handoff.md) | This doc | ✅ |
 
 **Suggested follow-up (not done):** add `test:e2e:web:group-*` scripts mirroring G0–G7 above.
 
@@ -208,18 +210,18 @@ pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=chromium \
 
 **Outcome:** Every previous failure has a group id and resolution type (skip vs locator vs env).
 
-### Phase 3 — Locator + settings parity (~2h) 🟡 in working tree
+### Phase 3 — Locator + settings parity (~2h) ✅ done (`f926c31`)
 
-- Apply G2–G7 locator fixes (Connections, Connect a client, chips, registry wait, layout list)
-- Re-run `pnpm test:e2e:web:smoke` then full suite
+- Applied G1–G8 fixes (skips, `clients-title`, Connect a client, chips, registry poll, layout list, copy assertion)
+- `pnpm test:e2e:web:smoke` green; full chromium audit **94 passed · 0 failed · 30 skipped** (~1m)
 
-**Outcome:** `pnpm test:e2e:web:smoke` green; full suite **0 failed** (skipped count may increase for intentional Tauri tests).
+**Outcome:** Local web suite green against live AdminServer.
 
-### Phase 4 — CI proof (~1h + Actions time)
+### Phase 4 — CI proof (~1h + Actions time) 🟡 in progress
 
-- Commit + push to fork PR #4
-- Confirm `e2e-web` step 1 on Ubuntu: fixture boots app, chromium suite green
-- Step 2 `test:e2e:web:admin` validated separately (CF secrets **not** required for step 1)
+- ✅ Commit + push to fork PR #4 (`f926c31`)
+- ⬜ Confirm `e2e-web` step 1 on Ubuntu: fixture boots app, chromium suite green
+- ⬜ Step 2 `test:e2e:web:admin` validated separately (CF secrets **not** required for step 1)
 
 **Outcome:** `gh pr checks 4` shows `e2e-web` success on `crimsonsunset/mcp-mux`.
 
@@ -248,7 +250,7 @@ These already use `test.skip` in web specs — expect `-` in list reporter:
 | `settings.spec.ts` | update check flows; logs path; startup toast; manual toast dismiss |
 | `dashboard.spec.ts` | copy config when `browserName !== 'chromium'` |
 
-After Phase 2, also skipped: entire **Software Updates** describe; **open logs folder** button.
+After Phase 3, also skipped (+4): entire **Software Updates** describe; **open logs folder** button. Total intentional skips: **30**.
 
 ---
 
