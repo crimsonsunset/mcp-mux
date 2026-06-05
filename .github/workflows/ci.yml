@@ -406,8 +406,10 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run web-only E2E tests (mocked UI, :1420)
+      - name: Run web admin UI smoke tests (:1420 → backend :45819)
         run: pnpm test:e2e:web --project=chromium
+        env:
+          MCPMUX_ADMIN_TEST: '1'
 
       - name: Run admin web E2E tests (:45819)
         run: pnpm test:e2e:web:admin --project=chromium

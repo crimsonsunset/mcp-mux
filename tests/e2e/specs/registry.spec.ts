@@ -37,22 +37,18 @@ test.describe('Registry/Discover Page', () => {
     
     await dashboard.navigate();
     await page.locator('nav button:has-text("Discover")').click();
+    await expect(registry.serverCount).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => registry.getServerCount(), { timeout: 15_000 })
+      .toBeGreaterThan(0);
 
-    // Get initial count
-    const initialText = await registry.serverCount.textContent();
-    const initialCount = parseInt(initialText?.match(/(\d+)/)?.[1] || '0', 10);
+    const initialCount = await registry.getServerCount();
 
-    // Search for something specific
     await registry.search('github');
-    
-    // Count should change (likely decrease or stay same if github is common)
-    const filteredText = await registry.serverCount.textContent();
-    const filteredCount = parseInt(filteredText?.match(/(\d+)/)?.[1] || '0', 10);
 
-    // If there are results, the count should be reasonable
-    if (filteredCount > 0) {
-      expect(filteredCount).toBeLessThanOrEqual(initialCount);
-    }
+    await expect
+      .poll(() => registry.getServerCount(), { timeout: 15_000 })
+      .toBeLessThanOrEqual(initialCount);
   });
 
   test('should clear search results', async ({ page }) => {

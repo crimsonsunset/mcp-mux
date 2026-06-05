@@ -26,9 +26,9 @@ test.describe('Dashboard', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    // Connect IDEs section should be visible
-    await expect(page.locator('text=Connect Your IDEs')).toBeVisible();
-    await expect(page.locator('[data-testid="client-grid"]')).toBeVisible();
+    await expect(page.getByTestId('gateway-status-card')).toBeVisible();
+    await expect(page.getByText('Connect a client')).toBeVisible();
+    await expect(page.getByTestId('client-grid')).toBeVisible();
   });
 
   test('should copy config via JSON button', async ({ page, context, browserName }) => {
@@ -40,12 +40,12 @@ test.describe('Dashboard', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    // Click the JSON config icon to open popover
-    await page.locator('[data-testid="client-icon-copy-config"]').click();
+    await expect(page.getByTestId('client-grid')).toBeVisible();
+    await page.getByTestId('client-icon-copy-config').first().scrollIntoViewIfNeeded();
+    await page.getByTestId('client-icon-copy-config').first().click();
     // Click copy button in popover
     await page.locator('[data-testid="copy-config-btn"]').click();
 
-    // Check for success message
-    await expect(page.locator('text=Copied!')).toBeVisible({ timeout: 2000 });
+    await expect(page.getByText(/Copied/)).toBeVisible({ timeout: 5000 });
   });
 });

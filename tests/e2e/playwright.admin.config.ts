@@ -32,6 +32,8 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 loadRepoDotEnv(REPO_ROOT);
 
+delete process.env.NO_COLOR;
+
 const cfProbeAuth = hasAdminCfProbeAuth();
 const extraHTTPHeaders =
   Object.keys(adminCfProbeHeaders()).length > 0 ? adminCfProbeHeaders() : undefined;

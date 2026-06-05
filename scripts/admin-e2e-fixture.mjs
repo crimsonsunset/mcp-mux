@@ -127,7 +127,9 @@ function startDevBackend() {
   };
 
   if (process.env.CI === 'true' && process.platform === 'linux') {
-    const inner = `echo "test" | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null; eval "$(gnome-keyring-daemon --start --components=secrets 2>/dev/null)"; exec ${pnpm} dev`;
+    // tauri dev opens a webkit2gtk window — needs a virtual display under headless CI
+    // (same xvfb-run pattern as e2e-desktop.yml). Without it `pnpm dev` exits immediately.
+    const inner = `echo "test" | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null; eval "$(gnome-keyring-daemon --start --components=secrets 2>/dev/null)"; exec xvfb-run --auto-servernum ${pnpm} dev`;
     return spawn('dbus-run-session', ['--', 'bash', '-lc', inner], {
       cwd: REPO_ROOT,
       env,

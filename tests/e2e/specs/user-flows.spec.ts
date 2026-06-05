@@ -54,7 +54,7 @@ test.describe('Complete User Flows', () => {
     
     // Clients
     await page.locator('nav button:has-text("Clients")').click();
-    await expect(page.locator('h1:has-text("Connected Clients")')).toBeVisible();
+    await expect(page.getByTestId('clients-title')).toBeVisible();
     
     // Settings
     await page.locator('nav button:has-text("Settings")').click();
@@ -125,7 +125,7 @@ test.describe('Dashboard Interactions', () => {
     await dashboard.navigate();
 
     // Connect IDEs section should be present
-    await expect(page.locator('text=Connect Your IDEs')).toBeVisible();
+    await expect(page.getByText('Connect a client')).toBeVisible();
 
     // Client grid should be present
     await expect(page.locator('[data-testid="client-grid"]')).toBeVisible();

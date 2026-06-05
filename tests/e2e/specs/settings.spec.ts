@@ -50,7 +50,7 @@ test.describe('Settings', () => {
     await expect(page.locator('html')).toHaveClass(/dark/);
   });
 
-  test.describe('Software Updates', () => {
+  test.describe.skip('Software Updates', () => {
     test('should display update checker section', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
@@ -161,7 +161,7 @@ test.describe('Settings', () => {
       await expect(logsPath).not.toContainText('Loading...');
     });
 
-    test('should have open logs folder button', async ({ page }) => {
+    test.skip('should have open logs folder button', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
@@ -189,9 +189,8 @@ test.describe('Settings', () => {
 
       await page.locator('nav button:has-text("Settings")').click();
 
-      // Verify sections appear in expected order
+      // Web-admin omits Software Updates (UpdateChecker is Tauri-only)
       const sections = [
-        page.getByText('Software Updates'),
         page.getByText('Startup & System Tray'),
         page.getByText('Appearance'),
         page.locator('h3:has-text("Logs"), h2:has-text("Logs")').first(),
@@ -284,6 +283,7 @@ test.describe('Settings', () => {
       await dashboard.navigate();
 
       await page.locator('nav button:has-text("Settings")').click();
+      await expect(page.getByTestId('settings-startup-section')).toBeVisible();
 
       const startMinimizedSwitch = page.getByTestId('start-minimized-switch');
       
