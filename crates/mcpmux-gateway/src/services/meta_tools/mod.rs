@@ -29,6 +29,7 @@ pub mod disclosure;
 pub mod disclosure_backend;
 mod feature_set_tools;
 pub mod invoke_backend;
+mod invoke_alias;
 mod invoke_payload_parse;
 pub mod invoke_result_filter;
 mod invoke_result_shaping;

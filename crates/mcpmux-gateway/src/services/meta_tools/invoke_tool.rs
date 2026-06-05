@@ -1,5 +1,11 @@
 //! `mcpmux_invoke_tool` — permission-checked gateway into backend MCP tools.
 
+pub use super::invoke_alias::{
+    normalize_invoke_tool_name, resolve_invoke_server_id, resolve_invoke_tool,
+    resolve_invoke_tool_args,
+};
+pub(crate) use super::invoke_alias::feature_matches_tool_name;
+
 use async_trait::async_trait;
 use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Map, Value};
@@ -15,64 +21,6 @@ use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use crate::pool::{format_invoke_permission_denied, ConnectionStatus};
 use crate::services::levenshtein_suggestions;
 use mcpmux_core::FeatureType;
-
-/// Strip repeated `{server_id}_` prefixes when agents pass a qualified name from search.
-pub fn normalize_invoke_tool_name(server_id: &str, tool: &str) -> String {
-    let prefix = format!("{server_id}_");
-    let mut bare = tool;
-    while let Some(stripped) = bare.strip_prefix(&prefix) {
-        bare = stripped;
-    }
-    bare.to_string()
-}
-
-/// First non-empty string value for any of `keys` on a JSON object (agent alias resolution).
-fn first_nonempty_str(args: &Value, keys: &[&str]) -> Option<String> {
-    let obj = args.as_object()?;
-    for key in keys {
-        let Some(value) = obj.get(*key) else {
-            continue;
-        };
-        let Some(text) = value.as_str() else {
-            continue;
-        };
-        if !text.is_empty() {
-            return Some(text.to_string());
-        }
-    }
-    None
-}
-
-/// Resolve `server_id` from invoke call args (`server_id`, alias `serverId`, alias `server`).
-pub fn resolve_invoke_server_id(args: &Value) -> Option<String> {
-    first_nonempty_str(args, &["server_id", "serverId", "server"])
-}
-
-/// Resolve `tool` from invoke call args (`tool`, alias `tool_name`).
-pub fn resolve_invoke_tool(args: &Value) -> Option<String> {
-    first_nonempty_str(args, &["tool", "tool_name"])
-}
-
-/// Whether an invokable feature matches the caller's `tool` (bare or qualified).
-fn feature_matches_tool_name(
-    feature_name: &str,
-    qualified_name: &str,
-    tool_input: &str,
-    bare: &str,
-) -> bool {
-    feature_name == bare || qualified_name == tool_input
-}
-
-/// Resolve backend tool arguments from `mcpmux_invoke_tool` call args.
-///
-/// Prefers `args`, then `params`, then `arguments` (common agent/UI aliases).
-pub fn resolve_invoke_tool_args(args: &Value) -> Value {
-    args.get("args")
-        .or_else(|| args.get("params"))
-        .or_else(|| args.get("arguments"))
-        .cloned()
-        .unwrap_or_else(|| json!({}))
-}
 
 /// Meta tool that forwards invocations to [`RoutingService::call_tool`].
 pub struct InvokeToolTool;
@@ -394,142 +342,5 @@ fn invoke_preflight_ok() -> CallToolResult {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_invoke_tool_args_prefers_args_over_params() {
-        let call_args = json!({
-            "args": { "owner": "a" },
-            "params": { "owner": "b" }
-        });
-        assert_eq!(
-            resolve_invoke_tool_args(&call_args),
-            json!({ "owner": "a" })
-        );
-    }
-
-    #[test]
-    fn resolve_invoke_tool_args_falls_back_to_params() {
-        let call_args = json!({ "params": { "repo": "mcp-mux" } });
-        assert_eq!(
-            resolve_invoke_tool_args(&call_args),
-            json!({ "repo": "mcp-mux" })
-        );
-    }
-
-    #[test]
-    fn resolve_invoke_tool_args_defaults_to_empty_object() {
-        assert_eq!(resolve_invoke_tool_args(&json!({})), json!({}));
-    }
-
-    #[test]
-    fn resolve_invoke_tool_args_falls_back_to_arguments() {
-        let call_args = json!({ "arguments": { "id": "page-1" } });
-        assert_eq!(
-            resolve_invoke_tool_args(&call_args),
-            json!({ "id": "page-1" })
-        );
-    }
-
-    #[test]
-    fn resolve_invoke_tool_args_prefers_args_over_arguments() {
-        let call_args = json!({
-            "args": { "id": "a" },
-            "arguments": { "id": "b" }
-        });
-        assert_eq!(resolve_invoke_tool_args(&call_args), json!({ "id": "a" }));
-    }
-
-    #[test]
-    fn resolve_invoke_server_id_accepts_aliases() {
-        assert_eq!(
-            resolve_invoke_server_id(&json!({ "server_id": "github" })),
-            Some("github".to_string())
-        );
-        assert_eq!(
-            resolve_invoke_server_id(&json!({ "server": "notion" })),
-            Some("notion".to_string())
-        );
-        assert_eq!(
-            resolve_invoke_server_id(&json!({ "serverId": "jira" })),
-            Some("jira".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_invoke_server_id_prefers_server_id_over_aliases() {
-        let call_args = json!({
-            "server_id": "canonical",
-            "server": "alias",
-            "serverId": "other"
-        });
-        assert_eq!(
-            resolve_invoke_server_id(&call_args),
-            Some("canonical".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_invoke_tool_accepts_tool_name_alias() {
-        assert_eq!(
-            resolve_invoke_tool(&json!({ "tool_name": "notion-fetch" })),
-            Some("notion-fetch".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_invoke_tool_prefers_tool_over_tool_name() {
-        let call_args = json!({
-            "tool": "bare",
-            "tool_name": "alias"
-        });
-        assert_eq!(resolve_invoke_tool(&call_args), Some("bare".to_string()));
-    }
-
-    #[test]
-    fn normalize_invoke_tool_name_strips_server_prefix() {
-        assert_eq!(
-            normalize_invoke_tool_name("github", "github_list_issues"),
-            "list_issues"
-        );
-    }
-
-    #[test]
-    fn normalize_invoke_tool_name_passes_bare_through() {
-        assert_eq!(
-            normalize_invoke_tool_name("github", "list_issues"),
-            "list_issues"
-        );
-    }
-
-    #[test]
-    fn normalize_invoke_tool_name_strips_repeated_prefix() {
-        assert_eq!(
-            normalize_invoke_tool_name("github", "github_github_list_issues"),
-            "list_issues"
-        );
-    }
-
-    #[test]
-    fn feature_matches_tool_name_accepts_qualified_or_bare() {
-        assert!(feature_matches_tool_name(
-            "list_issues",
-            "github_list_issues",
-            "github_list_issues",
-            "list_issues"
-        ));
-        assert!(feature_matches_tool_name(
-            "list_issues",
-            "github_list_issues",
-            "list_issues",
-            "list_issues"
-        ));
-        assert!(!feature_matches_tool_name(
-            "other_tool",
-            "github_other_tool",
-            "list_issues",
-            "list_issues"
-        ));
-    }
-}
+#[path = "invoke_tool_tests.rs"]
+mod tests;
