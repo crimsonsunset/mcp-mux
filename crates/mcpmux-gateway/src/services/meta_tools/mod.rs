@@ -30,7 +30,7 @@ pub mod disclosure_backend;
 mod feature_set_tools;
 pub mod invoke_backend;
 mod invoke_payload_parse;
-mod invoke_result_filter;
+pub mod invoke_result_filter;
 mod invoke_result_shaping;
 pub mod invoke_tool;
 mod list_servers;
