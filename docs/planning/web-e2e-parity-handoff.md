@@ -4,7 +4,7 @@
 **Last updated:** 2026-06-04  
 **Branch:** `feat/meta-surface-lean-core` (fork)  
 **PR:** [crimsonsunset/mcp-mux#4](https://github.com/crimsonsunset/mcp-mux/pull/4) → `dev`  
-**CI job:** `e2e-web` in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — `pnpm test:e2e:web` + `pnpm test:e2e:web:admin` (chromium), `MCPMUX_ADMIN_TEST=1`
+**CI job:** `e2e-web` in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), `MCPMUX_ADMIN_TEST=1` (chromium). Gated by a `changes` paths filter; **PRs run `test:e2e:web:smoke`**, **pushes (post-merge) run full `test:e2e:web` + `test:e2e:web:admin`**.
 
 ---
 
@@ -79,6 +79,7 @@ Bring **`pnpm test:e2e:web`** (CI `e2e-web` step 1) to a stable green state agai
 | 4 | Tauri-only UI | **`describe.skip` / `test.skip`**, not fake DOM | `UpdateChecker`, `open-logs-btn` gated on `isTauri()` in [`SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx) |
 | 5 | Stale copy | **Update locators** to current UI (`clients-title`, `Connect a client`, etc.) | Renames in ConnectionCard / dashboard; use testids where sidebar duplicates headings |
 | 6 | Fail-fast default | **`maxFailures: 1`** in config; **`--max-failures=0`** for full audit runs | Smokes stay fast; full runs enumerate all reds |
+| 7 | CI cost | **Smoke-on-PR, full-on-push** for web E2E; **all heavy jobs paths-gated** via a `changes` job (`dorny/paths-filter`): `rust-test` (rust), `build` (app), `e2e-desktop` (e2e_desktop), `e2e-web` (e2e_web). Rust report steps + admin report gated to match. | Full web+admin × every commit was the dominant cost; the rust matrix, Tauri build, and desktop WDIO are also heavy. Doc-only commits now skip all of them (skipped = success; only `rust-check`/`ts-check` are required). CI edits trip every filter so changes self-validate. |
 
 ---
 

@@ -1,5 +1,12 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { DashboardPage, RegistryPage } from '../pages';
+
+/**
+ * Add Server trigger in the empty-state panel (toolbar renders a duplicate testid).
+ */
+function emptyStateAddServerTrigger(page: Page) {
+  return page.getByText('No servers installed').locator('..').getByTestId('add-server-menu-trigger');
+}
 
 test.describe('Post-Action User Guidance', () => {
   test.describe('My Servers empty state', () => {
@@ -15,8 +22,9 @@ test.describe('Post-Action User Guidance', () => {
         test.skip(true, 'Servers already installed in this environment');
       }
 
-      await expect(page.getByTestId('add-server-menu-trigger')).toBeVisible();
-      await page.getByTestId('add-server-menu-trigger').click();
+      const addServerTrigger = emptyStateAddServerTrigger(page);
+      await expect(addServerTrigger).toBeVisible();
+      await addServerTrigger.click();
       await expect(page.getByTestId('add-server-option-discover')).toBeVisible();
       await expect(page.getByTestId('add-server-option-discover')).toContainText(
         'Discover from registry'
@@ -34,7 +42,8 @@ test.describe('Post-Action User Guidance', () => {
         test.skip(true, 'Servers already installed in this environment');
       }
 
-      await page.getByTestId('add-server-menu-trigger').click();
+      const addServerTrigger = emptyStateAddServerTrigger(page);
+      await addServerTrigger.click();
       await page.getByTestId('add-server-option-discover').click();
 
       await expect(page.getByRole('heading', { name: 'Discover Servers' })).toBeVisible();
