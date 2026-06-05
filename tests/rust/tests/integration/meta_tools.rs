@@ -1190,6 +1190,49 @@ async fn list_servers_includes_cloned_from_for_clone_installs() {
     assert!(github_entry.get("cloned_from").is_none());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn list_servers_shows_installed_server_with_no_tool_features() {
+    let f = Fixture::new().await;
+    let space_id = f.space_id.to_string();
+
+    // Install a server that has a required input but no server_feature rows
+    // (simulates a freshly installed server whose tool catalog has not been
+    // discovered yet, e.g. waiting for the user to supply credentials).
+    let def = stdio_definition_with_required_input("brand-new", "api_key");
+    let server = InstalledServer::new(&space_id, "brand-new").with_definition(&def);
+    f.installed_server_repo.install(&server).await.unwrap();
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_list_servers",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    assert!(!Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+
+    let servers = body.get("servers").unwrap().as_array().unwrap();
+    let entry = servers
+        .iter()
+        .find(|s| s.get("id").and_then(|v| v.as_str()) == Some("brand-new"))
+        .expect("installed server with no tool features must appear in list_servers");
+
+    assert_eq!(entry.get("tool_count"), Some(&json!(0)));
+    assert_eq!(entry.get("health"), Some(&json!("needs_setup")));
+    let missing = entry
+        .get("missing_inputs")
+        .and_then(|v| v.as_array())
+        .expect("missing_inputs must be present for a needs_setup server");
+    assert!(
+        missing.iter().any(|v| v.as_str() == Some("api_key")),
+        "api_key must appear in missing_inputs: {missing:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Writes — gated by ApprovalBroker
 // ---------------------------------------------------------------------------

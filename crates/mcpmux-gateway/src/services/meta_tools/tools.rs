@@ -457,7 +457,12 @@ impl MetaTool for ListServersTool {
                 acc
             });
 
-        let mut by_server: HashMap<String, (Option<String>, usize)> = HashMap::new();
+        // Seed every installed server first so servers with no discovered tool features
+        // still appear (e.g. auth-pending or needs-setup servers with zero rows).
+        let mut by_server: HashMap<String, (Option<String>, usize)> = installed_by_server
+            .keys()
+            .map(|id| (id.clone(), (None, 0usize)))
+            .collect();
         for feature in &features {
             if feature.feature_type != FeatureType::Tool {
                 continue;
