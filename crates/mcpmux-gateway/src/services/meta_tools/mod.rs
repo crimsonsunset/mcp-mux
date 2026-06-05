@@ -27,8 +27,10 @@ pub mod disclosure;
 pub mod disclosure_backend;
 pub mod invoke;
 pub mod invoke_backend;
+mod list_servers;
 mod meta_tool_common;
 mod registry;
+mod search_tools;
 mod token_budget;
 mod tools;
 
@@ -137,8 +139,8 @@ pub fn build_default_registry(
     let mut registry = MetaToolRegistry::new(ctx);
     // Reads — no approval needed.
     registry.register(Box::new(tools::ListFeatureSetsTool));
-    registry.register(Box::new(tools::ListServersTool));
-    registry.register(Box::new(tools::SearchToolsTool));
+    registry.register(Box::new(list_servers::ListServersTool));
+    registry.register(Box::new(search_tools::SearchToolsTool));
     registry.register(Box::new(tools::GetToolSchemaTool));
     registry.register(Box::new(diagnose::DiagnoseServerTool));
     registry.register(Box::new(invoke::InvokeToolTool));
