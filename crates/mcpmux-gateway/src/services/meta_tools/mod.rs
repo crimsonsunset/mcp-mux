@@ -25,7 +25,8 @@ mod bind_workspace;
 mod diagnose_server;
 mod diagnose_view;
 pub mod diff;
-pub mod disclosure;
+mod disclosure_read;
+mod disclosure_search;
 pub mod disclosure_backend;
 mod feature_set_tools;
 pub mod invoke_backend;
@@ -157,10 +158,10 @@ pub fn build_default_registry(
     registry.register(Box::new(feature_set_tools::GetToolSchemaTool));
     registry.register(Box::new(diagnose_server::DiagnoseServerTool));
     registry.register(Box::new(invoke_tool::InvokeToolTool));
-    registry.register(Box::new(disclosure::SearchResourcesTool));
-    registry.register(Box::new(disclosure::ReadResourceTool));
-    registry.register(Box::new(disclosure::SearchPromptsTool));
-    registry.register(Box::new(disclosure::FetchPromptTool));
+    registry.register(Box::new(disclosure_search::SearchResourcesTool));
+    registry.register(Box::new(disclosure_read::ReadResourceTool));
+    registry.register(Box::new(disclosure_search::SearchPromptsTool));
+    registry.register(Box::new(disclosure_read::FetchPromptTool));
     // Writes — gated by ApprovalBroker (bind-only; humans author bundles in UI).
     registry.register(Box::new(bind_workspace::BindCurrentWorkspaceTool));
     std::sync::Arc::new(registry)

@@ -6,9 +6,8 @@ use serde_json::{json, Value};
 
 use super::bind_workspace::BindCurrentWorkspaceTool;
 use super::diagnose_server::DiagnoseServerTool;
-use super::disclosure::{
-    FetchPromptTool, ReadResourceTool, SearchPromptsTool, SearchResourcesTool,
-};
+use super::disclosure_read::{FetchPromptTool, ReadResourceTool};
+use super::disclosure_search::{SearchPromptsTool, SearchResourcesTool};
 use super::feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
 use super::invoke_tool::InvokeToolTool;
 use super::list_servers::ListServersTool;
