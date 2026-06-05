@@ -12,8 +12,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::meta_tool_common::{caller_space_id, text_result};
+use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use crate::pool::ConnectionStatus;
 
 /// Operator-facing health bucket for a single installed server.

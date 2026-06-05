@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use super::bind_workspace::BindCurrentWorkspaceTool;
 use super::diagnose::DiagnoseServerTool;
 use super::disclosure::{
     FetchPromptTool, ReadResourceTool, SearchPromptsTool, SearchResourcesTool,
 };
-use super::invoke::InvokeToolTool;
-use super::registry::MetaTool;
-use super::bind_workspace::BindCurrentWorkspaceTool;
 use super::feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
+use super::invoke::InvokeToolTool;
 use super::list_servers::ListServersTool;
+use super::registry::MetaTool;
 use super::search_tools::SearchToolsTool;
 use super::CORE_META_TOOLS;
 use rmcp::model::Tool;

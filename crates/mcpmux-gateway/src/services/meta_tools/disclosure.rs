@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use rmcp::model::{CallToolResult, Content};
 use serde_json::{json, Value};
 
-use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use super::meta_tool_common::{caller_resolution, caller_space_id, text_result};
+use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use crate::pool::{
     format_server_inactive_error, format_server_not_in_binding_error, FeatureService,
 };

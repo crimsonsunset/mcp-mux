@@ -2,7 +2,7 @@
 
 **Synthesizes:** [`meta-gateway-invoke.md`](../reference/meta-gateway-invoke.md), [`search-tools-hybrid-semantic-ranking.md`](../reference/search-tools-hybrid-semantic-ranking.md), [`search-tools-embedding-search-read-path.md`](../reference/search-tools-embedding-search-read-path.md), [`search-tools-latency-and-root-race.md`](../reference/search-tools-latency-and-root-race.md), [`mcpmux-diagnose-server.md`](../reference/mcpmux-diagnose-server.md)
 
-**Last Updated:** Jun 2, 2026
+**Last Updated:** Jun 5, 2026
 
 ---
 
@@ -162,7 +162,7 @@ Each entry also includes `connection`, `health`, and `missing_inputs` when setup
 
 ## Invoke Authorization
 
-`InvokeToolTool` (`meta_tools/invoke.rs`) fails closed:
+`InvokeToolTool` (`meta_tools/invoke_tool.rs`) fails closed:
 
 ```
 effective_servers = (binding_servers ∪ session_enabled) − session_disabled
@@ -248,14 +248,21 @@ Key log targets: `[search]` for ranking/fusion, `[embed]` for the embedding serv
 
 ---
 
+## Architecture (maintainers)
+
+Meta-tool implementations live under `crates/mcpmux-gateway/src/services/meta_tools/` as flat sibling modules (see [`meta-tools-module-split.md`](../../planning/meta-tools-module-split.md) for the full rationale). `mod.rs` registers tools via `build_default_registry`; shared helpers (`caller_space_id`, readiness, `with_approval`, etc.) are in `meta_tool_common.rs`. Per-tool files: `list_servers.rs`, `search_tools.rs` (+ index/cache helpers), `feature_set_tools.rs` (`ListFeatureSetsTool`, `GetToolSchemaTool`), `bind_workspace.rs`. Invoke is split across `invoke_tool.rs` (handler + alias resolution + permission gates), `invoke_result_filter.rs` (shaping/parsing + unit tests), and `invoke.rs` (thin re-export shim). `disclosure.rs`, `diagnose.rs`, `registry.rs`, and `token_budget.rs` are unchanged in role.
+
 ## Key Source Locations
 
 | Path | Role |
 | ---- | ---- |
 | `crates/mcpmux-gateway/src/services/tool_discovery.rs` | `ToolDiscoveryService`, `ToolIndexEntry`, hybrid search, `rank_with_hybrid` |
 | `crates/mcpmux-gateway/src/services/discovery_rank.rs` | Token-overlap lexical match, TF-IDF score, score fusion |
-| `crates/mcpmux-gateway/src/services/meta_tools/tools.rs` | `SearchToolsTool`, `GetToolSchemaTool`, `hydrate_active_embeddings` |
-| `crates/mcpmux-gateway/src/services/meta_tools/invoke.rs` | `InvokeToolTool`, result shaping, permission check |
+| `crates/mcpmux-gateway/src/services/meta_tools/search_tools.rs` | `SearchToolsTool`, `hydrate_active_embeddings`, active-index cache |
+| `crates/mcpmux-gateway/src/services/meta_tools/feature_set_tools.rs` | `GetToolSchemaTool`, `ListFeatureSetsTool` |
+| `crates/mcpmux-gateway/src/services/meta_tools/invoke_tool.rs` | `InvokeToolTool`, alias resolution, permission check |
+| `crates/mcpmux-gateway/src/services/meta_tools/invoke_result_filter.rs` | Result shaping (`filter` arg), YAML/JSON parsers |
+| `crates/mcpmux-gateway/src/services/meta_tools/meta_tool_common.rs` | Shared helpers: readiness, `text_result`, `with_approval` |
 | `crates/mcpmux-gateway/src/services/meta_tools/diagnose.rs` | `DiagnoseServerTool`, health classification, config view |
 | `crates/mcpmux-gateway/src/services/meta_tools/disclosure.rs` | Resource/prompt search, read, fetch meta tools |
 | `crates/mcpmux-gateway/src/pool/features/facade.rs` | `get_advertised_tools_for_grants` vs `get_invokable_tools_for_grants` |

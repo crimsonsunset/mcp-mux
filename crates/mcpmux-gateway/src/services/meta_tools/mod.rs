@@ -28,9 +28,9 @@ pub mod disclosure;
 pub mod disclosure_backend;
 mod feature_set_tools;
 pub mod invoke;
+pub mod invoke_backend;
 mod invoke_result_filter;
 mod invoke_tool;
-pub mod invoke_backend;
 mod list_servers;
 mod meta_tool_common;
 mod registry;
@@ -41,16 +41,16 @@ pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
     ApprovalScope, ResolutionNotifier, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
+pub use bind_workspace::BindCurrentWorkspaceTool;
 pub use diff::ToolDiff;
 pub use disclosure_backend::{pool_as_disclosure_backend, DisclosureBackend};
+pub use feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
 pub use invoke_backend::{routing_as_invoke_backend, InvokeToolBackend};
+pub use list_servers::ListServersTool;
 pub use registry::{
     feature_set_ids_fingerprint, MetaToolContext, MetaToolError, MetaToolRegistry,
     META_TOOLS_ENABLED_KEY,
 };
-pub use bind_workspace::BindCurrentWorkspaceTool;
-pub use feature_set_tools::{GetToolSchemaTool, ListFeatureSetsTool};
-pub use list_servers::ListServersTool;
 pub use search_tools::SearchToolsTool;
 pub use token_budget::{measure_meta_tool_token_budget, MetaToolTokenBudget};
 
