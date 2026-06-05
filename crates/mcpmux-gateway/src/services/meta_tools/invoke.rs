@@ -8,7 +8,7 @@ use tracing::debug;
 
 use super::diagnose::parse_missing_required_inputs;
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
-use super::tools::{
+use super::meta_tool_common::{
     caller_resolution, caller_space_id, classify_invoke_denial, format_invoke_not_ready_action,
 };
 use crate::pool::{format_invoke_permission_denied, ConnectionStatus};

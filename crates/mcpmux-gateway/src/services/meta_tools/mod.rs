@@ -27,6 +27,7 @@ pub mod disclosure;
 pub mod disclosure_backend;
 pub mod invoke;
 pub mod invoke_backend;
+mod meta_tool_common;
 mod registry;
 mod token_budget;
 mod tools;
