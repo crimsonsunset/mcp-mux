@@ -16,7 +16,7 @@ mod tool_discovery_types;
 
 pub use tool_discovery_index::entry_content_hash;
 pub use tool_discovery_types::{
-    DetailLevel, SearchContext, ToolIndex, ToolIndexEntry, SearchToolsResult,
+    DetailLevel, SearchContext, SearchToolsResult, ToolIndex, ToolIndexEntry,
 };
 
 /// Service that builds and queries a tool index for a Space.

@@ -244,8 +244,7 @@ fn posthog_paginated_results_truncates_from_content_json() {
     })))
     .unwrap();
 
-    let (shaped_content, shaped_structured) =
-        apply_invoke_result_filter(content, None, &filter);
+    let (shaped_content, shaped_structured) = apply_invoke_result_filter(content, None, &filter);
 
     let structured = shaped_structured.expect("structured shaped from content JSON");
     assert_eq!(structured.get("returned"), Some(&json!(3)));
@@ -311,8 +310,7 @@ fn posthog_paginated_results_truncates_from_content_yaml() {
     })))
     .unwrap();
 
-    let (shaped_content, shaped_structured) =
-        apply_invoke_result_filter(content, None, &filter);
+    let (shaped_content, shaped_structured) = apply_invoke_result_filter(content, None, &filter);
 
     let structured = shaped_structured.expect("structured shaped from content YAML");
     assert_eq!(structured.get("returned"), Some(&json!(3)));

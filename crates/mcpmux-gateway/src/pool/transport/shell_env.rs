@@ -11,8 +11,13 @@
 
 use std::ffi::OsString;
 use std::sync::OnceLock;
+use std::time::Duration;
 #[cfg(unix)]
 use tracing::{debug, info, warn};
+
+/// Max time to wait for a login-shell PATH probe before falling back to process PATH.
+#[cfg(unix)]
+const SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Cached shell PATH, resolved once on first access.
 static SHELL_PATH: OnceLock<Option<OsString>> = OnceLock::new();
@@ -57,10 +62,10 @@ fn resolve_unix_shell_path() -> Option<OsString> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     info!("[ShellEnv] Resolving PATH from login shell: {}", shell);
 
-    // Try interactive login shell first (gets nvm/Volta/fnm paths from .zshrc/.bashrc)
-    let shell_path = try_resolve_path_from_shell(&shell, &["-l", "-i", "-c"]).or_else(|| {
-        debug!("[ShellEnv] Interactive shell failed, trying login-only");
-        try_resolve_path_from_shell(&shell, &["-l", "-c"])
+    // Login-only first: interactive shells (-i) often hang when spawned from GUI apps.
+    let shell_path = try_resolve_path_from_shell(&shell, &["-l", "-c"]).or_else(|| {
+        debug!("[ShellEnv] Login shell failed, trying interactive login shell");
+        try_resolve_path_from_shell(&shell, &["-l", "-i", "-c"])
     });
 
     let shell_path = match shell_path {
@@ -92,7 +97,10 @@ fn resolve_unix_shell_path() -> Option<OsString> {
 /// - Shell-specific echo behavior differences
 #[cfg(unix)]
 fn try_resolve_path_from_shell(shell: &str, flags: &[&str]) -> Option<String> {
+    use std::io::Read;
     use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::Instant;
 
     // Build command: $SHELL <flags> 'printf "%s" "$PATH"'
     let mut cmd = Command::new(shell);
@@ -101,31 +109,69 @@ fn try_resolve_path_from_shell(shell: &str, flags: &[&str]) -> Option<String> {
     }
     cmd.arg(r#"printf "%s" "$PATH""#);
 
-    // Prevent the child from inheriting stdin (avoids tty issues)
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::null()); // Suppress shell startup warnings
+    cmd.stderr(Stdio::null());
 
-    match cmd.output() {
-        Ok(output) if output.status.success() => {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if path.is_empty() {
-                debug!("[ShellEnv] Shell returned empty PATH");
-                None
-            } else {
-                Some(path)
-            }
-        }
-        Ok(output) => {
-            debug!(
-                "[ShellEnv] Shell exited with status {} (flags: {:?})",
-                output.status, flags
-            );
-            None
-        }
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
         Err(e) => {
             debug!("[ShellEnv] Failed to spawn shell '{}': {}", shell, e);
-            None
+            return None;
+        }
+    };
+
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    debug!(
+                        "[ShellEnv] Shell exited with status {} (flags: {:?})",
+                        status, flags
+                    );
+                    return None;
+                }
+
+                let mut stdout = match child.stdout.take() {
+                    Some(stdout) => stdout,
+                    None => {
+                        debug!("[ShellEnv] Shell produced no stdout (flags: {:?})", flags);
+                        return None;
+                    }
+                };
+                let mut buf = Vec::new();
+                if stdout.read_to_end(&mut buf).is_err() {
+                    debug!(
+                        "[ShellEnv] Failed to read shell PATH output (flags: {:?})",
+                        flags
+                    );
+                    return None;
+                }
+
+                let path = String::from_utf8_lossy(&buf).trim().to_string();
+                if path.is_empty() {
+                    debug!("[ShellEnv] Shell returned empty PATH");
+                    return None;
+                }
+                return Some(path);
+            }
+            Ok(None) => {
+                if started.elapsed() >= SHELL_PATH_TIMEOUT {
+                    warn!(
+                        "[ShellEnv] Shell PATH probe timed out after {:?} (flags: {:?})",
+                        SHELL_PATH_TIMEOUT, flags
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                debug!("[ShellEnv] Failed waiting on shell '{}': {}", shell, e);
+                return None;
+            }
         }
     }
 }

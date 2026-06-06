@@ -1,10 +1,10 @@
 //! `mcpmux_invoke_tool` — permission-checked gateway into backend MCP tools.
 
+pub(crate) use super::invoke_alias::feature_matches_tool_name;
 pub use super::invoke_alias::{
     normalize_invoke_tool_name, resolve_invoke_server_id, resolve_invoke_tool,
     resolve_invoke_tool_args,
 };
-pub(crate) use super::invoke_alias::feature_matches_tool_name;
 
 use async_trait::async_trait;
 use rmcp::model::{CallToolResult, Content};

@@ -4,8 +4,8 @@ use std::time::Duration;
 use futures::FutureExt;
 use uuid::Uuid;
 
-use super::super::approval_types::ApprovalPayload;
 use super::super::super::MetaToolError;
+use super::super::approval_types::ApprovalPayload;
 use super::{ApprovalBroker, ApprovalDecision, ApprovalPublisher};
 
 fn make_payload() -> ApprovalPayload {

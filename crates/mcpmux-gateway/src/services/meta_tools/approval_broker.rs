@@ -33,8 +33,8 @@ use tokio::sync::{oneshot, Mutex};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use super::approval_types::{ApprovalPayload, ApprovalRequest};
 use super::super::MetaToolError;
+use super::approval_types::{ApprovalPayload, ApprovalRequest};
 
 /// Tauri / admin SSE channel for pending meta-tool approval dialogs.
 pub const META_TOOL_APPROVAL_EVENT: &str = "meta-tool-approval-request";
