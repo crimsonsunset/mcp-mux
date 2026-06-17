@@ -53,7 +53,10 @@ impl MetaTool for BindCurrentWorkspaceTool {
             .unwrap_or_default();
         let root = roots.into_iter().next().ok_or_else(|| {
             MetaToolError::InvalidArgument(
-                "caller did not report any MCP roots; cannot bind".into(),
+                "caller did not report any MCP roots; cannot bind — \
+                 call mcpmux_set_workspace_root first to declare your workspace path, \
+                 then retry mcpmux_bind_current_workspace"
+                    .into(),
             )
         })?;
         let normalized = normalize_workspace_root(&root);

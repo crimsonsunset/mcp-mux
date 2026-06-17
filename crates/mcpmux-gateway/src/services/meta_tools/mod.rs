@@ -40,6 +40,7 @@ mod meta_tool_common;
 mod registry;
 mod search_tools;
 mod search_tools_index;
+mod set_workspace_root;
 mod token_budget;
 
 pub use approval::{
@@ -59,6 +60,7 @@ pub use registry::{
     META_TOOLS_ENABLED_KEY,
 };
 pub use search_tools::SearchToolsTool;
+pub use set_workspace_root::SetWorkspaceRootTool;
 pub use token_budget::{measure_meta_tool_token_budget, MetaToolTokenBudget};
 
 use std::path::PathBuf;
@@ -74,13 +76,15 @@ pub const MCPMUX_PREFIX: &str = "mcpmux_";
 /// error/hint recovery strings that name them when needed.
 ///
 /// Core = the hot path every session: discover → schema → invoke + roster.
-/// Everything else (bind, diagnose, resource/prompt quartet, list_feature_sets)
-/// is reachable on demand without being in the startup context budget.
+/// `mcpmux_set_workspace_root` is included here because it is the only
+/// escape hatch when the automatic roots/list probe fails (PendingRoots
+/// state) — without it in the list the LLM has no way to unblock itself.
 pub const CORE_META_TOOLS: &[&str] = &[
     "mcpmux_search_tools",
     "mcpmux_invoke_tool",
     "mcpmux_get_tool_schema",
     "mcpmux_list_servers",
+    "mcpmux_set_workspace_root",
 ];
 
 /// Convenience: is this tool name one of ours?
@@ -164,5 +168,7 @@ pub fn build_default_registry(
     registry.register(Box::new(disclosure_read::FetchPromptTool));
     // Writes — gated by ApprovalBroker (bind-only; humans author bundles in UI).
     registry.register(Box::new(bind_workspace::BindCurrentWorkspaceTool));
+    // Session root override — no approval (ephemeral in-memory only).
+    registry.register(Box::new(set_workspace_root::SetWorkspaceRootTool));
     std::sync::Arc::new(registry)
 }
