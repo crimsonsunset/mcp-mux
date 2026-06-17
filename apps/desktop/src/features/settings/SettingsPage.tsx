@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, useTheme, useAnalyticsEnabled } from '@/stores';
 import { UpdateChecker } from './UpdateChecker';
+import { AboutSection } from './AboutSection';
 import { ServerUpdatesSection } from './ServerUpdatesSection';
 import { getMetaToolsEnabled, setMetaToolsEnabled } from '@/lib/api/metaTools';
 import {
@@ -65,7 +66,7 @@ export function SettingsPage() {
   const setAnalyticsEnabled = useAppStore((state) => state.setAnalyticsEnabled);
   const [logsPath, setLogsPath] = useState<string>('');
   const [openingLogs, setOpeningLogs] = useState(false);
-  const { toasts, success, error } = useToast();
+  const { toasts, success, error, info } = useToast();
   const gatewayControl = useGatewayControl();
 
   // Startup settings state
@@ -399,10 +400,10 @@ export function SettingsPage() {
           <p className="text-[rgb(var(--muted))]">Configure McpMux preferences.</p>
         </div>
 
-      {/* Updates Section — desktop shell only */}
-      {isTauri() ? <UpdateChecker /> : null}
+      {/* Updates / About — desktop shows updater; web-admin shows build info */}
+      {isTauri() ? <UpdateChecker /> : <AboutSection />}
 
-      <ServerUpdatesSection />
+      <ServerUpdatesSection onSuccess={success} onError={error} onInfo={info} />
 
       {/* Startup & System Tray Section - always show toggles so e2e and slow backends see the section */}
       <Card data-testid="settings-startup-section">

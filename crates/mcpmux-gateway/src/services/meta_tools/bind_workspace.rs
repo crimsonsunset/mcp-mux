@@ -75,7 +75,11 @@ impl MetaTool for BindCurrentWorkspaceTool {
 
         // Dedup before consent: repeat binds must not re-prompt the user.
         if let Some(existing) = binding_repo
-            .find_longest_prefix_match(&space_id, Some(&caller_client_id), std::slice::from_ref(&normalized))
+            .find_longest_prefix_match(
+                &space_id,
+                Some(&caller_client_id),
+                std::slice::from_ref(&normalized),
+            )
             .await?
         {
             if existing.feature_set_ids.iter().any(|id| id == &fs_id_str) {

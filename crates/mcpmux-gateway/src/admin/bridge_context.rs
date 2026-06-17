@@ -3,12 +3,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::services::ServerVersionProbeService;
 use mcpmux_core::{
     AppSettingsRepository, ApplicationServices, FeatureSetRepository, GatewayPortService,
     ServerDiscoveryService, ServerFeatureRepository, ServerLogManager, SpaceService,
     WorkspaceAppearanceRepository, WorkspaceBindingRepository,
 };
-use crate::services::ServerVersionProbeService;
 
 use super::runtime::GatewayRuntime;
 use super::write_runtime::GatewayWriteRuntime;

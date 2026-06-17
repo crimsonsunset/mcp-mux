@@ -144,7 +144,11 @@ fn apply_auto_update_policy(command: &str, args: &mut [String]) {
 
 /// Enforce an exact semver pin for Pinned-policy servers.
 fn apply_pinned_update_policy(command: &str, args: &mut [String], installed: &InstalledServer) {
-    let Some(pinned) = installed.pinned_version.as_deref().filter(|v| !v.is_empty()) else {
+    let Some(pinned) = installed
+        .pinned_version
+        .as_deref()
+        .filter(|v| !v.is_empty())
+    else {
         return;
     };
 
@@ -231,7 +235,10 @@ fn run_uv_tool_upgrade(command: &str, args: &[String]) {
         package
     );
 
-    match Command::new("uv").args(["tool", "upgrade", &package]).output() {
+    match Command::new("uv")
+        .args(["tool", "upgrade", &package])
+        .output()
+    {
         Ok(output) if output.status.success() => {
             tracing::debug!(
                 "[TransportResolution] uv tool upgrade succeeded for {}",

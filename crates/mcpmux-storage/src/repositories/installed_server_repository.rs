@@ -202,10 +202,7 @@ impl SqliteInstalledServerRepository {
             update_policy: UpdatePolicy::from_db_str(&row.update_policy),
             pinned_version: row.pinned_version,
             latest_available_version: row.latest_available_version,
-            version_checked_at: row
-                .version_checked_at
-                .as_deref()
-                .map(Self::parse_datetime),
+            version_checked_at: row.version_checked_at.as_deref().map(Self::parse_datetime),
             created_at: Self::parse_datetime(&row.created_at),
             updated_at: Self::parse_datetime(&row.updated_at),
         }
@@ -377,9 +374,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 server.update_policy.as_db_str(),
                 server.pinned_version,
                 server.latest_available_version,
-                server
-                    .version_checked_at
-                    .map(|dt| dt.to_rfc3339()),
+                server.version_checked_at.map(|dt| dt.to_rfc3339()),
             ],
         )?;
         Ok(())

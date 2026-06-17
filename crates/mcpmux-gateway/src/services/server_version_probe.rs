@@ -205,12 +205,14 @@ impl ServerVersionProbeService {
         if update_available {
             let space_uuid = Uuid::parse_str(&server.space_id)
                 .with_context(|| format!("Invalid space_id: {}", server.space_id))?;
-            self.event_bus.sender().emit(DomainEvent::ServerUpdateAvailable {
-                space_id: space_uuid,
-                server_id: server.server_id.clone(),
-                current_version: current_version.clone(),
-                latest_version: latest_version.clone(),
-            });
+            self.event_bus
+                .sender()
+                .emit(DomainEvent::ServerUpdateAvailable {
+                    space_id: space_uuid,
+                    server_id: server.server_id.clone(),
+                    current_version: current_version.clone(),
+                    latest_version: latest_version.clone(),
+                });
         }
 
         Ok(ServerVersionProbeResult {
@@ -244,12 +246,7 @@ struct UvOutdatedEntry {
 /// Resolve the npm/PyPI package name for an installed stdio server.
 fn package_spec(server: &InstalledServer) -> Option<PackageSpec> {
     let definition = server.get_definition()?;
-    let TransportConfig::Stdio {
-        command,
-        args,
-        ..
-    } = definition.transport
-    else {
+    let TransportConfig::Stdio { command, args, .. } = definition.transport else {
         return None;
     };
 
@@ -279,10 +276,15 @@ fn current_version(server: &InstalledServer, spec: &PackageSpec) -> Option<Strin
 
     match spec.transport_kind {
         PackageTransportKind::Npx => find_npx_package_arg(&args).and_then(|package| {
-            split_npm_package_arg(&package).1.map(|version| version.to_string())
+            split_npm_package_arg(&package)
+                .1
+                .map(|version| version.to_string())
         }),
-        PackageTransportKind::Uvx => find_uv_package_arg(&command, &args)
-            .and_then(|package| split_uv_version(&package).1.map(|version| version.to_string())),
+        PackageTransportKind::Uvx => find_uv_package_arg(&command, &args).and_then(|package| {
+            split_uv_version(&package)
+                .1
+                .map(|version| version.to_string())
+        }),
     }
 }
 

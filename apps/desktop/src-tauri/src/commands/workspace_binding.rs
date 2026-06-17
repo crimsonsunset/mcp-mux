@@ -221,8 +221,12 @@ pub async fn create_workspace_binding(
     let feature_set_ids = validate_fs_list(&input)?;
     let normalized = normalize_and_validate(&input.workspace_root)?;
 
-    let mut binding =
-        WorkspaceBinding::new_scoped_multi(normalized.clone(), space_id, input.client_id.clone(), feature_set_ids);
+    let mut binding = WorkspaceBinding::new_scoped_multi(
+        normalized.clone(),
+        space_id,
+        input.client_id.clone(),
+        feature_set_ids,
+    );
     binding.label = normalize_label(&input.label);
     binding.icon = normalize_icon(&input.icon);
 

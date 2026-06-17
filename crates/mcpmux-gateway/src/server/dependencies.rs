@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use crate::services::ClientMetadataService;
 use mcpmux_core::{
-    AppSettingsRepository, CimdMetadataFetcher, CredentialRepository, EventBus, FeatureSetRepository,
-    InboundMcpClientRepository, InstalledServerRepository, OutboundOAuthRepository,
-    ServerDiscoveryService, ServerFeatureRepository, ServerLogManager, SpaceRepository,
-    WorkspaceBindingRepository,
+    AppSettingsRepository, CimdMetadataFetcher, CredentialRepository, EventBus,
+    FeatureSetRepository, InboundMcpClientRepository, InstalledServerRepository,
+    OutboundOAuthRepository, ServerDiscoveryService, ServerFeatureRepository, ServerLogManager,
+    SpaceRepository, WorkspaceBindingRepository,
 };
 use mcpmux_storage::{Database, InboundClientRepository};
 use tokio::sync::Mutex;

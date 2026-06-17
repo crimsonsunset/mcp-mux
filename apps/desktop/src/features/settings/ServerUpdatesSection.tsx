@@ -47,10 +47,23 @@ function formatCheckedAt(value: string | null | undefined): string | null {
   return parsed.toLocaleString();
 }
 
+interface ServerUpdatesSectionProps {
+  /** Show a success toast (title, optional message). */
+  onSuccess?: (title: string, message?: string) => void;
+  /** Show an error toast (title, optional message). */
+  onError?: (title: string, message?: string) => void;
+  /** Show an info toast (title, optional message). */
+  onInfo?: (title: string, message?: string) => void;
+}
+
 /**
  * Settings section for the app-wide default server update policy.
  */
-export function ServerUpdatesSection() {
+export function ServerUpdatesSection({
+  onSuccess,
+  onError,
+  onInfo,
+}: ServerUpdatesSectionProps) {
   const [settings, setSettings] = useState<ServerUpdateSettings>({
     defaultUpdatePolicy: 'notify',
   });
@@ -101,8 +114,26 @@ export function ServerUpdatesSection() {
         ...current,
         lastCheckedAt: result.checkedAt,
       }));
+
+      if (result.checked === 0) {
+        onInfo?.(
+          'No eligible servers',
+          'Only notify or auto npx/uvx servers are checked for updates'
+        );
+      } else if (result.updatesAvailable > 0) {
+        onInfo?.(
+          `${result.updatesAvailable} update${result.updatesAvailable === 1 ? '' : 's'} available`,
+          `Checked ${result.checked} server${result.checked === 1 ? '' : 's'} — see badges on My Servers`
+        );
+      } else {
+        onSuccess?.(
+          'All packages up to date',
+          `Checked ${result.checked} server${result.checked === 1 ? '' : 's'}`
+        );
+      }
     } catch (err) {
       console.error('[Settings] Failed to check all server updates:', err);
+      onError?.('Failed to check for updates', String(err));
     } finally {
       setCheckingAll(false);
     }

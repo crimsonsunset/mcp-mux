@@ -10,13 +10,18 @@
 //! bypassing OAuth via a test middleware that injects client/space headers.
 
 use axum::{body::Body, http::Request, middleware, middleware::Next, response::Response, Router};
-use mcpmux_core::{create_shared_event_bus, DomainEvent, ServerDiscoveryService, ServerFeatureRepository, ServerLogManager};
+use mcpmux_core::{
+    create_shared_event_bus, DomainEvent, ServerDiscoveryService, ServerFeatureRepository,
+    ServerLogManager,
+};
 use mcpmux_gateway::{
     consumers::MCPNotifier,
     mcp::McpMuxGatewayHandler,
     server::{DependenciesBuilder, GatewayState, ServiceContainer},
 };
-use mcpmux_storage::{InboundClient, InboundClientRepository, RegistrationType, SqliteAppSettingsRepository};
+use mcpmux_storage::{
+    InboundClient, InboundClientRepository, RegistrationType, SqliteAppSettingsRepository,
+};
 use rmcp::{
     model::*,
     service::NotificationContext,

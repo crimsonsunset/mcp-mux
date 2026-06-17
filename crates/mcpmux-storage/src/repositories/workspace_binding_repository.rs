@@ -306,10 +306,8 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
             return Ok(None);
         }
 
-        let candidate_strings: Vec<&str> = filtered
-            .iter()
-            .map(|b| b.workspace_root.as_str())
-            .collect();
+        let candidate_strings: Vec<&str> =
+            filtered.iter().map(|b| b.workspace_root.as_str()).collect();
 
         let mut best: Option<&WorkspaceBinding> = None;
         for root in candidate_roots {

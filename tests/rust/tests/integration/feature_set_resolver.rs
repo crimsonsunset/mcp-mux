@@ -300,7 +300,11 @@ async fn scoped_binding_takes_priority_over_global() {
     f.make_client(client_b).await;
 
     f.binding_repo
-        .create(&WorkspaceBinding::new(root.clone(), f.space_id, f.fs_a_id.clone()))
+        .create(&WorkspaceBinding::new(
+            root.clone(),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
         .await
         .unwrap();
     f.binding_repo
