@@ -51,11 +51,12 @@ pub(crate) fn feature_matches_tool_name(
 
 /// Resolve backend tool arguments from `mcpmux_invoke_tool` call args.
 ///
-/// Prefers `args`, then `params`, then `arguments` (common agent/UI aliases).
+/// Prefers `args`, then `params`, then `arguments`, then `tool_arguments` (common agent/UI aliases).
 pub fn resolve_invoke_tool_args(args: &Value) -> Value {
     args.get("args")
         .or_else(|| args.get("params"))
         .or_else(|| args.get("arguments"))
+        .or_else(|| args.get("tool_arguments"))
         .cloned()
         .unwrap_or_else(|| json!({}))
 }
