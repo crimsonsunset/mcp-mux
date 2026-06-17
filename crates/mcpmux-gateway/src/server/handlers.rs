@@ -42,14 +42,18 @@ impl axum::extract::FromRef<AppState> for Arc<RwLock<GatewayState>> {
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
+    pub servers_connected: usize,
 }
 
-/// Health check endpoint
-pub async fn health() -> Json<HealthResponse> {
+/// Health check endpoint — includes live pool readiness so scripts and clients
+/// can distinguish "HTTP is up" from "backends are connected".
+pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     debug!("[Gateway] Health check");
+    let servers_connected = state.services.server_manager.connected_count().await;
     Json(HealthResponse {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        servers_connected,
     })
 }
 

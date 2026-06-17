@@ -156,6 +156,7 @@ async fn two_clones_have_distinct_prefixes_and_env() {
             None,
             None,
             None,
+            None, // default_params_strategy
             None,
             None,
             None,
@@ -175,6 +176,7 @@ async fn two_clones_have_distinct_prefixes_and_env() {
             None,
             None,
             None,
+            None, // default_params_strategy
             None,
             None,
             None,

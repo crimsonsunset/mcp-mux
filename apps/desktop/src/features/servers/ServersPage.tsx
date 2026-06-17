@@ -228,6 +228,8 @@ interface ConfigModalState {
   extraHeaders: Record<string, string>;
   /** Default tool-call arguments (JSON textarea). */
   defaultParamsJson: string;
+  /** Merge strategy for default_params. */
+  defaultParamsStrategy: 'fill' | 'override';
   /** User-supplied display label (empty string = clear override). */
   displayName: string;
   /** Display name when the modal opened — used to detect changes on save. */
@@ -264,6 +266,7 @@ export function ServersPage() {
     argsAppend: [],
     extraHeaders: {},
     defaultParamsJson: '{}',
+    defaultParamsStrategy: 'fill',
     displayName: '',
     initialDisplayName: '',
     updatePolicy: 'notify',
@@ -750,6 +753,7 @@ export function ServersPage() {
         argsAppend: [...(server.args_append ?? [])],
         extraHeaders: { ...(server.extra_headers ?? {}) },
         defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
+        defaultParamsStrategy: server.default_params_strategy ?? 'fill',
         displayName: initialDisplayName,
         initialDisplayName,
         updatePolicy: server.update_policy ?? 'notify',
@@ -830,6 +834,7 @@ export function ServersPage() {
       argsAppend: [...(server.args_append ?? [])],
       extraHeaders: { ...(server.extra_headers ?? {}) },
       defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
+      defaultParamsStrategy: server.default_params_strategy ?? 'fill',
       displayName: initialDisplayName,
       initialDisplayName,
       updatePolicy: initialUpdatePolicy,
@@ -955,6 +960,7 @@ export function ServersPage() {
         configModal.argsAppend,
         configModal.extraHeaders,
         defaultParams,
+        configModal.defaultParamsStrategy,
         displayNameOverride,
         updatePolicy,
         pinnedVersion,
@@ -968,6 +974,7 @@ export function ServersPage() {
         argsAppend: [],
         extraHeaders: {},
         defaultParamsJson: '{}',
+        defaultParamsStrategy: 'fill',
         displayName: '',
         initialDisplayName: '',
         updatePolicy: 'notify',
@@ -1020,6 +1027,7 @@ export function ServersPage() {
       argsAppend: [],
       extraHeaders: {},
       defaultParamsJson: '{}',
+      defaultParamsStrategy: 'fill',
       displayName: '',
       initialDisplayName: '',
       updatePolicy: 'notify',
@@ -2438,8 +2446,8 @@ export function ServersPage() {
                   Default Tool Parameters
                 </label>
                 <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                  JSON object merged into every tool call for this server. Caller-supplied args win
-                  on collision. Example: <code className="font-mono">{`{"cloudId": "abc123"}`}</code>
+                  JSON object merged into every tool call for this server. Example:{' '}
+                  <code className="font-mono">{`{"cloudId": "abc123"}`}</code>
                 </p>
                 <textarea
                   value={configModal.defaultParamsJson}
@@ -2452,6 +2460,23 @@ export function ServersPage() {
                   data-testid="config-default-params"
                   spellCheck={false}
                 />
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-xs text-[rgb(var(--muted))]">On collision:</label>
+                  <select
+                    value={configModal.defaultParamsStrategy}
+                    onChange={(e) =>
+                      setConfigModal({
+                        ...configModal,
+                        defaultParamsStrategy: e.target.value as 'fill' | 'override',
+                      })
+                    }
+                    className="text-xs border border-[rgb(var(--border))] rounded px-2 py-1 bg-[rgb(var(--surface))] text-[rgb(var(--foreground))]"
+                    data-testid="config-default-params-strategy"
+                  >
+                    <option value="fill">Caller wins</option>
+                    <option value="override">Defaults win</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

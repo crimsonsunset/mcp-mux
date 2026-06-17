@@ -42,6 +42,35 @@ impl UpdatePolicy {
     }
 }
 
+/// Merge strategy when `default_params` and caller-supplied args share a key.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultParamsStrategy {
+    /// Default — caller-supplied args win on collision.
+    #[default]
+    Fill,
+    /// Pre-configured defaults win on collision; caller args only fill missing keys.
+    Override,
+}
+
+impl DefaultParamsStrategy {
+    /// Parse a database-stored strategy string (`fill` / `override`).
+    pub fn from_db_str(value: &str) -> Self {
+        match value {
+            "override" => Self::Override,
+            _ => Self::Fill,
+        }
+    }
+
+    /// Serialize to the `installed_servers.default_params_strategy` column value.
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Fill => "fill",
+            Self::Override => "override",
+        }
+    }
+}
+
 /// Tracks how a server was installed (for sync/cleanup decisions)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -110,10 +139,17 @@ pub struct InstalledServer {
 
     /// Default tool-call arguments merged into every call routed to this server.
     ///
-    /// Shallow merge at invoke time: `{ ...default_params, ...caller_args }` — caller wins on
-    /// key collision. Non-secret values only (e.g. cloudId, projectKey).
+    /// Non-secret values only (e.g. cloudId, projectKey).
+    /// Merge behaviour is controlled by `default_params_strategy`.
     #[serde(default)]
     pub default_params: HashMap<String, Value>,
+
+    /// How `default_params` are merged with caller-supplied args.
+    ///
+    /// `fill` (default) — caller wins on collision.
+    /// `override` — defaults win; caller args only fill missing keys.
+    #[serde(default)]
+    pub default_params_strategy: DefaultParamsStrategy,
 
     /// Whether OAuth authentication has been completed
     pub oauth_connected: bool,
@@ -175,6 +211,7 @@ impl InstalledServer {
             args_append: Vec::new(),
             extra_headers: HashMap::new(),
             default_params: HashMap::new(),
+            default_params_strategy: DefaultParamsStrategy::default(),
             oauth_connected: false,
             source: InstallationSource::default(),
             cloned_from: None,

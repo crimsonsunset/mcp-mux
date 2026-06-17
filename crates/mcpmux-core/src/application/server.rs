@@ -10,7 +10,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::domain::{
-    DomainEvent, InstallationSource, InstalledServer, ServerDefinition, UpdatePolicy,
+    DefaultParamsStrategy, DomainEvent, InstallationSource, InstalledServer, ServerDefinition,
+    UpdatePolicy,
     UserServerEntry,
 };
 use crate::event_bus::EventSender;
@@ -384,6 +385,7 @@ impl ServerAppService {
         args_append: Option<Vec<String>>,
         extra_headers: Option<HashMap<String, String>>,
         default_params: Option<HashMap<String, Value>>,
+        default_params_strategy: Option<DefaultParamsStrategy>,
         display_name_override: Option<String>,
         update_policy: Option<UpdatePolicy>,
         pinned_version: Option<String>,
@@ -408,6 +410,9 @@ impl ServerAppService {
         }
         if let Some(params) = default_params {
             server.default_params = params;
+        }
+        if let Some(strategy) = default_params_strategy {
+            server.default_params_strategy = strategy;
         }
         if let Some(value) = display_name_override {
             server.display_name_override = Some(value)
@@ -1038,6 +1043,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None, // default_params_strategy
                 Some("My Calendar".into()),
                 None,
                 None,
@@ -1060,6 +1066,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None, // default_params_strategy
                 None,
                 None,
                 None,
@@ -1081,6 +1088,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None, // default_params_strategy
                 Some("   ".into()),
                 None,
                 None,

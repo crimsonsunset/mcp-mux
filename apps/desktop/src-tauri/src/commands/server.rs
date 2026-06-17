@@ -2,7 +2,7 @@
 
 use crate::AppState;
 use mcpmux_core::application::ServerAppService;
-use mcpmux_core::domain::{InstalledServer, UpdatePolicy};
+use mcpmux_core::domain::{DefaultParamsStrategy, InstalledServer, UpdatePolicy};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
@@ -153,6 +153,7 @@ pub async fn save_server_inputs(
     args_append: Option<Vec<String>>,
     extra_headers: Option<HashMap<String, String>>,
     default_params: Option<HashMap<String, serde_json::Value>>,
+    default_params_strategy: Option<String>,
     display_name_override: Option<String>,
     update_policy: Option<String>,
     pinned_version: Option<String>,
@@ -173,6 +174,8 @@ pub async fn save_server_inputs(
             args_append,
             extra_headers,
             default_params,
+            default_params_strategy
+                .map(|s| DefaultParamsStrategy::from_db_str(&s)),
             display_name_override,
             update_policy.map(|policy| UpdatePolicy::from_db_str(&policy)),
             pinned_version,

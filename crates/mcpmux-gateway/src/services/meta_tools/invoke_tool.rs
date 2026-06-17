@@ -20,7 +20,7 @@ use super::meta_tool_common::{
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use crate::pool::{format_invoke_permission_denied, ConnectionStatus};
 use crate::services::levenshtein_suggestions;
-use mcpmux_core::FeatureType;
+use mcpmux_core::{DefaultParamsStrategy, FeatureType};
 
 /// Meta tool that forwards invocations to [`RoutingService::call_tool`].
 pub struct InvokeToolTool;
@@ -244,7 +244,11 @@ impl MetaTool for InvokeToolTool {
         }
 
         let effective_args = match installed {
-            Some(server) => merge_default_params(args, &server.default_params),
+            Some(server) => merge_default_params(
+                args,
+                &server.default_params,
+                server.default_params_strategy,
+            ),
             None => args,
         };
 
@@ -296,11 +300,17 @@ impl MetaTool for InvokeToolTool {
     }
 }
 
-/// Merge per-server default params under caller-supplied args.
+/// Merge per-server default params with caller-supplied args.
 ///
-/// Produces `{ ...defaults, ...caller_args }` — caller wins on key collision.
+/// `Fill` (default): `{ ...defaults, ...caller_args }` — caller wins on collision.
+/// `Override`:       `{ ...caller_args, ...defaults }` — defaults win on collision.
+///
 /// Returns `args` unchanged when `defaults` is empty or `args` is not an Object.
-fn merge_default_params(args: Value, defaults: &HashMap<String, Value>) -> Value {
+fn merge_default_params(
+    args: Value,
+    defaults: &HashMap<String, Value>,
+    strategy: DefaultParamsStrategy,
+) -> Value {
     if defaults.is_empty() {
         return args;
     }
@@ -308,11 +318,26 @@ fn merge_default_params(args: Value, defaults: &HashMap<String, Value>) -> Value
         debug!("merge_default_params: args is not an Object; server defaults not applied");
         return args;
     };
-    let mut merged: Map<String, Value> = defaults
+    let defaults_map: Map<String, Value> = defaults
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    merged.extend(caller_map);
+    let mut merged = match strategy {
+        DefaultParamsStrategy::Fill => {
+            // defaults as base, caller overwrites
+            let mut m = defaults_map;
+            m.extend(caller_map);
+            m
+        }
+        DefaultParamsStrategy::Override => {
+            // caller as base, defaults overwrite
+            let mut m: Map<String, Value> = caller_map;
+            m.extend(defaults_map);
+            m
+        }
+    };
+    // keep deterministic key order for tests
+    merged.sort_keys();
     Value::Object(merged)
 }
 

@@ -92,6 +92,7 @@ export async function saveServerInputs(
   argsAppend?: string[],
   extraHeaders?: Record<string, string>,
   defaultParams?: Record<string, unknown>,
+  defaultParamsStrategy?: 'fill' | 'override',
   displayNameOverride?: string,
   updatePolicy?: string,
   pinnedVersion?: string
@@ -104,6 +105,7 @@ export async function saveServerInputs(
     argsAppend,
     extraHeaders,
     defaultParams,
+    defaultParamsStrategy,
     displayNameOverride,
     updatePolicy,
     pinnedVersion,

@@ -8,8 +8,8 @@ use chrono::Utc;
 use image::GenericImageView;
 use mcpmux_core::{
     validate_workspace_root as validate_workspace_root_path, AppSettingsService, Client,
-    FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerSource, UpdatePolicy,
-    WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
+    DefaultParamsStrategy, FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerSource,
+    UpdatePolicy, WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -36,6 +36,11 @@ async fn default_update_policy(ctx: &AdminBridgeCtx) -> UpdatePolicy {
 /// Parse an optional update policy string from an API request body.
 fn parse_update_policy(value: Option<String>) -> Option<UpdatePolicy> {
     value.map(|policy| UpdatePolicy::from_db_str(&policy))
+}
+
+/// Parse an optional default params strategy string from an API request body.
+fn parse_default_params_strategy(value: Option<String>) -> Option<DefaultParamsStrategy> {
+    value.map(|s| DefaultParamsStrategy::from_db_str(&s))
 }
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
 const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024;
@@ -135,6 +140,7 @@ pub struct SaveServerInputsBody {
     pub args_append: Option<Vec<String>>,
     pub extra_headers: Option<HashMap<String, String>>,
     pub default_params: Option<HashMap<String, Value>>,
+    pub default_params_strategy: Option<String>,
     pub display_name_override: Option<String>,
     pub update_policy: Option<String>,
     pub pinned_version: Option<String>,
@@ -859,6 +865,7 @@ pub async fn save_server_inputs(
             body.args_append,
             body.extra_headers,
             body.default_params,
+            parse_default_params_strategy(body.default_params_strategy),
             body.display_name_override,
             parse_update_policy(body.update_policy),
             body.pinned_version,

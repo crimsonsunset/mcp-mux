@@ -7,7 +7,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use mcpmux_core::{InstallationSource, InstalledServer, InstalledServerRepository, UpdatePolicy};
+use mcpmux_core::{
+    DefaultParamsStrategy, InstallationSource, InstalledServer, InstalledServerRepository,
+    UpdatePolicy,
+};
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -38,6 +41,7 @@ struct RawServerRow {
     pinned_version: Option<String>,
     latest_available_version: Option<String>,
     version_checked_at: Option<String>,
+    default_params_strategy: Option<String>,
 }
 
 /// SQLite-backed implementation of InstalledServerRepository.
@@ -152,7 +156,7 @@ impl SqliteInstalledServerRepository {
         "id, space_id, server_id, server_name, cached_definition, input_values, enabled, env_overrides,
          args_append, extra_headers, oauth_connected, created_at, updated_at, source, cloned_from,
          display_name_override, default_params, update_policy, pinned_version,
-         latest_available_version, version_checked_at";
+         latest_available_version, version_checked_at, default_params_strategy";
 
     /// Extract raw row data (used in the closure passed to rusqlite).
     fn extract_row(row: &rusqlite::Row) -> rusqlite::Result<RawServerRow> {
@@ -178,6 +182,7 @@ impl SqliteInstalledServerRepository {
             pinned_version: row.get(18)?,
             latest_available_version: row.get(19)?,
             version_checked_at: row.get(20)?,
+            default_params_strategy: row.get(21)?,
         })
     }
 
@@ -195,6 +200,11 @@ impl SqliteInstalledServerRepository {
             args_append: Self::parse_json_vec(row.args_append),
             extra_headers: Self::parse_json_map(row.extra_headers),
             default_params: Self::parse_json_value_map(row.default_params),
+            default_params_strategy: row
+                .default_params_strategy
+                .as_deref()
+                .map(DefaultParamsStrategy::from_db_str)
+                .unwrap_or_default(),
             oauth_connected: row.oauth_connected,
             source: Self::parse_source(row.source),
             cloned_from: row.cloned_from,
@@ -312,8 +322,8 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
              (id, space_id, server_id, server_name, cached_definition, input_values, enabled, env_overrides,
               args_append, extra_headers, oauth_connected, created_at, updated_at, source, cloned_from,
               display_name_override, default_params, update_policy, pinned_version,
-              latest_available_version, version_checked_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+              latest_available_version, version_checked_at, default_params_strategy)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 server.id.to_string(),
                 server.space_id,
@@ -335,9 +345,8 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 server.update_policy.as_db_str(),
                 server.pinned_version,
                 server.latest_available_version,
-                server
-                    .version_checked_at
-                    .map(|dt| dt.to_rfc3339()),
+                server.version_checked_at.map(|dt| dt.to_rfc3339()),
+                server.default_params_strategy.as_db_str(),
             ],
         )?;
         Ok(())
@@ -355,7 +364,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                  env_overrides = ?6, args_append = ?7, extra_headers = ?8, oauth_connected = ?9,
                  updated_at = ?10, source = ?11, display_name_override = ?12, default_params = ?13,
                  update_policy = ?14, pinned_version = ?15, latest_available_version = ?16,
-                 version_checked_at = ?17
+                 version_checked_at = ?17, default_params_strategy = ?18
              WHERE id = ?1",
             params![
                 server.id.to_string(),
@@ -375,6 +384,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 server.pinned_version,
                 server.latest_available_version,
                 server.version_checked_at.map(|dt| dt.to_rfc3339()),
+                server.default_params_strategy.as_db_str(),
             ],
         )?;
         Ok(())

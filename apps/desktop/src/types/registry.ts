@@ -103,6 +103,8 @@ export interface InstalledServerState {
   extra_headers: Record<string, string>;
   /** Default tool-call arguments merged into every call routed to this server. */
   default_params?: Record<string, unknown>;
+  /** Merge strategy for default_params: 'fill' (caller wins) or 'override' (defaults win). */
+  default_params_strategy?: 'fill' | 'override';
   oauth_connected: boolean;
   source: InstallationSource; // How this server was installed
   /** User-supplied display label that survives user-config sync. */
@@ -139,6 +141,8 @@ export interface ServerViewModel extends ServerDefinition {
   extra_headers?: Record<string, string>;
   /** Default tool-call arguments merged into every call routed to this server. */
   default_params?: Record<string, unknown>;
+  /** Merge strategy for default_params: 'fill' (caller wins) or 'override' (defaults win). */
+  default_params_strategy?: 'fill' | 'override';
   /** Package update policy (npx/uvx servers). */
   update_policy?: UpdatePolicy;
   /** Pinned version when policy is `pinned`. */
