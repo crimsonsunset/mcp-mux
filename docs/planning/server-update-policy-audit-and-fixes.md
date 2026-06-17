@@ -149,6 +149,17 @@ buildPendingServerUpdates(installed, definitions):
 
 ---
 
+## Manual smoke checklist
+
+Baseline repros captured before remediation (Phase 2–5). Re-run after fixes land and record pass/fail in Phase 5.
+
+| # | Finding | One-line repro (before fix) | Expected after fix |
+| - | ------- | --------------------------- | ------------------ |
+| 1 | Notify badge blind for bare `npx -y pkg` | Install a notify-policy server with `npx -y <pkg>` (no `@version`), ensure npm has a newer release than the cached tarball, click **Check for Update** → no amber badge; menu reports **up to date**. | Badge + pending-list row appear; menu shows real current vs latest delta. |
+| 2 | uvx probe hits npm registry | Install a notify-policy uvx server (e.g. `uvx ruff`), click **Check for Update** → `latest_available_version` matches an npm package of the same name, not the PyPI release. | Latest version comes from PyPI JSON; delta reflects the installed uv tool version. |
+
+---
+
 ### Phase 2 — npx notify correctness + cache-bust (~1 day) — **P0**
 
 - Add `npm_supports_cache_npx()` capability check (parse `npm --version`).

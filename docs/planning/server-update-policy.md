@@ -1,8 +1,8 @@
 # Server Update Policy — Per-Server Package Update Control
 
 **Last Updated:** Jun 17, 2026
-**Status:** Planning — not started
-**Branch:** `feat/server-update-policy` (not yet cut)
+**Status:** Shipped in PR #4 — audit findings and remediation tracked in [`server-update-policy-audit-and-fixes.md`](./server-update-policy-audit-and-fixes.md)
+**Branch:** `feat/meta-surface-lean-core` (merged in PR #4)
 **Base branch:** `dev`
 **Depends on:** Nothing — additive; sits alongside `env_overrides` / `args_append` / `default_params` config lanes
 **Unblocks:** Servers drifting silently on stale npm/PyPI packages; no current way to force or block a package update
