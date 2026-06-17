@@ -216,6 +216,7 @@ sse_domain_test!(
         session_id: "sess-1".to_string(),
         space_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
         workspace_root: "/proj/unbound".to_string(),
+        collision_client_id: None,
     }
 );
 

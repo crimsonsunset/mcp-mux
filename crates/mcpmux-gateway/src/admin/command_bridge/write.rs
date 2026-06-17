@@ -79,6 +79,7 @@ pub struct WorkspaceBindingBody {
     pub icon: Option<String>,
     pub space_id: String,
     pub feature_set_ids: Vec<String>,
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -526,7 +527,12 @@ pub async fn create_workspace_binding(
     let feature_set_ids = validate_feature_set_ids(&body.feature_set_ids)?;
     let normalized = normalize_workspace_root(&body.workspace_root)?;
 
-    let mut binding = WorkspaceBinding::new_multi(normalized.clone(), space_id, feature_set_ids);
+    let mut binding = WorkspaceBinding::new_scoped_multi(
+        normalized.clone(),
+        space_id,
+        body.client_id.clone(),
+        feature_set_ids,
+    );
     binding.label = normalize_label(&body.label);
     binding.icon = normalize_icon(&body.icon);
 
@@ -576,6 +582,7 @@ pub async fn update_workspace_binding(
     let updated = WorkspaceBinding {
         id: existing.id,
         workspace_root: normalized,
+        client_id: body.client_id.or(existing.client_id),
         label,
         icon: icon.clone(),
         space_id,

@@ -537,6 +537,12 @@ function entryDisplayTitle(entry: Entry): string {
   return entry.root;
 }
 
+/** Compact OAuth client id for card badges. */
+function shortClientId(clientId: string): string {
+  if (clientId.length <= 14) return clientId;
+  return `${clientId.slice(0, 8)}…`;
+}
+
 function sameBindingInput(
   a: WorkspaceBindingInput,
   b: {
@@ -664,6 +670,11 @@ function EntryCard({
               {entry.kind === 'unmapped-live' && <Pill tone="amber">Unmapped</Pill>}
               {entry.kind === 'mapped-offline' && <Pill tone="neutral">Offline</Pill>}
               {entry.kind === 'mapped-live' && <Pill tone="emerald">Live</Pill>}
+              {entry.binding?.client_id && (
+                <Pill tone="neutral" title={entry.binding.client_id}>
+                  {shortClientId(entry.binding.client_id)}
+                </Pill>
+              )}
             </div>
             <p
               className={`text-sm text-[rgb(var(--foreground))] truncate ${
@@ -705,9 +716,11 @@ function EntryCard({
 function Pill({
   children,
   tone,
+  title,
 }: {
   children: React.ReactNode;
   tone: 'amber' | 'emerald' | 'neutral';
+  title?: string;
 }) {
   const cls =
     tone === 'amber'
@@ -718,6 +731,7 @@ function Pill({
   return (
     <span
       className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[10px] font-semibold uppercase tracking-wider ${cls}`}
+      title={title}
     >
       {children}
     </span>

@@ -269,15 +269,24 @@ pub trait WorkspaceBindingRepository: Send + Sync {
     /// Resolve which binding applies for a set of candidate workspace roots.
     ///
     /// Every candidate MUST already be normalized. Returns the binding whose
-    /// `workspace_root` is the longest prefix of any candidate, scoped to the
-    /// given Space (so bindings in unrelated spaces don't leak across). The
-    /// caller is responsible for then following the binding's space_mode and
-    /// fs_mode to compute the effective Space + FeatureSet.
+    /// `workspace_root` is the longest prefix of any candidate. When
+    /// `client_id` is `Some`, only bindings scoped to that client are
+    /// considered; when `None`, only global bindings (`client_id IS NULL`)
+    /// are considered.
     async fn find_longest_prefix_match(
         &self,
         space_id: &Uuid,
+        client_id: Option<&str>,
         candidate_roots: &[String],
     ) -> RepoResult<Option<WorkspaceBinding>>;
+
+    /// Returns the OAuth `client_id` of a scoped binding on `workspace_root`
+    /// when one exists, optionally excluding `excluding_client_id`.
+    async fn scoped_binding_client_for_path(
+        &self,
+        workspace_root: &str,
+        excluding_client_id: Option<&str>,
+    ) -> RepoResult<Option<String>>;
 }
 
 /// Workspace appearance repository trait

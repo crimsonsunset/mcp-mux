@@ -68,13 +68,12 @@ impl MetaTool for BindCurrentWorkspaceTool {
 
         let binding_repo = call.ctx.binding_repo.clone();
         let fs_id_str = fs_id.to_string();
+        let caller_client_id = call.client_id.to_string();
 
         // Dedup before consent: repeat binds must not re-prompt the user.
         if let Some(existing) = binding_repo
-            .list()
+            .find_longest_prefix_match(&space_id, Some(&caller_client_id), std::slice::from_ref(&normalized))
             .await?
-            .into_iter()
-            .find(|b| b.workspace_root == normalized)
         {
             if existing.feature_set_ids.iter().any(|id| id == &fs_id_str) {
                 return Ok(text_result(json!({
@@ -90,8 +89,7 @@ impl MetaTool for BindCurrentWorkspaceTool {
 
         let summary = format!(
             "Append FeatureSet '{fs_name}' to workspace '{normalized}' binding \
-             (existing bundles preserved). Affects every future connection that \
-             reports this path."
+             for client '{caller_client_id}' (existing bundles preserved)."
         );
 
         let event_tx = call.ctx.domain_event_tx.clone();
@@ -105,10 +103,12 @@ impl MetaTool for BindCurrentWorkspaceTool {
             || async move {
                 let fs_id_str = fs_id.to_string();
                 let existing = binding_repo
-                    .list()
-                    .await?
-                    .into_iter()
-                    .find(|b| b.workspace_root == normalized);
+                    .find_longest_prefix_match(
+                        &space_id,
+                        Some(&caller_client_id),
+                        std::slice::from_ref(&normalized),
+                    )
+                    .await?;
 
                 let (binding_id, feature_set_ids, already_bound) = if let Some(mut binding) =
                     existing
@@ -123,26 +123,32 @@ impl MetaTool for BindCurrentWorkspaceTool {
                     }
                     info!(
                         %space_id,
+                        client_id = %caller_client_id,
                         binding_id = %binding.id,
                         workspace_root = %normalized,
                         feature_set_id = %fs_id,
                         already_bound,
                         feature_set_count = binding.feature_set_ids.len(),
-                        "[meta_tools] bind_current_workspace updated existing binding",
+                        "[meta_tools] bind_current_workspace updated existing scoped binding",
                     );
                     (binding.id, binding.feature_set_ids.clone(), already_bound)
                 } else {
-                    let binding =
-                        WorkspaceBinding::new(normalized.clone(), space_id, fs_id_str.clone());
+                    let binding = WorkspaceBinding::new_scoped_multi(
+                        normalized.clone(),
+                        space_id,
+                        Some(caller_client_id.clone()),
+                        vec![fs_id_str.clone()],
+                    );
                     let binding_id = binding.id;
                     let feature_set_ids = binding.feature_set_ids.clone();
                     binding_repo.create(&binding).await?;
                     info!(
                         %space_id,
+                        client_id = %caller_client_id,
                         binding_id = %binding_id,
                         workspace_root = %normalized,
                         feature_set_id = %fs_id,
-                        "[meta_tools] bind_current_workspace created binding",
+                        "[meta_tools] bind_current_workspace created scoped binding",
                     );
                     (binding_id, feature_set_ids, false)
                 };

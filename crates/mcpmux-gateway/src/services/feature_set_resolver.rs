@@ -6,8 +6,14 @@
 //! ```text
 //! resolve(session_id, client_id):
 //!     // Tier 1 — roots-capable session with reported roots
-//!     if session reported roots AND a binding matches:
-//!         return (binding.space_id, [binding.feature_set_id], WorkspaceBinding)
+//!     if session reported roots AND a scoped binding matches (client_id):
+//!         return (binding.space_id, binding.feature_set_ids, WorkspaceBinding)
+//!
+//!     // Tier 1a — roots-capable, scoped miss, global binding matches:
+//!     if session reported roots AND global binding matches:
+//!         if another client has a scoped binding on the same path:
+//!             return ([], space, Deny)  // collision — emit WorkspaceNeedsBinding
+//!         return (binding.space_id, binding.feature_set_ids, WorkspaceBinding)
 //!
 //!     // Tier 1b — roots-capable, roots reported, but no binding yet
 //!     if session reported roots AND no binding matched:
@@ -74,6 +80,9 @@ pub struct ResolvedFeatureSet {
     /// Resolved Space id. Used by the routing layer when filtering features.
     pub space_id: Option<Uuid>,
     pub source: ResolutionSource,
+    /// When `source == Deny` because a global binding was blocked by another
+    /// client's scoped binding on the same path, holds that client's id.
+    pub collision_client_id: Option<String>,
 }
 
 impl ResolvedFeatureSet {
@@ -144,6 +153,7 @@ impl FeatureSetResolverService {
                     feature_set_ids: vec![],
                     space_id: None,
                     source: ResolutionSource::Deny,
+                    collision_client_id: None,
                 });
             }
         };
@@ -154,11 +164,35 @@ impl FeatureSetResolverService {
             let has_roots = roots.as_ref().is_some_and(|r| !r.is_empty());
             let roots_capable = self.session_roots.is_roots_capable(sid).unwrap_or(false);
 
-            // Tier 1: session reported roots — try a binding match.
+            // Tier 1: session reported roots — try scoped then global binding.
             if has_roots {
+                let roots_list = roots.unwrap();
+
+                if let Some(cid) = client_id {
+                    if let Some(binding) = self
+                        .binding_repo
+                        .find_longest_prefix_match(&default_space_id, Some(cid), &roots_list)
+                        .await?
+                    {
+                        debug!(
+                            workspace_root = %binding.workspace_root,
+                            client_id = %cid,
+                            space_id = %binding.space_id,
+                            feature_sets = ?binding.feature_set_ids,
+                            "[FeatureSetResolver] resolved via scoped WorkspaceBinding",
+                        );
+                        return Ok(ResolvedFeatureSet {
+                            feature_set_ids: binding.feature_set_ids,
+                            space_id: Some(binding.space_id),
+                            source: ResolutionSource::WorkspaceBinding,
+                            collision_client_id: None,
+                        });
+                    }
+                }
+
                 if let Some(binding) = self
                     .binding_repo
-                    .find_longest_prefix_match(&default_space_id, &roots.unwrap())
+                    .find_longest_prefix_match(&default_space_id, None, &roots_list)
                     .await?
                 {
                     debug!(
@@ -171,8 +205,10 @@ impl FeatureSetResolverService {
                         feature_set_ids: binding.feature_set_ids,
                         space_id: Some(binding.space_id),
                         source: ResolutionSource::WorkspaceBinding,
+                        collision_client_id: None,
                     });
                 }
+
                 // Tier 1b: had roots, no binding — deny + upstream emits
                 // WorkspaceNeedsBinding so the user can choose an FS.
                 debug!("[FeatureSetResolver] roots reported but no binding matched — deny",);
@@ -180,6 +216,7 @@ impl FeatureSetResolverService {
                     feature_set_ids: vec![],
                     space_id: Some(default_space_id),
                     source: ResolutionSource::Deny,
+                    collision_client_id: None,
                 });
             }
 
@@ -196,6 +233,7 @@ impl FeatureSetResolverService {
                     feature_set_ids: vec![],
                     space_id: Some(default_space_id),
                     source: ResolutionSource::PendingRoots,
+                    collision_client_id: None,
                 });
             }
         }
@@ -221,6 +259,7 @@ impl FeatureSetResolverService {
                     feature_set_ids: grants,
                     space_id: Some(default_space_id),
                     source: ResolutionSource::ClientGrant,
+                    collision_client_id: None,
                 });
             }
         }
@@ -239,6 +278,7 @@ impl FeatureSetResolverService {
             feature_set_ids: vec![],
             space_id: Some(default_space_id),
             source: ResolutionSource::Deny,
+            collision_client_id: None,
         })
     }
 }

@@ -33,6 +33,7 @@ interface WorkspaceNeedsBindingPayload {
   session_id: string;
   space_id: string;
   workspace_root: string;
+  collision_client_id?: string | null;
 }
 
 /**
@@ -143,9 +144,8 @@ export function WorkspaceBindingSheet() {
       await createWorkspaceBinding({
         workspace_root: payload.workspace_root,
         space_id: selectedSpaceId,
-        // Sheet flow only writes one FS — the multi-FS picker lives in the
-        // full Workspaces editor.
         feature_set_ids: [selectedFsId],
+        client_id: payload.client_id,
       });
       markSeenAndClose(payload);
     } catch (e) {
@@ -182,13 +182,17 @@ export function WorkspaceBindingSheet() {
         <div className="px-8 pt-10 pb-6">
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-3 py-1 text-xs font-medium text-[rgb(var(--muted))]">
             <Sparkles className="h-3 w-3 text-[rgb(var(--accent))]" />
-            New workspace detected
+            {payload.collision_client_id ? 'Client binding required' : 'New workspace detected'}
           </div>
           <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-[rgb(var(--foreground))]">
-            Which tools should this folder see?
+            {payload.collision_client_id
+              ? 'Create a binding for this client'
+              : 'Which tools should this folder see?'}
           </h2>
           <p className="mt-2 text-sm text-[rgb(var(--muted))]">
-            Pick a Space and its tool set — every client you open here will get the same one.
+            {payload.collision_client_id
+              ? 'This path is already bound for another MCP client. Save a client-scoped binding so this machine gets its own tool set.'
+              : 'Pick a Space and its tool set — this binding applies to the connecting client only.'}
           </p>
 
           <div className="mt-5 flex items-start gap-3 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-4 py-3">

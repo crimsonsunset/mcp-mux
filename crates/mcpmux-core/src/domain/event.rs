@@ -371,6 +371,11 @@ pub enum DomainEvent {
         session_id: String,
         space_id: Uuid,
         workspace_root: String,
+        /// When set, a scoped binding for another OAuth client blocked the
+        /// global binding on this path — the UI should offer to create a
+        /// client-scoped binding for `client_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        collision_client_id: Option<String>,
     },
 
     /// The live set of reported session roots changed (a client connected
@@ -708,6 +713,7 @@ mod tests {
             session_id: "sess-1".to_string(),
             space_id: Uuid::new_v4(),
             workspace_root: "/proj/foo".to_string(),
+            collision_client_id: None,
         };
         assert!(!e.affects_mcp_capabilities());
         assert!(e.is_ui_only());
@@ -733,6 +739,7 @@ mod tests {
             session_id: "s".into(),
             space_id: Uuid::nil(),
             workspace_root: "/r".into(),
+            collision_client_id: Some("other-client".into()),
         };
         let json = serde_json::to_string(&needs).unwrap();
         assert!(json.contains("\"type\":\"workspace_needs_binding\""));

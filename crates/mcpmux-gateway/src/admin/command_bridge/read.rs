@@ -65,6 +65,7 @@ pub(crate) fn to_workspace_binding_response(binding: mcpmux_core::WorkspaceBindi
     json!({
         "id": binding.id.to_string(),
         "workspace_root": binding.workspace_root,
+        "client_id": binding.client_id,
         "label": binding.label,
         "icon": binding.icon,
         "space_id": binding.space_id.to_string(),
@@ -351,7 +352,7 @@ pub async fn get_workspace_effective_features(
         .ok_or_else(|| anyhow!("No default Space configured"))?;
     let binding = ctx
         .workspace_binding_repository
-        .find_longest_prefix_match(&default_space.id, std::slice::from_ref(&normalized))
+        .find_longest_prefix_match(&default_space.id, None, std::slice::from_ref(&normalized))
         .await?;
 
     let (source, binding_id, space_id, feature_set_ids) = match binding {

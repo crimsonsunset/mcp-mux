@@ -143,6 +143,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "installed_server_default_params",
         sql: include_str!("migrations/022_installed_server_default_params.sql"),
     },
+    Migration {
+        version: 23,
+        name: "workspace_binding_client_scope",
+        sql: include_str!("migrations/023_workspace_binding_client_scope.sql"),
+    },
 ];
 
 /// SQLite database wrapper.
