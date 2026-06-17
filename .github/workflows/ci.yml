@@ -535,8 +535,8 @@ jobs:
           fail-on-error: false
 
   # ─────────────────────────────────────────────────────────────
-  # E2E Tests (Desktop app with WebDriver - Linux/Windows)
-  # Runs on all commits; skip with [skip e2e] in commit message
+  # E2E Tests (Desktop app with WebDriver)
+  # PR: Windows only. Push (post-merge): Linux + Windows. Skip with [skip e2e].
   # ─────────────────────────────────────────────────────────────
   e2e-desktop:
     needs: [rust-check, ts-check, changes]
@@ -544,4 +544,6 @@ jobs:
     uses: ./.github/workflows/e2e-desktop.yml
     with:
       ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      # PR gate: Windows only (~15 min). Post-merge push runs Linux + Windows for full coverage.
+      platforms: ${{ github.event_name == 'pull_request' && '["windows-latest"]' || '["ubuntu-latest", "windows-latest"]' }}
     secrets: inherit
