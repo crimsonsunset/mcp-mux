@@ -1,6 +1,7 @@
 //! Background version probe for notify/auto server update policies.
 //!
-//! Shells out to `npm view` and `uv tool list --outdated`, caches results on
+//! Shells out to `npm view`, `uv tool list`, and `uv tool list --outdated`;
+//! queries the PyPI JSON API for uvx latest versions; caches results on
 //! `installed_servers`, and emits `ServerUpdateAvailable` domain events.
 
 use std::collections::HashMap;
@@ -100,6 +101,7 @@ impl ServerVersionProbeService {
     pub async fn probe_all(&self) -> Result<ServerVersionProbeSummary> {
         let servers = self.installed_server_repo.list().await?;
         let uv_outdated = fetch_uv_outdated_map();
+        let uv_tool_list = fetch_uv_tool_list_map();
         let checked_at = Utc::now();
         let mut summary = ServerVersionProbeSummary {
             checked_at,
@@ -112,7 +114,12 @@ impl ServerVersionProbeService {
             }
 
             match self
-                .probe_installed_server(&server, uv_outdated.as_ref(), checked_at)
+                .probe_installed_server(
+                    &server,
+                    uv_outdated.as_ref(),
+                    uv_tool_list.as_ref(),
+                    checked_at,
+                )
                 .await
             {
                 Ok(result) => {
@@ -157,9 +164,15 @@ impl ServerVersionProbeService {
         }
 
         let uv_outdated = fetch_uv_outdated_map();
+        let uv_tool_list = fetch_uv_tool_list_map();
         let checked_at = Utc::now();
-        self.probe_installed_server(&server, uv_outdated.as_ref(), checked_at)
-            .await
+        self.probe_installed_server(
+            &server,
+            uv_outdated.as_ref(),
+            uv_tool_list.as_ref(),
+            checked_at,
+        )
+        .await
     }
 
     async fn probe_interval(&self) -> Duration {
@@ -181,19 +194,26 @@ impl ServerVersionProbeService {
         &self,
         server: &InstalledServer,
         uv_outdated: Option<&HashMap<String, UvOutdatedEntry>>,
+        uv_tool_list: Option<&HashMap<String, String>>,
         checked_at: DateTime<Utc>,
     ) -> Result<ServerVersionProbeResult> {
         let Some(spec) = package_spec(server) else {
             anyhow::bail!("No resolvable package for {}", server.server_id);
         };
 
-        let current_version = current_version(server, &spec, uv_outdated);
+        let current_version = current_version(server, &spec, uv_tool_list);
         let latest_version = match spec.transport_kind {
             PackageTransportKind::Npx => fetch_npm_latest_version(&spec.package_name),
-            PackageTransportKind::Uvx => uv_outdated
-                .and_then(|map| map.get(&spec.package_name))
-                .map(|entry| entry.latest.clone())
-                .or_else(|| fetch_npm_latest_version(&spec.package_name)),
+            PackageTransportKind::Uvx => {
+                let outdated_latest = uv_outdated
+                    .and_then(|map| map.get(&spec.package_name))
+                    .map(|entry| entry.latest.clone());
+                if outdated_latest.is_some() {
+                    outdated_latest
+                } else {
+                    fetch_pypi_latest_version(&spec.package_name).await
+                }
+            }
         };
 
         self.installed_server_repo
@@ -247,7 +267,6 @@ struct PackageSpec {
 
 #[derive(Debug, Clone)]
 struct UvOutdatedEntry {
-    installed: String,
     latest: String,
 }
 
@@ -271,11 +290,11 @@ fn package_spec(server: &InstalledServer) -> Option<PackageSpec> {
     }
 }
 
-/// Best-effort current version: pin, package suffix, uv outdated installed, or uv arg pin.
+/// Best-effort current version: pin, package suffix, uv tool list, or uv arg pin.
 fn current_version(
     server: &InstalledServer,
     spec: &PackageSpec,
-    uv_outdated: Option<&HashMap<String, UvOutdatedEntry>>,
+    uv_tool_list: Option<&HashMap<String, String>>,
 ) -> Option<String> {
     if let Some(pinned) = server.pinned_version.as_deref().filter(|v| !v.is_empty()) {
         return Some(pinned.to_string());
@@ -295,17 +314,39 @@ fn current_version(
                 .map(|version| version.to_string())
                 .or_else(|| npx_cache_resolved_version(&package))
         }),
-        PackageTransportKind::Uvx => {
-            if let Some(entry) = uv_outdated.and_then(|map| map.get(&spec.package_name)) {
-                return Some(entry.installed.clone());
-            }
-            find_uv_package_arg(&command, &args).and_then(|package| {
-                split_uv_version(&package)
-                    .1
-                    .map(|version| version.to_string())
-            })
-        }
+        PackageTransportKind::Uvx => uv_tool_list
+            .and_then(|map| map.get(&spec.package_name))
+            .cloned()
+            .or_else(|| {
+                find_uv_package_arg(&command, &args).and_then(|package| {
+                    split_uv_version(&package)
+                        .1
+                        .map(|version| version.to_string())
+                })
+            }),
     }
+}
+
+/// Fetch the latest published PyPI version via the JSON API.
+async fn fetch_pypi_latest_version(package: &str) -> Option<String> {
+    let url = format!(
+        "https://pypi.org/pypi/{}/json",
+        urlencoding::encode(package)
+    );
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()?;
+    let response = client.get(&url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = response.json().await.ok()?;
+    body.get("info")?
+        .get("version")?
+        .as_str()
+        .filter(|version| !version.is_empty())
+        .map(|version| version.to_string())
 }
 
 /// Fetch the latest published version via `npm view <pkg> version`.
@@ -323,6 +364,37 @@ fn fetch_npm_latest_version(package: &str) -> Option<String> {
     } else {
         Some(version)
     }
+}
+
+/// Parse `uv tool list` into a package-name → installed-version map.
+fn fetch_uv_tool_list_map() -> Option<HashMap<String, String>> {
+    let output = Command::new("uv").args(["tool", "list"]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let mut map = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((name, version)) = parse_uv_tool_list_line(line) {
+            map.insert(name, version);
+        }
+    }
+    Some(map)
+}
+
+/// Parse one `uv tool list` row (`<name> v<version>`).
+fn parse_uv_tool_list_line(line: &str) -> Option<(String, String)> {
+    let mut parts = line.split_whitespace();
+    let name = parts.next()?.to_string();
+    let version = parts.next()?.trim_start_matches('v').to_string();
+    if version.is_empty() {
+        return None;
+    }
+    Some((name, version))
 }
 
 /// Parse `uv tool list --outdated` into a package-name map.
@@ -354,11 +426,10 @@ fn parse_uv_outdated_line(line: &str) -> Option<(String, UvOutdatedEntry)> {
     let name = parts.next()?.to_string();
     let remainder = parts.collect::<Vec<_>>().join(" ");
     if remainder.contains("->") {
-        let (installed, latest) = remainder.split_once("->")?;
+        let (_installed, latest) = remainder.split_once("->")?;
         return Some((
             name,
             UvOutdatedEntry {
-                installed: installed.trim().trim_start_matches('v').to_string(),
                 latest: latest.trim().trim_start_matches('v').to_string(),
             },
         ));
@@ -505,8 +576,14 @@ mod tests {
         let (name, entry) =
             parse_uv_outdated_line("mcp-server v1.0.0 -> v1.2.0").expect("parse line");
         assert_eq!(name, "mcp-server");
-        assert_eq!(entry.installed, "1.0.0");
         assert_eq!(entry.latest, "1.2.0");
+    }
+
+    #[test]
+    fn parse_uv_tool_list_line_reads_name_and_version() {
+        let (name, version) = parse_uv_tool_list_line("ruff v0.8.6").expect("parse line");
+        assert_eq!(name, "ruff");
+        assert_eq!(version, "0.8.6");
     }
 
     #[test]
