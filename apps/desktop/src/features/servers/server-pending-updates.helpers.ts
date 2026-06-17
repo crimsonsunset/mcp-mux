@@ -2,8 +2,8 @@ import type { InstalledServerState, ServerDefinition } from '@/types/registry';
 
 import {
   isPackageManagedTransport,
-  isUpdateAvailable,
   resolveCurrentPackageVersion,
+  shouldShowPackageUpdate,
 } from './server-update-policy.helpers';
 
 /** One installed server with a newer package available on the registry. */
@@ -44,10 +44,6 @@ export function buildPendingServerUpdates(
   const pending: ServerPendingUpdate[] = [];
 
   for (const state of installed) {
-    if (state.update_policy === 'pinned') {
-      continue;
-    }
-
     const definition = resolveServerDefinition(state, definitionById);
     if (!definition || definition.transport.type !== 'stdio') {
       continue;
@@ -64,10 +60,16 @@ export function buildPendingServerUpdates(
       transportArgs: definition.transport.args,
     });
     const latestVersion = state.latest_available_version;
-    if (!latestVersion || !isUpdateAvailable(latestVersion, currentVersion, {
-      transportCommand: command,
-      transportArgs: definition.transport.args,
-    })) {
+    if (
+      !latestVersion ||
+      !shouldShowPackageUpdate({
+        updatePolicy: state.update_policy ?? 'notify',
+        latestVersion,
+        currentVersion,
+        transportCommand: command,
+        transportArgs: definition.transport.args,
+      })
+    ) {
       continue;
     }
 

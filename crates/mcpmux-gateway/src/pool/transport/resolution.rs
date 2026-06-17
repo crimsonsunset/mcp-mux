@@ -4,6 +4,7 @@
 //! the static registry definition and user-specific installation settings.
 
 use super::ResolvedTransport;
+use crate::services::package_version::{is_floating_npm_tag, is_valid_semver};
 use mcpmux_core::{InstalledServer, TransportConfig as RegistryConfig, UpdatePolicy};
 use std::collections::HashMap;
 use std::path::Path;
@@ -169,7 +170,7 @@ fn apply_explicit_package_update(command: &str, args: &mut [String], installed: 
             if let Some(version) = installed
                 .latest_available_version
                 .as_deref()
-                .filter(|value| is_semver_like(value))
+                .filter(|value| is_valid_semver(value))
             {
                 inject_npx_pinned(args, version);
             } else {
@@ -183,15 +184,24 @@ fn apply_explicit_package_update(command: &str, args: &mut [String], installed: 
 
 /// Returns true for npm dist-tags that do not pin an exact installed semver.
 pub fn npm_version_tag_is_floating(tag: &str) -> bool {
-    matches!(
-        tag.trim().trim_start_matches('@').to_ascii_lowercase().as_str(),
-        "latest" | "*" | "next" | "beta" | "canary" | "stable" | "release"
-    )
+    is_floating_npm_tag(tag)
 }
 
-/// Returns true when `version` looks like a concrete semver (not a dist-tag).
-pub fn is_semver_like(version: &str) -> bool {
-    !parse_version_parts(version).is_empty()
+/// Run a subprocess-backed operation off the async worker when a Tokio runtime is active.
+fn run_subprocess_blocking<F, R>(operation: F) -> R
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        tokio::task::block_in_place(|| {
+            handle
+                .block_on(async { tokio::task::spawn_blocking(operation).await })
+                .unwrap_or_else(|err| panic!("subprocess task failed: {err}"))
+        })
+    } else {
+        operation()
+    }
 }
 
 /// Returns true when the installed npm CLI supports `npm cache npx` (npm ≥ 11).
@@ -218,12 +228,12 @@ pub fn npx_cache_resolved_version(package_arg: &str) -> Option<String> {
 
     let (_, spec_version) = split_npm_package_arg(package_arg);
     if let Some(version) = spec_version {
-        if !npm_version_tag_is_floating(&version) && is_semver_like(&version) {
+        if !is_floating_npm_tag(&version) && is_valid_semver(&version) {
             return Some(version);
         }
     }
 
-    let entries = fetch_npx_cache_ls_entries();
+    let entries = run_subprocess_blocking(fetch_npx_cache_ls_entries);
     let (key, specs) = entries
         .iter()
         .find(|(_, specs)| specs.iter().any(|spec| spec == package_arg))?;
@@ -231,7 +241,7 @@ pub fn npx_cache_resolved_version(package_arg: &str) -> Option<String> {
     if let Some(matched_spec) = specs.first() {
         let (_, version) = split_npm_package_arg(matched_spec);
         if let Some(version) = version {
-            if !npm_version_tag_is_floating(&version) && is_semver_like(&version) {
+            if !is_floating_npm_tag(&version) && is_valid_semver(&version) {
                 return Some(version);
             }
         }
@@ -246,16 +256,18 @@ pub fn evict_npx_cache_entry(package_arg: &str) {
         return;
     }
 
-    let entries = fetch_npx_cache_ls_entries();
+    let entries = run_subprocess_blocking(fetch_npx_cache_ls_entries);
     let key = entries
         .iter()
         .find(|(_, specs)| specs.iter().any(|spec| spec == package_arg))
         .map(|(key, _)| key.clone());
 
     if let Some(key) = key {
-        let _ = Command::new("npm")
-            .args(["cache", "npx", "rm", &key])
-            .output();
+        let _ = run_subprocess_blocking(move || {
+            Command::new("npm")
+                .args(["cache", "npx", "rm", &key])
+                .output()
+        });
     }
 }
 
@@ -329,13 +341,13 @@ fn fetch_npx_cache_ls_entries() -> Vec<(String, Vec<String>)> {
 
 /// Parse resolved version from `npm cache npx info <key>` for a package argument.
 fn parse_npx_cache_info_version(key: &str, package_arg: &str) -> Option<String> {
-    let output = match Command::new("npm")
-        .args(["cache", "npx", "info", key])
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return None,
-    };
+    let cache_key = key.to_string();
+    let output = run_subprocess_blocking(move || {
+        Command::new("npm")
+            .args(["cache", "npx", "info", &cache_key])
+            .output()
+    })
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -351,7 +363,7 @@ fn parse_npx_cache_info_version(key: &str, package_arg: &str) -> Option<String> 
                 let (name, version) = split_npm_package_arg(inner);
                 if name == package_name {
                     if let Some(version) = version {
-                        if !npm_version_tag_is_floating(&version) && is_semver_like(&version) {
+                        if !is_floating_npm_tag(&version) && is_valid_semver(&version) {
                             return Some(version);
                         }
                     }
@@ -379,18 +391,6 @@ fn strip_ansi_escapes(text: &str) -> String {
         result.push(ch);
     }
     result
-}
-
-/// Split a semver-ish string into numeric comparison parts.
-fn parse_version_parts(version: &str) -> Vec<u64> {
-    version
-        .trim()
-        .trim_start_matches('v')
-        .trim_start_matches('=')
-        .split(|c: char| !c.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse().ok())
-        .collect()
 }
 
 /// Enforce an exact semver pin for Pinned-policy servers.
@@ -486,10 +486,12 @@ fn run_uv_tool_upgrade(command: &str, args: &[String]) {
         package
     );
 
-    match Command::new("uv")
-        .args(["tool", "upgrade", &package])
-        .output()
-    {
+    let package_for_upgrade = package.clone();
+    match run_subprocess_blocking(move || {
+        Command::new("uv")
+            .args(["tool", "upgrade", &package_for_upgrade])
+            .output()
+    }) {
         Ok(output) if output.status.success() => {
             tracing::debug!(
                 "[TransportResolution] uv tool upgrade succeeded for {}",
@@ -1019,7 +1021,7 @@ mod tests {
     #[test]
     fn npm_version_tag_is_floating_recognizes_latest() {
         assert!(npm_version_tag_is_floating("latest"));
-        assert!(!is_semver_like("latest"));
-        assert!(is_semver_like("3.2.1"));
+        assert!(!is_valid_semver("latest"));
+        assert!(is_valid_semver("3.2.1"));
     }
 }

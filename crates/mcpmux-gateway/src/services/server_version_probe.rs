@@ -10,11 +10,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::pool::transport::resolution::{
-    is_semver_like, npx_cache_resolved_version, npm_version_tag_is_floating,
+use crate::pool::transport::resolution::npx_cache_resolved_version;
+use crate::services::package_version::{
+    is_floating_npm_tag, is_valid_semver, probe_update_available,
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use futures::stream::{self, StreamExt};
 use mcpmux_core::{
     AppSettingsRepository, DomainEvent, EventBus, InstalledServer, InstalledServerRepository,
     TransportConfig, UpdatePolicy,
@@ -26,6 +28,7 @@ use uuid::Uuid;
 const DEFAULT_PROBE_INTERVAL_HOURS: u64 = 6;
 const PROBE_INTERVAL_HOURS_KEY: &str = "servers.version_probe_interval_hours";
 const LAST_VERSION_PROBE_AT_KEY: &str = "servers.last_version_probe_at";
+const PROBE_CONCURRENCY: usize = 4;
 
 /// Result of probing one installed server.
 #[derive(Debug, Clone)]
@@ -99,42 +102,59 @@ impl ServerVersionProbeService {
 
     /// Probe every notify/auto package-managed server.
     pub async fn probe_all(&self) -> Result<ServerVersionProbeSummary> {
-        let servers = self.installed_server_repo.list().await?;
-        let uv_outdated = fetch_uv_outdated_map();
-        let uv_tool_list = fetch_uv_tool_list_map();
+        let servers: Vec<InstalledServer> = self
+            .installed_server_repo
+            .list()
+            .await?
+            .into_iter()
+            .filter(Self::is_probe_eligible)
+            .collect();
+
+        let uv_outdated = tokio::task::spawn_blocking(fetch_uv_outdated_map)
+            .await
+            .ok()
+            .flatten();
+        let uv_tool_list = tokio::task::spawn_blocking(fetch_uv_tool_list_map)
+            .await
+            .ok()
+            .flatten();
         let checked_at = Utc::now();
+
+        let results = stream::iter(servers)
+            .map(|server| {
+                let service = self.clone();
+                let uv_outdated = uv_outdated.clone();
+                let uv_tool_list = uv_tool_list.clone();
+                async move {
+                    service
+                        .probe_installed_server(
+                            &server,
+                            uv_outdated.as_ref(),
+                            uv_tool_list.as_ref(),
+                            checked_at,
+                        )
+                        .await
+                }
+            })
+            .buffer_unordered(PROBE_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+
         let mut summary = ServerVersionProbeSummary {
             checked_at,
             ..Default::default()
         };
 
-        for server in servers {
-            if !Self::is_probe_eligible(&server) {
-                continue;
-            }
-
-            match self
-                .probe_installed_server(
-                    &server,
-                    uv_outdated.as_ref(),
-                    uv_tool_list.as_ref(),
-                    checked_at,
-                )
-                .await
-            {
-                Ok(result) => {
+        for result in results {
+            match result {
+                Ok(probe_result) => {
                     summary.checked += 1;
-                    if result.update_available {
+                    if probe_result.update_available {
                         summary.updates_available += 1;
                     }
                 }
                 Err(error) => {
-                    warn!(
-                        space_id = %server.space_id,
-                        server_id = %server.server_id,
-                        error = %error,
-                        "[VersionProbe] Failed probing server"
-                    );
+                    warn!("[VersionProbe] Failed probing server: {error}");
                 }
             }
         }
@@ -163,8 +183,14 @@ impl ServerVersionProbeService {
             anyhow::bail!("Server transport is not package-managed (npx/uvx only)");
         }
 
-        let uv_outdated = fetch_uv_outdated_map();
-        let uv_tool_list = fetch_uv_tool_list_map();
+        let uv_outdated = tokio::task::spawn_blocking(fetch_uv_outdated_map)
+            .await
+            .ok()
+            .flatten();
+        let uv_tool_list = tokio::task::spawn_blocking(fetch_uv_tool_list_map)
+            .await
+            .ok()
+            .flatten();
         let checked_at = Utc::now();
         self.probe_installed_server(
             &server,
@@ -201,9 +227,15 @@ impl ServerVersionProbeService {
             anyhow::bail!("No resolvable package for {}", server.server_id);
         };
 
-        let current_version = current_version(server, &spec, uv_tool_list);
+        let current_version = current_version(server, &spec, uv_tool_list).await;
         let latest_version = match spec.transport_kind {
-            PackageTransportKind::Npx => fetch_npm_latest_version(&spec.package_name),
+            PackageTransportKind::Npx => {
+                let package_name = spec.package_name.clone();
+                tokio::task::spawn_blocking(move || fetch_npm_latest_version(&package_name))
+                    .await
+                    .ok()
+                    .flatten()
+            }
             PackageTransportKind::Uvx => {
                 let outdated_latest = uv_outdated
                     .and_then(|map| map.get(&spec.package_name))
@@ -220,14 +252,9 @@ impl ServerVersionProbeService {
             .update_version_cache(&server.id, latest_version.clone(), checked_at)
             .await?;
 
-        let update_available = if package_uses_floating_npm_tag(server, &spec) {
-            false
-        } else {
-            latest_version
-                .as_deref()
-                .map(|latest| is_newer_version(latest, current_version.as_deref()))
-                .unwrap_or(false)
-        };
+        let npm_package_version = npm_package_version_suffix(server, &spec);
+        let update_available =
+            probe_update_available(current_version.as_deref(), latest_version.as_deref(), npm_package_version.as_deref());
 
         if update_available {
             let space_uuid = Uuid::parse_str(&server.space_id)
@@ -290,8 +317,23 @@ fn package_spec(server: &InstalledServer) -> Option<PackageSpec> {
     }
 }
 
+/// Version suffix from the npx package argument, when present.
+fn npm_package_version_suffix(server: &InstalledServer, spec: &PackageSpec) -> Option<String> {
+    if spec.transport_kind != PackageTransportKind::Npx {
+        return None;
+    }
+
+    let definition = server.get_definition()?;
+    let TransportConfig::Stdio { args, .. } = definition.transport else {
+        return None;
+    };
+
+    find_npx_package_arg(&args)
+        .and_then(|package| split_npm_package_arg(&package).1)
+}
+
 /// Best-effort current version: pin, package suffix, uv tool list, or uv arg pin.
-fn current_version(
+async fn current_version(
     server: &InstalledServer,
     spec: &PackageSpec,
     uv_tool_list: Option<&HashMap<String, String>>,
@@ -306,14 +348,22 @@ fn current_version(
     };
 
     match spec.transport_kind {
-        PackageTransportKind::Npx => find_npx_package_arg(&args).and_then(|package| {
-            split_npm_package_arg(&package)
+        PackageTransportKind::Npx => {
+            let package_arg = find_npx_package_arg(&args)?;
+            if let Some(version) = split_npm_package_arg(&package_arg)
                 .1
-                .filter(|version| !npm_version_tag_is_floating(version))
-                .filter(|version| is_semver_like(version))
+                .filter(|version| !is_floating_npm_tag(version))
+                .filter(|version| is_valid_semver(version))
                 .map(|version| version.to_string())
-                .or_else(|| npx_cache_resolved_version(&package))
-        }),
+            {
+                return Some(version);
+            }
+
+            tokio::task::spawn_blocking(move || npx_cache_resolved_version(&package_arg))
+                .await
+                .ok()
+                .flatten()
+        }
         PackageTransportKind::Uvx => uv_tool_list
             .and_then(|map| map.get(&spec.package_name))
             .cloned()
@@ -321,6 +371,7 @@ fn current_version(
                 find_uv_package_arg(&command, &args).and_then(|package| {
                     split_uv_version(&package)
                         .1
+                        .filter(|version| is_valid_semver(version))
                         .map(|version| version.to_string())
                 })
             }),
@@ -437,48 +488,6 @@ fn parse_uv_outdated_line(line: &str) -> Option<(String, UvOutdatedEntry)> {
     None
 }
 
-/// Returns true when the install already tracks a floating npm dist-tag like `@latest`.
-fn package_uses_floating_npm_tag(server: &InstalledServer, spec: &PackageSpec) -> bool {
-    if spec.transport_kind != PackageTransportKind::Npx {
-        return false;
-    }
-
-    let definition = match server.get_definition() {
-        Some(definition) => definition,
-        None => return false,
-    };
-    let TransportConfig::Stdio { args, .. } = definition.transport else {
-        return false;
-    };
-
-    find_npx_package_arg(&args)
-        .and_then(|package| split_npm_package_arg(&package).1)
-        .is_some_and(|tag| npm_version_tag_is_floating(&tag))
-}
-
-/// Return true when `latest` is strictly newer than `current`.
-fn is_newer_version(latest: &str, current: Option<&str>) -> bool {
-    let Some(current) = current.filter(|value| !value.is_empty()) else {
-        return false;
-    };
-
-    let latest_parts = parse_version_parts(latest);
-    let current_parts = parse_version_parts(current);
-    latest_parts > current_parts || (latest_parts == current_parts && latest != current)
-}
-
-/// Split a semver-ish string into numeric comparison parts.
-fn parse_version_parts(version: &str) -> Vec<u64> {
-    version
-        .trim()
-        .trim_start_matches('v')
-        .trim_start_matches('=')
-        .split(|c: char| !c.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse().ok())
-        .collect()
-}
-
 fn find_npx_package_arg(args: &[String]) -> Option<String> {
     let mut index = 0;
     while index < args.len() {
@@ -563,12 +572,13 @@ fn split_uv_version(package: &str) -> (String, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::package_version::is_newer_than;
 
     #[test]
-    fn is_newer_version_compares_numeric_segments() {
-        assert!(is_newer_version("1.2.0", Some("1.1.9")));
-        assert!(!is_newer_version("1.2.0", Some("1.2.0")));
-        assert!(!is_newer_version("2.0.0", None));
+    fn is_newer_than_compares_numeric_segments() {
+        assert!(is_newer_than("1.2.0", Some("1.1.9")));
+        assert!(!is_newer_than("1.2.0", Some("1.2.0")));
+        assert!(!is_newer_than("2.0.0", None));
     }
 
     #[test]

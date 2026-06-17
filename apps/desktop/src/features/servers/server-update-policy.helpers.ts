@@ -45,24 +45,6 @@ export function npmVersionTagIsFloating(tag: string): boolean {
 }
 
 /**
- * Returns true when the npx package arg already tracks a floating dist-tag like `@latest`.
- */
-export function packageUsesFloatingNpmTag(
-  transportCommand: string | undefined,
-  transportArgs: string[] | undefined
-): boolean {
-  if (transportCommand !== 'npx' || !transportArgs) {
-    return false;
-  }
-  const packageArg = findNpxPackageArg(transportArgs);
-  if (!packageArg) {
-    return false;
-  }
-  const version = splitNpmPackageArg(packageArg)[1];
-  return version != null && npmVersionTagIsFloating(version);
-}
-
-/**
  * Returns true when `version` matches a basic semver shape.
  */
 export function isValidSemver(version: string): boolean {
@@ -77,6 +59,53 @@ export function isPackageManagedTransport(command: string | undefined): boolean 
     return false;
   }
   return command === 'npx' || command === 'uvx' || command === 'uv';
+}
+
+/**
+ * Single UI guard mirroring Rust `probe_update_available` plus pinned/auto exclusion.
+ */
+export function shouldShowPackageUpdate(input: {
+  updatePolicy: UpdatePolicy;
+  latestVersion: string | null | undefined;
+  currentVersion: string | null | undefined;
+  transportCommand?: string;
+  transportArgs?: string[];
+}): boolean {
+  if (input.updatePolicy === 'pinned' || input.updatePolicy === 'auto') {
+    return false;
+  }
+
+  if (!input.latestVersion) {
+    return false;
+  }
+
+  if (packageUsesFloatingNpmTag(input.transportCommand, input.transportArgs)) {
+    return false;
+  }
+
+  if (!input.currentVersion) {
+    return false;
+  }
+
+  return isNewerVersion(input.latestVersion, input.currentVersion);
+}
+
+/**
+ * Returns true when the npx package arg already tracks a floating dist-tag like `@latest`.
+ */
+function packageUsesFloatingNpmTag(
+  transportCommand: string | undefined,
+  transportArgs: string[] | undefined
+): boolean {
+  if (transportCommand !== 'npx' || !transportArgs) {
+    return false;
+  }
+  const packageArg = findNpxPackageArg(transportArgs);
+  if (!packageArg) {
+    return false;
+  }
+  const version = splitNpmPackageArg(packageArg)[1];
+  return version != null && npmVersionTagIsFloating(version);
 }
 
 /**
@@ -96,26 +125,7 @@ function parseVersionParts(version: string): number[] {
 /**
  * Returns true when `latest` is strictly newer than `current`.
  */
-export function isUpdateAvailable(
-  latest: string | null | undefined,
-  current: string | null | undefined,
-  options?: {
-    transportCommand?: string;
-    transportArgs?: string[];
-  }
-): boolean {
-  if (!latest) {
-    return false;
-  }
-  if (
-    packageUsesFloatingNpmTag(options?.transportCommand, options?.transportArgs)
-  ) {
-    return false;
-  }
-  if (!current) {
-    return false;
-  }
-
+function isNewerVersion(latest: string, current: string): boolean {
   const latestParts = parseVersionParts(latest);
   const currentParts = parseVersionParts(current);
   const maxLen = Math.max(latestParts.length, currentParts.length);
@@ -151,22 +161,11 @@ export function resolveCurrentPackageVersion(input: {
     if (!packageArg) {
       return null;
     }
-    const atIndex = packageArg.lastIndexOf('@');
-    if (packageArg.startsWith('@') && packageArg.indexOf('@', 1) > 0) {
-      const scopedSplit = packageArg.indexOf('@', 1);
-      const version = packageArg.slice(scopedSplit + 1) || null;
-      if (!version || npmVersionTagIsFloating(version)) {
-        return null;
-      }
-      return version;
+    const version = splitNpmPackageArg(packageArg)[1];
+    if (!version || npmVersionTagIsFloating(version) || !isValidSemver(version)) {
+      return null;
     }
-    if (atIndex > 0) {
-      const version = packageArg.slice(atIndex + 1) || null;
-      if (!version || npmVersionTagIsFloating(version)) {
-        return null;
-      }
-      return version;
-    }
+    return version;
   }
 
   if (
@@ -179,7 +178,11 @@ export function resolveCurrentPackageVersion(input: {
     }
     const eqIndex = packageArg.indexOf('==');
     if (eqIndex >= 0) {
-      return packageArg.slice(eqIndex + 2) || null;
+      const version = packageArg.slice(eqIndex + 2) || null;
+      if (!version || !isValidSemver(version)) {
+        return null;
+      }
+      return version;
     }
   }
 

@@ -26,9 +26,9 @@ import { Button, SearchField } from '@mcpmux/ui';
 import { ServerActionMenu } from './ServerActionMenu';
 import {
   isPackageManagedTransport,
-  isUpdateAvailable,
   isValidSemver,
   resolveCurrentPackageVersion,
+  shouldShowPackageUpdate,
   UPDATE_POLICY_OPTIONS,
 } from './server-update-policy.helpers';
 import { ServerEnabledToggle } from './ServerEnabledToggle';
@@ -1829,18 +1829,17 @@ export function ServersPage() {
                         updatePolicy={server.update_policy ?? 'notify'}
                         hasUpdateAvailable={
                           server.transport.type === 'stdio' &&
-                          isUpdateAvailable(
-                            server.latest_available_version,
-                            resolveCurrentPackageVersion({
+                          shouldShowPackageUpdate({
+                            updatePolicy: server.update_policy ?? 'notify',
+                            latestVersion: server.latest_available_version,
+                            currentVersion: resolveCurrentPackageVersion({
                               pinnedVersion: server.pinned_version,
                               transportCommand: server.transport.command,
                               transportArgs: server.transport.args,
                             }),
-                            {
-                              transportCommand: server.transport.command,
-                              transportArgs: server.transport.args,
-                            }
-                          )
+                            transportCommand: server.transport.command,
+                            transportArgs: server.transport.args,
+                          })
                         }
                         latestVersion={server.latest_available_version}
                         canCloneAccount={canCloneServer(server)}

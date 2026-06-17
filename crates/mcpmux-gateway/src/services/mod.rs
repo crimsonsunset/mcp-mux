@@ -15,6 +15,7 @@ mod feature_set_resolver;
 mod grant_service;
 pub mod meta_tools;
 mod notification_emitter;
+pub mod package_version;
 mod prefix_cache;
 pub mod prompt_discovery;
 pub mod resource_discovery;
@@ -37,6 +38,9 @@ pub use meta_tools::{
     ResolutionNotifier, MCPMUX_PREFIX, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use notification_emitter::NotificationEmitter;
+pub use package_version::{
+    is_floating_npm_tag, is_newer_than, is_pinned, is_valid_semver, probe_update_available,
+};
 pub use prefix_cache::PrefixCacheService;
 pub use prompt_discovery::{PromptDetailLevel, PromptDiscoveryService, PromptIndexEntry};
 pub use resource_discovery::{ResourceDetailLevel, ResourceDiscoveryService, ResourceIndexEntry};
