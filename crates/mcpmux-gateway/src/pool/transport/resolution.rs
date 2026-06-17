@@ -63,7 +63,7 @@ pub fn build_transport_config(
             // Append user's extra args
             resolved_args.extend(installed.args_append.clone());
 
-            apply_auto_update_policy(&resolved_command, &mut resolved_args, installed.update_policy);
+            apply_update_policy(&resolved_command, &mut resolved_args, installed);
 
             // Build env from registry + input values + env_overrides
             let mut resolved_env = HashMap::new();
@@ -124,16 +124,57 @@ pub fn build_transport_config(
     }
 }
 
-/// Apply Auto-mode package resolution for npx/uvx stdio transports.
-fn apply_auto_update_policy(command: &str, args: &mut [String], policy: UpdatePolicy) {
-    if policy != UpdatePolicy::Auto {
-        return;
+/// Apply per-server update policy for npx/uvx stdio transports.
+fn apply_update_policy(command: &str, args: &mut [String], installed: &InstalledServer) {
+    match installed.update_policy {
+        UpdatePolicy::Auto => apply_auto_update_policy(command, args),
+        UpdatePolicy::Pinned => apply_pinned_update_policy(command, args, installed),
+        UpdatePolicy::Notify => {}
     }
+}
 
+/// Apply Auto-mode package resolution for npx/uvx stdio transports.
+fn apply_auto_update_policy(command: &str, args: &mut [String]) {
     match command {
         "npx" => inject_npx_latest(args),
         "uvx" | "uv" => run_uv_tool_upgrade(command, args),
         _ => {}
+    }
+}
+
+/// Enforce an exact semver pin for Pinned-policy servers.
+fn apply_pinned_update_policy(command: &str, args: &mut [String], installed: &InstalledServer) {
+    let Some(pinned) = installed.pinned_version.as_deref().filter(|v| !v.is_empty()) else {
+        return;
+    };
+
+    warn_if_pinned_version_differs(installed, pinned);
+
+    match command {
+        "npx" => inject_npx_pinned(args, pinned),
+        "uvx" | "uv" => inject_uvx_pinned(command, args, pinned),
+        _ => {}
+    }
+}
+
+/// Log when a pin differs from the cached latest probe (informational only).
+fn warn_if_pinned_version_differs(installed: &InstalledServer, pinned: &str) {
+    let Some(latest) = installed
+        .latest_available_version
+        .as_deref()
+        .filter(|v| !v.is_empty())
+    else {
+        return;
+    };
+
+    if pinned != latest {
+        tracing::warn!(
+            "[TransportResolution] Pinned version {} differs from latest available {} for {}/{}",
+            pinned,
+            latest,
+            installed.space_id,
+            installed.server_id
+        );
     }
 }
 
@@ -145,6 +186,34 @@ fn inject_npx_latest(args: &mut [String]) {
     let injected = inject_npm_version_tag(&args[index], "latest");
     tracing::debug!(
         "[TransportResolution] Auto update policy: npx package {} → {}",
+        args[index],
+        injected
+    );
+    args[index] = injected;
+}
+
+/// Inject `@<semver>` into the npx package argument for Pinned policy.
+fn inject_npx_pinned(args: &mut [String], version: &str) {
+    let Some(index) = find_npx_package_arg_index(args) else {
+        return;
+    };
+    let injected = inject_npm_version_tag(&args[index], version);
+    tracing::debug!(
+        "[TransportResolution] Pinned update policy: npx package {} → {}",
+        args[index],
+        injected
+    );
+    args[index] = injected;
+}
+
+/// Inject `==<semver>` into the uvx / `uv run` package argument for Pinned policy.
+fn inject_uvx_pinned(command: &str, args: &mut [String], version: &str) {
+    let Some(index) = find_uv_package_arg_index(command, args) else {
+        return;
+    };
+    let injected = inject_uv_version_tag(&args[index], version);
+    tracing::debug!(
+        "[TransportResolution] Pinned update policy: uv package {} → {}",
         args[index],
         injected
     );
@@ -206,10 +275,10 @@ fn find_npx_package_arg_index(args: &[String]) -> Option<usize> {
         .position(|arg| !arg.starts_with('-') && arg != "--")
 }
 
-/// Package name for uvx or `uv run` invocations.
-fn extract_uv_package_name(command: &str, args: &[String]) -> Option<String> {
-    let index = match command {
-        "uvx" => args.iter().position(|arg| !arg.starts_with('-'))?,
+/// Index of the package argument for uvx or `uv run` invocations.
+fn find_uv_package_arg_index(command: &str, args: &[String]) -> Option<usize> {
+    match command {
+        "uvx" => args.iter().position(|arg| !arg.starts_with('-')),
         "uv" if args.first().map(String::as_str) == Some("run") => {
             let mut index = 1;
             while index < args.len() {
@@ -222,13 +291,17 @@ fn extract_uv_package_name(command: &str, args: &[String]) -> Option<String> {
                     index += 1;
                     continue;
                 }
-                return Some(strip_package_version(&args[index]));
+                return Some(index);
             }
-            return None;
+            None
         }
-        _ => return None,
-    };
+        _ => None,
+    }
+}
 
+/// Package name for uvx or `uv run` invocations.
+fn extract_uv_package_name(command: &str, args: &[String]) -> Option<String> {
+    let index = find_uv_package_arg_index(command, args)?;
     Some(strip_package_version(&args[index]))
 }
 
@@ -272,6 +345,17 @@ fn inject_npm_version_tag(package: &str, tag: &str) -> String {
 
     let (name, _) = split_npm_package_arg(package);
     format!("{name}@{tag}")
+}
+
+/// Append or replace a PEP 440 exact version on a uv package argument (`pkg` or `pkg==ver`).
+fn inject_uv_version_tag(package: &str, version: &str) -> String {
+    let version = version.trim_start_matches('=');
+    if version.is_empty() {
+        return package.to_string();
+    }
+
+    let name = strip_package_version(package);
+    format!("{name}=={version}")
 }
 
 fn apply_state_dir_env(
@@ -557,5 +641,51 @@ mod tests {
 
         assert_eq!(merged.get("A"), Some(&"user_a".to_string()));
         assert_eq!(merged.get("B"), Some(&"default_b".to_string()));
+    }
+
+    #[test]
+    fn test_pinned_policy_injects_npx_version() {
+        let transport = RegistryConfig::Stdio {
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "firebase-tools".to_string()],
+            env: HashMap::new(),
+            metadata: TransportMetadata { inputs: vec![] },
+        };
+
+        let installed = InstalledServer::new("space", "firebase")
+            .with_update_policy(UpdatePolicy::Pinned)
+            .with_pinned_version(Some("13.0.0"));
+
+        let resolved = build_transport_config(&transport, &installed, None);
+
+        match resolved {
+            ResolvedTransport::Stdio { args, .. } => {
+                assert_eq!(args[1], "firebase-tools@13.0.0");
+            }
+            _ => panic!("Expected Stdio transport"),
+        }
+    }
+
+    #[test]
+    fn test_pinned_policy_injects_uvx_version() {
+        let transport = RegistryConfig::Stdio {
+            command: "uvx".to_string(),
+            args: vec!["mcp-server-git".to_string()],
+            env: HashMap::new(),
+            metadata: TransportMetadata { inputs: vec![] },
+        };
+
+        let installed = InstalledServer::new("space", "git")
+            .with_update_policy(UpdatePolicy::Pinned)
+            .with_pinned_version(Some("1.2.3"));
+
+        let resolved = build_transport_config(&transport, &installed, None);
+
+        match resolved {
+            ResolvedTransport::Stdio { args, .. } => {
+                assert_eq!(args[0], "mcp-server-git==1.2.3");
+            }
+            _ => panic!("Expected Stdio transport"),
+        }
     }
 }

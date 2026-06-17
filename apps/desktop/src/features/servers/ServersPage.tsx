@@ -27,7 +27,9 @@ import { ServerActionMenu } from './ServerActionMenu';
 import {
   isPackageManagedTransport,
   isUpdateAvailable,
+  isValidSemver,
   resolveCurrentPackageVersion,
+  UPDATE_POLICY_OPTIONS,
 } from './server-update-policy.helpers';
 import { ServerEnabledToggle } from './ServerEnabledToggle';
 import { CloneAccountModal } from './CloneAccountModal';
@@ -50,6 +52,7 @@ import { resolveInstalledDisplayName } from './server-display-name.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
 import { checkServerVersion } from '@/lib/api/settings';
+import type { UpdatePolicy } from '@/lib/api/settings';
 import { useViewSpace, useNavigateTo, usePendingServersFilter, useSetPendingServersFilter } from '@/stores';
 import { useServerManager } from '@/hooks/useServerManager';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
@@ -229,6 +232,12 @@ interface ConfigModalState {
   displayName: string;
   /** Display name when the modal opened — used to detect changes on save. */
   initialDisplayName: string;
+  /** Per-server update policy override. */
+  updatePolicy: UpdatePolicy;
+  initialUpdatePolicy: UpdatePolicy;
+  /** Semver pin when policy is `pinned`. */
+  pinnedVersion: string;
+  initialPinnedVersion: string;
 }
 
 export function ServersPage() {
@@ -257,6 +266,10 @@ export function ServersPage() {
     defaultParamsJson: '{}',
     displayName: '',
     initialDisplayName: '',
+    updatePolicy: 'notify',
+    initialUpdatePolicy: 'notify',
+    pinnedVersion: '',
+    initialPinnedVersion: '',
   });
 
   // Features state
@@ -739,6 +752,10 @@ export function ServersPage() {
         defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
         displayName: initialDisplayName,
         initialDisplayName,
+        updatePolicy: server.update_policy ?? 'notify',
+        initialUpdatePolicy: server.update_policy ?? 'notify',
+        pinnedVersion: server.pinned_version ?? '',
+        initialPinnedVersion: server.pinned_version ?? '',
       });
       return;
     }
@@ -802,6 +819,8 @@ export function ServersPage() {
       initialValues[input.id] = server.input_values[input.id] || '';
     });
     const initialDisplayName = server.name ?? '';
+    const initialUpdatePolicy = server.update_policy ?? 'notify';
+    const initialPinnedVersion = server.pinned_version ?? '';
     setConfigModal({
       open: true,
       server,
@@ -813,6 +832,10 @@ export function ServersPage() {
       defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
       displayName: initialDisplayName,
       initialDisplayName,
+      updatePolicy: initialUpdatePolicy,
+      initialUpdatePolicy,
+      pinnedVersion: initialPinnedVersion,
+      initialPinnedVersion,
     });
   };
 
@@ -878,6 +901,18 @@ export function ServersPage() {
     const server = configModal.server;
     const serverId = server.id;
     const shouldEnable = configModal.enableOnSave ?? false;
+    const trimmedPinnedVersion = configModal.pinnedVersion.trim();
+
+    if (configModal.updatePolicy === 'pinned') {
+      if (!trimmedPinnedVersion) {
+        showToast('Enter a pinned version (e.g. 1.2.3)', 'error');
+        return;
+      }
+      if (!isValidSemver(trimmedPinnedVersion)) {
+        showToast('Pinned version must be a valid semver (e.g. 1.2.3)', 'error');
+        return;
+      }
+    }
 
     setActionLoading(`config-${serverId}`);
     try {
@@ -889,6 +924,18 @@ export function ServersPage() {
       // undefined so the backend leaves the existing override untouched.
       const displayNameOverride =
         trimmedDisplayName === trimmedInitial ? undefined : trimmedDisplayName;
+
+      const updatePolicyChanged = configModal.updatePolicy !== configModal.initialUpdatePolicy;
+      const pinnedVersionChanged =
+        trimmedPinnedVersion !== configModal.initialPinnedVersion.trim();
+      const updatePolicy =
+        updatePolicyChanged || pinnedVersionChanged ? configModal.updatePolicy : undefined;
+      const pinnedVersion =
+        configModal.updatePolicy === 'pinned'
+          ? trimmedPinnedVersion
+          : updatePolicyChanged
+            ? ''
+            : undefined;
 
       let defaultParams: Record<string, unknown> | undefined;
       try {
@@ -909,6 +956,8 @@ export function ServersPage() {
         configModal.extraHeaders,
         defaultParams,
         displayNameOverride,
+        updatePolicy,
+        pinnedVersion,
       );
 
       setConfigModal({
@@ -921,6 +970,10 @@ export function ServersPage() {
         defaultParamsJson: '{}',
         displayName: '',
         initialDisplayName: '',
+        updatePolicy: 'notify',
+        initialUpdatePolicy: 'notify',
+        pinnedVersion: '',
+        initialPinnedVersion: '',
       });
       
       // Only enable if requested (from Enable flow)
@@ -969,7 +1022,80 @@ export function ServersPage() {
       defaultParamsJson: '{}',
       displayName: '',
       initialDisplayName: '',
+      updatePolicy: 'notify',
+      initialUpdatePolicy: 'notify',
+      pinnedVersion: '',
+      initialPinnedVersion: '',
     });
+  };
+
+  /**
+   * Pin the server's current package version and switch policy to Pinned.
+   */
+  const handleLockToCurrentVersion = async (server: ServerViewModel) => {
+    if (!viewSpace) {
+      return;
+    }
+
+    setActionLoading(`lock-version-${server.id}`);
+    try {
+      const { saveServerInputs } = await import('@/lib/api/registry');
+
+      let version =
+        resolveCurrentPackageVersion({
+          pinnedVersion: server.pinned_version,
+          transportCommand:
+            server.transport.type === 'stdio' ? server.transport.command : undefined,
+          transportArgs:
+            server.transport.type === 'stdio' ? server.transport.args : undefined,
+        }) ?? server.latest_available_version;
+
+      if (!version) {
+        const probe = await checkServerVersion(viewSpace.id, server.id);
+        version = probe.currentVersion ?? probe.latestVersion;
+        setInstalledServers((current) =>
+          current.map((entry) => {
+            if (entry.id !== server.id) {
+              return entry;
+            }
+            return {
+              ...entry,
+              latest_available_version: probe.latestVersion ?? entry.latest_available_version,
+              version_checked_at: probe.checkedAt,
+            };
+          })
+        );
+      }
+
+      if (!version || !isValidSemver(version)) {
+        showToast('Could not determine a valid version to pin', 'error');
+        return;
+      }
+
+      await saveServerInputs(
+        server.id,
+        server.input_values,
+        viewSpace.id,
+        server.env_overrides,
+        server.args_append,
+        server.extra_headers,
+        server.default_params,
+        undefined,
+        'pinned',
+        version
+      );
+
+      if (server.enabled) {
+        await retryConnectionV2(server.id);
+      }
+
+      showToast(`Locked to v${version}`, 'success');
+      await loadData();
+    } catch (error) {
+      showToast(String(error), 'error');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Cancel OAuth flow - uses new ServerManager v2
@@ -1690,6 +1816,7 @@ export function ServersPage() {
                         onReconnect={() => handleReconnect(server)}
                         onUpdateNow={() => handleRetry(server)}
                         onCheckForUpdate={() => handleCheckForUpdate(server)}
+                        onLockToCurrentVersion={() => handleLockToCurrentVersion(server)}
                         onViewLogs={() => setLogViewerServer({ id: server.id, name: server.name })}
                         onViewDefinition={() => setDefinitionServer({ id: server.id, name: server.name })}
                         onCloneAccount={() => setCloneModalServer(server)}
@@ -2178,6 +2305,109 @@ export function ServersPage() {
               )}
 
               {/* Default Tool Parameters */}
+              {configModal.server.transport.type === 'stdio' &&
+                isPackageManagedTransport(configModal.server.transport.command) && (
+                  <div className="space-y-4 border-t border-[rgb(var(--border-subtle))] pt-4">
+                    <div>
+                      <label
+                        htmlFor="config-update-policy"
+                        className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
+                      >
+                        Update Policy
+                      </label>
+                      <p className="text-xs text-[rgb(var(--muted))] mb-2">
+                        {
+                          UPDATE_POLICY_OPTIONS.find(
+                            (option) => option.value === configModal.updatePolicy
+                          )?.description
+                        }
+                      </p>
+                      <select
+                        id="config-update-policy"
+                        value={configModal.updatePolicy}
+                        onChange={(e) =>
+                          setConfigModal({
+                            ...configModal,
+                            updatePolicy: e.target.value as UpdatePolicy,
+                          })
+                        }
+                        className="input w-full"
+                        data-testid="config-update-policy"
+                      >
+                        {UPDATE_POLICY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {configModal.updatePolicy === 'pinned' && (
+                      <div>
+                        <label
+                          htmlFor="config-pinned-version"
+                          className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
+                        >
+                          Pinned Version
+                        </label>
+                        <p className="text-xs text-[rgb(var(--muted))] mb-2">
+                          Exact semver injected on every spawn (e.g. 1.2.3)
+                        </p>
+                        <input
+                          id="config-pinned-version"
+                          type="text"
+                          value={configModal.pinnedVersion}
+                          onChange={(e) =>
+                            setConfigModal({ ...configModal, pinnedVersion: e.target.value })
+                          }
+                          placeholder="1.2.3"
+                          className="input w-full font-mono text-sm"
+                          data-testid="config-pinned-version"
+                        />
+                        {configModal.pinnedVersion.trim().length > 0 &&
+                          !isValidSemver(configModal.pinnedVersion) && (
+                            <p className="text-xs text-[rgb(var(--error))] mt-1">
+                              Enter a valid semver (e.g. 1.2.3)
+                            </p>
+                          )}
+                      </div>
+                    )}
+
+                    {(configModal.server.latest_available_version ||
+                      configModal.server.version_checked_at) && (
+                      <div className="text-xs text-[rgb(var(--muted))]">
+                        {(() => {
+                          const currentVersion = resolveCurrentPackageVersion({
+                            pinnedVersion:
+                              configModal.pinnedVersion || configModal.server.pinned_version,
+                            transportCommand: configModal.server.transport.command,
+                            transportArgs: configModal.server.transport.args,
+                          });
+                          if (!currentVersion) {
+                            return null;
+                          }
+                          return (
+                            <p>
+                              Current:{' '}
+                              <span className="font-mono text-[rgb(var(--foreground))]">
+                                {currentVersion}
+                              </span>
+                            </p>
+                          );
+                        })()}
+                        {configModal.server.latest_available_version && (
+                          <p>
+                            Latest:{' '}
+                            <span className="font-mono text-[rgb(var(--foreground))]">
+                              {configModal.server.latest_available_version}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
               <div>
                 <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
                   Default Tool Parameters
@@ -2211,7 +2441,10 @@ export function ServersPage() {
                   onClick={handleSaveConfig}
                   disabled={
                     (configModal.server.transport.metadata?.inputs ?? [])
-                      .some((i: InputDefinition) => i.required && !configModal.inputValues[i.id])
+                      .some((i: InputDefinition) => i.required && !configModal.inputValues[i.id]) ||
+                    (configModal.updatePolicy === 'pinned' &&
+                      (!configModal.pinnedVersion.trim() ||
+                        !isValidSemver(configModal.pinnedVersion)))
                   }
                   className="px-4 py-2 text-sm rounded-lg bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] hover:bg-[rgb(var(--primary-hover))] disabled:opacity-50 transition-colors"
                   data-testid="config-save-btn"

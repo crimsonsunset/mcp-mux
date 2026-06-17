@@ -1,3 +1,39 @@
+import type { UpdatePolicy } from '@/lib/api/settings';
+
+/** Per-server update policy labels for Configure and Settings. */
+export const UPDATE_POLICY_OPTIONS: {
+  value: UpdatePolicy;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: 'notify',
+    label: 'Notify',
+    description: 'Surface available updates without changing packages automatically',
+  },
+  {
+    value: 'auto',
+    label: 'Auto',
+    description: 'Always resolve the latest package on reconnect (npx/uvx servers only)',
+  },
+  {
+    value: 'pinned',
+    label: 'Pinned',
+    description: 'Lock to a specific version on every spawn',
+  },
+];
+
+/** Basic semver pattern (major.minor.patch with optional pre-release/build). */
+const BASIC_SEMVER_PATTERN =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Returns true when `version` matches a basic semver shape.
+ */
+export function isValidSemver(version: string): boolean {
+  return BASIC_SEMVER_PATTERN.test(version.trim());
+}
+
 /**
  * Returns true when the stdio transport uses npx or uvx/uv (package-managed).
  */

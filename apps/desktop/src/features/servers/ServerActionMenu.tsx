@@ -10,6 +10,7 @@ import {
   Download,
   ArrowUpCircle,
   Search,
+  Lock,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -44,6 +45,7 @@ export interface ServerActionMenuProps {
   onReconnect: () => void;
   onUpdateNow?: () => void;
   onCheckForUpdate?: () => void;
+  onLockToCurrentVersion?: () => void;
   onViewLogs: () => void;
   onViewDefinition: () => void;
   onCloneAccount?: () => void;
@@ -70,6 +72,7 @@ export function ServerActionMenu({
   onReconnect,
   onUpdateNow,
   onCheckForUpdate,
+  onLockToCurrentVersion,
   onViewLogs,
   onViewDefinition,
   onCloneAccount,
@@ -82,6 +85,8 @@ export function ServerActionMenu({
     (updatePolicy === 'auto' || hasUpdateAvailable);
   const showCheckForUpdate =
     isPackageManaged && onCheckForUpdate != null && updatePolicy !== 'pinned';
+  const showLockToCurrentVersion =
+    isPackageManaged && onLockToCurrentVersion != null && updatePolicy !== 'pinned';
   const updateLabel = latestVersion
     ? `Update Available (v${latestVersion})`
     : 'Update Available';
@@ -137,6 +142,14 @@ export function ServerActionMenu({
             label="Check for Update"
             onSelect={onCheckForUpdate}
             data-testid={`check-update-${serverId}`}
+          />
+        )}
+        {showLockToCurrentVersion && (
+          <DropdownMenuAction
+            icon={Lock}
+            label="Lock to current version"
+            onSelect={onLockToCurrentVersion}
+            data-testid={`lock-version-${serverId}`}
           />
         )}
         {isOAuth && isEnabled && (
