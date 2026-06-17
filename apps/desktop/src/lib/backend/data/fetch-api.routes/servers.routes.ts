@@ -109,4 +109,13 @@ export const serversRoutes: Record<string, RouteHandler> = {
       sourceServerId: args.sourceServerId,
     })}`,
   }),
+  check_all_server_updates: () => ({
+    method: 'POST',
+    path: '/api/v1/servers/updates/check-all',
+  }),
+  check_server_version: (args) => ({
+    method: 'POST',
+    path: `/api/v1/servers/${encodeURIComponent(String(args.serverId))}/updates/check`,
+    body: { space_id: args.spaceId },
+  }),
 };

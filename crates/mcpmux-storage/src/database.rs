@@ -153,6 +153,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "server_update_policy",
         sql: include_str!("migrations/024_server_update_policy.sql"),
     },
+    Migration {
+        version: 25,
+        name: "server_version_cache",
+        sql: include_str!("migrations/025_server_version_cache.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

@@ -142,6 +142,14 @@ pub struct InstalledServer {
     #[serde(default)]
     pub pinned_version: Option<String>,
 
+    /// Latest registry version from the most recent notify-mode probe.
+    #[serde(default)]
+    pub latest_available_version: Option<String>,
+
+    /// When `latest_available_version` was last probed (RFC3339 in DB).
+    #[serde(default)]
+    pub version_checked_at: Option<DateTime<Utc>>,
+
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
 
@@ -173,6 +181,8 @@ impl InstalledServer {
             display_name_override: None,
             update_policy: UpdatePolicy::default(),
             pinned_version: None,
+            latest_available_version: None,
+            version_checked_at: None,
             created_at: now,
             updated_at: now,
         }

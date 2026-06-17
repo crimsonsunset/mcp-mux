@@ -8,6 +8,7 @@ use mcpmux_core::{
     ServerDiscoveryService, ServerFeatureRepository, ServerLogManager, SpaceService,
     WorkspaceAppearanceRepository, WorkspaceBindingRepository,
 };
+use crate::services::ServerVersionProbeService;
 
 use super::runtime::GatewayRuntime;
 use super::write_runtime::GatewayWriteRuntime;
@@ -50,4 +51,6 @@ pub struct AdminBridgeCtx {
     pub bundle_version: Option<String>,
     /// Git/build metadata compiled into the desktop binary (`MCPMUX_BUILD_*`).
     pub backend_build: BackendBuildStamp,
+    /// npm/uv version probe for notify/auto servers (manual + scheduled).
+    pub version_probe: Arc<ServerVersionProbeService>,
 }

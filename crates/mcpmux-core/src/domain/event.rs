@@ -205,6 +205,16 @@ pub enum DomainEvent {
     /// Server was disabled (will disconnect)
     ServerDisabled { space_id: Uuid, server_id: String },
 
+    /// Notify-mode probe found a newer package version than the installed/pinned one.
+    ServerUpdateAvailable {
+        space_id: Uuid,
+        server_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_version: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        latest_version: Option<String>,
+    },
+
     // ════════════════════════════════════════════════════════════════════════
     // SERVER CONNECTION STATE (Runtime)
     // ════════════════════════════════════════════════════════════════════════
@@ -424,6 +434,7 @@ impl DomainEvent {
             Self::ServerConfigUpdated { .. } => "server_config_updated",
             Self::ServerEnabled { .. } => "server_enabled",
             Self::ServerDisabled { .. } => "server_disabled",
+            Self::ServerUpdateAvailable { .. } => "server_update_available",
             Self::ServerStatusChanged { .. } => "server_status_changed",
             Self::ServerAuthProgress { .. } => "server_auth_progress",
             Self::ServerFeaturesRefreshed { .. } => "server_features_refreshed",
@@ -494,6 +505,7 @@ impl DomainEvent {
             | Self::ServerConfigUpdated { space_id, .. }
             | Self::ServerEnabled { space_id, .. }
             | Self::ServerDisabled { space_id, .. }
+            | Self::ServerUpdateAvailable { space_id, .. }
             | Self::ServerStatusChanged { space_id, .. }
             | Self::ServerAuthProgress { space_id, .. }
             | Self::ServerFeaturesRefreshed { space_id, .. }
@@ -531,6 +543,7 @@ impl DomainEvent {
             | Self::ServerConfigUpdated { server_id, .. }
             | Self::ServerEnabled { server_id, .. }
             | Self::ServerDisabled { server_id, .. }
+            | Self::ServerUpdateAvailable { server_id, .. }
             | Self::ServerStatusChanged { server_id, .. }
             | Self::ServerAuthProgress { server_id, .. }
             | Self::ServerFeaturesRefreshed { server_id, .. }

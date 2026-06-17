@@ -55,6 +55,7 @@ import { useDomainEventsWeb } from './useDomainEventsWeb';
 export type DomainEventChannel =
   | 'space-changed'
   | 'server-changed'
+  | 'server-update-available'
   | 'server-status-changed'
   | 'server-auth-progress'
   | 'server-features-refreshed'
@@ -87,6 +88,14 @@ export interface ServerChangedPayload extends DomainEventPayload {
   space_id: string;
   server_id: string;
   server_name?: string;
+}
+
+/** Server package update probe payload */
+export interface ServerUpdateAvailablePayload extends DomainEventPayload {
+  space_id: string;
+  server_id: string;
+  current_version?: string | null;
+  latest_version?: string | null;
 }
 
 /** Server status event payload */
@@ -166,6 +175,7 @@ export interface MCPNotificationPayload extends DomainEventPayload {
 export interface PayloadTypeMap {
   'space-changed': SpaceChangedPayload;
   'server-changed': ServerChangedPayload;
+  'server-update-available': ServerUpdateAvailablePayload;
   'server-status-changed': ServerStatusChangedPayload;
   'server-auth-progress': ServerAuthProgressPayload;
   'server-features-refreshed': ServerFeaturesRefreshedPayload;
@@ -195,6 +205,7 @@ export type AllEventsCallback = (
 const ALL_CHANNELS: DomainEventChannel[] = [
   'space-changed',
   'server-changed',
+  'server-update-available',
   'server-status-changed',
   'server-auth-progress',
   'server-features-refreshed',

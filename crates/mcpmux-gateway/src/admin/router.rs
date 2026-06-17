@@ -148,6 +148,14 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/servers/connections/logout",
             post(write::logout_server),
         )
+        .route(
+            "/api/v1/servers/updates/check-all",
+            post(write::check_all_server_versions),
+        )
+        .route(
+            "/api/v1/servers/{server_id}/updates/check",
+            post(write::check_server_version),
+        )
         .route("/api/v1/servers/clones", post(write::clone_server))
         .route("/api/v1/registry/discover", get(read::discover_servers))
         .route(

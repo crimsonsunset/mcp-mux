@@ -4,6 +4,7 @@
 //! the implementation (SQLite, in-memory, etc.)
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::domain::{
@@ -127,6 +128,14 @@ pub trait InstalledServerRepository: Send + Sync {
     /// Pass `None` to clear the override (UI falls back to `server_name` /
     /// `cached_definition.name` / `server_id` tail).
     async fn set_display_name_override(&self, id: &Uuid, value: Option<String>) -> RepoResult<()>;
+
+    /// Persist notify-mode version probe results for one installation.
+    async fn update_version_cache(
+        &self,
+        id: &Uuid,
+        latest_available_version: Option<String>,
+        version_checked_at: DateTime<Utc>,
+    ) -> RepoResult<()>;
 }
 
 /// ServerFeature repository trait

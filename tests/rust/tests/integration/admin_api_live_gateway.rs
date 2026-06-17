@@ -11,6 +11,7 @@ use mcpmux_gateway::admin::command_bridge::read as bridge_read;
 use mcpmux_gateway::admin::{
     AdminBridgeCtx, AdminConfig, BackendBuildStamp, LiveGatewayRuntime, StubGatewayWriteRuntime,
 };
+use mcpmux_gateway::services::ServerVersionProbeService;
 use mcpmux_gateway::{DependenciesBuilder, GatewayConfig, GatewayServer, GatewayServerHandle};
 use mcpmux_storage::{
     Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
@@ -40,6 +41,7 @@ impl LiveGatewayFixture {
             db.clone(),
             Arc::new(mcpmux_storage::FieldEncryptor::new(&[7_u8; 32]).expect("encryptor")),
         ));
+        let installed_repo_for_probe = installed_repo.clone();
         let feature_set_repo = Arc::new(SqliteFeatureSetRepository::new(db.clone()));
         let client_repo = Arc::new(SqliteInboundMcpClientRepository::new(db.clone()));
         let credential_repo = Arc::new(SqliteCredentialRepository::new(
@@ -94,6 +96,7 @@ impl LiveGatewayFixture {
             .with_database(db)
             .with_jwt_secret(Zeroizing::new([5_u8; mcpmux_storage::JWT_SECRET_SIZE]))
             .with_settings_repo(settings_repo.clone())
+            .with_event_bus(event_bus.clone())
             .build()
             .expect("gateway dependencies");
 
@@ -143,6 +146,11 @@ impl LiveGatewayFixture {
                 git_sha: "test-sha".to_string(),
                 ..Default::default()
             },
+            version_probe: Arc::new(ServerVersionProbeService::new(
+                installed_repo_for_probe,
+                settings_repo.clone(),
+                event_bus.clone(),
+            )),
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;

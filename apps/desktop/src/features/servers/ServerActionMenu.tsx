@@ -1,4 +1,16 @@
-import { MoreVertical, Settings, RefreshCw, RotateCcw, FileText, Code, Trash2, Copy, Download } from 'lucide-react';
+import {
+  MoreVertical,
+  Settings,
+  RefreshCw,
+  RotateCcw,
+  FileText,
+  Code,
+  Trash2,
+  Copy,
+  Download,
+  ArrowUpCircle,
+  Search,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuAction,
@@ -21,12 +33,17 @@ export interface ServerActionMenuProps {
   isPackageManaged?: boolean;
   /** Per-server update policy from installed state. */
   updatePolicy?: UpdatePolicy;
+  /** Whether a newer package version is available. */
+  hasUpdateAvailable?: boolean;
+  /** Latest registry version when an update is available. */
+  latestVersion?: string | null;
   /** Show "Add another account…" for registry/manual installs (not clones-of-clones). */
   canCloneAccount?: boolean;
   onConfigure: () => void;
   onRefresh: () => void;
   onReconnect: () => void;
   onUpdateNow?: () => void;
+  onCheckForUpdate?: () => void;
   onViewLogs: () => void;
   onViewDefinition: () => void;
   onCloneAccount?: () => void;
@@ -45,33 +62,59 @@ export function ServerActionMenu({
   isConnected: _isConnected,
   isPackageManaged = false,
   updatePolicy = 'notify',
+  hasUpdateAvailable = false,
+  latestVersion,
   canCloneAccount = false,
   onConfigure,
   onRefresh,
   onReconnect,
   onUpdateNow,
+  onCheckForUpdate,
   onViewLogs,
   onViewDefinition,
   onCloneAccount,
   onUninstall,
 }: ServerActionMenuProps) {
   const showUpdateNow =
-    isPackageManaged && updatePolicy === 'auto' && isEnabled && onUpdateNow != null;
+    isPackageManaged &&
+    isEnabled &&
+    onUpdateNow != null &&
+    (updatePolicy === 'auto' || hasUpdateAvailable);
+  const showCheckForUpdate =
+    isPackageManaged && onCheckForUpdate != null && updatePolicy !== 'pinned';
+  const updateLabel = latestVersion
+    ? `Update Available (v${latestVersion})`
+    : 'Update Available';
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
         <button
           type="button"
-          className="p-2 text-sm rounded-lg bg-[rgb(var(--surface-hover))] border border-[rgb(var(--border))] text-[rgb(var(--foreground))]/70 hover:bg-[rgb(var(--surface-elevated))] hover:text-[rgb(var(--foreground))] transition-colors"
+          className="relative p-2 text-sm rounded-lg bg-[rgb(var(--surface-hover))] border border-[rgb(var(--border))] text-[rgb(var(--foreground))]/70 hover:bg-[rgb(var(--surface-elevated))] hover:text-[rgb(var(--foreground))] transition-colors"
           title="More actions"
           aria-label="More actions"
           data-testid={`action-menu-${serverId}`}
         >
           <MoreVertical className="h-4 w-4" />
+          {hasUpdateAvailable && (
+            <span
+              className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-[rgb(var(--surface-hover))]"
+              aria-label="Update available"
+              data-testid={`update-badge-${serverId}`}
+            />
+          )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48 py-1 p-1">
+      <DropdownMenuContent align="end" className="w-56 py-1 p-1">
+        {hasUpdateAvailable && showUpdateNow && (
+          <DropdownMenuAction
+            icon={ArrowUpCircle}
+            label={updateLabel}
+            onSelect={onUpdateNow}
+            data-testid={`update-available-${serverId}`}
+          />
+        )}
         <DropdownMenuAction
           icon={Settings}
           label={hasInputs ? 'Configure' : 'Settings'}
@@ -80,12 +123,20 @@ export function ServerActionMenu({
         {isEnabled && (
           <DropdownMenuAction icon={RefreshCw} label="Refresh" onSelect={onRefresh} />
         )}
-        {showUpdateNow && (
+        {showUpdateNow && !hasUpdateAvailable && (
           <DropdownMenuAction
             icon={Download}
             label="Update Now"
             onSelect={onUpdateNow}
             data-testid={`update-now-${serverId}`}
+          />
+        )}
+        {showCheckForUpdate && (
+          <DropdownMenuAction
+            icon={Search}
+            label="Check for Update"
+            onSelect={onCheckForUpdate}
+            data-testid={`check-update-${serverId}`}
           />
         )}
         {isOAuth && isEnabled && (

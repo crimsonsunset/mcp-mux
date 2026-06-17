@@ -743,6 +743,19 @@ mod tests {
             }
             Ok(())
         }
+
+        async fn update_version_cache(
+            &self,
+            id: &Uuid,
+            latest_available_version: Option<String>,
+            version_checked_at: chrono::DateTime<chrono::Utc>,
+        ) -> crate::repository::RepoResult<()> {
+            if let Some(server) = self.servers.write().unwrap().get_mut(id) {
+                server.latest_available_version = latest_available_version;
+                server.version_checked_at = Some(version_checked_at);
+            }
+            Ok(())
+        }
     }
 
     fn sample_definition(server_id: &str, name: &str) -> ServerDefinition {

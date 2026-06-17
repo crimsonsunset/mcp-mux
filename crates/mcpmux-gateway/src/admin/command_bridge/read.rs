@@ -544,8 +544,15 @@ pub async fn get_server_update_settings(ctx: &AdminBridgeCtx) -> Result<Value> {
         Ok(Some(value)) => value,
         _ => "notify".to_string(),
     };
+    let last_checked_at = ctx
+        .settings_repository
+        .get("servers.last_version_probe_at")
+        .await
+        .ok()
+        .flatten();
     Ok(json!({
         "defaultUpdatePolicy": policy,
+        "lastCheckedAt": last_checked_at,
     }))
 }
 

@@ -24,7 +24,11 @@ import {
 } from 'lucide-react';
 import { Button, SearchField } from '@mcpmux/ui';
 import { ServerActionMenu } from './ServerActionMenu';
-import { isPackageManagedTransport } from './server-update-policy.helpers';
+import {
+  isPackageManagedTransport,
+  isUpdateAvailable,
+  resolveCurrentPackageVersion,
+} from './server-update-policy.helpers';
 import { ServerEnabledToggle } from './ServerEnabledToggle';
 import { CloneAccountModal } from './CloneAccountModal';
 import { AddServerMenu } from './AddServerMenu';
@@ -45,11 +49,16 @@ import {
 import { resolveInstalledDisplayName } from './server-display-name.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
+import { checkServerVersion } from '@/lib/api/settings';
 import { useViewSpace, useNavigateTo, usePendingServersFilter, useSetPendingServersFilter } from '@/stores';
 import { useServerManager } from '@/hooks/useServerManager';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { useGatewayEvents, useDomainEvents } from '@/hooks/useDomainEvents';
-import type { GatewayChangedPayload, ServerChangedPayload } from '@/hooks/useDomainEvents';
+import type {
+  GatewayChangedPayload,
+  ServerChangedPayload,
+  ServerUpdateAvailablePayload,
+} from '@/hooks/useDomainEvents';
 import type { FeaturesUpdatedEvent } from '@/lib/api/serverManager';
 import { ServerLogViewer } from '@/components/ServerLogViewer';
 import { ConfigEditorModal } from '@/components/ConfigEditorModal';
@@ -119,6 +128,8 @@ function mergeDefinitionsWithStates(
       default_params: state?.default_params ?? {},
       update_policy: state?.update_policy ?? 'notify',
       pinned_version: state?.pinned_version ?? null,
+      latest_available_version: state?.latest_available_version ?? null,
+      version_checked_at: state?.version_checked_at ?? null,
     } as ServerViewModel;
   });
 }
@@ -157,6 +168,8 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
         default_params: state.default_params ?? {},
         update_policy: state.update_policy ?? 'notify',
         pinned_version: state.pinned_version ?? null,
+        latest_available_version: state.latest_available_version ?? null,
+        version_checked_at: state.version_checked_at ?? null,
       } as ServerViewModel;
     } catch (e) {
       console.warn('[ServersPage] Failed to parse cached_definition, using minimal fallback:', e);
@@ -468,6 +481,27 @@ export function ServersPage() {
       }
     });
   }, [loadData, subscribe, viewSpace]);
+
+  useEffect(() => {
+    return subscribe('server-update-available', (payload: ServerUpdateAvailablePayload) => {
+      if (!viewSpace || payload.space_id !== viewSpace.id) {
+        return;
+      }
+
+      setInstalledServers((current) =>
+        current.map((server) => {
+          if (server.id !== payload.server_id) {
+            return server;
+          }
+          return {
+            ...server,
+            latest_available_version: payload.latest_version ?? server.latest_available_version,
+            version_checked_at: new Date().toISOString(),
+          };
+        })
+      );
+    });
+  }, [subscribe, viewSpace]);
 
   // Note: Server status changes are handled by useServerManager hook
   // which updates serverStatuses state via events. No need to re-fetch
@@ -966,6 +1000,42 @@ export function ServersPage() {
       await retryConnectionV2(server.id);
     } catch (e) {
       showToast(String(e), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  /**
+   * Run an immediate npm/uv version probe for one server.
+   */
+  const handleCheckForUpdate = async (server: ServerViewModel) => {
+    if (!viewSpace) {
+      return;
+    }
+
+    setActionLoading(`check-update-${server.id}`);
+    try {
+      const result = await checkServerVersion(viewSpace.id, server.id);
+      setInstalledServers((current) =>
+        current.map((entry) => {
+          if (entry.id !== server.id) {
+            return entry;
+          }
+          return {
+            ...entry,
+            latest_available_version: result.latestVersion,
+            version_checked_at: result.checkedAt,
+          };
+        })
+      );
+
+      if (result.updateAvailable && result.latestVersion) {
+        showToast(`Update available: v${result.latestVersion}`, 'info');
+      } else {
+        showToast('Server package is up to date', 'success');
+      }
+    } catch (error) {
+      showToast(String(error), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -1602,11 +1672,24 @@ export function ServersPage() {
                           isPackageManagedTransport(server.transport.command)
                         }
                         updatePolicy={server.update_policy ?? 'notify'}
+                        hasUpdateAvailable={
+                          server.transport.type === 'stdio' &&
+                          isUpdateAvailable(
+                            server.latest_available_version,
+                            resolveCurrentPackageVersion({
+                              pinnedVersion: server.pinned_version,
+                              transportCommand: server.transport.command,
+                              transportArgs: server.transport.args,
+                            })
+                          )
+                        }
+                        latestVersion={server.latest_available_version}
                         canCloneAccount={canCloneServer(server)}
                         onConfigure={() => handleConfigureClick(server)}
                         onRefresh={() => handleRefresh(server)}
                         onReconnect={() => handleReconnect(server)}
                         onUpdateNow={() => handleRetry(server)}
+                        onCheckForUpdate={() => handleCheckForUpdate(server)}
                         onViewLogs={() => setLogViewerServer({ id: server.id, name: server.name })}
                         onViewDefinition={() => setDefinitionServer({ id: server.id, name: server.name })}
                         onCloneAccount={() => setCloneModalServer(server)}

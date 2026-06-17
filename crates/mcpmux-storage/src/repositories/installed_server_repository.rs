@@ -36,6 +36,8 @@ struct RawServerRow {
     default_params: Option<String>,
     update_policy: String,
     pinned_version: Option<String>,
+    latest_available_version: Option<String>,
+    version_checked_at: Option<String>,
 }
 
 /// SQLite-backed implementation of InstalledServerRepository.
@@ -149,7 +151,8 @@ impl SqliteInstalledServerRepository {
     const SELECT_COLUMNS: &'static str =
         "id, space_id, server_id, server_name, cached_definition, input_values, enabled, env_overrides,
          args_append, extra_headers, oauth_connected, created_at, updated_at, source, cloned_from,
-         display_name_override, default_params, update_policy, pinned_version";
+         display_name_override, default_params, update_policy, pinned_version,
+         latest_available_version, version_checked_at";
 
     /// Extract raw row data (used in the closure passed to rusqlite).
     fn extract_row(row: &rusqlite::Row) -> rusqlite::Result<RawServerRow> {
@@ -173,6 +176,8 @@ impl SqliteInstalledServerRepository {
             default_params: row.get(16)?,
             update_policy: row.get(17)?,
             pinned_version: row.get(18)?,
+            latest_available_version: row.get(19)?,
+            version_checked_at: row.get(20)?,
         })
     }
 
@@ -196,6 +201,11 @@ impl SqliteInstalledServerRepository {
             display_name_override: row.display_name_override,
             update_policy: UpdatePolicy::from_db_str(&row.update_policy),
             pinned_version: row.pinned_version,
+            latest_available_version: row.latest_available_version,
+            version_checked_at: row
+                .version_checked_at
+                .as_deref()
+                .map(Self::parse_datetime),
             created_at: Self::parse_datetime(&row.created_at),
             updated_at: Self::parse_datetime(&row.updated_at),
         }
@@ -304,8 +314,9 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
             "INSERT INTO installed_servers
              (id, space_id, server_id, server_name, cached_definition, input_values, enabled, env_overrides,
               args_append, extra_headers, oauth_connected, created_at, updated_at, source, cloned_from,
-              display_name_override, default_params, update_policy, pinned_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+              display_name_override, default_params, update_policy, pinned_version,
+              latest_available_version, version_checked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 server.id.to_string(),
                 server.space_id,
@@ -326,6 +337,10 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 Self::serialize_json_value_map(&server.default_params),
                 server.update_policy.as_db_str(),
                 server.pinned_version,
+                server.latest_available_version,
+                server
+                    .version_checked_at
+                    .map(|dt| dt.to_rfc3339()),
             ],
         )?;
         Ok(())
@@ -342,7 +357,8 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
              SET server_name = ?2, cached_definition = ?3, input_values = ?4, enabled = ?5,
                  env_overrides = ?6, args_append = ?7, extra_headers = ?8, oauth_connected = ?9,
                  updated_at = ?10, source = ?11, display_name_override = ?12, default_params = ?13,
-                 update_policy = ?14, pinned_version = ?15
+                 update_policy = ?14, pinned_version = ?15, latest_available_version = ?16,
+                 version_checked_at = ?17
              WHERE id = ?1",
             params![
                 server.id.to_string(),
@@ -360,6 +376,10 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
                 Self::serialize_json_value_map(&server.default_params),
                 server.update_policy.as_db_str(),
                 server.pinned_version,
+                server.latest_available_version,
+                server
+                    .version_checked_at
+                    .map(|dt| dt.to_rfc3339()),
             ],
         )?;
         Ok(())
@@ -486,6 +506,29 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
         conn.execute(
             "UPDATE installed_servers SET display_name_override = ?2, updated_at = ?3 WHERE id = ?1",
             params![id.to_string(), value, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    async fn update_version_cache(
+        &self,
+        id: &Uuid,
+        latest_available_version: Option<String>,
+        version_checked_at: DateTime<Utc>,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        conn.execute(
+            "UPDATE installed_servers
+             SET latest_available_version = ?2, version_checked_at = ?3, updated_at = ?4
+             WHERE id = ?1",
+            params![
+                id.to_string(),
+                latest_available_version,
+                version_checked_at.to_rfc3339(),
+                Utc::now().to_rfc3339(),
+            ],
         )?;
         Ok(())
     }

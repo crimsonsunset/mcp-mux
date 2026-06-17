@@ -15,6 +15,7 @@ import type {
 export const ADMIN_SSE_CHANNELS: DomainEventChannel[] = [
   'space-changed',
   'server-changed',
+  'server-update-available',
   'server-status-changed',
   'server-auth-progress',
   'server-features-refreshed',

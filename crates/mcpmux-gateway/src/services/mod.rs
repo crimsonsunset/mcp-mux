@@ -19,6 +19,7 @@ mod prefix_cache;
 pub mod prompt_discovery;
 pub mod resource_discovery;
 mod session_roots;
+mod server_version_probe;
 mod space_resolver;
 pub mod tool_discovery;
 
@@ -40,6 +41,9 @@ pub use prefix_cache::PrefixCacheService;
 pub use prompt_discovery::{PromptDetailLevel, PromptDiscoveryService, PromptIndexEntry};
 pub use resource_discovery::{ResourceDetailLevel, ResourceDiscoveryService, ResourceIndexEntry};
 pub use session_roots::SessionRootsRegistry;
+pub use server_version_probe::{
+    ServerVersionProbeResult, ServerVersionProbeService, ServerVersionProbeSummary,
+};
 pub use space_resolver::SpaceResolverService;
 pub use tool_discovery::{
     DetailLevel, SearchContext, ToolDiscoveryService, ToolIndex, ToolIndexEntry,

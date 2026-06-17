@@ -506,6 +506,13 @@ impl GatewayServer {
             // Step 3: Auto-connect enabled servers (non-blocking)
             // As each server connects, it will emit list_changed notifications
             self_for_autoconnect.auto_connect_servers().await;
+
+            // Step 4: Probe npm/uv package versions for notify/auto servers
+            self_for_autoconnect
+                .services
+                .version_probe
+                .clone()
+                .start_scheduler();
         });
 
         // Build router and start server immediately

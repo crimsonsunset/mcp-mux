@@ -23,7 +23,7 @@ use crate::services::admin_server::{
 use crate::services::ui_events::emit_ui_channel;
 use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
-use mcpmux_core::{AppSettingsService, DomainEvent};
+use mcpmux_core::{AppSettingsService, ApplicationServices, DomainEvent};
 use mcpmux_gateway::admin::ui_events::{map_domain_event_to_ui, AdminUiEventBus};
 use mcpmux_gateway::oauth::OAUTH_CONSENT_EVENT;
 use mcpmux_gateway::services::meta_tools::{
@@ -426,7 +426,7 @@ pub async fn wire_consent_ui_notifications(
 /// All external dependencies are explicitly injected, making the Gateway testable.
 fn create_gateway_dependencies(
     app_state: &AppState,
-    _app_handle: tauri::AppHandle,
+    application_services: &ApplicationServices,
 ) -> Result<mcpmux_gateway::GatewayDependencies, String> {
     // Load JWT signing secret (DPAPI on Windows, keychain elsewhere)
     let jwt_secret = match mcpmux_storage::create_jwt_secret_provider(app_state.data_dir()) {
@@ -457,7 +457,8 @@ fn create_gateway_dependencies(
         .with_log_manager(app_state.server_log_manager.clone())
         .with_database(app_state.database())
         .with_state_dir(app_state.data_dir().to_path_buf())
-        .with_settings_repo(app_state.settings_repository.clone());
+        .with_settings_repo(app_state.settings_repository.clone())
+        .with_event_bus(application_services.event_bus.clone());
 
     if let Some(secret) = jwt_secret {
         builder = builder.with_jwt_secret(secret);
@@ -530,6 +531,7 @@ pub async fn start_gateway(
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
     sm_state: State<'_, Arc<RwLock<ServerManagerState>>>,
     app_state: State<'_, AppState>,
+    application_services: State<'_, Arc<ApplicationServices>>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     let mut state = gateway_state.write().await;
@@ -585,7 +587,7 @@ pub async fn start_gateway(
     info!("Starting gateway on {}", url);
 
     // Create dependencies using DI builder pattern
-    let dependencies = create_gateway_dependencies(&app_state, app_handle.clone())?;
+    let dependencies = create_gateway_dependencies(&app_state, &application_services)?;
 
     // Create gateway config
     let config = mcpmux_gateway::GatewayConfig {
@@ -943,6 +945,7 @@ pub async fn restart_gateway(
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
     sm_state: State<'_, Arc<RwLock<ServerManagerState>>>,
     app_state: State<'_, AppState>,
+    application_services: State<'_, Arc<ApplicationServices>>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     info!("[Gateway] Restart requested — tearing down current state");
@@ -966,6 +969,7 @@ pub async fn restart_gateway(
         gateway_state,
         sm_state,
         app_state,
+        application_services,
         app_handle,
     )
     .await

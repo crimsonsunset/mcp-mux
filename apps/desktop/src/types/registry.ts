@@ -111,6 +111,10 @@ export interface InstalledServerState {
   update_policy?: UpdatePolicy;
   /** Pinned semver when policy is `pinned`. */
   pinned_version?: string | null;
+  /** Latest registry version from the most recent probe. */
+  latest_available_version?: string | null;
+  /** When the version probe last ran for this install. */
+  version_checked_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -139,6 +143,9 @@ export interface ServerViewModel extends ServerDefinition {
   update_policy?: UpdatePolicy;
   /** Pinned version when policy is `pinned`. */
   pinned_version?: string | null;
+  /** Latest available package version from probe cache. */
+  latest_available_version?: string | null;
+  version_checked_at?: string | null;
 }
 
 /** Registry category */

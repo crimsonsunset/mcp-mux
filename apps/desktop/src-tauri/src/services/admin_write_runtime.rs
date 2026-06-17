@@ -50,6 +50,7 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
             self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),
+            self.app_handle.state(),
             self.app_handle.clone(),
         )
         .await
@@ -77,6 +78,7 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         let url = restart_gateway(
             port,
             allow_dynamic_fallback,
+            self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),

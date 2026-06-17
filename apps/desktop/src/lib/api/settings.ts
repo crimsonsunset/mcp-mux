@@ -20,6 +20,8 @@ export type UpdatePolicy = 'auto' | 'notify' | 'pinned';
 /** App-wide default update policy for new server installs. */
 export interface ServerUpdateSettings {
   defaultUpdatePolicy: UpdatePolicy;
+  /** ISO timestamp of the last bulk version probe, when available. */
+  lastCheckedAt?: string | null;
 }
 
 /** Persisted gateway port override, default, and currently active port. */
@@ -64,6 +66,30 @@ export async function getServerUpdateSettings(): Promise<ServerUpdateSettings> {
  */
 export async function updateServerUpdateSettings(settings: ServerUpdateSettings): Promise<void> {
   return apiCall('update_server_update_settings', { settings });
+}
+
+/** Probe all notify/auto package-managed servers for updates. */
+export async function checkAllServerUpdates(): Promise<{
+  checked: number;
+  updatesAvailable: number;
+  checkedAt: string;
+}> {
+  return apiCall('check_all_server_updates');
+}
+
+/** Probe a single installed server for package updates. */
+export async function checkServerVersion(
+  spaceId: string,
+  serverId: string
+): Promise<{
+  spaceId: string;
+  serverId: string;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkedAt: string;
+}> {
+  return apiCall('check_server_version', { spaceId, serverId });
 }
 
 /**

@@ -1067,3 +1067,32 @@ pub async fn revoke_oauth_client_feature_set(
         .revoke_oauth_client_feature_set(client_id, body.space_id, body.feature_set_id)
         .await
 }
+
+/// Probe npm/PyPI for a single installed server package update.
+pub async fn check_server_version(
+    ctx: &AdminBridgeCtx,
+    body: ServerConnectionBody,
+) -> Result<Value> {
+    let result = ctx
+        .version_probe
+        .probe_server(&body.space_id, &body.server_id)
+        .await?;
+    Ok(json!({
+        "spaceId": result.space_id,
+        "serverId": result.server_id,
+        "currentVersion": result.current_version,
+        "latestVersion": result.latest_version,
+        "updateAvailable": result.update_available,
+        "checkedAt": result.checked_at.to_rfc3339(),
+    }))
+}
+
+/// Probe all notify/auto package-managed servers for available updates.
+pub async fn check_all_server_versions(ctx: &AdminBridgeCtx) -> Result<Value> {
+    let summary = ctx.version_probe.probe_all().await?;
+    Ok(json!({
+        "checked": summary.checked,
+        "updatesAvailable": summary.updates_available,
+        "checkedAt": summary.checked_at.to_rfc3339(),
+    }))
+}

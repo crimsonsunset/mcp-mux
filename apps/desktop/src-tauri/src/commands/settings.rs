@@ -9,6 +9,8 @@ use crate::services::admin_server::reload_admin_server;
 use crate::state::AppState;
 use crate::{commands::gateway::GatewayAppState, commands::server_manager::ServerManagerState};
 use mcpmux_core::{AppSettingsService, ApplicationServices, UpdatePolicy};
+use mcpmux_gateway::services::ServerVersionProbeService;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -132,6 +134,8 @@ pub async fn update_startup_settings(
 #[serde(rename_all = "camelCase")]
 pub struct ServerUpdateSettings {
     pub default_update_policy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_checked_at: Option<String>,
 }
 
 /// Get the app-wide default server update policy.
@@ -149,6 +153,12 @@ pub async fn get_server_update_settings(
 
     Ok(ServerUpdateSettings {
         default_update_policy: policy,
+        last_checked_at: app_state
+            .settings_repository
+            .get("servers.last_version_probe_at")
+            .await
+            .ok()
+            .flatten(),
     })
 }
 
@@ -165,6 +175,56 @@ pub async fn update_server_update_settings(
         .await
         .map_err(|e| format!("Failed to save default update policy: {}", e))?;
     Ok(())
+}
+
+/// Build a version probe service wired to the desktop app state and event bus.
+fn build_version_probe(
+    app_state: &AppState,
+    application_services: &ApplicationServices,
+) -> ServerVersionProbeService {
+    ServerVersionProbeService::new(
+        app_state.installed_server_repository.clone(),
+        app_state.settings_repository.clone(),
+        application_services.event_bus.clone(),
+    )
+}
+
+/// Probe all notify/auto package-managed servers for available updates.
+#[tauri::command]
+pub async fn check_all_server_updates(
+    app_state: State<'_, AppState>,
+    application_services: State<'_, Arc<ApplicationServices>>,
+) -> Result<serde_json::Value, String> {
+    let probe = build_version_probe(&app_state, &application_services);
+    let summary = probe.probe_all().await.map_err(|e| e.to_string())?;
+    Ok(json!({
+        "checked": summary.checked,
+        "updatesAvailable": summary.updates_available,
+        "checkedAt": summary.checked_at.to_rfc3339(),
+    }))
+}
+
+/// Probe one installed server for package updates.
+#[tauri::command]
+pub async fn check_server_version(
+    space_id: String,
+    server_id: String,
+    app_state: State<'_, AppState>,
+    application_services: State<'_, Arc<ApplicationServices>>,
+) -> Result<serde_json::Value, String> {
+    let probe = build_version_probe(&app_state, &application_services);
+    let result = probe
+        .probe_server(&space_id, &server_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(json!({
+        "spaceId": result.space_id,
+        "serverId": result.server_id,
+        "currentVersion": result.current_version,
+        "latestVersion": result.latest_version,
+        "updateAvailable": result.update_available,
+        "checkedAt": result.checked_at.to_rfc3339(),
+    }))
 }
 
 /// Check if app should start hidden (for auto-launch with --hidden flag)

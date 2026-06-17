@@ -543,3 +543,27 @@ pub async fn revoke_oauth_client_feature_set(
         .map(ok)
         .map_err(ApiError::from_bridge)
 }
+
+pub async fn check_server_version(
+    State(state): State<AdminState>,
+    Path(server_id): Path<String>,
+    Json(body): Json<bridge::ServerConnectionBody>,
+) -> Result<Json<Value>, ApiError> {
+    let body = bridge::ServerConnectionBody {
+        space_id: body.space_id,
+        server_id,
+    };
+    bridge::check_server_version(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn check_all_server_versions(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::check_all_server_versions(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
