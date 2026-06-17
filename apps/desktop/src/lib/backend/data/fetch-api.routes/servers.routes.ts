@@ -32,6 +32,8 @@ export const serversRoutes: Record<string, RouteHandler> = {
       extra_headers: args.extraHeaders,
       default_params: args.defaultParams,
       display_name_override: args.displayNameOverride,
+      update_policy: args.updatePolicy,
+      pinned_version: args.pinnedVersion,
     },
   }),
   set_server_display_name: (args) => ({

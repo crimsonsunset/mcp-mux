@@ -535,6 +535,20 @@ pub async fn get_startup_settings(ctx: &AdminBridgeCtx) -> Result<Value> {
     }))
 }
 
+pub async fn get_server_update_settings(ctx: &AdminBridgeCtx) -> Result<Value> {
+    let policy = match ctx
+        .settings_repository
+        .get("servers.default_update_policy")
+        .await
+    {
+        Ok(Some(value)) => value,
+        _ => "notify".to_string(),
+    };
+    Ok(json!({
+        "defaultUpdatePolicy": policy,
+    }))
+}
+
 pub async fn get_meta_tools_enabled(ctx: &AdminBridgeCtx) -> Result<Value> {
     let enabled = match ctx
         .settings_repository

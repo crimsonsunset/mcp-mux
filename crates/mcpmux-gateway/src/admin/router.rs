@@ -243,6 +243,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::get_startup_settings).put(write::update_startup_settings),
         )
         .route(
+            "/api/v1/settings/server-updates",
+            get(read::get_server_update_settings).put(write::update_server_update_settings),
+        )
+        .route(
             "/api/v1/settings/meta-tools-enabled",
             get(read::get_meta_tools_enabled).put(write::set_meta_tools_enabled),
         )

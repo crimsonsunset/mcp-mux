@@ -8,7 +8,7 @@ use tracing::{debug, info};
 use crate::services::admin_server::reload_admin_server;
 use crate::state::AppState;
 use crate::{commands::gateway::GatewayAppState, commands::server_manager::ServerManagerState};
-use mcpmux_core::{AppSettingsService, ApplicationServices};
+use mcpmux_core::{AppSettingsService, ApplicationServices, UpdatePolicy};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -124,6 +124,46 @@ pub async fn update_startup_settings(
         .map_err(|e| format!("Failed to save close_to_tray setting: {}", e))?;
 
     info!("[Settings] Startup settings updated successfully");
+    Ok(())
+}
+
+/// Default update policy applied to newly installed servers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerUpdateSettings {
+    pub default_update_policy: String,
+}
+
+/// Get the app-wide default server update policy.
+#[tauri::command]
+pub async fn get_server_update_settings(
+    app_state: State<'_, AppState>,
+) -> Result<ServerUpdateSettings, String> {
+    let policy = app_state
+        .settings_repository
+        .get("servers.default_update_policy")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| UpdatePolicy::Notify.as_db_str().to_string());
+
+    Ok(ServerUpdateSettings {
+        default_update_policy: policy,
+    })
+}
+
+/// Persist the app-wide default server update policy.
+#[tauri::command]
+pub async fn update_server_update_settings(
+    settings: ServerUpdateSettings,
+    app_state: State<'_, AppState>,
+) -> Result<(), String> {
+    let policy = UpdatePolicy::from_db_str(&settings.default_update_policy);
+    app_state
+        .settings_repository
+        .set("servers.default_update_policy", policy.as_db_str())
+        .await
+        .map_err(|e| format!("Failed to save default update policy: {}", e))?;
     Ok(())
 }
 

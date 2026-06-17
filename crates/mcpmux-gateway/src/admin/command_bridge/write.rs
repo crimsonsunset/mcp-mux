@@ -8,8 +8,8 @@ use chrono::Utc;
 use image::GenericImageView;
 use mcpmux_core::{
     validate_workspace_root as validate_workspace_root_path, AppSettingsService, Client,
-    FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerSource, WorkspaceAppearance,
-    WorkspaceBinding, WorkspaceRootValidation,
+    FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerSource, UpdatePolicy,
+    WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,6 +23,20 @@ use crate::admin::command_bridge::read::{
 use crate::admin::command_bridge::space::{self, UpdateSpaceInput};
 
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
+const DEFAULT_UPDATE_POLICY_KEY: &str = "servers.default_update_policy";
+
+/// Load the app-wide default update policy for newly installed servers.
+async fn default_update_policy(ctx: &AdminBridgeCtx) -> UpdatePolicy {
+    match ctx.settings_repository.get(DEFAULT_UPDATE_POLICY_KEY).await {
+        Ok(Some(value)) => UpdatePolicy::from_db_str(&value),
+        _ => UpdatePolicy::Notify,
+    }
+}
+
+/// Parse an optional update policy string from an API request body.
+fn parse_update_policy(value: Option<String>) -> Option<UpdatePolicy> {
+    value.map(|policy| UpdatePolicy::from_db_str(&policy))
+}
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
 const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ICON_DIMENSION: u32 = 256;
@@ -97,6 +111,12 @@ pub struct StartupSettingsBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerUpdateSettingsBody {
+    pub default_update_policy: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UninstallServerBody {
     pub space_id: String,
 }
@@ -116,6 +136,8 @@ pub struct SaveServerInputsBody {
     pub extra_headers: Option<HashMap<String, String>>,
     pub default_params: Option<HashMap<String, Value>>,
     pub display_name_override: Option<String>,
+    pub update_policy: Option<String>,
+    pub pinned_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -709,6 +731,17 @@ pub async fn update_startup_settings(
     Ok(json!({ "ok": true }))
 }
 
+pub async fn update_server_update_settings(
+    ctx: &AdminBridgeCtx,
+    body: ServerUpdateSettingsBody,
+) -> Result<Value> {
+    let policy = UpdatePolicy::from_db_str(&body.default_update_policy);
+    ctx.settings_repository
+        .set(DEFAULT_UPDATE_POLICY_KEY, policy.as_db_str())
+        .await?;
+    Ok(json!({ "ok": true }))
+}
+
 pub async fn set_meta_tools_enabled(ctx: &AdminBridgeCtx, enabled: bool) -> Result<Value> {
     ctx.settings_repository
         .set(
@@ -763,9 +796,16 @@ pub async fn refresh_registry(ctx: &AdminBridgeCtx) -> Result<Value> {
                 continue;
             }
             let space_uuid = Uuid::parse_str(space_id)?;
+            let policy = default_update_policy(ctx).await;
             ctx.services
                 .server()
-                .install(space_uuid, &server.id, &server, HashMap::new())
+                .install(
+                    space_uuid,
+                    &server.id,
+                    &server,
+                    HashMap::new(),
+                    Some(policy),
+                )
                 .await?;
             count += 1;
         }
@@ -781,10 +821,17 @@ pub async fn install_server(ctx: &AdminBridgeCtx, body: InstallServerBody) -> Re
         .await
         .ok_or_else(|| anyhow!("Server definition not found"))?;
     let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let policy = default_update_policy(ctx).await;
     let installed = ctx
         .services
         .server()
-        .install(space_uuid, &body.id, &definition, HashMap::new())
+        .install(
+            space_uuid,
+            &body.id,
+            &definition,
+            HashMap::new(),
+            Some(policy),
+        )
         .await?;
     as_json(installed)
 }
@@ -813,6 +860,8 @@ pub async fn save_server_inputs(
             body.extra_headers,
             body.default_params,
             body.display_name_override,
+            parse_update_policy(body.update_policy),
+            body.pinned_version,
         )
         .await?;
     as_json(installed)

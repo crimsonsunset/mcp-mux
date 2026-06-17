@@ -92,7 +92,9 @@ export async function saveServerInputs(
   argsAppend?: string[],
   extraHeaders?: Record<string, string>,
   defaultParams?: Record<string, unknown>,
-  displayNameOverride?: string
+  displayNameOverride?: string,
+  updatePolicy?: string,
+  pinnedVersion?: string
 ): Promise<void> {
   return apiCall<void>('save_server_inputs', {
     id,
@@ -103,6 +105,8 @@ export async function saveServerInputs(
     extraHeaders,
     defaultParams,
     displayNameOverride,
+    updatePolicy,
+    pinnedVersion,
   });
 }
 

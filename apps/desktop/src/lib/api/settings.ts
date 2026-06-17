@@ -14,6 +14,14 @@ export interface StartupSettings {
   closeToTray: boolean;
 }
 
+/** Per-server package update policy. */
+export type UpdatePolicy = 'auto' | 'notify' | 'pinned';
+
+/** App-wide default update policy for new server installs. */
+export interface ServerUpdateSettings {
+  defaultUpdatePolicy: UpdatePolicy;
+}
+
 /** Persisted gateway port override, default, and currently active port. */
 export interface GatewayPortSettings {
   configuredPort: number | null;
@@ -42,6 +50,20 @@ export async function getStartupSettings(): Promise<StartupSettings> {
  */
 export async function updateStartupSettings(settings: StartupSettings): Promise<void> {
   return apiCall('update_startup_settings', { settings });
+}
+
+/**
+ * Load the default update policy for newly installed servers.
+ */
+export async function getServerUpdateSettings(): Promise<ServerUpdateSettings> {
+  return apiCall('get_server_update_settings');
+}
+
+/**
+ * Persist the default update policy for newly installed servers.
+ */
+export async function updateServerUpdateSettings(settings: ServerUpdateSettings): Promise<void> {
+  return apiCall('update_server_update_settings', { settings });
 }
 
 /**

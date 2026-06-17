@@ -420,6 +420,15 @@ pub async fn get_startup_settings(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_server_update_settings(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_server_update_settings(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_meta_tools_enabled(
     State(state): State<AdminState>,
 ) -> Result<Json<Value>, ApiError> {

@@ -2,6 +2,8 @@
  * Registry types for MCP server browsing and installation.
  */
 
+import type { UpdatePolicy } from '@/lib/api/settings';
+
 /** Input definition from registry */
 export interface InputDefinition {
   id: string;
@@ -105,6 +107,10 @@ export interface InstalledServerState {
   source: InstallationSource; // How this server was installed
   /** User-supplied display label that survives user-config sync. */
   display_name_override?: string | null;
+  /** Package update policy for npx/uvx stdio transports. */
+  update_policy?: UpdatePolicy;
+  /** Pinned semver when policy is `pinned`. */
+  pinned_version?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -129,6 +135,10 @@ export interface ServerViewModel extends ServerDefinition {
   extra_headers?: Record<string, string>;
   /** Default tool-call arguments merged into every call routed to this server. */
   default_params?: Record<string, unknown>;
+  /** Package update policy (npx/uvx servers). */
+  update_policy?: UpdatePolicy;
+  /** Pinned version when policy is `pinned`. */
+  pinned_version?: string | null;
 }
 
 /** Registry category */

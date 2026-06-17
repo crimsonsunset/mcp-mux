@@ -10,7 +10,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::domain::{
-    DomainEvent, InstallationSource, InstalledServer, ServerDefinition, UserServerEntry,
+    DomainEvent, InstallationSource, InstalledServer, ServerDefinition, UpdatePolicy,
+    UserServerEntry,
 };
 use crate::event_bus::EventSender;
 use crate::repository::{CredentialRepository, InstalledServerRepository, ServerFeatureRepository};
@@ -62,6 +63,7 @@ impl ServerAppService {
         server_id: &str,
         definition: &ServerDefinition,
         input_values: HashMap<String, String>,
+        update_policy: Option<UpdatePolicy>,
     ) -> Result<InstalledServer> {
         let space_id_str = space_id.to_string();
 
@@ -80,7 +82,8 @@ impl ServerAppService {
         let server = InstalledServer::new(&space_id_str, server_id)
             .with_inputs(input_values)
             .with_definition(definition)
-            .with_enabled(false);
+            .with_enabled(false)
+            .with_update_policy(update_policy.unwrap_or_default());
 
         self.server_repo.install(&server).await?;
 
@@ -152,6 +155,8 @@ impl ServerAppService {
             .with_source(InstallationSource::ManualEntry)
             .with_cloned_from(source_server_id)
             .with_display_name_override(display_name_override)
+            .with_update_policy(source.update_policy)
+            .with_pinned_version(source.pinned_version.clone())
             .with_enabled(false);
 
         self.server_repo.install(&server).await?;
@@ -361,7 +366,7 @@ impl ServerAppService {
         Ok(())
     }
 
-    /// Update server configuration (inputs, env overrides, args, headers, default params, display label).
+    /// Update server configuration (inputs, env overrides, args, headers, default params, display label, update policy).
     ///
     /// `display_name_override` semantics:
     /// - `None` — leave existing override unchanged.
@@ -380,6 +385,8 @@ impl ServerAppService {
         extra_headers: Option<HashMap<String, String>>,
         default_params: Option<HashMap<String, Value>>,
         display_name_override: Option<String>,
+        update_policy: Option<UpdatePolicy>,
+        pinned_version: Option<String>,
     ) -> Result<InstalledServer> {
         let space_id_str = space_id.to_string();
 
@@ -404,6 +411,14 @@ impl ServerAppService {
         }
         if let Some(value) = display_name_override {
             server.display_name_override = Some(value)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
+        if let Some(policy) = update_policy {
+            server.update_policy = policy;
+        }
+        if let Some(version) = pinned_version {
+            server.pinned_version = Some(version)
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
         }
@@ -1011,6 +1026,8 @@ mod tests {
                 None,
                 None,
                 Some("My Calendar".into()),
+                None,
+                None,
             )
             .await
             .expect("update with display name");
@@ -1026,6 +1043,8 @@ mod tests {
                 space_id,
                 "posthog",
                 HashMap::new(),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -1050,6 +1069,8 @@ mod tests {
                 None,
                 None,
                 Some("   ".into()),
+                None,
+                None,
             )
             .await
             .expect("clear override via update_config");

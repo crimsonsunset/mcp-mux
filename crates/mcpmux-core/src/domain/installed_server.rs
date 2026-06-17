@@ -9,6 +9,39 @@ use uuid::Uuid;
 
 use super::ServerDefinition;
 
+/// Per-server package update policy for npx/uvx stdio transports.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdatePolicy {
+    /// Inject `@latest` (npx) or run `uv tool upgrade` (uvx) at spawn time.
+    Auto,
+    /// Default — surface available updates without auto-upgrading (Phase 2 probe).
+    #[default]
+    Notify,
+    /// Lock to `pinned_version` at spawn time (enforced in Phase 3).
+    Pinned,
+}
+
+impl UpdatePolicy {
+    /// Parse a database-stored policy string (`auto` / `notify` / `pinned`).
+    pub fn from_db_str(value: &str) -> Self {
+        match value {
+            "auto" => Self::Auto,
+            "pinned" => Self::Pinned,
+            _ => Self::Notify,
+        }
+    }
+
+    /// Serialize to the `installed_servers.update_policy` column value.
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Notify => "notify",
+            Self::Pinned => "pinned",
+        }
+    }
+}
+
 /// Tracks how a server was installed (for sync/cleanup decisions)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -101,6 +134,14 @@ pub struct InstalledServer {
     #[serde(default)]
     pub display_name_override: Option<String>,
 
+    /// Package update policy for npx/uvx stdio transports.
+    #[serde(default)]
+    pub update_policy: UpdatePolicy,
+
+    /// Exact semver pin when `update_policy` is `Pinned` (enforced in Phase 3).
+    #[serde(default)]
+    pub pinned_version: Option<String>,
+
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
 
@@ -130,6 +171,8 @@ impl InstalledServer {
             source: InstallationSource::default(),
             cloned_from: None,
             display_name_override: None,
+            update_policy: UpdatePolicy::default(),
+            pinned_version: None,
             created_at: now,
             updated_at: now,
         }
@@ -189,6 +232,21 @@ impl InstalledServer {
     /// Set enabled state
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Set the package update policy for this installation.
+    pub fn with_update_policy(mut self, policy: UpdatePolicy) -> Self {
+        self.update_policy = policy;
+        self
+    }
+
+    /// Set the pinned package version (used when policy is `Pinned`).
+    pub fn with_pinned_version(mut self, version: Option<impl Into<String>>) -> Self {
+        self.pinned_version = version
+            .map(Into::into)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         self
     }
 

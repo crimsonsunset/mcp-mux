@@ -1,4 +1,4 @@
-import { MoreVertical, Settings, RefreshCw, RotateCcw, FileText, Code, Trash2, Copy } from 'lucide-react';
+import { MoreVertical, Settings, RefreshCw, RotateCcw, FileText, Code, Trash2, Copy, Download } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuAction,
@@ -6,6 +6,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@mcpmux/ui';
+import type { UpdatePolicy } from '@/lib/api/settings';
 
 export interface ServerActionMenuProps {
   serverId: string;
@@ -16,11 +17,16 @@ export interface ServerActionMenuProps {
   isOAuth: boolean;
   isEnabled: boolean;
   isConnected: boolean;
+  /** npx/uvx stdio transport — eligible for package update actions. */
+  isPackageManaged?: boolean;
+  /** Per-server update policy from installed state. */
+  updatePolicy?: UpdatePolicy;
   /** Show "Add another account…" for registry/manual installs (not clones-of-clones). */
   canCloneAccount?: boolean;
   onConfigure: () => void;
   onRefresh: () => void;
   onReconnect: () => void;
+  onUpdateNow?: () => void;
   onViewLogs: () => void;
   onViewDefinition: () => void;
   onCloneAccount?: () => void;
@@ -37,15 +43,21 @@ export function ServerActionMenu({
   isOAuth,
   isEnabled,
   isConnected: _isConnected,
+  isPackageManaged = false,
+  updatePolicy = 'notify',
   canCloneAccount = false,
   onConfigure,
   onRefresh,
   onReconnect,
+  onUpdateNow,
   onViewLogs,
   onViewDefinition,
   onCloneAccount,
   onUninstall,
 }: ServerActionMenuProps) {
+  const showUpdateNow =
+    isPackageManaged && updatePolicy === 'auto' && isEnabled && onUpdateNow != null;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
@@ -67,6 +79,14 @@ export function ServerActionMenu({
         />
         {isEnabled && (
           <DropdownMenuAction icon={RefreshCw} label="Refresh" onSelect={onRefresh} />
+        )}
+        {showUpdateNow && (
+          <DropdownMenuAction
+            icon={Download}
+            label="Update Now"
+            onSelect={onUpdateNow}
+            data-testid={`update-now-${serverId}`}
+          />
         )}
         {isOAuth && isEnabled && (
           <DropdownMenuAction

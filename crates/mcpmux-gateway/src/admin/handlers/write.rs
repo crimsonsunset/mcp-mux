@@ -11,7 +11,7 @@ use crate::admin::command_bridge::write::{
     DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody,
     InstallServerBody, LogRetentionBody, MetaToolApprovalBody, MetaToolRevokeBody,
     MetaToolsEnabledBody, OAuthClientUpdateBody, OAuthGrantBody, SaveServerInputsBody,
-    SaveSpaceConfigBody, ServerConnectionBody, SetMembersBody, SetServerDisplayNameBody,
+    SaveSpaceConfigBody, ServerConnectionBody, ServerUpdateSettingsBody, SetMembersBody, SetServerDisplayNameBody,
     SetServerOAuthConnectedBody, StartupSettingsBody, UninstallServerBody, UpdateFeatureSetBody,
     UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
 };
@@ -429,6 +429,16 @@ pub async fn update_startup_settings(
     Json(body): Json<StartupSettingsBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::update_startup_settings(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn update_server_update_settings(
+    State(state): State<AdminState>,
+    Json(body): Json<ServerUpdateSettingsBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::update_server_update_settings(&state.bridge, body)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

@@ -27,7 +27,7 @@ pub use client::*;
 pub use config::*;
 pub use credential::*;
 pub use feature_set::*;
-pub use installed_server::{InstallationSource, InstalledServer};
+pub use installed_server::{InstallationSource, InstalledServer, UpdatePolicy};
 pub use outbound_oauth_registration::*;
 pub use server::*;
 pub use server_feature::*;

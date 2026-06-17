@@ -4,9 +4,10 @@
 //! the static registry definition and user-specific installation settings.
 
 use super::ResolvedTransport;
-use mcpmux_core::{InstalledServer, TransportConfig as RegistryConfig};
+use mcpmux_core::{InstalledServer, TransportConfig as RegistryConfig, UpdatePolicy};
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 
 const MCP_STATE_DIR_ENV: &str = "MCP_STATE_DIR";
 
@@ -61,6 +62,8 @@ pub fn build_transport_config(
 
             // Append user's extra args
             resolved_args.extend(installed.args_append.clone());
+
+            apply_auto_update_policy(&resolved_command, &mut resolved_args, installed.update_policy);
 
             // Build env from registry + input values + env_overrides
             let mut resolved_env = HashMap::new();
@@ -119,6 +122,156 @@ pub fn build_transport_config(
             }
         }
     }
+}
+
+/// Apply Auto-mode package resolution for npx/uvx stdio transports.
+fn apply_auto_update_policy(command: &str, args: &mut [String], policy: UpdatePolicy) {
+    if policy != UpdatePolicy::Auto {
+        return;
+    }
+
+    match command {
+        "npx" => inject_npx_latest(args),
+        "uvx" | "uv" => run_uv_tool_upgrade(command, args),
+        _ => {}
+    }
+}
+
+/// Inject `@latest` into the npx package argument so npm re-resolves the registry tag.
+fn inject_npx_latest(args: &mut [String]) {
+    let Some(index) = find_npx_package_arg_index(args) else {
+        return;
+    };
+    let injected = inject_npm_version_tag(&args[index], "latest");
+    tracing::debug!(
+        "[TransportResolution] Auto update policy: npx package {} → {}",
+        args[index],
+        injected
+    );
+    args[index] = injected;
+}
+
+/// Run `uv tool upgrade <pkg>` before spawn; failures are logged and do not block connection.
+fn run_uv_tool_upgrade(command: &str, args: &[String]) {
+    let Some(package) = extract_uv_package_name(command, args) else {
+        return;
+    };
+
+    tracing::debug!(
+        "[TransportResolution] Auto update policy: running uv tool upgrade for {}",
+        package
+    );
+
+    match Command::new("uv").args(["tool", "upgrade", &package]).output() {
+        Ok(output) if output.status.success() => {
+            tracing::debug!(
+                "[TransportResolution] uv tool upgrade succeeded for {}",
+                package
+            );
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!(
+                "[TransportResolution] uv tool upgrade failed for {} (status {:?}): {}",
+                package,
+                output.status.code(),
+                stderr.trim()
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                "[TransportResolution] uv tool upgrade could not run for {}: {}",
+                package,
+                err
+            );
+        }
+    }
+}
+
+/// Index of the npm package argument for npx (`-y` flag skips to the next positional).
+fn find_npx_package_arg_index(args: &[String]) -> Option<usize> {
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        if matches!(arg, "-y" | "--yes") {
+            let next = index + 1;
+            if next < args.len() && !args[next].starts_with('-') {
+                return Some(next);
+            }
+        }
+        index += 1;
+    }
+
+    args.iter()
+        .position(|arg| !arg.starts_with('-') && arg != "--")
+}
+
+/// Package name for uvx or `uv run` invocations.
+fn extract_uv_package_name(command: &str, args: &[String]) -> Option<String> {
+    let index = match command {
+        "uvx" => args.iter().position(|arg| !arg.starts_with('-'))?,
+        "uv" if args.first().map(String::as_str) == Some("run") => {
+            let mut index = 1;
+            while index < args.len() {
+                let arg = args[index].as_str();
+                if arg.starts_with('-') {
+                    if matches!(arg, "-m" | "--module") {
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    continue;
+                }
+                return Some(strip_package_version(&args[index]));
+            }
+            return None;
+        }
+        _ => return None,
+    };
+
+    Some(strip_package_version(&args[index]))
+}
+
+/// Strip an existing `@version` or `==version` suffix from a package specifier.
+fn strip_package_version(package: &str) -> String {
+    if let Some(stripped) = package.strip_prefix("==") {
+        return stripped.to_string();
+    }
+    split_npm_package_arg(package).0
+}
+
+/// Split an npm-style package arg into name and optional version tag.
+fn split_npm_package_arg(package: &str) -> (String, Option<String>) {
+    if let Some(scoped) = package.strip_prefix('@') {
+        if let Some(at_idx) = scoped.find('@') {
+            let split_at = 1 + at_idx;
+            return (
+                package[..split_at].to_string(),
+                Some(package[split_at + 1..].to_string()),
+            );
+        }
+        return (package.to_string(), None);
+    }
+
+    if let Some(at_idx) = package.rfind('@') {
+        return (
+            package[..at_idx].to_string(),
+            Some(package[at_idx + 1..].to_string()),
+        );
+    }
+
+    (package.to_string(), None)
+}
+
+/// Append or replace an npm version tag on a package argument (`pkg`, `@scope/pkg`, or `pkg@ver`).
+fn inject_npm_version_tag(package: &str, tag: &str) -> String {
+    let tag = tag.trim_start_matches('@');
+    if tag.is_empty() {
+        return package.to_string();
+    }
+
+    let (name, _) = split_npm_package_arg(package);
+    format!("{name}@{tag}")
 }
 
 fn apply_state_dir_env(

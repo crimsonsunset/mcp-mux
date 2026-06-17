@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Button, SearchField } from '@mcpmux/ui';
 import { ServerActionMenu } from './ServerActionMenu';
+import { isPackageManagedTransport } from './server-update-policy.helpers';
 import { ServerEnabledToggle } from './ServerEnabledToggle';
 import { CloneAccountModal } from './CloneAccountModal';
 import { AddServerMenu } from './AddServerMenu';
@@ -116,6 +117,8 @@ function mergeDefinitionsWithStates(
       args_append: state?.args_append ?? [],
       extra_headers: state?.extra_headers ?? {},
       default_params: state?.default_params ?? {},
+      update_policy: state?.update_policy ?? 'notify',
+      pinned_version: state?.pinned_version ?? null,
     } as ServerViewModel;
   });
 }
@@ -152,6 +155,8 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
         args_append: state.args_append ?? [],
         extra_headers: state.extra_headers ?? {},
         default_params: state.default_params ?? {},
+        update_policy: state.update_policy ?? 'notify',
+        pinned_version: state.pinned_version ?? null,
       } as ServerViewModel;
     } catch (e) {
       console.warn('[ServersPage] Failed to parse cached_definition, using minimal fallback:', e);
@@ -1592,10 +1597,16 @@ export function ServersPage() {
                         }
                         isEnabled={server.enabled}
                         isConnected={serverAction === 'running' || serverAction === 'connected_auto'}
+                        isPackageManaged={
+                          server.transport.type === 'stdio' &&
+                          isPackageManagedTransport(server.transport.command)
+                        }
+                        updatePolicy={server.update_policy ?? 'notify'}
                         canCloneAccount={canCloneServer(server)}
                         onConfigure={() => handleConfigureClick(server)}
                         onRefresh={() => handleRefresh(server)}
                         onReconnect={() => handleReconnect(server)}
+                        onUpdateNow={() => handleRetry(server)}
                         onViewLogs={() => setLogViewerServer({ id: server.id, name: server.name })}
                         onViewDefinition={() => setDefinitionServer({ id: server.id, name: server.name })}
                         onCloneAccount={() => setCloneModalServer(server)}
