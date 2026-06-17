@@ -1,7 +1,7 @@
 # Server Update Policy — Audit & Remediation
 
 **Last Updated:** Jun 17, 2026
-**Status:** Audit complete — remediation not started
+**Status:** Remediation complete — Phases 2–5 done; manual smoke checklist pending operator run
 **Branch:** `feat/meta-surface-lean-core` (the feature shipped here in PR #4)
 **Base branch:** `dev`
 **Depends on:** The shipped per-server update policy ([`server-update-policy.md`](./server-update-policy.md)) — this doc audits that implementation and plans the fixes
@@ -153,14 +153,14 @@ buildPendingServerUpdates(installed, definitions):
 
 Baseline repros captured before remediation (Phase 2–5). Re-run after fixes land and record pass/fail in Phase 5.
 
-| # | Finding | One-line repro (before fix) | Expected after fix |
-| - | ------- | --------------------------- | ------------------ |
-| 1 | Notify badge blind for bare `npx -y pkg` | Install a notify-policy server with `npx -y <pkg>` (no `@version`), ensure npm has a newer release than the cached tarball, click **Check for Update** → no amber badge; menu reports **up to date**. | Badge + pending-list row appear; menu shows real current vs latest delta. |
-| 2 | uvx probe hits npm registry | Install a notify-policy uvx server (e.g. `uvx ruff`), click **Check for Update** → `latest_available_version` matches an npm package of the same name, not the PyPI release. | Latest version comes from PyPI JSON; delta reflects the installed uv tool version. |
+| # | Finding | One-line repro (before fix) | Expected after fix | Phase 5 result |
+| - | ------- | --------------------------- | ------------------ | ---------------- |
+| 1 | Notify badge blind for bare `npx -y pkg` | Install a notify-policy server with `npx -y <pkg>` (no `@version`), ensure npm has a newer release than the cached tarball, click **Check for Update** → no amber badge; menu reports **up to date**. | Badge + pending-list row appear; menu shows real current vs latest delta. | **Not run** (automated coverage only) |
+| 2 | uvx probe hits npm registry | Install a notify-policy uvx server (e.g. `uvx ruff`), click **Check for Update** → `latest_available_version` matches an npm package of the same name, not the PyPI release. | Latest version comes from PyPI JSON; delta reflects the installed uv tool version. | **Not run** (automated coverage only) |
 
 ---
 
-### Phase 2 — npx notify correctness + cache-bust (~1 day) — **P0**
+### Phase 2 — npx notify correctness + cache-bust (~1 day) — **done**
 
 - Add `npm_supports_cache_npx()` capability check (parse `npm --version`).
 - Implement npx cache introspection (`npm cache npx ls --json`) to derive `current_version` for unversioned packages; wire it into the probe's current-version derivation.
@@ -171,7 +171,7 @@ Baseline repros captured before remediation (Phase 2–5). Re-run after fixes la
 
 ---
 
-### Phase 3 — uvx PyPI probe correctness (~half day) — **P1**
+### Phase 3 — uvx PyPI probe correctness (~half day) — **done**
 
 - Replace the npm-registry fallback with a PyPI JSON API call (`info.version`) for uvx latest-version.
 - Derive uvx `current_version` from `uv tool list` (fall back to the `==` pin in args when present).
@@ -181,7 +181,7 @@ Baseline repros captured before remediation (Phase 2–5). Re-run after fixes la
 
 ---
 
-### Phase 4 — Consolidation: guards, async hygiene, headless, auto-exclusion (~1 day) — **P1**
+### Phase 4 — Consolidation: guards, async hygiene, headless, auto-exclusion (~1 day) — **done**
 
 - Extract `package_version.rs` as the single Rust source of truth for floating-tag / semver-validity / pinned / update-available logic; reuse it in `server_version_probe.rs` and `resolution.rs`. Replace loose `is_semver_like` with strict validation.
 - Collapse the TS guards in `server-update-policy.helpers.ts` to a single helper mirroring the Rust contract.
@@ -193,7 +193,7 @@ Baseline repros captured before remediation (Phase 2–5). Re-run after fixes la
 
 ---
 
-### Phase 5 — Verification & doc reconciliation (~1 day) — **P1**
+### Phase 5 — Verification & doc reconciliation (~1 day) — **done**
 
 - Mocked-subprocess integration tests: probe parsing (npm view, `npm cache npx` JSON, `uv tool list`, PyPI JSON), explicit update injection + cache eviction, false-positive guards, and the readiness of the pending list. No network.
 - Storage tests for migrations 024/025 column read/write + defaults.
@@ -207,19 +207,21 @@ Baseline repros captured before remediation (Phase 2–5). Re-run after fixes la
 
 ## Files to create / modify
 
-| File | Change |
-| ---- | ------ |
-| `crates/mcpmux-gateway/src/services/package_version.rs` | **Create** — single source of truth for floating-tag / semver-validity / pinned / update-available guards (Phase 4) |
-| [`crates/mcpmux-gateway/src/services/server_version_probe.rs`](../../crates/mcpmux-gateway/src/services/server_version_probe.rs) | npx cache introspection for current version; PyPI JSON for uvx latest; remove npm fallback; `spawn_blocking`/async HTTP; reuse shared guards (Phases 2–4) |
-| [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | npx cache eviction on explicit update; reuse shared guards; `spawn_blocking` for `uv tool upgrade` (Phases 2, 4) |
-| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | Implement `update_server_package` for the headless path (Phase 4) |
-| [`apps/desktop/src/features/servers/server-update-policy.helpers.ts`](../../apps/desktop/src/features/servers/server-update-policy.helpers.ts) | Collapse to one guard helper mirroring the Rust contract (Phase 4) |
-| [`apps/desktop/src/features/servers/server-pending-updates.helpers.ts`](../../apps/desktop/src/features/servers/server-pending-updates.helpers.ts) | Exclude auto-policy servers from the pending list (Phase 4) |
-| [`apps/desktop/src/features/servers/ServersPage.tsx`](../../apps/desktop/src/features/servers/ServersPage.tsx) | Badge respects auto-policy exclusion (Phase 4) |
-| `tests/rust/tests/integration/server_update_policy.rs` | **Create** — probe parsing, explicit update + eviction, guards, pending-list readiness (Phase 5) |
-| `tests/rust/tests/database/` | Migration 024/025 column read/write + default tests (Phase 5) |
-| [`tests/ts/admin-transport.test.ts`](../../tests/ts/admin-transport.test.ts) | Add `update_server_package`, `check_all_server_updates`, `check_server_version` route parity (Phase 5) |
-| [`docs/planning/server-update-policy.md`](./server-update-policy.md) | Correct stale `Status`; reconcile phases with shipped + remediated state (Phases 1, 5) |
+| File | Change | Status |
+| ---- | ------ | ------ |
+| `crates/mcpmux-gateway/src/services/package_version.rs` | **Created** — single source of truth for floating-tag / semver-validity / pinned / update-available guards | Done |
+| [`crates/mcpmux-gateway/src/services/server_version_probe.rs`](../../crates/mcpmux-gateway/src/services/server_version_probe.rs) | npx cache introspection for current version; PyPI JSON for uvx latest; remove npm fallback; `spawn_blocking`/async HTTP; reuse shared guards | Done |
+| [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | npx cache eviction on explicit update; reuse shared guards; `spawn_blocking` for `uv tool upgrade` | Done |
+| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | `LiveGatewayWriteRuntime` implements `update_server_package` for headless path | Done |
+| [`crates/mcpmux-gateway/src/admin/mod.rs`](../../crates/mcpmux-gateway/src/admin/mod.rs) | Export `LiveGatewayWriteRuntime` | Done |
+| [`apps/desktop/src/features/servers/server-update-policy.helpers.ts`](../../apps/desktop/src/features/servers/server-update-policy.helpers.ts) | Collapse to one guard helper mirroring the Rust contract | Done |
+| [`apps/desktop/src/features/servers/server-pending-updates.helpers.ts`](../../apps/desktop/src/features/servers/server-pending-updates.helpers.ts) | Exclude auto-policy servers from the pending list | Done |
+| [`apps/desktop/src/features/servers/ServersPage.tsx`](../../apps/desktop/src/features/servers/ServersPage.tsx) | Badge respects auto-policy exclusion | Done |
+| [`tests/rust/tests/integration/server_update_policy.rs`](../../tests/rust/tests/integration/server_update_policy.rs) | **Created** — probe parsing, explicit update injection, guards | Done |
+| [`tests/rust/tests/database/server_update_policy.rs`](../../tests/rust/tests/database/server_update_policy.rs) | **Created** — migration 024/025 column read/write + defaults | Done |
+| [`tests/rust/tests/integration/admin_api_live_gateway.rs`](../../tests/rust/tests/integration/admin_api_live_gateway.rs) | Wire `LiveGatewayWriteRuntime`; test `update_server_package` not stubbed | Done |
+| [`tests/ts/admin-transport.test.ts`](../../tests/ts/admin-transport.test.ts) | Add `update_server_package`, `check_all_server_updates`, `check_server_version` route parity | Done |
+| [`docs/planning/server-update-policy.md`](./server-update-policy.md) | Reconcile phases/status with shipped + remediated state | Done |
 
 ---
 

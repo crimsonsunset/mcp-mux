@@ -9,7 +9,7 @@ use mcpmux_core::{
 };
 use mcpmux_gateway::admin::command_bridge::read as bridge_read;
 use mcpmux_gateway::admin::{
-    AdminBridgeCtx, AdminConfig, BackendBuildStamp, LiveGatewayRuntime, StubGatewayWriteRuntime,
+    AdminBridgeCtx, AdminConfig, BackendBuildStamp, LiveGatewayRuntime, LiveGatewayWriteRuntime,
 };
 use mcpmux_gateway::services::ServerVersionProbeService;
 use mcpmux_gateway::{DependenciesBuilder, GatewayConfig, GatewayServer, GatewayServerHandle};
@@ -113,12 +113,22 @@ impl LiveGatewayFixture {
         };
         let listen_url = gateway_config.base_url();
         let gateway_server = GatewayServer::new(gateway_config, deps);
+        let version_probe = Arc::new(ServerVersionProbeService::new(
+            installed_repo_for_probe.clone(),
+            settings_repo.clone(),
+            event_bus.clone(),
+        ));
         let live_runtime = Arc::new(LiveGatewayRuntime::from_gateway_server(
             &gateway_server,
             gateway_port_service.clone(),
             listen_url.clone(),
         ));
-        let gateway_state = gateway_server.state();
+        let gateway_writes = Arc::new(LiveGatewayWriteRuntime::from_gateway_server(
+            &gateway_server,
+            data_dir.clone(),
+            installed_repo_for_probe.clone(),
+            version_probe.clone(),
+        ));
         let gateway_handle = gateway_server.spawn();
 
         let bridge = Arc::new(AdminBridgeCtx {
@@ -134,10 +144,7 @@ impl LiveGatewayFixture {
             server_log_manager,
             space_service: Arc::new(space_service),
             gateway_runtime: live_runtime,
-            gateway_writes: Arc::new(StubGatewayWriteRuntime {
-                gateway_port_service: Some(gateway_port_service),
-                gateway_state: Some(gateway_state),
-            }),
+            gateway_writes,
             feature_set_repository: feature_set_repo,
             auto_launch_enabled: Some(false),
             app_version: "0.0.0-test".to_string(),
@@ -146,11 +153,7 @@ impl LiveGatewayFixture {
                 git_sha: "test-sha".to_string(),
                 ..Default::default()
             },
-            version_probe: Arc::new(ServerVersionProbeService::new(
-                installed_repo_for_probe,
-                settings_repo.clone(),
-                event_bus.clone(),
-            )),
+            version_probe,
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -214,6 +217,33 @@ async fn live_gateway_port_settings_reflects_active_listen_url() {
         .expect("port settings");
     let active_port = bridge_settings["activePort"].as_u64().expect("active port");
     assert!(fixture.listen_url.contains(&format!(":{active_port}")));
+
+    fixture.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn live_gateway_update_server_package_uses_live_write_runtime() {
+    use mcpmux_gateway::admin::command_bridge::write::{update_server_package, ServerConnectionBody};
+
+    let fixture = LiveGatewayFixture::start().await;
+    let space_id = "11111111-1111-1111-1111-111111111111".to_string();
+
+    let result = update_server_package(
+        &fixture.harness.bridge,
+        ServerConnectionBody {
+            space_id,
+            server_id: "missing-server".to_string(),
+        },
+    )
+    .await;
+
+    let error = result.expect_err("missing server should fail");
+    let message = error.to_string();
+    assert!(
+        !message.contains("Gateway not running"),
+        "live write runtime should be wired, got: {message}"
+    );
+    assert!(message.contains("not found") || message.contains("Not found"));
 
     fixture.shutdown();
 }

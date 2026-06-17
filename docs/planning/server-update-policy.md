@@ -1,7 +1,7 @@
 # Server Update Policy — Per-Server Package Update Control
 
 **Last Updated:** Jun 17, 2026
-**Status:** Shipped in PR #4 — audit findings and remediation tracked in [`server-update-policy-audit-and-fixes.md`](./server-update-policy-audit-and-fixes.md)
+**Status:** Shipped in PR #4 and remediated — see [`server-update-policy-audit-and-fixes.md`](./server-update-policy-audit-and-fixes.md) for audit findings, fixes, and verification
 **Branch:** `feat/meta-surface-lean-core` (merged in PR #4)
 **Base branch:** `dev`
 **Depends on:** Nothing — additive; sits alongside `env_overrides` / `args_append` / `default_params` config lanes
@@ -166,7 +166,7 @@ Runs at gateway start and then every 6 hours (configurable). For each `notify`-p
 
 ## Phases
 
-### Phase 1 — Schema + Auto mode (~1 day)
+### Phase 1 — Schema + Auto mode (~1 day) — **done**
 
 - Migration `024_server_update_policy.sql` — `update_policy TEXT NOT NULL DEFAULT 'notify'`, `pinned_version TEXT`
 - Add `update_policy: UpdatePolicy` (enum: Auto/Notify/Pinned) and `pinned_version: Option<String>` to `InstalledServer` domain entity
@@ -180,7 +180,7 @@ Runs at gateway start and then every 6 hours (configurable). For each `notify`-p
 
 ---
 
-### Phase 2 — Notify mode: version probe + badge (~1 day)
+### Phase 2 — Notify mode: version probe + badge (~1 day) — **done**
 
 - Migration `025_server_version_cache.sql` — `latest_available_version TEXT`, `version_checked_at TEXT`
 - Add fields to entity + repository read/write
@@ -196,7 +196,7 @@ Runs at gateway start and then every 6 hours (configurable). For each `notify`-p
 
 ---
 
-### Phase 3 — Pinned mode: version lock (~half day)
+### Phase 3 — Pinned mode: version lock (~half day) — **done**
 
 - `resolution.rs` — enforce `pinned_version` for Pinned-policy servers: inject `@<semver>` into npx package arg, `==<semver>` for uvx
 - Configure sheet — "Pinned Version" text input visible when policy is Pinned; validation against basic semver pattern
@@ -208,6 +208,10 @@ Runs at gateway start and then every 6 hours (configurable). For each `notify`-p
 ---
 
 ### Phase 4 — Update history + changelog (deferred) *(punted)*
+
+### Remediation (post-ship audit) — **done**
+
+See [`server-update-policy-audit-and-fixes.md`](./server-update-policy-audit-and-fixes.md) for the audit findings and five remediation phases (npx cache introspection, PyPI probe, guard consolidation, headless `update_server_package`, verification tests). All remediation phases are complete; manual npx/uvx smoke repros remain operator-validated.
 
 **What it is:** A `server_update_history` table logging every update event (server_id, old_version, new_version, policy, outcome, timestamp). Surface in a new "Update History" tab inside View Logs, or as a separate sheet. Link to `changelog_url` from `ServerDefinition` when present.
 

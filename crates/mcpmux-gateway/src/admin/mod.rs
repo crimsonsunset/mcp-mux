@@ -31,6 +31,7 @@ pub use runtime::StubGatewayRuntime;
 pub use server::{AdminServer, AdminServerHandle};
 pub use ui_events::{map_domain_event_to_ui, AdminUiEventBus, UiEvent};
 pub use write_runtime::GatewayWriteRuntime;
+pub use write_runtime::LiveGatewayWriteRuntime;
 #[cfg(any(test, feature = "test-utils"))]
 pub use write_runtime::StubGatewayWriteRuntime;
 

@@ -78,7 +78,7 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
             data_dir.clone(),
             data_dir.join("spaces"),
         )),
-        settings_repository: settings_repo,
+        settings_repository: settings_repo.clone(),
         workspace_binding_repository,
         workspace_appearance_repository,
         server_feature_repository,

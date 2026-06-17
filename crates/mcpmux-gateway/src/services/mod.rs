@@ -44,6 +44,8 @@ pub use package_version::{
 pub use prefix_cache::PrefixCacheService;
 pub use prompt_discovery::{PromptDetailLevel, PromptDiscoveryService, PromptIndexEntry};
 pub use resource_discovery::{ResourceDetailLevel, ResourceDiscoveryService, ResourceIndexEntry};
+#[cfg(any(test, feature = "test-utils"))]
+pub use server_version_probe::update_policy_parsing as server_update_policy_parsing;
 pub use server_version_probe::{
     ServerVersionProbeResult, ServerVersionProbeService, ServerVersionProbeSummary,
 };

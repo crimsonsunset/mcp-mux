@@ -378,6 +378,15 @@ async fn current_version(
     }
 }
 
+/// Parse the latest published version from a PyPI JSON API body.
+fn parse_pypi_json_version(body: &serde_json::Value) -> Option<String> {
+    body.get("info")?
+        .get("version")?
+        .as_str()
+        .filter(|version| !version.is_empty())
+        .map(|version| version.to_string())
+}
+
 /// Fetch the latest published PyPI version via the JSON API.
 async fn fetch_pypi_latest_version(package: &str) -> Option<String> {
     let url = format!(
@@ -393,11 +402,7 @@ async fn fetch_pypi_latest_version(package: &str) -> Option<String> {
         return None;
     }
     let body: serde_json::Value = response.json().await.ok()?;
-    body.get("info")?
-        .get("version")?
-        .as_str()
-        .filter(|version| !version.is_empty())
-        .map(|version| version.to_string())
+    parse_pypi_json_version(&body)
 }
 
 /// Fetch the latest published version via `npm view <pkg> version`.
@@ -567,6 +572,24 @@ fn split_uv_version(package: &str) -> (String, Option<String>) {
         return (name.to_string(), Some(version.to_string()));
     }
     (package.to_string(), None)
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod update_policy_parsing {
+    /// Parse one `uv tool list` row (`<name> v<version>`).
+    pub fn parse_uv_tool_list_line(line: &str) -> Option<(String, String)> {
+        super::parse_uv_tool_list_line(line)
+    }
+
+    /// Parse one `uv tool list --outdated` row.
+    pub fn parse_uv_outdated_line(line: &str) -> Option<(String, String)> {
+        super::parse_uv_outdated_line(line).map(|(name, entry)| (name, entry.latest))
+    }
+
+    /// Parse the latest published version from a PyPI JSON API body.
+    pub fn parse_pypi_json_version(body: &serde_json::Value) -> Option<String> {
+        super::parse_pypi_json_version(body)
+    }
 }
 
 #[cfg(test)]

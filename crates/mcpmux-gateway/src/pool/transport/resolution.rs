@@ -339,21 +339,9 @@ fn fetch_npx_cache_ls_entries() -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
-/// Parse resolved version from `npm cache npx info <key>` for a package argument.
-fn parse_npx_cache_info_version(key: &str, package_arg: &str) -> Option<String> {
-    let cache_key = key.to_string();
-    let output = run_subprocess_blocking(move || {
-        Command::new("npm")
-            .args(["cache", "npx", "info", &cache_key])
-            .output()
-    })
-    .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
+/// Parse resolved version from `npm cache npx info` stdout for a package argument.
+fn parse_npx_cache_info_text(text: &str, package_arg: &str) -> Option<String> {
     let package_name = split_npm_package_arg(package_arg).0;
-    let text = String::from_utf8_lossy(&output.stdout);
 
     for line in text.lines() {
         let line = strip_ansi_escapes(line.trim());
@@ -373,6 +361,22 @@ fn parse_npx_cache_info_version(key: &str, package_arg: &str) -> Option<String> 
     }
 
     None
+}
+
+/// Parse resolved version from `npm cache npx info <key>` for a package argument.
+fn parse_npx_cache_info_version(key: &str, package_arg: &str) -> Option<String> {
+    let cache_key = key.to_string();
+    let output = run_subprocess_blocking(move || {
+        Command::new("npm")
+            .args(["cache", "npx", "info", &cache_key])
+            .output()
+    })
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_npx_cache_info_text(&String::from_utf8_lossy(&output.stdout), package_arg)
 }
 
 /// Strip ANSI escape sequences from npm CLI output when chalk coloring is enabled.
@@ -649,6 +653,22 @@ fn resolve_placeholders(template: &str, input_values: &HashMap<String, String>) 
         result = result.replace(&format!("${{input:{}}}", key), value);
     }
     result
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod update_policy_parsing {
+    pub use super::build_transport_config;
+    pub use super::TransportResolutionOptions;
+
+    /// Parse one line of `npm cache npx ls` output into cache key and package specs.
+    pub fn parse_npx_cache_ls_line(line: &str) -> Option<(String, Vec<String>)> {
+        super::parse_npx_cache_ls_line(line)
+    }
+
+    /// Parse resolved version from `npm cache npx info` stdout for a package argument.
+    pub fn parse_npx_cache_info_text(text: &str, package_arg: &str) -> Option<String> {
+        super::parse_npx_cache_info_text(text, package_arg)
+    }
 }
 
 #[cfg(test)]

@@ -23,4 +23,5 @@ mod meta_gateway_invoke;
 mod meta_tools;
 mod search_relevance_eval;
 mod server_clone;
+mod server_update_policy;
 mod workspace_binding_events;
