@@ -8,6 +8,7 @@ use mcpmux_core::{InstalledServer, TransportConfig as RegistryConfig, UpdatePoli
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
 
 const MCP_STATE_DIR_ENV: &str = "MCP_STATE_DIR";
 
@@ -164,6 +165,7 @@ fn apply_auto_update_policy(command: &str, args: &mut [String]) {
 fn apply_explicit_package_update(command: &str, args: &mut [String], installed: &InstalledServer) {
     match command {
         "npx" => {
+            evict_npx_cache_for_args(args);
             if let Some(version) = installed
                 .latest_available_version
                 .as_deref()
@@ -190,6 +192,193 @@ pub fn npm_version_tag_is_floating(tag: &str) -> bool {
 /// Returns true when `version` looks like a concrete semver (not a dist-tag).
 pub fn is_semver_like(version: &str) -> bool {
     !parse_version_parts(version).is_empty()
+}
+
+/// Returns true when the installed npm CLI supports `npm cache npx` (npm ≥ 11).
+pub fn npm_supports_cache_npx() -> bool {
+    static SUPPORTS: OnceLock<bool> = OnceLock::new();
+    *SUPPORTS.get_or_init(|| {
+        let output = match Command::new("npm").arg("--version").output() {
+            Ok(output) => output,
+            Err(_) => return false,
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let version = String::from_utf8_lossy(&output.stdout);
+        parse_npm_major_version(&version).is_some_and(|major| major >= 11)
+    })
+}
+
+/// Resolve the on-disk npx cache version for a package argument (e.g. bare `pkg` or `pkg@1.2.3`).
+pub fn npx_cache_resolved_version(package_arg: &str) -> Option<String> {
+    if !npm_supports_cache_npx() {
+        return None;
+    }
+
+    let (_, spec_version) = split_npm_package_arg(package_arg);
+    if let Some(version) = spec_version {
+        if !npm_version_tag_is_floating(&version) && is_semver_like(&version) {
+            return Some(version);
+        }
+    }
+
+    let entries = fetch_npx_cache_ls_entries();
+    let (key, specs) = entries
+        .iter()
+        .find(|(_, specs)| specs.iter().any(|spec| spec == package_arg))?;
+
+    if let Some(matched_spec) = specs.first() {
+        let (_, version) = split_npm_package_arg(matched_spec);
+        if let Some(version) = version {
+            if !npm_version_tag_is_floating(&version) && is_semver_like(&version) {
+                return Some(version);
+            }
+        }
+    }
+
+    parse_npx_cache_info_version(key, package_arg)
+}
+
+/// Remove a frozen npx cache entry for the given package argument.
+pub fn evict_npx_cache_entry(package_arg: &str) {
+    if !npm_supports_cache_npx() {
+        return;
+    }
+
+    let entries = fetch_npx_cache_ls_entries();
+    let key = entries
+        .iter()
+        .find(|(_, specs)| specs.iter().any(|spec| spec == package_arg))
+        .map(|(key, _)| key.clone());
+
+    if let Some(key) = key {
+        let _ = Command::new("npm")
+            .args(["cache", "npx", "rm", &key])
+            .output();
+    }
+}
+
+/// Evict the npx cache entry for the package argument in `npx` stdio args.
+fn evict_npx_cache_for_args(args: &[String]) {
+    if let Some(index) = find_npx_package_arg_index(args) {
+        evict_npx_cache_entry(&args[index]);
+    }
+}
+
+/// Parse the major segment of an `npm --version` string.
+fn parse_npm_major_version(version: &str) -> Option<u64> {
+    version
+        .trim()
+        .split('.')
+        .next()
+        .and_then(|segment| segment.parse().ok())
+}
+
+/// Parse one line of `npm cache npx ls` output into cache key and package specs.
+fn parse_npx_cache_ls_line(line: &str) -> Option<(String, Vec<String>)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    let (key, rest) = line.split_once(':')?;
+    let key = key.trim();
+    if key.is_empty() {
+        return None;
+    }
+
+    let rest = rest.trim();
+    if rest.is_empty() || rest.starts_with('(') {
+        return None;
+    }
+
+    let specs: Vec<String> = rest
+        .split(", ")
+        .map(str::trim)
+        .filter(|spec| !spec.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    if specs.is_empty() {
+        return None;
+    }
+
+    Some((key.to_string(), specs))
+}
+
+/// List npx cache entries from `npm cache npx ls` (text output; `--json` is not supported).
+fn fetch_npx_cache_ls_entries() -> Vec<(String, Vec<String>)> {
+    if !npm_supports_cache_npx() {
+        return Vec::new();
+    }
+
+    let output = match Command::new("npm").args(["cache", "npx", "ls"]).output() {
+        Ok(output) => output,
+        Err(_) => return Vec::new(),
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_npx_cache_ls_line)
+        .collect()
+}
+
+/// Parse resolved version from `npm cache npx info <key>` for a package argument.
+fn parse_npx_cache_info_version(key: &str, package_arg: &str) -> Option<String> {
+    let output = match Command::new("npm")
+        .args(["cache", "npx", "info", key])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return None,
+    };
+    if !output.status.success() {
+        return None;
+    }
+
+    let package_name = split_npm_package_arg(package_arg).0;
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    for line in text.lines() {
+        let line = strip_ansi_escapes(line.trim());
+        if let Some(rest) = line.strip_prefix("- ") {
+            if let Some(paren_start) = rest.rfind('(') {
+                let inner = rest[paren_start + 1..].trim_end_matches(')');
+                let (name, version) = split_npm_package_arg(inner);
+                if name == package_name {
+                    if let Some(version) = version {
+                        if !npm_version_tag_is_floating(&version) && is_semver_like(&version) {
+                            return Some(version);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Strip ANSI escape sequences from npm CLI output when chalk coloring is enabled.
+fn strip_ansi_escapes(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            for next in chars.by_ref() {
+                if next == 'm' {
+                    break;
+                }
+            }
+            continue;
+        }
+        result.push(ch);
+    }
+    result
 }
 
 /// Split a semver-ish string into numeric comparison parts.

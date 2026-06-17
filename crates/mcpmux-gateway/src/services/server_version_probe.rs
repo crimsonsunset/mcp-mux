@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::pool::transport::resolution::{is_semver_like, npm_version_tag_is_floating};
+use crate::pool::transport::resolution::{
+    is_semver_like, npx_cache_resolved_version, npm_version_tag_is_floating,
+};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use mcpmux_core::{
@@ -291,6 +293,7 @@ fn current_version(
                 .filter(|version| !npm_version_tag_is_floating(version))
                 .filter(|version| is_semver_like(version))
                 .map(|version| version.to_string())
+                .or_else(|| npx_cache_resolved_version(&package))
         }),
         PackageTransportKind::Uvx => {
             if let Some(entry) = uv_outdated.and_then(|map| map.get(&spec.package_name)) {
