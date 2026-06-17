@@ -61,6 +61,14 @@ export async function getDefaultSpace(): Promise<Space | null> {
   return spaces.find((s) => s.is_default) ?? null;
 }
 
+/**
+ * Space used for E2E setup (workspace bindings, server installs, etc.).
+ * Legacy name — "active space" was removed; this returns the default Space.
+ */
+export async function getActiveSpace(): Promise<Space | null> {
+  return getDefaultSpace();
+}
+
 // ============================================================================
 // Client API
 // ============================================================================

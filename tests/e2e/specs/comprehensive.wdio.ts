@@ -7,6 +7,7 @@ import { byTestId, safeClick } from '../helpers/selectors';
 import {
   createSpace,
   deleteSpace,
+  getActiveSpace,
   getDefaultSpace,
   listSpaces,
   listFeatureSetsBySpace,

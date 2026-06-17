@@ -2,7 +2,7 @@
 
 **Synthesizes:** [`feature-set-consent-model.md`](../reference/feature-set-consent-model.md), [`dynamic-mcp-toggle-meta-tools.md`](../reference/dynamic-mcp-toggle-meta-tools.md)
 
-**Last Updated:** Jun 1, 2026
+**Last Updated:** Jun 17, 2026
 
 ---
 
@@ -107,6 +107,12 @@ The `ApprovalBroker` surfaces a consent dialog at bind time showing the bundle's
 
 - **Desktop dialog** — Tauri native dialog for locally-connected clients.
 - **Web modal** — SSE event → browser modal → answer routed back to broker (planned Phase 5 of consent-model work; see reference doc).
+
+---
+
+## Operator checklist: new workspace folder
+
+For the step-by-step flow (Cursor reconnect → live root → Workspaces bind → verify logs), see [`../guides/new-workspace-onboarding.md`](../guides/new-workspace-onboarding.md).
 
 ---
 
