@@ -1091,6 +1091,7 @@ pub async fn connect_server(
         &server_definition.transport,
         &installed,
         Some(app_state.data_dir()),
+        mcpmux_gateway::pool::transport::resolution::TransportResolutionOptions::default(),
     );
 
     // Connect using pool service (manual connect from API)
@@ -1329,6 +1330,7 @@ pub async fn connect_all_enabled_servers(
                 &server_definition.transport,
                 &installed,
                 Some(app_state.data_dir()),
+                mcpmux_gateway::pool::transport::resolution::TransportResolutionOptions::default(),
             );
 
             servers_to_connect.push((server_info, transport, server_definition, installed));

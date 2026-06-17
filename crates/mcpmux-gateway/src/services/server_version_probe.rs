@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::pool::transport::resolution::{is_semver_like, npm_version_tag_is_floating};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use mcpmux_core::{
@@ -184,7 +185,7 @@ impl ServerVersionProbeService {
             anyhow::bail!("No resolvable package for {}", server.server_id);
         };
 
-        let current_version = current_version(server, &spec);
+        let current_version = current_version(server, &spec, uv_outdated);
         let latest_version = match spec.transport_kind {
             PackageTransportKind::Npx => fetch_npm_latest_version(&spec.package_name),
             PackageTransportKind::Uvx => uv_outdated
@@ -197,10 +198,14 @@ impl ServerVersionProbeService {
             .update_version_cache(&server.id, latest_version.clone(), checked_at)
             .await?;
 
-        let update_available = latest_version
-            .as_deref()
-            .map(|latest| is_newer_version(latest, current_version.as_deref()))
-            .unwrap_or(false);
+        let update_available = if package_uses_floating_npm_tag(server, &spec) {
+            false
+        } else {
+            latest_version
+                .as_deref()
+                .map(|latest| is_newer_version(latest, current_version.as_deref()))
+                .unwrap_or(false)
+        };
 
         if update_available {
             let space_uuid = Uuid::parse_str(&server.space_id)
@@ -240,6 +245,7 @@ struct PackageSpec {
 
 #[derive(Debug, Clone)]
 struct UvOutdatedEntry {
+    installed: String,
     latest: String,
 }
 
@@ -263,8 +269,12 @@ fn package_spec(server: &InstalledServer) -> Option<PackageSpec> {
     }
 }
 
-/// Best-effort current version: pin, package suffix, or uv installed version.
-fn current_version(server: &InstalledServer, spec: &PackageSpec) -> Option<String> {
+/// Best-effort current version: pin, package suffix, uv outdated installed, or uv arg pin.
+fn current_version(
+    server: &InstalledServer,
+    spec: &PackageSpec,
+    uv_outdated: Option<&HashMap<String, UvOutdatedEntry>>,
+) -> Option<String> {
     if let Some(pinned) = server.pinned_version.as_deref().filter(|v| !v.is_empty()) {
         return Some(pinned.to_string());
     }
@@ -278,13 +288,20 @@ fn current_version(server: &InstalledServer, spec: &PackageSpec) -> Option<Strin
         PackageTransportKind::Npx => find_npx_package_arg(&args).and_then(|package| {
             split_npm_package_arg(&package)
                 .1
+                .filter(|version| !npm_version_tag_is_floating(version))
+                .filter(|version| is_semver_like(version))
                 .map(|version| version.to_string())
         }),
-        PackageTransportKind::Uvx => find_uv_package_arg(&command, &args).and_then(|package| {
-            split_uv_version(&package)
-                .1
-                .map(|version| version.to_string())
-        }),
+        PackageTransportKind::Uvx => {
+            if let Some(entry) = uv_outdated.and_then(|map| map.get(&spec.package_name)) {
+                return Some(entry.installed.clone());
+            }
+            find_uv_package_arg(&command, &args).and_then(|package| {
+                split_uv_version(&package)
+                    .1
+                    .map(|version| version.to_string())
+            })
+        }
     }
 }
 
@@ -334,10 +351,11 @@ fn parse_uv_outdated_line(line: &str) -> Option<(String, UvOutdatedEntry)> {
     let name = parts.next()?.to_string();
     let remainder = parts.collect::<Vec<_>>().join(" ");
     if remainder.contains("->") {
-        let (_installed, latest) = remainder.split_once("->")?;
+        let (installed, latest) = remainder.split_once("->")?;
         return Some((
             name,
             UvOutdatedEntry {
+                installed: installed.trim().trim_start_matches('v').to_string(),
                 latest: latest.trim().trim_start_matches('v').to_string(),
             },
         ));
@@ -345,10 +363,29 @@ fn parse_uv_outdated_line(line: &str) -> Option<(String, UvOutdatedEntry)> {
     None
 }
 
+/// Returns true when the install already tracks a floating npm dist-tag like `@latest`.
+fn package_uses_floating_npm_tag(server: &InstalledServer, spec: &PackageSpec) -> bool {
+    if spec.transport_kind != PackageTransportKind::Npx {
+        return false;
+    }
+
+    let definition = match server.get_definition() {
+        Some(definition) => definition,
+        None => return false,
+    };
+    let TransportConfig::Stdio { args, .. } = definition.transport else {
+        return false;
+    };
+
+    find_npx_package_arg(&args)
+        .and_then(|package| split_npm_package_arg(&package).1)
+        .is_some_and(|tag| npm_version_tag_is_floating(&tag))
+}
+
 /// Return true when `latest` is strictly newer than `current`.
 fn is_newer_version(latest: &str, current: Option<&str>) -> bool {
     let Some(current) = current.filter(|value| !value.is_empty()) else {
-        return !latest.is_empty();
+        return false;
     };
 
     let latest_parts = parse_version_parts(latest);
@@ -457,7 +494,7 @@ mod tests {
     fn is_newer_version_compares_numeric_segments() {
         assert!(is_newer_version("1.2.0", Some("1.1.9")));
         assert!(!is_newer_version("1.2.0", Some("1.2.0")));
-        assert!(is_newer_version("2.0.0", None));
+        assert!(!is_newer_version("2.0.0", None));
     }
 
     #[test]
@@ -465,6 +502,7 @@ mod tests {
         let (name, entry) =
             parse_uv_outdated_line("mcp-server v1.0.0 -> v1.2.0").expect("parse line");
         assert_eq!(name, "mcp-server");
+        assert_eq!(entry.installed, "1.0.0");
         assert_eq!(entry.latest, "1.2.0");
     }
 

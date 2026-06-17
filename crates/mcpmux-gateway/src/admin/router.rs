@@ -145,6 +145,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             post(write::retry_connection),
         )
         .route(
+            "/api/v1/servers/connections/update-package",
+            post(write::update_server_package),
+        )
+        .route(
             "/api/v1/servers/connections/logout",
             post(write::logout_server),
         )

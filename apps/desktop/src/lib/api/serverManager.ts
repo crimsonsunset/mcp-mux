@@ -179,6 +179,16 @@ export async function retryConnection(
 }
 
 /**
+ * Reconnect and apply latest package resolution (explicit user update).
+ */
+export async function updateServerPackage(
+  spaceId: string,
+  serverId: string
+): Promise<void> {
+  return apiCall('update_server_package', { spaceId, serverId });
+}
+
+/**
  * Logout server — clear OAuth tokens but keep enabled.
  *
  * Preserves: DCR registration, input values, enabled flag.

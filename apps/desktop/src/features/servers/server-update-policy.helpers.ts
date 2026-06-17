@@ -27,6 +27,41 @@ export const UPDATE_POLICY_OPTIONS: {
 const BASIC_SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
+const FLOATING_NPM_TAGS = new Set([
+  'latest',
+  '*',
+  'next',
+  'beta',
+  'canary',
+  'stable',
+  'release',
+]);
+
+/**
+ * Returns true for npm dist-tags that do not pin an exact semver.
+ */
+export function npmVersionTagIsFloating(tag: string): boolean {
+  return FLOATING_NPM_TAGS.has(tag.trim().replace(/^@/, '').toLowerCase());
+}
+
+/**
+ * Returns true when the npx package arg already tracks a floating dist-tag like `@latest`.
+ */
+export function packageUsesFloatingNpmTag(
+  transportCommand: string | undefined,
+  transportArgs: string[] | undefined
+): boolean {
+  if (transportCommand !== 'npx' || !transportArgs) {
+    return false;
+  }
+  const packageArg = findNpxPackageArg(transportArgs);
+  if (!packageArg) {
+    return false;
+  }
+  const version = splitNpmPackageArg(packageArg)[1];
+  return version != null && npmVersionTagIsFloating(version);
+}
+
 /**
  * Returns true when `version` matches a basic semver shape.
  */
@@ -63,13 +98,22 @@ function parseVersionParts(version: string): number[] {
  */
 export function isUpdateAvailable(
   latest: string | null | undefined,
-  current: string | null | undefined
+  current: string | null | undefined,
+  options?: {
+    transportCommand?: string;
+    transportArgs?: string[];
+  }
 ): boolean {
   if (!latest) {
     return false;
   }
+  if (
+    packageUsesFloatingNpmTag(options?.transportCommand, options?.transportArgs)
+  ) {
+    return false;
+  }
   if (!current) {
-    return true;
+    return false;
   }
 
   const latestParts = parseVersionParts(latest);
@@ -110,10 +154,18 @@ export function resolveCurrentPackageVersion(input: {
     const atIndex = packageArg.lastIndexOf('@');
     if (packageArg.startsWith('@') && packageArg.indexOf('@', 1) > 0) {
       const scopedSplit = packageArg.indexOf('@', 1);
-      return packageArg.slice(scopedSplit + 1) || null;
+      const version = packageArg.slice(scopedSplit + 1) || null;
+      if (!version || npmVersionTagIsFloating(version)) {
+        return null;
+      }
+      return version;
     }
     if (atIndex > 0) {
-      return packageArg.slice(atIndex + 1) || null;
+      const version = packageArg.slice(atIndex + 1) || null;
+      if (!version || npmVersionTagIsFloating(version)) {
+        return null;
+      }
+      return version;
     }
   }
 
@@ -132,6 +184,21 @@ export function resolveCurrentPackageVersion(input: {
   }
 
   return null;
+}
+
+/**
+ * Split an npm package arg into name and optional version tag.
+ */
+function splitNpmPackageArg(packageArg: string): [string, string | null] {
+  if (packageArg.startsWith('@') && packageArg.indexOf('@', 1) > 0) {
+    const scopedSplit = packageArg.indexOf('@', 1);
+    return [packageArg.slice(0, scopedSplit), packageArg.slice(scopedSplit + 1) || null];
+  }
+  const atIndex = packageArg.lastIndexOf('@');
+  if (atIndex > 0) {
+    return [packageArg.slice(0, atIndex), packageArg.slice(atIndex + 1) || null];
+  }
+  return [packageArg, null];
 }
 
 /**

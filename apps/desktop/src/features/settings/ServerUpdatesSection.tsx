@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Card,
   CardHeader,
@@ -14,6 +14,17 @@ import {
   type ServerUpdateSettings,
   type UpdatePolicy,
 } from '@/lib/api/settings';
+import { discoverServers, listInstalledServers } from '@/lib/api/registry';
+import { updateServerPackage } from '@/lib/api/serverManager';
+import {
+  buildPendingServerUpdates,
+  type ServerPendingUpdate,
+} from '@/features/servers/server-pending-updates.helpers';
+import { useDomainEvents } from '@/lib/backend/events/useDomainEvents';
+import {
+  pendingUpdateKey,
+  ServerPendingUpdatesList,
+} from './ServerPendingUpdatesList';
 
 const POLICY_OPTIONS: { value: UpdatePolicy; label: string; description: string }[] = [
   {
@@ -70,6 +81,32 @@ export function ServerUpdatesSection({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checkingAll, setCheckingAll] = useState(false);
+  const [pendingUpdates, setPendingUpdates] = useState<ServerPendingUpdate[]>([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [updatingServerKey, setUpdatingServerKey] = useState<string | null>(null);
+  const [updatingAll, setUpdatingAll] = useState(false);
+  const { subscribe } = useDomainEvents();
+
+  /**
+   * Load installed servers and derive which have newer packages available.
+   */
+  const refreshPendingUpdates = useCallback(async () => {
+    setLoadingPending(true);
+    try {
+      const [installedResult, definitionsResult] = await Promise.allSettled([
+        listInstalledServers(),
+        discoverServers(),
+      ]);
+      const installed = installedResult.status === 'fulfilled' ? installedResult.value : [];
+      const definitions =
+        definitionsResult.status === 'fulfilled' ? definitionsResult.value : [];
+      setPendingUpdates(buildPendingServerUpdates(installed, definitions));
+    } catch (err) {
+      console.error('[Settings] Failed to load pending server updates:', err);
+    } finally {
+      setLoadingPending(false);
+    }
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -82,8 +119,21 @@ export function ServerUpdatesSection({
         setLoading(false);
       }
     };
-    load();
-  }, []);
+    void load();
+    void refreshPendingUpdates();
+  }, [refreshPendingUpdates]);
+
+  useEffect(() => {
+    return subscribe('server-update-available', () => {
+      void refreshPendingUpdates();
+    });
+  }, [refreshPendingUpdates, subscribe]);
+
+  useEffect(() => {
+    return subscribe('server-changed', () => {
+      void refreshPendingUpdates();
+    });
+  }, [refreshPendingUpdates, subscribe]);
 
   /**
    * Persist a new default update policy for newly installed servers.
@@ -104,6 +154,70 @@ export function ServerUpdatesSection({
   };
 
   /**
+   * Reconnect one server so transport resolution picks up the latest package.
+   */
+  const handleUpdateOne = async (update: ServerPendingUpdate) => {
+    const rowKey = pendingUpdateKey(update);
+    setUpdatingServerKey(rowKey);
+    try {
+      await updateServerPackage(update.spaceId, update.serverId);
+      onSuccess?.(`Updated ${update.name}`, `Reconnecting on v${update.latestVersion}`);
+      await refreshPendingUpdates();
+    } catch (err) {
+      console.error('[Settings] Failed to update server:', err);
+      onError?.(`Failed to update ${update.name}`, String(err));
+    } finally {
+      setUpdatingServerKey(null);
+    }
+  };
+
+  /**
+   * Reconnect every enabled server that has a pending package update.
+   */
+  const handleUpdateAll = async () => {
+    const targets = pendingUpdates.filter((update) => update.enabled);
+    if (targets.length === 0) {
+      onInfo?.('No enabled servers to update', 'Enable servers on My Servers first');
+      return;
+    }
+
+    setUpdatingAll(true);
+    let succeeded = 0;
+    const failures: string[] = [];
+
+    for (const update of targets) {
+      try {
+        await updateServerPackage(update.spaceId, update.serverId);
+        succeeded += 1;
+      } catch (err) {
+        failures.push(update.name);
+        console.error(`[Settings] Failed to update ${update.name}:`, err);
+      }
+    }
+
+    await refreshPendingUpdates();
+    setUpdatingAll(false);
+
+    if (failures.length === 0) {
+      onSuccess?.(
+        `Updated ${succeeded} server${succeeded === 1 ? '' : 's'}`,
+        'Reconnecting with the latest packages'
+      );
+      return;
+    }
+
+    if (succeeded > 0) {
+      onInfo?.(
+        `Updated ${succeeded} of ${targets.length}`,
+        `Failed: ${failures.join(', ')}`
+      );
+      return;
+    }
+
+    onError?.('Failed to update servers', failures.join(', '));
+  };
+
+  /**
    * Trigger a bulk npm/uv version probe across eligible servers.
    */
   const handleCheckAll = async () => {
@@ -114,6 +228,7 @@ export function ServerUpdatesSection({
         ...current,
         lastCheckedAt: result.checkedAt,
       }));
+      await refreshPendingUpdates();
 
       if (result.checked === 0) {
         onInfo?.(
@@ -123,7 +238,7 @@ export function ServerUpdatesSection({
       } else if (result.updatesAvailable > 0) {
         onInfo?.(
           `${result.updatesAvailable} update${result.updatesAvailable === 1 ? '' : 's'} available`,
-          `Checked ${result.checked} server${result.checked === 1 ? '' : 's'} — see badges on My Servers`
+          'Use the list below to update individual servers or all at once'
         );
       } else {
         onSuccess?.(
@@ -213,6 +328,21 @@ export function ServerUpdatesSection({
                 Check All for Updates
               </button>
             </div>
+
+            {loadingPending ? (
+              <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading available updates…
+              </div>
+            ) : (
+              <ServerPendingUpdatesList
+                updates={pendingUpdates}
+                updatingServerKey={updatingServerKey}
+                updatingAll={updatingAll}
+                onUpdateOne={handleUpdateOne}
+                onUpdateAll={handleUpdateAll}
+              />
+            )}
           </>
         )}
       </CardContent>

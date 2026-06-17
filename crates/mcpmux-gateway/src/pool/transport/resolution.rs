@@ -11,6 +11,13 @@ use std::process::Command;
 
 const MCP_STATE_DIR_ENV: &str = "MCP_STATE_DIR";
 
+/// Options that affect one-shot transport resolution behavior.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransportResolutionOptions {
+    /// When true, apply latest-package resolution for notify servers (explicit user update).
+    pub apply_package_update: bool,
+}
+
 /// Build a merged input_values map that includes defaults for any inputs
 /// not explicitly provided by the user.
 fn merge_input_defaults(
@@ -39,6 +46,7 @@ pub fn build_transport_config(
     registry_transport: &RegistryConfig,
     installed: &InstalledServer,
     base_state_dir: Option<&Path>,
+    options: TransportResolutionOptions,
 ) -> ResolvedTransport {
     tracing::debug!(
         "[TransportResolution] Building config for {}/{} with {} input values",
@@ -63,7 +71,7 @@ pub fn build_transport_config(
             // Append user's extra args
             resolved_args.extend(installed.args_append.clone());
 
-            apply_update_policy(&resolved_command, &mut resolved_args, installed);
+            apply_update_policy(&resolved_command, &mut resolved_args, installed, options);
 
             // Build env from registry + input values + env_overrides
             let mut resolved_env = HashMap::new();
@@ -125,7 +133,17 @@ pub fn build_transport_config(
 }
 
 /// Apply per-server update policy for npx/uvx stdio transports.
-fn apply_update_policy(command: &str, args: &mut [String], installed: &InstalledServer) {
+fn apply_update_policy(
+    command: &str,
+    args: &mut [String],
+    installed: &InstalledServer,
+    options: TransportResolutionOptions,
+) {
+    if options.apply_package_update && installed.update_policy != UpdatePolicy::Pinned {
+        apply_explicit_package_update(command, args, installed);
+        return;
+    }
+
     match installed.update_policy {
         UpdatePolicy::Auto => apply_auto_update_policy(command, args),
         UpdatePolicy::Pinned => apply_pinned_update_policy(command, args, installed),
@@ -140,6 +158,50 @@ fn apply_auto_update_policy(command: &str, args: &mut [String]) {
         "uvx" | "uv" => run_uv_tool_upgrade(command, args),
         _ => {}
     }
+}
+
+/// One-shot user update: pin to probed semver when known, else re-resolve `@latest`.
+fn apply_explicit_package_update(command: &str, args: &mut [String], installed: &InstalledServer) {
+    match command {
+        "npx" => {
+            if let Some(version) = installed
+                .latest_available_version
+                .as_deref()
+                .filter(|value| is_semver_like(value))
+            {
+                inject_npx_pinned(args, version);
+            } else {
+                inject_npx_latest(args);
+            }
+        }
+        "uvx" | "uv" => run_uv_tool_upgrade(command, args),
+        _ => {}
+    }
+}
+
+/// Returns true for npm dist-tags that do not pin an exact installed semver.
+pub fn npm_version_tag_is_floating(tag: &str) -> bool {
+    matches!(
+        tag.trim().trim_start_matches('@').to_ascii_lowercase().as_str(),
+        "latest" | "*" | "next" | "beta" | "canary" | "stable" | "release"
+    )
+}
+
+/// Returns true when `version` looks like a concrete semver (not a dist-tag).
+pub fn is_semver_like(version: &str) -> bool {
+    !parse_version_parts(version).is_empty()
+}
+
+/// Split a semver-ish string into numeric comparison parts.
+fn parse_version_parts(version: &str) -> Vec<u64> {
+    version
+        .trim()
+        .trim_start_matches('v')
+        .trim_start_matches('=')
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse().ok())
+        .collect()
 }
 
 /// Enforce an exact semver pin for Pinned-policy servers.
@@ -435,7 +497,7 @@ mod tests {
 
         let installed = make_installed(HashMap::new()); // No user values
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -462,7 +524,7 @@ mod tests {
             "debug".to_string(),
         )]));
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -486,7 +548,7 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { args, .. } => {
@@ -510,7 +572,7 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { command, .. } => {
@@ -532,7 +594,7 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Http { url, .. } => {
@@ -554,7 +616,7 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Http { headers, .. } => {
@@ -589,7 +651,7 @@ mod tests {
             ("API_KEY".to_string(), "secret123".to_string()),
         ]));
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -617,7 +679,7 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -663,7 +725,7 @@ mod tests {
             .with_update_policy(UpdatePolicy::Pinned)
             .with_pinned_version(Some("13.0.0"));
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
 
         match resolved {
             ResolvedTransport::Stdio { args, .. } => {
@@ -674,25 +736,101 @@ mod tests {
     }
 
     #[test]
-    fn test_pinned_policy_injects_uvx_version() {
+    fn test_explicit_update_applies_latest_for_notify_policy() {
         let transport = RegistryConfig::Stdio {
-            command: "uvx".to_string(),
-            args: vec!["mcp-server-git".to_string()],
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "inngest-cloud-mcp".to_string()],
             env: HashMap::new(),
             metadata: TransportMetadata { inputs: vec![] },
         };
 
-        let installed = InstalledServer::new("space", "git")
-            .with_update_policy(UpdatePolicy::Pinned)
-            .with_pinned_version(Some("1.2.3"));
+        let installed = InstalledServer::new("space", "inngest")
+            .with_update_policy(UpdatePolicy::Notify);
 
-        let resolved = build_transport_config(&transport, &installed, None);
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions {
+                apply_package_update: true,
+            },
+        );
 
         match resolved {
             ResolvedTransport::Stdio { args, .. } => {
-                assert_eq!(args[0], "mcp-server-git==1.2.3");
+                assert_eq!(args[1], "inngest-cloud-mcp@latest");
             }
             _ => panic!("Expected Stdio transport"),
         }
+    }
+
+    #[test]
+    fn test_explicit_update_injects_probed_semver_for_notify_policy() {
+        let transport = RegistryConfig::Stdio {
+            command: "npx".to_string(),
+            args: vec![
+                "-y".to_string(),
+                "@upstash/context7-mcp@latest".to_string(),
+            ],
+            env: HashMap::new(),
+            metadata: TransportMetadata { inputs: vec![] },
+        };
+
+        let mut installed = InstalledServer::new("space", "context7")
+            .with_update_policy(UpdatePolicy::Notify);
+        installed.latest_available_version = Some("3.2.1".to_string());
+
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions {
+                apply_package_update: true,
+            },
+        );
+
+        match resolved {
+            ResolvedTransport::Stdio { args, .. } => {
+                assert_eq!(args[1], "@upstash/context7-mcp@3.2.1");
+            }
+            _ => panic!("Expected Stdio transport"),
+        }
+    }
+
+    #[test]
+    fn test_explicit_update_respects_pinned_policy() {
+        let transport = RegistryConfig::Stdio {
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "firebase-tools".to_string()],
+            env: HashMap::new(),
+            metadata: TransportMetadata { inputs: vec![] },
+        };
+
+        let installed = InstalledServer::new("space", "firebase")
+            .with_update_policy(UpdatePolicy::Pinned)
+            .with_pinned_version(Some("13.0.0"));
+
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions {
+                apply_package_update: true,
+            },
+        );
+
+        match resolved {
+            ResolvedTransport::Stdio { args, .. } => {
+                assert_eq!(args[1], "firebase-tools@13.0.0");
+            }
+            _ => panic!("Expected Stdio transport"),
+        }
+    }
+
+    #[test]
+    fn npm_version_tag_is_floating_recognizes_latest() {
+        assert!(npm_version_tag_is_floating("latest"));
+        assert!(!is_semver_like("latest"));
+        assert!(is_semver_like("3.2.1"));
     }
 }

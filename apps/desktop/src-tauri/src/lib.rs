@@ -1049,6 +1049,7 @@ pub fn run() {
             commands::start_auth_v2,
             commands::cancel_auth_v2,
             commands::retry_connection,
+            commands::update_server_package,
             commands::logout_server,
             commands::disconnect_server_v2,
             // Log commands

@@ -71,6 +71,11 @@ export const serversRoutes: Record<string, RouteHandler> = {
     path: '/api/v1/servers/connections/retry',
     body: { space_id: args.spaceId, server_id: args.serverId },
   }),
+  update_server_package: (args) => ({
+    method: 'POST',
+    path: '/api/v1/servers/connections/update-package',
+    body: { space_id: args.spaceId, server_id: args.serverId },
+  }),
   logout_server: (args) => ({
     method: 'POST',
     path: '/api/v1/servers/connections/logout',

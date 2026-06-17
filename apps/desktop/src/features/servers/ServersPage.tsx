@@ -1132,6 +1132,27 @@ export function ServersPage() {
   };
 
   /**
+   * Apply latest package and reconnect (notify/auto npx/uvx servers).
+   */
+  const handleUpdateNow = async (server: ServerViewModel) => {
+    if (!viewSpace) {
+      return;
+    }
+
+    setActionLoading(`update-${server.id}`);
+    try {
+      const { updateServerPackage } = await import('@/lib/api/serverManager');
+      await updateServerPackage(viewSpace.id, server.id);
+      showToast(`Updating ${server.name}…`, 'info');
+      await loadData();
+    } catch (error) {
+      showToast(String(error), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  /**
    * Run an immediate npm/uv version probe for one server.
    */
   const handleCheckForUpdate = async (server: ServerViewModel) => {
@@ -1806,7 +1827,11 @@ export function ServersPage() {
                               pinnedVersion: server.pinned_version,
                               transportCommand: server.transport.command,
                               transportArgs: server.transport.args,
-                            })
+                            }),
+                            {
+                              transportCommand: server.transport.command,
+                              transportArgs: server.transport.args,
+                            }
                           )
                         }
                         latestVersion={server.latest_available_version}
@@ -1814,7 +1839,7 @@ export function ServersPage() {
                         onConfigure={() => handleConfigureClick(server)}
                         onRefresh={() => handleRefresh(server)}
                         onReconnect={() => handleReconnect(server)}
-                        onUpdateNow={() => handleRetry(server)}
+                        onUpdateNow={() => handleUpdateNow(server)}
                         onCheckForUpdate={() => handleCheckForUpdate(server)}
                         onLockToCurrentVersion={() => handleLockToCurrentVersion(server)}
                         onViewLogs={() => setLogViewerServer({ id: server.id, name: server.name })}

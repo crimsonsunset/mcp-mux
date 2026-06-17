@@ -254,6 +254,16 @@ pub async fn retry_connection(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn update_server_package(
+    State(state): State<AdminState>,
+    Json(body): Json<ServerConnectionBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::update_server_package(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn logout_server(
     State(state): State<AdminState>,
     Json(body): Json<ServerConnectionBody>,
