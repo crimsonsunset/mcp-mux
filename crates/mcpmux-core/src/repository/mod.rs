@@ -134,6 +134,7 @@ pub trait InstalledServerRepository: Send + Sync {
         &self,
         id: &Uuid,
         latest_available_version: Option<String>,
+        current_version: Option<String>,
         version_checked_at: DateTime<Utc>,
     ) -> RepoResult<()>;
 }

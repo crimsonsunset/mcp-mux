@@ -40,6 +40,7 @@ async fn installed_server_defaults_update_policy_to_notify() {
     assert_eq!(loaded.update_policy, UpdatePolicy::Notify);
     assert!(loaded.pinned_version.is_none());
     assert!(loaded.latest_available_version.is_none());
+    assert!(loaded.current_version.is_none());
     assert!(loaded.version_checked_at.is_none());
 }
 
@@ -92,6 +93,7 @@ async fn installed_server_update_version_cache_round_trip() {
         &server_repo,
         &server_id,
         Some("4.5.6".to_string()),
+        Some("1.2.3".to_string()),
         checked_at,
     )
     .await
@@ -106,6 +108,7 @@ async fn installed_server_update_version_cache_round_trip() {
         loaded.latest_available_version.as_deref(),
         Some("4.5.6")
     );
+    assert_eq!(loaded.current_version.as_deref(), Some("1.2.3"));
     assert!(loaded.version_checked_at.is_some());
 }
 
@@ -122,6 +125,7 @@ async fn installed_server_update_preserves_version_cache_columns() {
     let mut server = fixtures::test_installed_server(&space.id.to_string(), "policy-update");
     server.update_policy = UpdatePolicy::Auto;
     server.latest_available_version = Some("9.9.9".to_string());
+    server.current_version = Some("8.8.8".to_string());
     server.version_checked_at = Some(Utc::now());
 
     let server_id = server.id;
@@ -151,5 +155,6 @@ async fn installed_server_update_preserves_version_cache_columns() {
         reloaded.latest_available_version.as_deref(),
         Some("9.9.9")
     );
+    assert_eq!(reloaded.current_version.as_deref(), Some("8.8.8"));
     assert!(reloaded.version_checked_at.is_some());
 }

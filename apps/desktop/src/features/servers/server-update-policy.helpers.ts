@@ -146,18 +146,39 @@ function isNewerVersion(latest: string, current: string): boolean {
 
 /**
  * Derive the effective current version for update badge display.
+ *
+ * Precedence: explicit `pinnedVersion` → `@semver` / `==semver` baked into the
+ * args → `installedVersion` resolved by the backend probe (npx cache /
+ * `uv tool list`). The probe fallback is what lets bare `npx -y pkg` and
+ * `uvx pkg` installs (no version in args) report a real current version.
  */
 export function resolveCurrentPackageVersion(input: {
   pinnedVersion?: string | null;
   transportCommand?: string;
   transportArgs?: string[];
+  installedVersion?: string | null;
 }): string | null {
   if (input.pinnedVersion) {
     return input.pinnedVersion;
   }
 
-  if (input.transportCommand === 'npx' && input.transportArgs) {
-    const packageArg = findNpxPackageArg(input.transportArgs);
+  const argVersion = resolveArgPackageVersion(input.transportCommand, input.transportArgs);
+  if (argVersion) {
+    return argVersion;
+  }
+
+  return input.installedVersion ?? null;
+}
+
+/**
+ * Extract an exact semver baked into the npx/uvx package argument, if any.
+ */
+function resolveArgPackageVersion(
+  transportCommand: string | undefined,
+  transportArgs: string[] | undefined
+): string | null {
+  if (transportCommand === 'npx' && transportArgs) {
+    const packageArg = findNpxPackageArg(transportArgs);
     if (!packageArg) {
       return null;
     }
@@ -168,11 +189,8 @@ export function resolveCurrentPackageVersion(input: {
     return version;
   }
 
-  if (
-    (input.transportCommand === 'uvx' || input.transportCommand === 'uv') &&
-    input.transportArgs
-  ) {
-    const packageArg = findUvxPackageArg(input.transportCommand, input.transportArgs);
+  if ((transportCommand === 'uvx' || transportCommand === 'uv') && transportArgs) {
+    const packageArg = findUvxPackageArg(transportCommand, transportArgs);
     if (!packageArg) {
       return null;
     }

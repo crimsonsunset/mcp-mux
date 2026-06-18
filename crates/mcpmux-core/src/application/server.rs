@@ -753,10 +753,12 @@ mod tests {
             &self,
             id: &Uuid,
             latest_available_version: Option<String>,
+            current_version: Option<String>,
             version_checked_at: chrono::DateTime<chrono::Utc>,
         ) -> crate::repository::RepoResult<()> {
             if let Some(server) = self.servers.write().unwrap().get_mut(id) {
                 server.latest_available_version = latest_available_version;
+                server.current_version = current_version;
                 server.version_checked_at = Some(version_checked_at);
             }
             Ok(())

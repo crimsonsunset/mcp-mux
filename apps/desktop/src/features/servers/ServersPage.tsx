@@ -132,6 +132,7 @@ function mergeDefinitionsWithStates(
       update_policy: state?.update_policy ?? 'notify',
       pinned_version: state?.pinned_version ?? null,
       latest_available_version: state?.latest_available_version ?? null,
+      current_version: state?.current_version ?? null,
       version_checked_at: state?.version_checked_at ?? null,
     } as ServerViewModel;
   });
@@ -172,6 +173,7 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
         update_policy: state.update_policy ?? 'notify',
         pinned_version: state.pinned_version ?? null,
         latest_available_version: state.latest_available_version ?? null,
+        current_version: state.current_version ?? null,
         version_checked_at: state.version_checked_at ?? null,
       } as ServerViewModel;
     } catch (e) {
@@ -512,6 +514,7 @@ export function ServersPage() {
           return {
             ...server,
             latest_available_version: payload.latest_version ?? server.latest_available_version,
+            current_version: payload.current_version ?? server.current_version,
             version_checked_at: new Date().toISOString(),
           };
         })
@@ -1056,6 +1059,7 @@ export function ServersPage() {
             server.transport.type === 'stdio' ? server.transport.command : undefined,
           transportArgs:
             server.transport.type === 'stdio' ? server.transport.args : undefined,
+          installedVersion: server.current_version,
         }) ?? server.latest_available_version;
 
       if (!version) {
@@ -1836,6 +1840,7 @@ export function ServersPage() {
                               pinnedVersion: server.pinned_version,
                               transportCommand: server.transport.command,
                               transportArgs: server.transport.args,
+                              installedVersion: server.current_version,
                             }),
                             transportCommand: server.transport.command,
                             transportArgs: server.transport.args,
@@ -2414,6 +2419,7 @@ export function ServersPage() {
                               configModal.pinnedVersion || configModal.server.pinned_version,
                             transportCommand: configModal.server.transport.command,
                             transportArgs: configModal.server.transport.args,
+                            installedVersion: configModal.server.current_version,
                           });
                           if (!currentVersion) {
                             return null;

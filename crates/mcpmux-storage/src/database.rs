@@ -163,6 +163,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "default_params_strategy",
         sql: include_str!("migrations/026_default_params_strategy.sql"),
     },
+    Migration {
+        version: 27,
+        name: "server_current_version",
+        sql: include_str!("migrations/027_server_current_version.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

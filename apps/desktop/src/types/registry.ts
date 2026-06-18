@@ -115,6 +115,8 @@ export interface InstalledServerState {
   pinned_version?: string | null;
   /** Latest registry version from the most recent probe. */
   latest_available_version?: string | null;
+  /** Resolved installed version from the most recent probe (npx cache / uv tool list). */
+  current_version?: string | null;
   /** When the version probe last ran for this install. */
   version_checked_at?: string | null;
   created_at: string;
@@ -149,6 +151,8 @@ export interface ServerViewModel extends ServerDefinition {
   pinned_version?: string | null;
   /** Latest available package version from probe cache. */
   latest_available_version?: string | null;
+  /** Resolved installed version from the most recent probe (npx cache / uv tool list). */
+  current_version?: string | null;
   version_checked_at?: string | null;
 }
 

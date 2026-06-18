@@ -182,6 +182,12 @@ pub struct InstalledServer {
     #[serde(default)]
     pub latest_available_version: Option<String>,
 
+    /// Resolved installed version from the most recent probe (npx cache /
+    /// `uv tool list`). Lets the UI badge bare `npx -y pkg` / `uvx pkg`
+    /// installs that carry no `@semver` in their args.
+    #[serde(default)]
+    pub current_version: Option<String>,
+
     /// When `latest_available_version` was last probed (RFC3339 in DB).
     #[serde(default)]
     pub version_checked_at: Option<DateTime<Utc>>,
@@ -219,6 +225,7 @@ impl InstalledServer {
             update_policy: UpdatePolicy::default(),
             pinned_version: None,
             latest_available_version: None,
+            current_version: None,
             version_checked_at: None,
             created_at: now,
             updated_at: now,

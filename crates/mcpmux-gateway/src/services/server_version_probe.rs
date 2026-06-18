@@ -249,7 +249,12 @@ impl ServerVersionProbeService {
         };
 
         self.installed_server_repo
-            .update_version_cache(&server.id, latest_version.clone(), checked_at)
+            .update_version_cache(
+                &server.id,
+                latest_version.clone(),
+                current_version.clone(),
+                checked_at,
+            )
             .await?;
 
         let npm_package_version = npm_package_version_suffix(server, &spec);

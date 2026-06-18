@@ -58,6 +58,7 @@ export function buildPendingServerUpdates(
       pinnedVersion: state.pinned_version,
       transportCommand: command,
       transportArgs: definition.transport.args,
+      installedVersion: state.current_version,
     });
     const latestVersion = state.latest_available_version;
     if (
