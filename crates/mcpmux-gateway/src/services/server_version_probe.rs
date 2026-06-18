@@ -517,7 +517,7 @@ fn find_npx_package_arg(args: &[String]) -> Option<String> {
 }
 
 fn extract_uv_package_name(command: &str, args: &[String]) -> Option<String> {
-    find_uv_package_arg(command, args).map(|package| strip_package_version(&package))
+    find_uv_package_arg(command, args).map(|package| split_uv_version(&package).0)
 }
 
 fn find_uv_package_arg(command: &str, args: &[String]) -> Option<String> {
@@ -544,9 +544,6 @@ fn find_uv_package_arg(command: &str, args: &[String]) -> Option<String> {
 }
 
 fn strip_package_version(package: &str) -> String {
-    if let Some(stripped) = package.strip_prefix("==") {
-        return stripped.to_string();
-    }
     split_npm_package_arg(package).0
 }
 
@@ -622,6 +619,19 @@ mod tests {
         let (name, version) = parse_uv_tool_list_line("ruff v0.8.6").expect("parse line");
         assert_eq!(name, "ruff");
         assert_eq!(version, "0.8.6");
+    }
+
+    #[test]
+    fn extract_uv_package_name_strips_pep508_version_pin() {
+        let args = vec!["mcp-server-fetch==2025.1.17".to_string()];
+        let name = extract_uv_package_name("uvx", &args).expect("extract name");
+        assert_eq!(name, "mcp-server-fetch");
+
+        let bare = vec!["mcp-server-fetch".to_string()];
+        assert_eq!(
+            extract_uv_package_name("uvx", &bare).as_deref(),
+            Some("mcp-server-fetch")
+        );
     }
 
     #[test]
