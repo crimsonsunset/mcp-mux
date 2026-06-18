@@ -147,10 +147,14 @@ function isNewerVersion(latest: string, current: string): boolean {
 /**
  * Derive the effective current version for update badge display.
  *
- * Precedence: explicit `pinnedVersion` → `@semver` / `==semver` baked into the
- * args → `installedVersion` resolved by the backend probe (npx cache /
- * `uv tool list`). The probe fallback is what lets bare `npx -y pkg` and
- * `uvx pkg` installs (no version in args) report a real current version.
+ * Precedence:
+ *  1. `pinnedVersion` — explicit user pin (`UpdatePolicy::Pinned`)
+ *  2. `installedVersion` — actual installed version written by the backend probe
+ *     (`current_version` DB column, populated from npx cache / `uv tool list`).
+ *     This takes precedence over args so that post-update the badge clears even
+ *     when the args still carry the pre-update semver.
+ *  3. `argVersion` — semver baked into transport args (`@semver` / `==semver`),
+ *     used as a cold-cache fallback before the server has ever been probed.
  */
 export function resolveCurrentPackageVersion(input: {
   pinnedVersion?: string | null;
@@ -162,12 +166,11 @@ export function resolveCurrentPackageVersion(input: {
     return input.pinnedVersion;
   }
 
-  const argVersion = resolveArgPackageVersion(input.transportCommand, input.transportArgs);
-  if (argVersion) {
-    return argVersion;
+  if (input.installedVersion) {
+    return input.installedVersion;
   }
 
-  return input.installedVersion ?? null;
+  return resolveArgPackageVersion(input.transportCommand, input.transportArgs);
 }
 
 /**

@@ -355,19 +355,47 @@ async fn current_version(
     match spec.transport_kind {
         PackageTransportKind::Npx => {
             let package_arg = find_npx_package_arg(&args)?;
-            if let Some(version) = split_npm_package_arg(&package_arg)
-                .1
-                .filter(|version| !is_floating_npm_tag(version))
-                .filter(|version| is_valid_semver(version))
-                .map(|version| version.to_string())
-            {
+            let bare_name = split_npm_package_arg(&package_arg).0;
+
+            // After an explicit update, npm caches the new version under
+            // `@pkg@{resolved_version}` (e.g. `@playwright/mcp@0.0.76`).
+            // Build a versioned lookup using latest_available_version so the probe
+            // finds the freshly cached entry even though the stored args still carry
+            // the pre-update semver.
+            let latest_versioned = server
+                .latest_available_version
+                .as_ref()
+                .filter(|v| is_valid_semver(v))
+                .map(|v| format!("{}@{}", bare_name, v));
+
+            // Try original arg first (normal/cold-cache case), then the
+            // latest-versioned spec (post-update case where old entry was evicted).
+            let cache_version = tokio::task::spawn_blocking({
+                let package_arg = package_arg.clone();
+                move || {
+                    npx_cache_resolved_version(&package_arg)
+                        .or_else(|| latest_versioned.as_deref().and_then(npx_cache_resolved_version))
+                }
+            })
+            .await
+            .ok()
+            .flatten();
+
+            if let Some(version) = cache_version {
                 return Some(version);
             }
 
-            tokio::task::spawn_blocking(move || npx_cache_resolved_version(&package_arg))
-                .await
-                .ok()
-                .flatten()
+            // No cache hit: preserve the DB-stored current_version (set during an
+            // explicit update) rather than clobbering it with the stale args semver.
+            // Only fall back to args semver when the DB has nothing (cold-cache,
+            // first-run before any update has ever run).
+            server.current_version.clone().or_else(|| {
+                split_npm_package_arg(&package_arg)
+                    .1
+                    .filter(|version| !is_floating_npm_tag(version))
+                    .filter(|version| is_valid_semver(version))
+                    .map(|version| version.to_string())
+            })
         }
         PackageTransportKind::Uvx => uv_tool_list
             .and_then(|map| map.get(&spec.package_name))

@@ -226,13 +226,10 @@ pub fn npx_cache_resolved_version(package_arg: &str) -> Option<String> {
         return None;
     }
 
-    let (_, spec_version) = split_npm_package_arg(package_arg);
-    if let Some(version) = spec_version {
-        if !is_floating_npm_tag(&version) && is_valid_semver(&version) {
-            return Some(version);
-        }
-    }
-
+    // Always consult the real cache rather than short-circuiting on the
+    // semver embedded in the arg. This ensures that after an explicit update
+    // (old entry evicted, new @latest entry present) the actual installed
+    // version is returned instead of the stale args semver.
     let entries = run_subprocess_blocking(fetch_npx_cache_ls_entries);
     let (key, specs) = entries
         .iter()
@@ -479,42 +476,49 @@ fn inject_uvx_pinned(command: &str, args: &mut [String], version: &str) {
     args[index] = injected;
 }
 
-/// Run `uv tool upgrade <pkg>` before spawn; failures are logged and do not block connection.
+/// Install the latest version of a uvx tool before spawn.
+///
+/// Uses `uv tool install <pkg>@latest` rather than `uv tool upgrade` because
+/// `upgrade` silently does nothing when the tool was installed with an exact
+/// version pin (e.g. `mcp-server-fetch==2025.1.17`). `install @latest` always
+/// overwrites the pin with the current latest.
 fn run_uv_tool_upgrade(command: &str, args: &[String]) {
     let Some(package) = extract_uv_package_name(command, args) else {
         return;
     };
 
+    let package_at_latest = format!("{}@latest", package);
+
     tracing::debug!(
-        "[TransportResolution] Auto update policy: running uv tool upgrade for {}",
-        package
+        "[TransportResolution] Auto update policy: running uv tool install for {}",
+        package_at_latest
     );
 
-    let package_for_upgrade = package.clone();
+    let spec = package_at_latest.clone();
     match run_subprocess_blocking(move || {
         Command::new("uv")
-            .args(["tool", "upgrade", &package_for_upgrade])
+            .args(["tool", "install", &spec])
             .output()
     }) {
         Ok(output) if output.status.success() => {
             tracing::debug!(
-                "[TransportResolution] uv tool upgrade succeeded for {}",
-                package
+                "[TransportResolution] uv tool install succeeded for {}",
+                package_at_latest
             );
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::warn!(
-                "[TransportResolution] uv tool upgrade failed for {} (status {:?}): {}",
-                package,
+                "[TransportResolution] uv tool install failed for {} (status {:?}): {}",
+                package_at_latest,
                 output.status.code(),
                 stderr.trim()
             );
         }
         Err(err) => {
             tracing::warn!(
-                "[TransportResolution] uv tool upgrade could not run for {}: {}",
-                package,
+                "[TransportResolution] uv tool install could not run for {}: {}",
+                package_at_latest,
                 err
             );
         }
@@ -571,8 +575,8 @@ fn extract_uv_package_name(command: &str, args: &[String]) -> Option<String> {
 
 /// Strip an existing `@version` or `==version` suffix from a package specifier.
 fn strip_package_version(package: &str) -> String {
-    if let Some(stripped) = package.strip_prefix("==") {
-        return stripped.to_string();
+    if let Some((name, _version)) = package.split_once("==") {
+        return name.to_string();
     }
     split_npm_package_arg(package).0
 }

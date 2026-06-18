@@ -145,6 +145,17 @@ pub fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, Value) {
                 "server_id": server_id,
             }),
         ),
+        DomainEvent::ServerVersionChecked {
+            space_id,
+            server_id,
+        } => (
+            "server-changed",
+            serde_json::json!({
+                "action": "version_checked",
+                "space_id": space_id,
+                "server_id": server_id,
+            }),
+        ),
         DomainEvent::ServerUpdateAvailable {
             space_id,
             server_id,

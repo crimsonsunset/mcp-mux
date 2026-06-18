@@ -7,7 +7,7 @@
 //! - Connect/Reconnect button based on connection history
 
 use crate::AppState;
-use mcpmux_core::ApplicationServices;
+use mcpmux_core::{ApplicationServices, DomainEvent};
 use mcpmux_gateway::pool::transport::resolution::{
     build_transport_config, TransportResolutionOptions,
 };
@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::RwLock;
+use chrono::Utc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -150,13 +151,29 @@ pub async fn update_server_package(
     )
     .await?;
 
-    let probe = ServerVersionProbeService::new(installed_repo, settings_repo, event_bus);
+    // Immediately record current_version = latest_available_version so the
+    // badge clears before the probe runs. The probe will confirm or refine
+    // this value from the npx cache / uv tool list.
+    if let Ok(Some(server)) = installed_repo.get_by_server_id(&space_id, &server_id).await {
+        if let Some(latest) = server.latest_available_version {
+            let _ = installed_repo
+                .update_version_cache(&server.id, Some(latest.clone()), Some(latest), Utc::now())
+                .await;
+        }
+    }
+
+    let probe = ServerVersionProbeService::new(installed_repo, settings_repo, event_bus.clone());
     if let Err(error) = probe.probe_server(&space_id, &server_id).await {
         warn!(
             "[ServerManager] Post-update version probe failed for {}: {}",
             server_id, error
         );
     }
+
+    event_bus.sender().emit(DomainEvent::ServerVersionChecked {
+        space_id: space_uuid,
+        server_id: server_id.clone(),
+    });
 
     Ok(())
 }
