@@ -41,6 +41,8 @@ impl ToolDiscoveryService {
         query_id: Option<&str>,
         hybrid: Option<SearchContext<'_>>,
         server_readiness: Option<&HashMap<String, &'static str>>,
+        server_display_names: Option<&HashMap<String, String>>,
+        prefilled_params_by_server: Option<&HashMap<String, Vec<String>>>,
         include_invoke_example: bool,
     ) -> SearchToolsResult {
         let limit = limit.clamp(1, 100);
@@ -99,7 +101,18 @@ impl ToolDiscoveryService {
             .map(|entry| {
                 let readiness = server_readiness
                     .map(|map| map.get(&entry.server_id).copied().unwrap_or("bindable"));
-                entry_to_json(entry, detail_level, readiness, include_invoke_example)
+                let display_name = server_display_names.and_then(|map| map.get(&entry.server_id));
+                let prefilled_keys = prefilled_params_by_server
+                    .and_then(|map| map.get(&entry.server_id))
+                    .map(Vec::as_slice);
+                entry_to_json(
+                    entry,
+                    detail_level,
+                    readiness,
+                    display_name.map(String::as_str),
+                    prefilled_keys,
+                    include_invoke_example,
+                )
             })
             .collect();
         let paginate_ms = paginate_started.elapsed().as_millis() as u64;
@@ -514,11 +527,14 @@ fn entry_to_json(
     entry: &ToolIndexEntry,
     detail_level: DetailLevel,
     server_readiness: Option<&str>,
+    server_display_name: Option<&str>,
+    prefilled_keys: Option<&[String]>,
     include_invoke_example: bool,
 ) -> Value {
     let required_params = extract_required_param_specs(entry.input_schema.as_ref());
     let optional_params = extract_optional_param_specs(entry.input_schema.as_ref());
     let schema_complex = input_schema_is_complex(entry.input_schema.as_ref());
+    let required_params = mark_prefilled_required_params(&required_params, prefilled_keys);
     let mut obj = json!({
         "server_id": entry.server_id,
         "qualified_name": entry.qualified_name,
@@ -528,6 +544,9 @@ fn entry_to_json(
         "optional_params": optional_params,
         "schema_complex": schema_complex,
     });
+    if let Some(display_name) = server_display_name {
+        obj["display_name"] = json!(display_name);
+    }
     if include_invoke_example {
         obj["invoke_example"] = build_invoke_example(entry, &required_params);
     }
@@ -554,6 +573,33 @@ fn entry_to_json(
         }
     }
     obj
+}
+
+/// Annotate required params that are auto-filled from server `default_params`.
+fn mark_prefilled_required_params(
+    required_params: &[Value],
+    prefilled_keys: Option<&[String]>,
+) -> Vec<Value> {
+    let Some(prefilled_keys) = prefilled_keys else {
+        return required_params.to_vec();
+    };
+    if prefilled_keys.is_empty() {
+        return required_params.to_vec();
+    }
+
+    required_params
+        .iter()
+        .map(|param| {
+            let name = param.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if prefilled_keys.iter().any(|key| key == name) {
+                let mut marked = param.clone();
+                marked["prefilled"] = json!(true);
+                marked
+            } else {
+                param.clone()
+            }
+        })
+        .collect()
 }
 
 fn schema_entry_to_json(entry: &ToolIndexEntry, compact: bool) -> Value {

@@ -465,8 +465,8 @@ async fn search_default_empty_suggests_widen_or_bind() {
     assert_eq!(body.get("total"), Some(&json!(0)));
     assert_eq!(body.get("scope"), Some(&json!("active_only")));
     let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(hint.contains("mcpmux_list_servers"));
     assert!(hint.contains("include_inactive"));
-    assert!(hint.contains("mcpmux_list_feature_sets"));
     assert!(body.get("inactive_preview").is_none());
 }
 
@@ -530,8 +530,8 @@ async fn search_zero_result_generic_hint_when_no_ready_inactive() {
     assert_eq!(body.get("total"), Some(&json!(0)));
     assert!(body.get("inactive_preview").is_none());
     let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(hint.contains("mcpmux_list_servers"));
     assert!(hint.contains("include_inactive"));
-    assert!(hint.contains("mcpmux_list_feature_sets"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -569,6 +569,77 @@ async fn search_tools_first_meta_call_resolves_bound_workspace() {
             .any(|t| t.get("qualified_name") == Some(&json!("github_create_issue"))),
         "expected bound github tool in first search_tools result: {tools:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_surfaces_display_name_and_prefilled_required_params() {
+    let f = Fixture::new().await;
+    bind_github_only_to_session_root(&f).await;
+
+    let mut github = InstalledServer::new(&f.space_id.to_string(), "github")
+        .with_definition(&stdio_definition_with_required_input("github", "github_token"))
+        .with_input("github_token", "secret")
+        .with_display_name_override(Some("Jira - S2H"));
+    github.default_params.insert("cloudId".to_string(), json!("site-uuid"));
+    f.installed_server_repo.install(&github).await.unwrap();
+
+    let mut create_issue = f
+        .server_feature_repo
+        .list_for_space(&f.space_id.to_string())
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|feature| feature.feature_name == "create_issue")
+        .expect("github create_issue feature");
+    create_issue.raw_json = Some(json!({
+        "name": "create_issue",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cloudId": { "type": "string" },
+                "title": { "type": "string" }
+            },
+            "required": ["cloudId", "title"]
+        }
+    }));
+    f.server_feature_repo.upsert(&create_issue).await.unwrap();
+
+    f.server_manager
+        .set_connected(
+            &ServerKey::new(f.space_id, "github"),
+            CachedFeatures::default(),
+        )
+        .await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "create issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    let tool = body
+        .get("tools")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("github_create_issue")))
+        .expect("github create_issue in search results");
+    assert_eq!(tool.get("display_name"), Some(&json!("Jira - S2H")));
+    let cloud_id = tool
+        .get("required_params")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|param| param.get("name") == Some(&json!("cloudId")))
+        .expect("cloudId required param");
+    assert_eq!(cloud_id.get("prefilled"), Some(&json!(true)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1145,6 +1216,39 @@ async fn bind_ready_github_with_inactive_create_issue(f: &Fixture) -> String {
         WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, bound_fs_id.clone());
     f.binding_repo.create(&binding).await.unwrap();
     inactive_fs_id
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_servers_includes_prefilled_params_when_default_params_set() {
+    let f = Fixture::new().await;
+    let mut github = InstalledServer::new(&f.space_id.to_string(), "github")
+        .with_definition(&stdio_definition_with_required_input("github", "github_token"));
+    github.default_params.insert("cloudId".to_string(), json!("site-uuid"));
+    f.installed_server_repo.install(&github).await.unwrap();
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_list_servers",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    let github_entry = body
+        .get("servers")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s.get("id") == Some(&json!("github")))
+        .expect("github server in list");
+    assert_eq!(
+        github_entry.get("prefilled_params"),
+        Some(&json!(["cloudId"]))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

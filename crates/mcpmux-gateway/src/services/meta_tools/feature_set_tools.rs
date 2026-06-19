@@ -162,6 +162,14 @@ impl MetaTool for GetToolSchemaTool {
                         { "type": "array", "items": { "type": "string" } }
                     ]
                 },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Alias for tools (single qualified name)"
+                },
+                "tool": {
+                    "type": "string",
+                    "description": "Alias for tools (single qualified name)"
+                },
                 "compact": { "type": "boolean", "default": false }
             }
         })
@@ -171,7 +179,12 @@ impl MetaTool for GetToolSchemaTool {
         let resolved = caller_resolution(&call).await?;
         let space_id = caller_space_id(&call).await?;
 
-        let schema_request = parse_tool_schema_names(call.args.get("tools"))?;
+        let tools_value = call
+            .args
+            .get("tools")
+            .or_else(|| call.args.get("tool_name"))
+            .or_else(|| call.args.get("tool"));
+        let schema_request = parse_tool_schema_names(tools_value)?;
         let tool_names = schema_request.valid_names;
 
         let compact = call

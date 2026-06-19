@@ -2,7 +2,7 @@
 
 **Synthesizes:** [`feature-set-consent-model.md`](../reference/feature-set-consent-model.md), [`dynamic-mcp-toggle-meta-tools.md`](../reference/dynamic-mcp-toggle-meta-tools.md)
 
-**Last Updated:** Jun 17, 2026
+**Last Updated:** Jun 19, 2026
 
 ---
 
@@ -57,8 +57,10 @@ The session-override tier that existed in `dynamic-mcp-toggle-meta-tools.md` (ep
 
 ```
 1. Agent needs a capability it cannot find.
-2. search_tools("jira issue", include_inactive: true)
-      → returns inactive matches, each with { status: "inactive", bindable_feature_set_id }
+2. mcpmux_search_tools("jira issue")                    ← active scope first
+     → if zero active hits: check hint + inactive_preview (see below)
+     → or widen: search_tools(..., include_inactive: true)
+       → inactive matches with { status: "inactive", bindable_feature_set_id }
 3. Agent calls bind_current_workspace(feature_set_id)
       → ApprovalBroker surfaces dialog (desktop dialog or web modal)
       → on approve: FeatureSet ID is APPENDED to the binding (deduplicated)
@@ -67,20 +69,23 @@ The session-override tier that existed in `dynamic-mcp-toggle-meta-tools.md` (ep
    automatically — no re-approval, no enable call.
 ```
 
-If no FeatureSet contains the needed tool, the agent cannot proceed — it should surface a message asking the user to author a bundle in the desktop or web UI. This is the intended dead-end.
+If **no** FeatureSet contains the needed tool, the agent cannot proceed — it should surface a message asking the user to author a bundle in the desktop or web UI. This is the intended dead-end.
 
 ---
 
 ## Discovery Must Surface Inactive Capability
 
-Search and list operations always include inactive servers and feature sets (flagged) so an agent can find a capability even if nothing is currently active. The original failure mode — `search_tools("jira issue")` returning zero results because the Jira server had no active binding — is fixed by including inactive matches annotated with `bindable_feature_set_id`.
+Search defaults to the **active** scope (fast, lean). Inactive capability is still discoverable without dumping the full catalog on every query.
 
 Key rules:
 
 - Seeing that a capability exists is **not** exposure — inactive tools cannot be invoked.
-- `mcpmux_search_tools` defaults to the active scope (fast). Pass `include_inactive: true` to widen.
-- On zero/thin active results the tool response tells the agent to widen or call `list_feature_sets → bind_current_workspace`.
-- `mcpmux_list_feature_sets` and `mcpmux_list_servers` clearly distinguish bound-and-active from available-but-inactive, each carrying the ID needed to bind.
+- `mcpmux_search_tools` defaults to active scope. Pass `include_inactive: true` to widen to all installed FeatureSets.
+- **Zero-result recovery (active scope):**
+  - If matching tools exist on **`ready`** servers but in **unbound** FeatureSets, the response includes up to 3 hits in **`inactive_preview`** (separate from `tools[]`) plus a bind-oriented `hint`.
+  - Otherwise the `hint` directs the agent to **`mcpmux_list_servers`** first (readiness, `bindable_feature_set_ids`), then `include_inactive: true` for a full inactive catalog search.
+- `mcpmux_list_feature_sets` and `mcpmux_list_servers` distinguish bound-and-active from available-but-inactive; `list_servers` also exposes **`prefilled_params`** when server `default_params` are configured (see [`server-config-lanes.md`](../guides/server-config-lanes.md#default_params)).
+- Search hits include **`display_name`** alongside `server_id` so agents need not cross-reference `list_servers` for human labels on every invoke.
 
 ---
 

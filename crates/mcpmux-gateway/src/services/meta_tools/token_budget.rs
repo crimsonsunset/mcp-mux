@@ -29,6 +29,7 @@ pub const ALL_REGISTERED_META_TOOL_NAMES: &[&str] = &[
     "mcpmux_search_prompts",
     "mcpmux_fetch_prompt",
     "mcpmux_bind_current_workspace",
+    "mcpmux_set_workspace_root",
 ];
 
 /// Slim MCP tool object (name + description + inputSchema) — matches `pnpm count-tokens` / planning doc.
@@ -158,8 +159,8 @@ mod tests {
         );
         println!("{line}");
 
-        assert_eq!(CORE_META_TOOLS.len(), 4);
-        assert_eq!(ALL_REGISTERED_META_TOOL_NAMES.len(), 11);
+        assert_eq!(CORE_META_TOOLS.len(), 5);
+        assert_eq!(ALL_REGISTERED_META_TOOL_NAMES.len(), 12);
         assert!(
             budget.core_claude_est < budget.full_claude_est,
             "core must be smaller than full: {budget:?}"

@@ -160,6 +160,48 @@ pub(crate) fn format_invoke_not_ready_action(reason: &str, server_id: &str) -> S
     }
 }
 
+/// Like [`format_invoke_not_ready_action`] but appends the server display name when known.
+pub(crate) fn format_invoke_not_ready_action_with_name(
+    reason: &str,
+    server_id: &str,
+    display_name: Option<&str>,
+) -> String {
+    let base = format_invoke_not_ready_action(reason, server_id);
+    match display_name {
+        Some(name) if !name.is_empty() && name != server_id => format!("{base} ({name})"),
+        _ => base,
+    }
+}
+
+/// Display names and pre-configured default param keys per installed server.
+pub(crate) async fn build_installed_server_meta_maps(
+    call: &MetaToolCall<'_>,
+    space_id: &Uuid,
+) -> Result<(HashMap<String, String>, HashMap<String, Vec<String>>), MetaToolError> {
+    let installed = call
+        .ctx
+        .installed_server_repo
+        .list_for_space(&space_id.to_string())
+        .await
+        .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+
+    let mut display_names = HashMap::new();
+    let mut prefilled_params = HashMap::new();
+    for server in installed {
+        display_names.insert(
+            server.server_id.clone(),
+            server.display_name().to_string(),
+        );
+        if !server.default_params.is_empty() {
+            let mut keys: Vec<String> = server.default_params.keys().cloned().collect();
+            keys.sort();
+            prefilled_params.insert(server.server_id.clone(), keys);
+        }
+    }
+
+    Ok((display_names, prefilled_params))
+}
+
 /// Whether the caller omitted or blanked the search query.
 pub(crate) fn is_query_empty(query: Option<&str>) -> bool {
     query.map(str::trim).is_none_or(str::is_empty)

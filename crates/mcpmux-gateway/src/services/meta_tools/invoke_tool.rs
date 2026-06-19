@@ -15,7 +15,8 @@ use tracing::debug;
 use super::diagnose_server::parse_missing_required_inputs;
 use super::invoke_result_filter::{apply_invoke_result_filter, parse_invoke_filter};
 use super::meta_tool_common::{
-    caller_resolution, caller_space_id, classify_invoke_denial, format_invoke_not_ready_action,
+    caller_resolution, caller_space_id, classify_invoke_denial,
+    format_invoke_not_ready_action_with_name,
 };
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use crate::pool::{format_invoke_permission_denied, ConnectionStatus};
@@ -159,17 +160,6 @@ impl MetaTool for InvokeToolTool {
             .map(|f| f.server_id.clone())
             .collect();
 
-        if !binding_servers.contains(&server_id) {
-            let (reason, tool) =
-                classify_invoke_denial(false, ConnectionStatus::Disconnected, false)
-                    .unwrap_or(("inactive", "mcpmux_bind_current_workspace"));
-            return Ok(invoke_not_ready(
-                reason,
-                format_invoke_not_ready_action(reason, &server_id),
-                tool,
-            ));
-        }
-
         let installed = call
             .ctx
             .installed_server_repo
@@ -177,6 +167,22 @@ impl MetaTool for InvokeToolTool {
             .await
             .ok()
             .flatten();
+        let server_display_name = installed.as_ref().map(|s| s.display_name().to_string());
+
+        if !binding_servers.contains(&server_id) {
+            let (reason, tool) =
+                classify_invoke_denial(false, ConnectionStatus::Disconnected, false)
+                    .unwrap_or(("inactive", "mcpmux_bind_current_workspace"));
+            return Ok(invoke_not_ready(
+                reason,
+                format_invoke_not_ready_action_with_name(
+                    reason,
+                    &server_id,
+                    server_display_name.as_deref(),
+                ),
+                tool,
+            ));
+        }
 
         let pool_statuses = call.ctx.server_manager.get_all_statuses(space_id).await;
         let connection_status = pool_statuses
@@ -193,7 +199,11 @@ impl MetaTool for InvokeToolTool {
         {
             return Ok(invoke_not_ready(
                 reason,
-                format_invoke_not_ready_action(reason, &server_id),
+                format_invoke_not_ready_action_with_name(
+                    reason,
+                    &server_id,
+                    server_display_name.as_deref(),
+                ),
                 tool,
             ));
         }
@@ -221,7 +231,11 @@ impl MetaTool for InvokeToolTool {
             if preflight {
                 return Ok(invoke_not_ready(
                     "permission_denied",
-                    format_invoke_not_ready_action("permission_denied", &server_id),
+                    format_invoke_not_ready_action_with_name(
+                        "permission_denied",
+                        &server_id,
+                        server_display_name.as_deref(),
+                    ),
                     "mcpmux_search_tools",
                 ));
             }

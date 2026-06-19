@@ -1150,6 +1150,26 @@ async fn get_tool_schema_accepts_string_array() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn get_tool_schema_accepts_tool_name_alias() {
+    let f = Fixture::new().await;
+    f.grant_github_connected().await;
+
+    let result = f
+        .call(
+            "mcpmux_get_tool_schema",
+            json!({ "tool_name": "github_list_issues" }),
+        )
+        .await;
+    let body = Fixture::result_json(&result);
+    let schemas = body.get("schemas").unwrap().as_array().unwrap();
+    assert_eq!(schemas.len(), 1);
+    assert_eq!(
+        schemas[0].get("qualified_name"),
+        Some(&json!("github_list_issues"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn get_tool_schema_accepts_json_encoded_array_string() {
     let f = Fixture::new().await;
     f.grant_github_connected().await;

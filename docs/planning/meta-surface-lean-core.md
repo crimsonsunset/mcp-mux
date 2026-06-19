@@ -27,7 +27,7 @@ Combined with the existing recovery strings — every path that fails because a 
 | - | -------- | ------ | --------- |
 | 1 | Trim approach | **Option 6 — lean advertised core + hidden-but-callable remainder** | Dodges the `list_changed` reliability blocker entirely. Static advertised set, no dynamic re-rendering, no notification dependency. |
 | 2 | Core tools (always advertised) | **`search_tools`, `invoke_tool`, `get_tool_schema`, `list_servers`** | The hot path every session: discover → schema → invoke. `list_servers` is 90 tokens and exposes `bindable_feature_set_ids` needed for the bind flow. |
-| 3 | `list_feature_sets` | **Hidden** | Named in the `search_tools` empty-results hint (`"call mcpmux_list_feature_sets then mcpmux_bind_current_workspace"`). Agents reach it on demand; no need to advertise cold. |
+| 3 | `list_feature_sets` | **Hidden** | Named in `search_tools` zero-result hints (with `mcpmux_list_servers` as the first suggested action). Agents reach it on demand; no need to advertise cold. |
 | 4 | `bind_current_workspace` | **Hidden** | `format_server_inactive_error` already says `"→ mcpmux_bind_current_workspace with a FeatureSet"`. Agents get here only when a server is inactive — the error delivers the tool name. |
 | 5 | `diagnose_server` | **Hidden** | Operator/debug tool, not a daily-driver. Not reachable from normal agent flow — acceptable; a human operator can call it directly when needed. |
 | 6 | Resource/prompt quartet | **Hidden** | For tool-only bindings (the majority) these are always irrelevant. The `search_resources`/`search_prompts` calls are self-discoverable via `mcpmux_search_tools` hints when a binding actually has resources/prompts. |
@@ -108,7 +108,7 @@ Earlier scoping (~738 / ~806 saved) used shorter pre-UX descriptions; the lean-c
 | Hidden tool | Named in | Location |
 | ----------- | -------- | -------- |
 | `bind_current_workspace` | `"server '{id}' is inactive → mcpmux_bind_current_workspace…"` | `routing.rs:62` |
-| `list_feature_sets` | `"call mcpmux_list_feature_sets then mcpmux_bind_current_workspace"` | `tools.rs:762` |
+| `list_feature_sets` | Zero-result search hint (also names `mcpmux_list_servers` first); `"call mcpmux_list_feature_sets then mcpmux_bind_current_workspace"` | `search_tools.rs` |
 | `search_resources` | `search_tools` hint when resources exist but aren't surfaced (audit Phase 2) | TBD |
 | `read_resource` | `"Use mcpmux_read_resource instead: mcpmux_read_resource({\"uri\": \"…\"})"` | `routing.rs:88` |
 | `search_prompts` | `search_tools` hint (audit Phase 2) | TBD |

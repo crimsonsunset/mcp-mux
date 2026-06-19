@@ -2,7 +2,7 @@
 
 **Synthesizes:** [`meta-gateway-invoke.md`](../reference/meta-gateway-invoke.md), [`search-tools-hybrid-semantic-ranking.md`](../reference/search-tools-hybrid-semantic-ranking.md), [`search-tools-embedding-search-read-path.md`](../reference/search-tools-embedding-search-read-path.md), [`search-tools-latency-and-root-race.md`](../reference/search-tools-latency-and-root-race.md), [`mcpmux-diagnose-server.md`](../reference/mcpmux-diagnose-server.md)
 
-**Last Updated:** Jun 5, 2026
+**Last Updated:** Jun 19, 2026
 
 ---
 
@@ -12,14 +12,14 @@ AI clients connected to McpMux see **4 `mcpmux_*` meta tools** in `tools/list` a
 
 ```
 tools/list (core — always advertised):
-├── mcpmux_list_servers              server roster with readiness, connection, health, blocking_reason
-├── mcpmux_search_tools              search by intent; browse mode; optional_params; invoke_example on browse
-├── mcpmux_get_tool_schema           single or batch schema fetch
+├── mcpmux_list_servers              server roster with readiness, prefilled_params, bindable_feature_set_ids
+├── mcpmux_search_tools              search by intent; browse mode; inactive_preview on zero-result; synonyms
+├── mcpmux_get_tool_schema           single or batch schema fetch; tool_name / tool aliases
 ├── mcpmux_invoke_tool               single invoke entry point; optional preflight
 └── [0–N surfaced backend tools]     opt-in per FeatureSet member; default zero
 
 hidden-but-callable (registered, not advertised — reached via recovery strings):
-├── mcpmux_list_feature_sets         → named in search_tools empty-results hint
+├── mcpmux_list_feature_sets         → named in search_tools zero-result hint (with list_servers)
 ├── mcpmux_bind_current_workspace    → named in server-inactive error + inactive-tool redirect
 ├── mcpmux_search_resources          → named in direct read_resource redirect
 ├── mcpmux_read_resource             → named in direct read_resource redirect
@@ -43,6 +43,7 @@ The canonical agent workflow (one to three steps depending on tool complexity):
       → ranked hits with qualified_name, bare_name, required_params, optional_params, server_readiness, schema_complex
 
 2. mcpmux_get_tool_schema({ tools: ["github_list_issues"] })   ← optional when required_params is enough
+   // Aliases: tool_name or tool (single qualified name) — same as invoke_tool's tool/tool_name pattern
       → full JSON input schema; compact: true strips examples/descriptions
 
 3. mcpmux_invoke_tool({ server_id: "github", tool: "list_issues" | "github_list_issues", args: { … } })
@@ -55,7 +56,7 @@ The canonical agent workflow (one to three steps depending on tool complexity):
 
 **Opt-in preflight:** `mcpmux_invoke_tool({ server_id, tool, preflight: true })` returns `{ ready: true }` or the same structured `not_ready` error as a failed invoke, without calling the backend.
 
-Search hits always include `bare_name` (use as `invoke_tool.tool` when unsure), `required_params` and `optional_params` (capped ~8) as `{ name, type }` objects, `server_readiness` (`bindable` | `bound` | `ready`), and `schema_complex` (call `get_tool_schema` when true). At `detail_level=schema`, full `input_schema` is included instead of the shallow param lists.
+Search hits always include `bare_name` (use as `invoke_tool.tool` when unsure), `display_name` (human label from installed server config — same value as `list_servers.name`), `required_params` and `optional_params` (capped ~8) as `{ name, type }` objects, `server_readiness` (`bindable` | `bound` | `ready`), and `schema_complex` (call `get_tool_schema` when true). Required params pre-configured via server **`default_params`** include `"prefilled": true` so agents know they are auto-filled at invoke. At `detail_level=schema`, full `input_schema` is included instead of the shallow param lists.
 
 For parameter-light tools, an agent can skip step 2 and invoke from search using `bare_name` or `qualified_name`. When `schema_complex: true`, `mcpmux_get_tool_schema` is the source of truth.
 
@@ -106,6 +107,8 @@ search_tools({ query })
   │
   ├─ build / fetch cached ToolIndexEntry[]         (per-session cache)
   ├─ LEXICAL: token-overlap filter + TF-IDF score   (discovery_rank.rs)
+  │     stopwords filtered (a, an, the, on, in, for, of, to, with)
+  │     query-side synonym expansion (e.g. jira→atlassian, ticket→issue, fetch→get)
   │     token-overlap OR match replaces contiguous-substring gate
   │     AND-boost when all query tokens present
   ├─ SEMANTIC (model Ready):
@@ -138,11 +141,22 @@ Ranked search hits do **not** include `invoke_example` (token budget).
 
 | Field | When | Notes |
 | ----- | ---- | ----- |
-| `required_params` | always (except `detail_level=schema`) | `{ name, type }[]` |
+| `display_name` | always | Installed server display label (matches `list_servers.name`) |
+| `required_params` | always (except `detail_level=schema`) | `{ name, type }[]`; `"prefilled": true` when key is in server `default_params` |
 | `optional_params` | always (except schema level) | capped ~8; shallow types only |
 | `schema_complex` | always | `true` → call `get_tool_schema` |
 | `server_readiness` | always | `bindable` \| `bound` \| `ready` — point-in-time pool snapshot |
 | `invoke_example` | browse mode only | copy-paste into `mcpmux_invoke_tool` |
+
+### Zero-result recovery (`scope: active_only`)
+
+When a ranked query returns no active matches:
+
+1. **Ready-but-inactive preview** — if matching tools exist on servers with `readiness: ready` but in unbound FeatureSets, the response includes up to **3** ranked hits in a separate **`inactive_preview`** array (not mixed into `tools[]`). Each entry carries `status: "inactive"`, `bindable_feature_set_id`, and the usual hit fields. The `hint` directs the agent to `mcpmux_bind_current_workspace`.
+
+2. **Generic hint** — when no ready inactive matches exist, the `hint` leads with **`mcpmux_list_servers`** (readiness + `bindable_feature_set_ids`) and mentions `include_inactive: true` as the wide-catalog fallback. This avoids the 743-tool dump on first miss while still surfacing the bind path.
+
+Wide search remains opt-in: `include_inactive: true` (or `scope: "all"`).
 
 ### Server readiness (`list_servers`)
 
@@ -154,7 +168,7 @@ Replaces the old binary `status` field:
 | `bound` | In binding but not invokable — see `blocking_reason` (`auth_required`, `needs_setup`, `disconnected`, `error`) |
 | `ready` | Bound + connected + no missing required inputs |
 
-Each entry also includes `connection`, `health`, and `missing_inputs` when setup is incomplete.
+Each entry also includes `connection`, `health`, and `missing_inputs` when setup is incomplete. When the server has **`default_params`** configured, **`prefilled_params`** lists the argument keys auto-filled on every invoke (e.g. `["cloudId"]` for Atlassian) — agents do not need a discovery round-trip for those keys.
 
 **`include_inactive: true`** widens search to tools in installed-but-unbound FeatureSets. Inactive matches carry `{ status: "inactive", bindable_feature_set_id }`. The wide scan uses an optimized single JOIN query (replaced a per-FS `resolve_feature_sets` loop that caused 84 s hangs on large bundles).
 
@@ -171,7 +185,7 @@ invokable_tools   = Tool features for effective_servers ∩ FeatureSet members
 
 Invoking a tool outside the effective set returns an actionable error, not a silent proxy. Examples:
 
-- Structured **not_ready** before backend dispatch: `{ error: "not_ready", reason: "inactive"|"bound_offline"|"auth_required"|"needs_setup", action, tool }` — `tool` names `mcpmux_bind_current_workspace` or `mcpmux_diagnose_server`
+- Structured **not_ready** before backend dispatch: `{ error: "not_ready", reason: "inactive"|"bound_offline"|"auth_required"|"needs_setup", action, tool }` — `action` includes the server **display name** in parentheses when configured (e.g. `server 'com.atlassian-mcp' is inactive → … (Jira - S2H)`). `tool` names `mcpmux_bind_current_workspace` or `mcpmux_diagnose_server`
 - `"unknown tool → did you mean list_issues?"` (Levenshtein on bare `feature_name`)
 
 **Preflight:** `preflight: true` runs the same readiness and permission gates; on success returns `{ ready: true }` without backend dispatch.

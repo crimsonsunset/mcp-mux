@@ -1,6 +1,6 @@
 # New Workspace Onboarding
 
-**Last Updated:** Jun 17, 2026
+**Last Updated:** Jun 19, 2026
 
 Step-by-step operator flow for routing a **new folder** (or a folder that has never been bound) through McpMux. Read [`../technical/consent-and-binding.md`](../technical/consent-and-binding.md) for the consent model; this guide is the practical checklist.
 
@@ -79,8 +79,11 @@ Binding is **additive**: multiple FeatureSets union into one allow-list.
 
 From an agent in **that same window** (after `list_changed` or MCP reload):
 
-- `mcpmux_list_servers` — target servers should show `readiness: ready` (not `bindable`) when bound and connected.
+- `mcpmux_list_servers` — target servers should show `readiness: ready` (not `bindable`) when bound and connected. Entries with pre-configured invoke defaults (e.g. Atlassian `cloudId`) show **`prefilled_params`** so agents skip manual discovery for those keys.
+- `mcpmux_search_tools` — hits include `display_name`, `required_params` (with `"prefilled": true` for pre-configured keys), and `server_readiness`.
 - Workspaces inspector → **Effective Features** — should list tools from your chosen bundle(s).
+
+For servers that need sticky per-call args (Atlassian `cloudId`, default `projectKey`), set **`default_params`** in **Servers → Configure → Default Tool Parameters** before expecting one-shot invokes. See [`server-config-lanes.md`](./server-config-lanes.md#default_params).
 
 Gateway log should show:
 

@@ -9,7 +9,8 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::meta_tool_common::{
-    build_server_readiness_map, caller_resolution, is_query_empty, text_result,
+    build_installed_server_meta_maps, build_server_readiness_map, caller_resolution, is_query_empty,
+    text_result,
 };
 use super::registry::{feature_set_ids_fingerprint, MetaTool, MetaToolCall, MetaToolError};
 use super::search_tools_index::{
@@ -156,6 +157,8 @@ impl MetaTool for SearchToolsTool {
         }
 
         let readiness_map = build_server_readiness_map(&call, &space_id, &resolved).await?;
+        let (server_display_names, prefilled_params_by_server) =
+            build_installed_server_meta_maps(&call, &space_id).await?;
 
         let mut index_cache_hit = false;
         let active_index_started = Instant::now();
@@ -276,6 +279,8 @@ impl MetaTool for SearchToolsTool {
             Some(query_id.as_str()),
             hybrid,
             Some(&readiness_map),
+            Some(&server_display_names),
+            Some(&prefilled_params_by_server),
             is_browse,
         );
         let rank_ms = rank_started.elapsed().as_millis() as u64;
@@ -328,9 +333,10 @@ impl MetaTool for SearchToolsTool {
 
             if ready_inactive.is_empty() {
                 payload["hint"] = json!(
-                    "No active tools matched. Retry with include_inactive: true to discover \
-                     bindable capability, or call mcpmux_bind_current_workspace with a \
-                     feature_set_id (use mcpmux_list_feature_sets to list bundles if needed)."
+                    "No active tools matched. Call mcpmux_list_servers to see installed servers \
+                     and their readiness — bindable servers can be activated via \
+                     mcpmux_bind_current_workspace. To browse all available tools across \
+                     FeatureSets, retry with include_inactive: true."
                 );
             } else {
                 let preview_index =
@@ -347,6 +353,8 @@ impl MetaTool for SearchToolsTool {
                     Some(query_id.as_str()),
                     None,
                     Some(&readiness_map),
+                    Some(&server_display_names),
+                    Some(&prefilled_params_by_server),
                     false,
                 );
                 payload["inactive_preview"] = json!(preview.tools);
@@ -384,6 +392,8 @@ impl MetaTool for SearchToolsTool {
                 Some(query_id.as_str()),
                 None,
                 Some(&readiness_map),
+                Some(&server_display_names),
+                Some(&prefilled_params_by_server),
                 is_browse,
             );
             if catalog_result.total > 0 {

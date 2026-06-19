@@ -1,7 +1,7 @@
 # Meta-Tool Invoke Ergonomics — Default Params & First-Call UX
 
-**Last Updated:** Jun 2, 2026
-**Status:** Phase 1–3 on `dev` (`a92111c`–`b58c693`); **round 2** shipped on `feat/meta-surface-lean-core` (`9532ce0`) — PR [#4](https://github.com/crimsonsunset/mcp-mux/pull/4); agent-validated Jun 2, 2026
+**Last Updated:** Jun 19, 2026
+**Status:** Phase 1–3 on `dev` (`a92111c`–`b58c693`); **round 2** shipped on `feat/meta-surface-lean-core` (`9532ce0`); **round 3** (search UX + agent visibility) on `feat/meta-surface-lean-core` (Jun 2026)
 **Branch:** merged to `dev`
 **Base branch:** `dev`
 **Depends on:** nothing — builds on the shipped consent/invoke model
@@ -18,9 +18,28 @@ Agent feedback on the lean-core surface: search returned `qualified_name` but in
 | `bare_name` in search hits | Same as `feature_name` — the value to pass to `mcpmux_invoke_tool.tool` |
 | `required_params` shape | `[{ "name": "owner", "type": "string" }, …]` at default `detail_level` (required keys only) |
 | `invoke_tool.tool` | Accepts bare **or** qualified; strips `{server_id}_` prefix when present |
-| Deferred | `tool` → `tool_name` rename; optional-param inlining; full schema in search |
+| Deferred | optional-param inlining; full schema in search |
 
 **Agent validation (Jun 2, 2026):** `mcpmux_search_tools` → `mcpmux_invoke_tool` on Context7 without `get_tool_schema`: `resolve-library-id` with `bare_name` + `required_params` types; then `query-docs` with `/reactjs/react.dev`. GitHub `github_search_code` and bare `search_code` both invoked successfully. Wrong-tool errors suggest bare names only (no double-prefix).
+
+---
+
+## Round 3 (Jun 2026 — search UX + agent visibility)
+
+Follow-up from agent sessions (Atlassian/Jira workflows). Shipped on `feat/meta-surface-lean-core`:
+
+| Change | Detail |
+| ------ | ------ |
+| Lexical query expansion | Stopwords filtered; query-side synonyms (e.g. `jira`→`atlassian`, `ticket`→`issue`) in `discovery_rank.rs`; applies to tool/resource/prompt search |
+| Zero-result `inactive_preview` | Active search returns 0 → up to 3 **ready** but unbound tools in separate `inactive_preview[]` with bind hint (not mixed into `tools[]`) |
+| Zero-result hint | Generic miss leads with `mcpmux_list_servers` before suggesting `include_inactive: true` |
+| `prefilled_params` on `list_servers` | Lists keys from server `default_params` (e.g. `["cloudId"]`) |
+| `prefilled: true` on search hits | Required params covered by `default_params` are marked in `required_params[]` |
+| `display_name` on search hits | Human server label alongside `server_id` |
+| Invoke denial `action` | Appends display name when known, e.g. `… (Jira - S2H)` |
+| `get_tool_schema` aliases | Accepts `tool_name` or `tool` (single name) in addition to `tools` — mirrors `invoke_tool` |
+
+**Operator setup unchanged:** configure `default_params` in **Servers → Configure**; agents learn what's pre-filled via `list_servers` / search hits, not by calling `getAccessibleAtlassianResources`. Full lane guide: [`server-config-lanes.md`](../backend/guides/server-config-lanes.md#default_params).
 
 ---
 

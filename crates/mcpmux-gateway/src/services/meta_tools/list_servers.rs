@@ -143,6 +143,17 @@ impl MetaTool for ListServersTool {
                 if let Some(cloned_from) = installed.and_then(|s| s.cloned_from.as_ref()) {
                     entry["cloned_from"] = json!(cloned_from);
                 }
+                if let Some(server) = installed {
+                    if !server.default_params.is_empty() {
+                        let mut keys: Vec<&str> = server
+                            .default_params
+                            .keys()
+                            .map(String::as_str)
+                            .collect();
+                        keys.sort_unstable();
+                        entry["prefilled_params"] = json!(keys);
+                    }
+                }
                 if readiness == "bindable" {
                     if let Some(fs_ids) = inactive_by_server.get(&id) {
                         let mut ids: Vec<_> = fs_ids.iter().cloned().collect();
