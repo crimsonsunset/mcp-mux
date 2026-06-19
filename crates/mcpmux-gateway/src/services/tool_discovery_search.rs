@@ -155,7 +155,9 @@ impl ToolDiscoveryService {
         tool_names
             .iter()
             .filter_map(|name| {
-                let entry = index.iter().find(|e| e.qualified_name == *name)?;
+                let entry = index
+                    .iter()
+                    .find(|e| e.qualified_name == *name || e.feature_name == *name)?;
                 Some(schema_entry_to_json(entry, compact))
             })
             .collect()
