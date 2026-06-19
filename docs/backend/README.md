@@ -31,6 +31,7 @@ How-to procedures. Read these when you need to do something, not just understand
 | --- | -------------- |
 | [`run-from-source.md`](./guides/run-from-source.md) | Local build, first-run setup, prerequisites |
 | [`dev-workflow.md`](./guides/dev-workflow.md) | `dev:stop` / `dev:rebuild` / `dev:admin`, port map, log paths, Cursor MCP reload |
+| [`new-workspace-onboarding.md`](./guides/new-workspace-onboarding.md) | Operator checklist: live roots vs bindings, Workspaces UI, post-restart MCP re-auth |
 | [`server-config-lanes.md`](./guides/server-config-lanes.md) | Per-server `env_overrides`, `args_append`, `extra_headers`, `default_params` — when to use each |
 
 ---

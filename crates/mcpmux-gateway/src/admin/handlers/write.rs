@@ -11,9 +11,10 @@ use crate::admin::command_bridge::write::{
     DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody,
     InstallServerBody, LogRetentionBody, MetaToolApprovalBody, MetaToolRevokeBody,
     MetaToolsEnabledBody, OAuthClientUpdateBody, OAuthGrantBody, SaveServerInputsBody,
-    SaveSpaceConfigBody, ServerConnectionBody, SetMembersBody, SetServerDisplayNameBody,
-    SetServerOAuthConnectedBody, StartupSettingsBody, UninstallServerBody, UpdateFeatureSetBody,
-    UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
+    SaveSpaceConfigBody, ServerConnectionBody, ServerUpdateSettingsBody, SetMembersBody,
+    SetServerDisplayNameBody, SetServerOAuthConnectedBody, StartupSettingsBody,
+    UninstallServerBody, UpdateFeatureSetBody, UploadIconBody, WorkspaceAppearanceBody,
+    WorkspaceBindingBody,
 };
 use crate::admin::handlers::error::ApiError;
 use crate::admin::router::AdminState;
@@ -253,6 +254,16 @@ pub async fn retry_connection(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn update_server_package(
+    State(state): State<AdminState>,
+    Json(body): Json<ServerConnectionBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::update_server_package(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn logout_server(
     State(state): State<AdminState>,
     Json(body): Json<ServerConnectionBody>,
@@ -434,6 +445,16 @@ pub async fn update_startup_settings(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn update_server_update_settings(
+    State(state): State<AdminState>,
+    Json(body): Json<ServerUpdateSettingsBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::update_server_update_settings(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn set_meta_tools_enabled(
     State(state): State<AdminState>,
     Json(body): Json<MetaToolsEnabledBody>,
@@ -529,6 +550,30 @@ pub async fn revoke_oauth_client_feature_set(
     Json(body): Json<OAuthGrantBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::revoke_oauth_client_feature_set(&state.bridge, client_id, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn check_server_version(
+    State(state): State<AdminState>,
+    Path(server_id): Path<String>,
+    Json(body): Json<bridge::ServerConnectionBody>,
+) -> Result<Json<Value>, ApiError> {
+    let body = bridge::ServerConnectionBody {
+        space_id: body.space_id,
+        server_id,
+    };
+    bridge::check_server_version(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn check_all_server_versions(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::check_all_server_versions(&state.bridge)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

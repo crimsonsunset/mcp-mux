@@ -40,7 +40,7 @@ test.describe('Navigation', () => {
 
     // Clients
     await page.locator('nav button:has-text("Clients")').click({ force: true });
-    await expect(page.locator('h1:has-text("Connected Clients")')).toBeVisible();
+    await expect(page.getByTestId('clients-title')).toBeVisible();
 
     // Settings
     await page.locator('nav button:has-text("Settings")').click({ force: true });

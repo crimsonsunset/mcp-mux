@@ -65,6 +65,13 @@ pub fn format_server_inactive_error(server_id: &str) -> String {
     )
 }
 
+/// Actionable error when a bound server is not connected.
+pub fn format_server_bound_offline_error(server_id: &str) -> String {
+    format!(
+        "Server '{server_id}' is bound but not connected. Run mcpmux_diagnose_server to see why."
+    )
+}
+
 /// Actionable error when invoke targets a tool outside the permission set.
 pub fn format_invoke_permission_denied(
     qualified_name: &str,
@@ -87,7 +94,9 @@ pub fn format_invoke_permission_denied(
 /// Redirect message for direct backend `read_resource` attempts.
 pub fn format_direct_read_redirect(uri: &str) -> String {
     format!(
-        "Direct backend resource reads are not supported. Use mcpmux_read_resource instead: \
+        "Direct backend resource reads are not supported. \
+         Use mcpmux_search_resources to discover readable URIs, then \
+         mcpmux_read_resource to fetch one: \
          mcpmux_read_resource({{ \"uri\": \"{uri}\" }})"
     )
 }
@@ -99,7 +108,9 @@ pub fn format_direct_fetch_prompt_redirect(
     prompt_name: &str,
 ) -> String {
     format!(
-        "Direct backend prompt fetches are not supported. Use mcpmux_fetch_prompt instead: \
+        "Direct backend prompt fetches are not supported. \
+         Use mcpmux_search_prompts to discover fetchable prompts, then \
+         mcpmux_fetch_prompt to fetch one: \
          mcpmux_fetch_prompt({{ \"server_id\": \"{server_id}\", \"prompt\": \"{prompt_name}\", \"args\": {{}} }}) \
          (qualified name was '{qualified_name}')"
     )

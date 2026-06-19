@@ -1,5 +1,5 @@
 # Reusable workflow: Desktop E2E tests (Linux + Windows)
-# Call with workflow_call from ci.yml or e2e-desktop-comment.yml
+# Call with workflow_call from ci.yml. PRs default to Windows-only; pushes run both OS.
 name: E2E Desktop
 
 on:
@@ -9,6 +9,11 @@ on:
         description: Git ref to checkout (e.g. PR head SHA or github.sha)
         required: true
         type: string
+      platforms:
+        description: JSON array of runner OS values (e.g. ["windows-latest"] or both Linux + Windows)
+        required: false
+        type: string
+        default: '["ubuntu-latest", "windows-latest"]'
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
@@ -23,9 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-          - os: windows-latest
+        os: ${{ fromJSON(inputs.platforms) }}
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -97,20 +100,45 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build app (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Resolve updater signing
+        id: updater_signing
+        uses: ./.github/actions/resolve-updater-signing
+        with:
+          signing_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      # Inline JSON in --config breaks under PowerShell (quotes stripped). File path is cross-platform.
+      - name: Write Tauri config (updater artifacts off)
+        if: steps.updater_signing.outputs.signing_enabled != 'true'
+        shell: bash
+        run: |
+          printf '%s\n' '{"bundle":{"createUpdaterArtifacts":false}}' > "$RUNNER_TEMP/tauri.ci.json"
+          echo "TAURI_CI_CONFIG=$RUNNER_TEMP/tauri.ci.json" >> "$GITHUB_ENV"
+
+      - name: Build app (Linux, with updater signing)
+        if: matrix.os == 'ubuntu-latest' && steps.updater_signing.outputs.signing_enabled == 'true'
         run: pnpm --filter @mcpmux/desktop exec tauri build --bundles deb,rpm,updater
         env:
           PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      - name: Build app (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build app (Linux, updater gated off)
+        if: matrix.os == 'ubuntu-latest' && steps.updater_signing.outputs.signing_enabled != 'true'
+        run: pnpm --filter @mcpmux/desktop exec tauri build --bundles deb,rpm --config "$TAURI_CI_CONFIG"
+        env:
+          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+
+      - name: Build app (Windows, with updater signing)
+        if: matrix.os == 'windows-latest' && steps.updater_signing.outputs.signing_enabled == 'true'
         run: pnpm build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Build app (Windows, updater gated off)
+        if: matrix.os == 'windows-latest' && steps.updater_signing.outputs.signing_enabled != 'true'
+        shell: bash
+        run: pnpm --filter @mcpmux/desktop exec tauri build --config "$TAURI_CI_CONFIG"
 
       - name: Run desktop E2E tests (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -196,9 +224,23 @@ jobs:
             fi
           done
 
+      - name: Detect E2E JUnit artifacts per OS
+        if: always()
+        id: e2e_junit
+        run: |
+          for os in ubuntu-latest windows-latest; do
+            key=$(echo "$os" | tr '-' '_')
+            if compgen -G "test-results/e2e-desktop-results-${os}/**/*.xml" > /dev/null; then
+              echo "${key}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${key}=false" >> "$GITHUB_OUTPUT"
+              echo "No JUnit XML for ${os} — skipping test report (build may have failed before tests ran)"
+            fi
+          done
+
       - name: 'Report: E2E Desktop Tests (Linux)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && contains(inputs.platforms, 'ubuntu-latest') && steps.e2e_junit.outputs.ubuntu_latest == 'true'
         with:
           name: '🖥️ E2E Desktop Tests (Linux)'
           path: test-results/e2e-desktop-results-ubuntu-latest/**/*.xml
@@ -207,7 +249,7 @@ jobs:
 
       - name: 'Report: E2E Desktop Tests (Windows)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && steps.e2e_junit.outputs.windows_latest == 'true'
         with:
           name: '🖥️ E2E Desktop Tests (Windows)'
           path: test-results/e2e-desktop-results-windows-latest/**/*.xml

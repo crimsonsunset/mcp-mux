@@ -16,6 +16,7 @@ use mcpmux_gateway::admin::runtime::GatewayRuntime;
 use mcpmux_gateway::admin::ui_events::AdminUiEventBus;
 use mcpmux_gateway::admin::{AdminBridgeCtx, BackendBuildStamp};
 use mcpmux_gateway::pool::ConnectionStatus as GatewayConnectionStatus;
+use mcpmux_gateway::services::ServerVersionProbeService;
 use mcpmux_gateway::{AdminConfig, AdminServer, AdminServerHandle};
 use serde::Deserialize;
 use serde_json::json;
@@ -467,6 +468,11 @@ pub async fn start_admin_server_if_enabled(
         app.clone(),
         gateway_state.clone(),
     ));
+    let version_probe = Arc::new(ServerVersionProbeService::new(
+        app_state.installed_server_repository.clone(),
+        app_state.settings_repository.clone(),
+        services.event_bus.clone(),
+    ));
     let bridge = Arc::new(AdminBridgeCtx {
         services: services.clone(),
         spaces_dir: app_state.spaces_dir().to_path_buf(),
@@ -493,6 +499,7 @@ pub async fn start_admin_server_if_enabled(
             commit_time: env!("MCPMUX_BUILD_COMMIT_TIME").to_string(),
             build_time: env!("MCPMUX_BUILD_TIME").to_string(),
         },
+        version_probe,
     });
     let backend_git_sha = env!("MCPMUX_BUILD_GIT_SHA").to_string();
     let frontend_dist_log = frontend_dist.clone();

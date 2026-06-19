@@ -10,13 +10,18 @@
 //! bypassing OAuth via a test middleware that injects client/space headers.
 
 use axum::{body::Body, http::Request, middleware, middleware::Next, response::Response, Router};
-use mcpmux_core::{DomainEvent, ServerDiscoveryService, ServerFeatureRepository, ServerLogManager};
+use mcpmux_core::{
+    create_shared_event_bus, DomainEvent, ServerDiscoveryService, ServerFeatureRepository,
+    ServerLogManager,
+};
 use mcpmux_gateway::{
     consumers::MCPNotifier,
     mcp::McpMuxGatewayHandler,
     server::{DependenciesBuilder, GatewayState, ServiceContainer},
 };
-use mcpmux_storage::{InboundClient, InboundClientRepository, RegistrationType};
+use mcpmux_storage::{
+    InboundClient, InboundClientRepository, RegistrationType, SqliteAppSettingsRepository,
+};
 use rmcp::{
     model::*,
     service::NotificationContext,
@@ -152,6 +157,7 @@ impl TestGateway {
             .expect("save test client");
 
         // Build dependencies
+        let settings_repo = Arc::new(SqliteAppSettingsRepository::new(database.clone()));
         let deps =
             DependenciesBuilder::new()
                 .with_installed_server_repo(Arc::new(MockInstalledServerRepository::new()))
@@ -171,6 +177,8 @@ impl TestGateway {
                     mcpmux_core::LogConfig::default(),
                 )))
                 .with_database(database)
+                .with_settings_repo(settings_repo)
+                .with_event_bus(create_shared_event_bus())
                 .build()
                 .expect("build dependencies");
 

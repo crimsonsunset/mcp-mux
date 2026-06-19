@@ -156,6 +156,9 @@ async fn two_clones_have_distinct_prefixes_and_env() {
             None,
             None,
             None,
+            None, // default_params_strategy
+            None,
+            None,
             None,
         )
         .await
@@ -171,6 +174,9 @@ async fn two_clones_have_distinct_prefixes_and_env() {
                 "personal-account".to_string(),
             )])),
             None,
+            None,
+            None,
+            None, // default_params_strategy
             None,
             None,
             None,

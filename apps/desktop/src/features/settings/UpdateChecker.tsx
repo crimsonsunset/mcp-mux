@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { checkAppUpdate, relaunchApp, type Update } from '@/lib/backend/shell';
+import { getBundleVersion, getVersion } from '@/lib/backend';
 import {
   Button,
   Card,
@@ -9,7 +10,7 @@ import {
   CardContent,
 } from '@mcpmux/ui';
 import { Download, Loader2, CheckCircle, AlertCircle, RefreshCw, RotateCcw } from 'lucide-react';
-import { getBundleVersion, getVersion } from '@/lib/api/app';
+import { BuildStampPanel } from './BuildStampPanel';
 
 interface DownloadEvent {
   event: 'Started' | 'Progress' | 'Finished';
@@ -164,6 +165,7 @@ export function UpdateChecker() {
             <p className="text-sm text-[rgb(var(--muted))] mt-1" data-testid="current-version">
               v{currentVersion || '0.0.5'}
             </p>
+            <BuildStampPanel context="desktop" />
           </div>
 
           {/* Bundle version mismatch (e.g., after brew upgrade) */}

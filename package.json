@@ -31,6 +31,8 @@
     "test:e2e:file": "cross-env MCPMUX_REGISTRY_URL=http://localhost:8787 pnpm exec wdio run tests/e2e/wdio.conf.ts --spec",
     "test:e2e:video": "cross-env MCPMUX_REGISTRY_URL=http://localhost:8787 SAVE_ALL_VIDEOS=true pnpm exec wdio run tests/e2e/wdio.conf.ts",
     "test:e2e:web": "pnpm exec playwright test -c tests/e2e/playwright.config.ts",
+    "test:e2e:web:wiring": "pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=chromium tests/e2e/specs/web-wiring.spec.ts",
+    "test:e2e:web:smoke": "pnpm test:e2e:web:wiring && pnpm exec playwright test -c tests/e2e/playwright.config.ts --project=chromium tests/e2e/specs/dashboard.spec.ts:5 tests/e2e/specs/settings.spec.ts:16 tests/e2e/specs/spaces.spec.ts:57",
     "test:e2e:web:admin": "pnpm exec playwright test -c tests/e2e/playwright.admin.config.ts",
     "remote:smoke": "node scripts/remote-gateway-smoke.mjs",
     "test:e2e:web:headed": "pnpm exec playwright test -c tests/e2e/playwright.config.ts --headed",
@@ -42,6 +44,7 @@
     "format:check": "prettier --check . && cargo fmt --all --check",
     "typecheck": "pnpm -r typecheck",
     "validate": "cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo check --workspace && pnpm lint && pnpm typecheck",
+    "count-tokens": "cargo test -p mcpmux-gateway meta_tools_token_budget_report -- --nocapture && python3 scripts/count-meta-tool-tokens.py",
     "clean": "pnpm -r clean && cargo clean"
   },
   "devDependencies": {

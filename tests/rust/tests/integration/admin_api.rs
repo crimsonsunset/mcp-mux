@@ -15,6 +15,7 @@ use mcpmux_gateway::admin::{
     AdminEventHub, AdminState, AdminUiEventBus, BackendBuildStamp, StubGatewayRuntime,
     StubGatewayWriteRuntime, CF_ACCESS_JWT_HEADER,
 };
+use mcpmux_gateway::services::ServerVersionProbeService;
 use mcpmux_storage::{
     Database, SqliteAppSettingsRepository, SqliteCredentialRepository, SqliteFeatureSetRepository,
     SqliteInboundMcpClientRepository, SqliteInstalledServerRepository,
@@ -37,6 +38,7 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
         db.clone(),
         Arc::new(mcpmux_storage::FieldEncryptor::new(&[7_u8; 32]).expect("encryptor")),
     ));
+    let installed_repo_for_probe = installed_repo.clone();
     let feature_set_repo = Arc::new(SqliteFeatureSetRepository::new(db.clone()));
     let client_repo = Arc::new(SqliteInboundMcpClientRepository::new(db.clone()));
     let credential_repo = Arc::new(SqliteCredentialRepository::new(
@@ -76,7 +78,7 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
             data_dir.clone(),
             data_dir.join("spaces"),
         )),
-        settings_repository: settings_repo,
+        settings_repository: settings_repo.clone(),
         workspace_binding_repository,
         workspace_appearance_repository,
         server_feature_repository,
@@ -100,6 +102,11 @@ pub async fn in_memory_services() -> (Arc<ApplicationServices>, Arc<AdminBridgeC
             git_sha: "test-sha".to_string(),
             ..Default::default()
         },
+        version_probe: Arc::new(ServerVersionProbeService::new(
+            installed_repo_for_probe,
+            settings_repo.clone(),
+            event_bus.clone(),
+        )),
     });
 
     (services, bridge)

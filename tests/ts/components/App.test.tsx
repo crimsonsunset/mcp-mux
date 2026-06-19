@@ -52,6 +52,9 @@ vi.mock('@/components/OAuthConsentModal', () => ({
 vi.mock('@/components/ServerInstallModal', () => ({
   ServerInstallModal: () => null,
 }));
+vi.mock('@/features/metaTools', () => ({
+  MetaToolApprovalDialog: () => null,
+}));
 vi.mock('@/components/SpaceSwitcher', () => ({
   SpaceSwitcher: () => <div data-testid="space-switcher" />,
 }));

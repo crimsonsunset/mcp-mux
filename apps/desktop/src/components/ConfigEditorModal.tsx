@@ -37,29 +37,10 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    loadConfig();
-    setEditorMounted(false);
-    setEditorLoadFailed(false);
-  }, [spaceId]);
-
-  useEffect(() => {
-    if (isLoading || !editorReady || editorMounted || editorLoadFailed) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setEditorLoadFailed(true);
-      setError('Editor failed to load. You can still edit JSON below, or restart the app.');
-    }, EDITOR_MOUNT_TIMEOUT_MS);
-
-    return () => clearTimeout(timer);
-  }, [isLoading, editorReady, editorMounted, editorLoadFailed]);
-
   /**
    * Load the space JSON config from disk.
    */
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -76,9 +57,28 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [spaceId]);
 
-  const handleSave = async () => {
+  useEffect(() => {
+    void loadConfig();
+    setEditorMounted(false);
+    setEditorLoadFailed(false);
+  }, [loadConfig]);
+
+  useEffect(() => {
+    if (isLoading || !editorReady || editorMounted || editorLoadFailed) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setEditorLoadFailed(true);
+      setError('Editor failed to load. You can still edit JSON below, or restart the app.');
+    }, EDITOR_MOUNT_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [isLoading, editorReady, editorMounted, editorLoadFailed]);
+
+  const handleSave = useCallback(async () => {
     try {
       // Validate JSON
       try {
@@ -106,7 +106,7 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [content, onClose, onSaved, showError, spaceId, success]);
 
   /**
    * Format JSON via Monaco or plain parse/stringify when the editor failed to load.
@@ -208,7 +208,7 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleFormat, onClose]);
+  }, [handleFormat, handleSave, onClose]);
 
   return (
     <>

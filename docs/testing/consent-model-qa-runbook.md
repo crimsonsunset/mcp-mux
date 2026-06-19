@@ -151,7 +151,7 @@ Record: 11 tools — `mcpmux_search_prompts`, `mcpmux_invoke_tool`, `mcpmux_fetc
 Search for tools from the design bundle using:
 
 1. mcpmux_search_tools({ "query": "canva", "detail_level": "description" })
-   — expect scope: active_only, total: 0, with a hint about include_inactive or list_feature_sets
+   — expect scope: active_only, total: 0, with a hint mentioning mcpmux_list_servers and/or include_inactive
 
 2. mcpmux_search_tools({ "query": "canva", "include_inactive": true, "detail_level": "description", "limit": 10 })
    — expect inactive rows with a bindable_feature_set_id field
@@ -168,7 +168,7 @@ Paste the JSON for each call.
 | Check                                                                    | Pass | Fail | Notes                                                                                                                                          |
 | ------------------------------------------------------------------------ | ---- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Default search returns `total: 0` for inactive-only query (`"canva"`)    | ✅   |      | `total: 0`, `scope: active_only`                                                                                                               |
-| Default search response includes a hint mentioning `include_inactive`    | ✅   |      | "Retry with `include_inactive: true` to discover bindable capability, or call `mcpmux_list_feature_sets` then `mcpmux_bind_current_workspace`" |
+| Default search response includes a hint mentioning `mcpmux_list_servers` or `include_inactive` | ✅   |      | Jun 2026 hint: leads with `mcpmux_list_servers`, then `include_inactive: true` for wide catalog |
 | `include_inactive: true` returns rows with `bindable_feature_set_id`     | ✅   |      | 30 canva tools, all `status: inactive`, all `bindable_feature_set_id: 4397fd99-…`                                                              |
 | `list_feature_sets` shows `status: inactive` for unbound bundles         | ✅   |      | `bundle:core` active; `bundle:design`, `bundle:devops-personal` inactive                                                                       |
 | `list_servers` shows `bindable_feature_set_ids` on inactive servers      | ✅   |      | `canva`, `chrome-devtools`, `glips.figma-context-npx`, `mantine` etc. all carry the array                                                      |
@@ -359,8 +359,8 @@ This must be the FIRST tool call in this session — do not call tools/list or l
    Expect: scope: "active_only", total > 0, tools from bundle:core returned.
 
 2. mcpmux_search_tools({ "query": "zznotreal" })
-   Expect: total: 0, but the hint should mention include_inactive or list_feature_sets —
-   NOT a PendingRoots/empty-binding message.
+   Expect: total: 0, hint mentions mcpmux_list_servers and/or include_inactive —
+   NOT a PendingRoots/empty-binding message. May include inactive_preview when ready-but-unbound tools match.
 
 Paste both responses verbatim.
 ```
@@ -371,7 +371,7 @@ Paste both responses verbatim.
 | No-match query returns hint (not silent 0 / binding-missing) | ✅   |      | `"zznotreal"` returns `"No active tools matched. Retry with include_inactive: true…"` — correct Phase 6 hint, NOT a PendingRoots/empty-binding message                                                                                            |
 | `scope: "active_only"` in both responses                     | ✅   |      | Present in all calls                                                                                                                                                                                                                              |
 
-Record: `search_tools("core")` → `{total: 0, scope: "active_only", ranking: "lexical", hint: "No active tools matched. Retry with include_inactive: true to discover bindable capability, or call mcpmux_list_feature_sets then mcpmux_bind_current_workspace with a feature_set_id."}`. `search_tools("zznotreal")` → same shape. `search_tools("canva")` (3rd call, first effective match) → `{total: 30, scope: "active_only", ranking: "lexical"}` — no lag, roots already probed. Note: runbook test query `"core"` should be changed to `"canva"` or similar for a more reliable first-call check.
+Record: `search_tools("core")` → `{total: 0, scope: "active_only", ranking: "lexical", hint: "…"}` (pre–Jun 2026 runs used a hint starting with `include_inactive`; current gateway leads with `mcpmux_list_servers`). `search_tools("zznotreal")` → same shape. `search_tools("canva")` (3rd call, first effective match) → `{total: 30, scope: "active_only", ranking: "lexical"}` — no lag, roots already probed. Note: runbook test query `"core"` should be changed to `"canva"` or similar for a more reliable first-call check.
 
 ---
 

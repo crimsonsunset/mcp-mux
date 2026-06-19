@@ -8,24 +8,29 @@ interface ServerDefinitionModalProps {
   onClose: () => void;
 }
 
+const RUNTIME_SERVER_FIELDS = [
+  'is_installed',
+  'enabled',
+  'oauth_connected',
+  'input_values',
+  'connection_status',
+  'missing_required_inputs',
+  'last_error',
+  'created_at',
+  'installation_source',
+  'env_overrides',
+  'args_append',
+  'extra_headers',
+  'default_params',
+] as const;
+
 /** Extract only ServerDefinition fields, stripping runtime state */
 function extractDefinition(server: ServerViewModel): ServerDefinition {
-  const {
-    is_installed: _a,
-    enabled: _b,
-    oauth_connected: _c,
-    input_values: _d,
-    connection_status: _e,
-    missing_required_inputs: _f,
-    last_error: _g,
-    created_at: _h,
-    installation_source: _i,
-    env_overrides: _j,
-    args_append: _k,
-    extra_headers: _l,
-    ...definition
-  } = server;
-  return definition;
+  const copy = { ...server };
+  for (const key of RUNTIME_SERVER_FIELDS) {
+    delete (copy as Record<string, unknown>)[key];
+  }
+  return copy as ServerDefinition;
 }
 
 export function ServerDefinitionModal({ server, onClose }: ServerDefinitionModalProps) {

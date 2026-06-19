@@ -45,10 +45,6 @@ function getClientLogo(clientName: string): string | null {
   return key ? (CLIENT_ICON_ASSETS[key] ?? null) : null;
 }
 
-interface OAuthDeepLinkPayload {
-  requestId: string;
-}
-
 /**
  * Load consent details for a request id and transition modal state.
  */

@@ -17,7 +17,6 @@ import {
   FileText,
   Loader2,
   Clock,
-  FileJson,
   FolderOpen,
   UnfoldVertical,
   FoldVertical,
@@ -25,6 +24,13 @@ import {
 } from 'lucide-react';
 import { Button, SearchField } from '@mcpmux/ui';
 import { ServerActionMenu } from './ServerActionMenu';
+import {
+  isPackageManagedTransport,
+  isValidSemver,
+  resolveCurrentPackageVersion,
+  shouldShowPackageUpdate,
+  UPDATE_POLICY_OPTIONS,
+} from './server-update-policy.helpers';
 import { ServerEnabledToggle } from './ServerEnabledToggle';
 import { CloneAccountModal } from './CloneAccountModal';
 import { AddServerMenu } from './AddServerMenu';
@@ -45,11 +51,17 @@ import {
 import { resolveInstalledDisplayName } from './server-display-name.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
+import { checkServerVersion } from '@/lib/api/settings';
+import type { UpdatePolicy } from '@/lib/api/settings';
 import { useViewSpace, useNavigateTo, usePendingServersFilter, useSetPendingServersFilter } from '@/stores';
 import { useServerManager } from '@/hooks/useServerManager';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { useGatewayEvents, useDomainEvents } from '@/hooks/useDomainEvents';
-import type { GatewayChangedPayload, ServerChangedPayload } from '@/hooks/useDomainEvents';
+import type {
+  GatewayChangedPayload,
+  ServerChangedPayload,
+  ServerUpdateAvailablePayload,
+} from '@/hooks/useDomainEvents';
 import type { FeaturesUpdatedEvent } from '@/lib/api/serverManager';
 import { ServerLogViewer } from '@/components/ServerLogViewer';
 import { ConfigEditorModal } from '@/components/ConfigEditorModal';
@@ -117,6 +129,11 @@ function mergeDefinitionsWithStates(
       args_append: state?.args_append ?? [],
       extra_headers: state?.extra_headers ?? {},
       default_params: state?.default_params ?? {},
+      update_policy: state?.update_policy ?? 'notify',
+      pinned_version: state?.pinned_version ?? null,
+      latest_available_version: state?.latest_available_version ?? null,
+      current_version: state?.current_version ?? null,
+      version_checked_at: state?.version_checked_at ?? null,
     } as ServerViewModel;
   });
 }
@@ -153,6 +170,11 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
         args_append: state.args_append ?? [],
         extra_headers: state.extra_headers ?? {},
         default_params: state.default_params ?? {},
+        update_policy: state.update_policy ?? 'notify',
+        pinned_version: state.pinned_version ?? null,
+        latest_available_version: state.latest_available_version ?? null,
+        current_version: state.current_version ?? null,
+        version_checked_at: state.version_checked_at ?? null,
       } as ServerViewModel;
     } catch (e) {
       console.warn('[ServersPage] Failed to parse cached_definition, using minimal fallback:', e);
@@ -208,10 +230,18 @@ interface ConfigModalState {
   extraHeaders: Record<string, string>;
   /** Default tool-call arguments (JSON textarea). */
   defaultParamsJson: string;
+  /** Merge strategy for default_params. */
+  defaultParamsStrategy: 'fill' | 'override';
   /** User-supplied display label (empty string = clear override). */
   displayName: string;
   /** Display name when the modal opened — used to detect changes on save. */
   initialDisplayName: string;
+  /** Per-server update policy override. */
+  updatePolicy: UpdatePolicy;
+  initialUpdatePolicy: UpdatePolicy;
+  /** Semver pin when policy is `pinned`. */
+  pinnedVersion: string;
+  initialPinnedVersion: string;
 }
 
 export function ServersPage() {
@@ -238,8 +268,13 @@ export function ServersPage() {
     argsAppend: [],
     extraHeaders: {},
     defaultParamsJson: '{}',
+    defaultParamsStrategy: 'fill',
     displayName: '',
     initialDisplayName: '',
+    updatePolicy: 'notify',
+    initialUpdatePolicy: 'notify',
+    pinnedVersion: '',
+    initialPinnedVersion: '',
   });
 
   // Features state
@@ -317,115 +352,69 @@ export function ServersPage() {
   }, [authProgress]);
 
   // Show toast notification
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
-  };
-
-  // Clear any pending filter that was consumed during initialisation
-  useEffect(() => {
-    if (pendingServersFilter) {
-      setPendingServersFilter(null);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Load data on mount only
-  useEffect(() => {
-    loadData();
   }, []);
 
-  useEffect(() => {
-    setServerFeatures({});
-    setExpandedServers(new Set());
-    setLoadingFeatures(new Set());
-    loadData();
-  }, [viewSpace?.id]);
-
-  // Subscribe to gateway events for reactive updates (no polling!)
-  useGatewayEvents((payload: GatewayChangedPayload) => {
-    if (payload.action === 'started') {
-      setGatewayRunning(true);
-      setGatewayUrl(payload.url || null);
-      // Status changes are handled via per-space events
-    } else if (payload.action === 'stopped') {
-      setGatewayRunning(false);
-      setGatewayUrl(null);
-    }
-  });
-
-  // Subscribe to server lifecycle events (install/uninstall)
-  const { subscribe } = useDomainEvents();
-  useEffect(() => {
-    return subscribe('server-changed', (payload: ServerChangedPayload) => {
-      if (!viewSpace || payload.space_id !== viewSpace.id) {
-        return;
-      }
-      
-      // Reload server list when a server is installed or uninstalled
-      if (payload.action === 'installed' || payload.action === 'uninstalled') {
-        console.log('[ServersPage] Server lifecycle event:', payload.action, payload.server_id);
-        loadData();
-      }
-    });
-  }, [viewSpace?.id]);
-
-  // Note: Server status changes are handled by useServerManager hook
-  // which updates serverStatuses state via events. No need to re-fetch
-  // server definitions on status changes - they don't change.
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      
+
       // Use allSettled so we can show installed servers even if registry is offline
-      const [installedResult, gatewayResult, definitionsResult, statusesResult] = await Promise.allSettled([
-        import('@/lib/api/registry').then((m) => m.listInstalledServers(viewSpace?.id)),
-        import('@/lib/api/gateway').then((m) => m.getGatewayStatus(viewSpace?.id)),
-        import('@/lib/api/registry').then((m) => m.discoverServers()),
-        viewSpace?.id ? fetchServerStatuses(viewSpace.id) : Promise.resolve({} as Record<string, ServerStatusResponse>),
-      ]);
+      const [installedResult, gatewayResult, definitionsResult, statusesResult] =
+        await Promise.allSettled([
+          import('@/lib/api/registry').then((m) => m.listInstalledServers(viewSpace?.id)),
+          import('@/lib/api/gateway').then((m) => m.getGatewayStatus(viewSpace?.id)),
+          import('@/lib/api/registry').then((m) => m.discoverServers()),
+          viewSpace?.id
+            ? fetchServerStatuses(viewSpace.id)
+            : Promise.resolve({} as Record<string, ServerStatusResponse>),
+        ]);
 
       // Extract values, using fallbacks for failures
       const installed = installedResult.status === 'fulfilled' ? installedResult.value : [];
-      const gateway = gatewayResult.status === 'fulfilled'
-        ? gatewayResult.value
-        : { running: false, url: null };
-      const definitions = definitionsResult.status === 'fulfilled'
-        ? definitionsResult.value
-        : [];
-      const runtimeStatuses: Record<string, ServerStatusResponse> = statusesResult.status === 'fulfilled'
-        ? statusesResult.value
-        : {};
+      const gateway =
+        gatewayResult.status === 'fulfilled'
+          ? gatewayResult.value
+          : { running: false, url: null };
+      const definitions =
+        definitionsResult.status === 'fulfilled' ? definitionsResult.value : [];
+      const runtimeStatuses: Record<string, ServerStatusResponse> =
+        statusesResult.status === 'fulfilled' ? statusesResult.value : {};
 
-      
       // Log if registry is offline but we have installed servers
       if (definitionsResult.status === 'rejected' && installed.length > 0) {
-        console.warn('[ServersPage] Registry offline, showing installed servers with cached/minimal info');
+        console.warn(
+          '[ServersPage] Registry offline, showing installed servers with cached/minimal info'
+        );
         showToast('Registry offline - showing cached server info', 'info');
       }
-      
+
       // Merge definitions with installed states
       // If definitions are missing, create minimal ServerViewModels from installed states
       let mergedServers: ServerViewModelWithClone[];
-      
+
       if (definitions.length > 0) {
         // Normal case: merge definitions with states
         const allMerged = mergeDefinitionsWithStates(definitions, installed);
-        mergedServers = allMerged.filter(s => s.is_installed);
+        mergedServers = allMerged.filter((s) => s.is_installed);
 
         // Handle installed servers not present in registry definitions
         // (e.g., registry changed, using different registry, or servers installed from user config)
-        const matchedServerIds = new Set(mergedServers.map(s => s.id));
-        const unmatchedInstalled = installed.filter(s => !matchedServerIds.has(s.server_id));
+        const matchedServerIds = new Set(mergedServers.map((s) => s.id));
+        const unmatchedInstalled = installed.filter((s) => !matchedServerIds.has(s.server_id));
         if (unmatchedInstalled.length > 0) {
-          const offlineViewModels = unmatchedInstalled.map(state => createOfflineServerViewModel(state));
+          const offlineViewModels = unmatchedInstalled.map((state) =>
+            createOfflineServerViewModel(state)
+          );
           mergedServers = [...mergedServers, ...offlineViewModels];
         }
       } else {
         // Offline case: create minimal view models from installed states only
-        mergedServers = installed.map(state => createOfflineServerViewModel(state));
+        mergedServers = installed.map((state) => createOfflineServerViewModel(state));
       }
-      
+
       // Apply runtime statuses from ServerManager to fix initial connection_status
       // (mergeDefinitionsWithStates hardcodes 'connecting' for enabled servers)
       const mapStatus = (s: ConnectionStatus): ServerViewModel['connection_status'] => {
@@ -464,7 +453,78 @@ export function ServersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [viewSpace?.id, showToast]);
+
+  // Clear any pending filter that was consumed during initialisation
+  useEffect(() => {
+    if (pendingServersFilter) {
+      setPendingServersFilter(null);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    setServerFeatures({});
+    setExpandedServers(new Set());
+    setLoadingFeatures(new Set());
+  }, [viewSpace?.id]);
+
+  // Subscribe to gateway events for reactive updates (no polling!)
+  useGatewayEvents((payload: GatewayChangedPayload) => {
+    if (payload.action === 'started') {
+      setGatewayRunning(true);
+      setGatewayUrl(payload.url || null);
+      // Status changes are handled via per-space events
+    } else if (payload.action === 'stopped') {
+      setGatewayRunning(false);
+      setGatewayUrl(null);
+    }
+  });
+
+  // Subscribe to server lifecycle events (install/uninstall)
+  const { subscribe } = useDomainEvents();
+  useEffect(() => {
+    return subscribe('server-changed', (payload: ServerChangedPayload) => {
+      if (!viewSpace || payload.space_id !== viewSpace.id) {
+        return;
+      }
+      
+      // Reload server list when a server is installed or uninstalled
+      if (payload.action === 'installed' || payload.action === 'uninstalled') {
+        console.log('[ServersPage] Server lifecycle event:', payload.action, payload.server_id);
+        void loadData();
+      }
+    });
+  }, [loadData, subscribe, viewSpace]);
+
+  useEffect(() => {
+    return subscribe('server-update-available', (payload: ServerUpdateAvailablePayload) => {
+      if (!viewSpace || payload.space_id !== viewSpace.id) {
+        return;
+      }
+
+      setInstalledServers((current) =>
+        current.map((server) => {
+          if (server.id !== payload.server_id) {
+            return server;
+          }
+          return {
+            ...server,
+            latest_available_version: payload.latest_version ?? server.latest_available_version,
+            current_version: payload.current_version ?? server.current_version,
+            version_checked_at: new Date().toISOString(),
+          };
+        })
+      );
+    });
+  }, [subscribe, viewSpace]);
+
+  // Note: Server status changes are handled by useServerManager hook
+  // which updates serverStatuses state via events. No need to re-fetch
+  // server definitions on status changes - they don't change.
 
   // Load features for a specific server
   const loadFeaturesForServer = async (serverId: string) => {
@@ -696,8 +756,13 @@ export function ServersPage() {
         argsAppend: [...(server.args_append ?? [])],
         extraHeaders: { ...(server.extra_headers ?? {}) },
         defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
+        defaultParamsStrategy: server.default_params_strategy ?? 'fill',
         displayName: initialDisplayName,
         initialDisplayName,
+        updatePolicy: server.update_policy ?? 'notify',
+        initialUpdatePolicy: server.update_policy ?? 'notify',
+        pinnedVersion: server.pinned_version ?? '',
+        initialPinnedVersion: server.pinned_version ?? '',
       });
       return;
     }
@@ -761,6 +826,8 @@ export function ServersPage() {
       initialValues[input.id] = server.input_values[input.id] || '';
     });
     const initialDisplayName = server.name ?? '';
+    const initialUpdatePolicy = server.update_policy ?? 'notify';
+    const initialPinnedVersion = server.pinned_version ?? '';
     setConfigModal({
       open: true,
       server,
@@ -770,8 +837,13 @@ export function ServersPage() {
       argsAppend: [...(server.args_append ?? [])],
       extraHeaders: { ...(server.extra_headers ?? {}) },
       defaultParamsJson: JSON.stringify(server.default_params ?? {}, null, 2),
+      defaultParamsStrategy: server.default_params_strategy ?? 'fill',
       displayName: initialDisplayName,
       initialDisplayName,
+      updatePolicy: initialUpdatePolicy,
+      initialUpdatePolicy,
+      pinnedVersion: initialPinnedVersion,
+      initialPinnedVersion,
     });
   };
 
@@ -837,6 +909,18 @@ export function ServersPage() {
     const server = configModal.server;
     const serverId = server.id;
     const shouldEnable = configModal.enableOnSave ?? false;
+    const trimmedPinnedVersion = configModal.pinnedVersion.trim();
+
+    if (configModal.updatePolicy === 'pinned') {
+      if (!trimmedPinnedVersion) {
+        showToast('Enter a pinned version (e.g. 1.2.3)', 'error');
+        return;
+      }
+      if (!isValidSemver(trimmedPinnedVersion)) {
+        showToast('Pinned version must be a valid semver (e.g. 1.2.3)', 'error');
+        return;
+      }
+    }
 
     setActionLoading(`config-${serverId}`);
     try {
@@ -848,6 +932,18 @@ export function ServersPage() {
       // undefined so the backend leaves the existing override untouched.
       const displayNameOverride =
         trimmedDisplayName === trimmedInitial ? undefined : trimmedDisplayName;
+
+      const updatePolicyChanged = configModal.updatePolicy !== configModal.initialUpdatePolicy;
+      const pinnedVersionChanged =
+        trimmedPinnedVersion !== configModal.initialPinnedVersion.trim();
+      const updatePolicy =
+        updatePolicyChanged || pinnedVersionChanged ? configModal.updatePolicy : undefined;
+      const pinnedVersion =
+        configModal.updatePolicy === 'pinned'
+          ? trimmedPinnedVersion
+          : updatePolicyChanged
+            ? ''
+            : undefined;
 
       let defaultParams: Record<string, unknown> | undefined;
       try {
@@ -867,7 +963,10 @@ export function ServersPage() {
         configModal.argsAppend,
         configModal.extraHeaders,
         defaultParams,
+        configModal.defaultParamsStrategy,
         displayNameOverride,
+        updatePolicy,
+        pinnedVersion,
       );
 
       setConfigModal({
@@ -878,8 +977,13 @@ export function ServersPage() {
         argsAppend: [],
         extraHeaders: {},
         defaultParamsJson: '{}',
+        defaultParamsStrategy: 'fill',
         displayName: '',
         initialDisplayName: '',
+        updatePolicy: 'notify',
+        initialUpdatePolicy: 'notify',
+        pinnedVersion: '',
+        initialPinnedVersion: '',
       });
       
       // Only enable if requested (from Enable flow)
@@ -926,9 +1030,84 @@ export function ServersPage() {
       argsAppend: [],
       extraHeaders: {},
       defaultParamsJson: '{}',
+      defaultParamsStrategy: 'fill',
       displayName: '',
       initialDisplayName: '',
+      updatePolicy: 'notify',
+      initialUpdatePolicy: 'notify',
+      pinnedVersion: '',
+      initialPinnedVersion: '',
     });
+  };
+
+  /**
+   * Pin the server's current package version and switch policy to Pinned.
+   */
+  const handleLockToCurrentVersion = async (server: ServerViewModel) => {
+    if (!viewSpace) {
+      return;
+    }
+
+    setActionLoading(`lock-version-${server.id}`);
+    try {
+      const { saveServerInputs } = await import('@/lib/api/registry');
+
+      let version =
+        resolveCurrentPackageVersion({
+          pinnedVersion: server.pinned_version,
+          transportCommand:
+            server.transport.type === 'stdio' ? server.transport.command : undefined,
+          transportArgs:
+            server.transport.type === 'stdio' ? server.transport.args : undefined,
+          installedVersion: server.current_version,
+        }) ?? server.latest_available_version;
+
+      if (!version) {
+        const probe = await checkServerVersion(viewSpace.id, server.id);
+        version = probe.currentVersion ?? probe.latestVersion;
+        setInstalledServers((current) =>
+          current.map((entry) => {
+            if (entry.id !== server.id) {
+              return entry;
+            }
+            return {
+              ...entry,
+              latest_available_version: probe.latestVersion ?? entry.latest_available_version,
+              version_checked_at: probe.checkedAt,
+            };
+          })
+        );
+      }
+
+      if (!version || !isValidSemver(version)) {
+        showToast('Could not determine a valid version to pin', 'error');
+        return;
+      }
+
+      await saveServerInputs(
+        server.id,
+        server.input_values,
+        viewSpace.id,
+        server.env_overrides,
+        server.args_append,
+        server.extra_headers,
+        server.default_params,
+        undefined,
+        'pinned',
+        version
+      );
+
+      if (server.enabled) {
+        await retryConnectionV2(server.id);
+      }
+
+      showToast(`Locked to v${version}`, 'success');
+      await loadData();
+    } catch (error) {
+      showToast(String(error), 'error');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Cancel OAuth flow - uses new ServerManager v2
@@ -959,6 +1138,63 @@ export function ServersPage() {
       await retryConnectionV2(server.id);
     } catch (e) {
       showToast(String(e), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  /**
+   * Apply latest package and reconnect (notify/auto npx/uvx servers).
+   */
+  const handleUpdateNow = async (server: ServerViewModel) => {
+    if (!viewSpace) {
+      return;
+    }
+
+    setActionLoading(`update-${server.id}`);
+    try {
+      const { updateServerPackage } = await import('@/lib/api/serverManager');
+      await updateServerPackage(viewSpace.id, server.id);
+      showToast(`Updating ${server.name}…`, 'info');
+      await loadData();
+    } catch (error) {
+      showToast(String(error), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  /**
+   * Run an immediate npm/uv version probe for one server.
+   */
+  const handleCheckForUpdate = async (server: ServerViewModel) => {
+    if (!viewSpace) {
+      return;
+    }
+
+    setActionLoading(`check-update-${server.id}`);
+    try {
+      const result = await checkServerVersion(viewSpace.id, server.id);
+      setInstalledServers((current) =>
+        current.map((entry) => {
+          if (entry.id !== server.id) {
+            return entry;
+          }
+          return {
+            ...entry,
+            latest_available_version: result.latestVersion,
+            version_checked_at: result.checkedAt,
+          };
+        })
+      );
+
+      if (result.updateAvailable && result.latestVersion) {
+        showToast(`Update available: v${result.latestVersion}`, 'info');
+      } else {
+        showToast('Server package is up to date', 'success');
+      }
+    } catch (error) {
+      showToast(String(error), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -1008,7 +1244,7 @@ export function ServersPage() {
       }
     }
 
-    const { getUninstallLabel } = await import('@/components/SourceBadge');
+    const { getUninstallLabel } = await import('@/components/source-badge.helpers');
     const actionLabel = getUninstallLabel(server.installation_source);
 
     setActionLoading(`uninstall-${server.id}`);
@@ -1028,7 +1264,7 @@ export function ServersPage() {
     }
 
     const { server } = uninstallClonesDialog;
-    const { getUninstallLabel } = await import('@/components/SourceBadge');
+    const { getUninstallLabel } = await import('@/components/source-badge.helpers');
     const actionLabel = getUninstallLabel(server.installation_source);
 
     setUninstallClonesDialog(null);
@@ -1590,10 +1826,34 @@ export function ServersPage() {
                         }
                         isEnabled={server.enabled}
                         isConnected={serverAction === 'running' || serverAction === 'connected_auto'}
+                        isPackageManaged={
+                          server.transport.type === 'stdio' &&
+                          isPackageManagedTransport(server.transport.command)
+                        }
+                        updatePolicy={server.update_policy ?? 'notify'}
+                        hasUpdateAvailable={
+                          server.transport.type === 'stdio' &&
+                          shouldShowPackageUpdate({
+                            updatePolicy: server.update_policy ?? 'notify',
+                            latestVersion: server.latest_available_version,
+                            currentVersion: resolveCurrentPackageVersion({
+                              pinnedVersion: server.pinned_version,
+                              transportCommand: server.transport.command,
+                              transportArgs: server.transport.args,
+                              installedVersion: server.current_version,
+                            }),
+                            transportCommand: server.transport.command,
+                            transportArgs: server.transport.args,
+                          })
+                        }
+                        latestVersion={server.latest_available_version}
                         canCloneAccount={canCloneServer(server)}
                         onConfigure={() => handleConfigureClick(server)}
                         onRefresh={() => handleRefresh(server)}
                         onReconnect={() => handleReconnect(server)}
+                        onUpdateNow={() => handleUpdateNow(server)}
+                        onCheckForUpdate={() => handleCheckForUpdate(server)}
+                        onLockToCurrentVersion={() => handleLockToCurrentVersion(server)}
                         onViewLogs={() => setLogViewerServer({ id: server.id, name: server.name })}
                         onViewDefinition={() => setDefinitionServer({ id: server.id, name: server.name })}
                         onCloneAccount={() => setCloneModalServer(server)}
@@ -2082,13 +2342,117 @@ export function ServersPage() {
               )}
 
               {/* Default Tool Parameters */}
+              {configModal.server.transport.type === 'stdio' &&
+                isPackageManagedTransport(configModal.server.transport.command) && (
+                  <div className="space-y-4 border-t border-[rgb(var(--border-subtle))] pt-4">
+                    <div>
+                      <label
+                        htmlFor="config-update-policy"
+                        className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
+                      >
+                        Update Policy
+                      </label>
+                      <p className="text-xs text-[rgb(var(--muted))] mb-2">
+                        {
+                          UPDATE_POLICY_OPTIONS.find(
+                            (option) => option.value === configModal.updatePolicy
+                          )?.description
+                        }
+                      </p>
+                      <select
+                        id="config-update-policy"
+                        value={configModal.updatePolicy}
+                        onChange={(e) =>
+                          setConfigModal({
+                            ...configModal,
+                            updatePolicy: e.target.value as UpdatePolicy,
+                          })
+                        }
+                        className="input w-full"
+                        data-testid="config-update-policy"
+                      >
+                        {UPDATE_POLICY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {configModal.updatePolicy === 'pinned' && (
+                      <div>
+                        <label
+                          htmlFor="config-pinned-version"
+                          className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
+                        >
+                          Pinned Version
+                        </label>
+                        <p className="text-xs text-[rgb(var(--muted))] mb-2">
+                          Exact semver injected on every spawn (e.g. 1.2.3)
+                        </p>
+                        <input
+                          id="config-pinned-version"
+                          type="text"
+                          value={configModal.pinnedVersion}
+                          onChange={(e) =>
+                            setConfigModal({ ...configModal, pinnedVersion: e.target.value })
+                          }
+                          placeholder="1.2.3"
+                          className="input w-full font-mono text-sm"
+                          data-testid="config-pinned-version"
+                        />
+                        {configModal.pinnedVersion.trim().length > 0 &&
+                          !isValidSemver(configModal.pinnedVersion) && (
+                            <p className="text-xs text-[rgb(var(--error))] mt-1">
+                              Enter a valid semver (e.g. 1.2.3)
+                            </p>
+                          )}
+                      </div>
+                    )}
+
+                    {(configModal.server.latest_available_version ||
+                      configModal.server.version_checked_at) && (
+                      <div className="text-xs text-[rgb(var(--muted))]">
+                        {(() => {
+                          const currentVersion = resolveCurrentPackageVersion({
+                            pinnedVersion:
+                              configModal.pinnedVersion || configModal.server.pinned_version,
+                            transportCommand: configModal.server.transport.command,
+                            transportArgs: configModal.server.transport.args,
+                            installedVersion: configModal.server.current_version,
+                          });
+                          if (!currentVersion) {
+                            return null;
+                          }
+                          return (
+                            <p>
+                              Current:{' '}
+                              <span className="font-mono text-[rgb(var(--foreground))]">
+                                {currentVersion}
+                              </span>
+                            </p>
+                          );
+                        })()}
+                        {configModal.server.latest_available_version && (
+                          <p>
+                            Latest:{' '}
+                            <span className="font-mono text-[rgb(var(--foreground))]">
+                              {configModal.server.latest_available_version}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
               <div>
                 <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
                   Default Tool Parameters
                 </label>
                 <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                  JSON object merged into every tool call for this server. Caller-supplied args win
-                  on collision. Example: <code className="font-mono">{`{"cloudId": "abc123"}`}</code>
+                  JSON object merged into every tool call for this server. Example:{' '}
+                  <code className="font-mono">{`{"cloudId": "abc123"}`}</code>
                 </p>
                 <textarea
                   value={configModal.defaultParamsJson}
@@ -2101,6 +2465,23 @@ export function ServersPage() {
                   data-testid="config-default-params"
                   spellCheck={false}
                 />
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-xs text-[rgb(var(--muted))]">On collision:</label>
+                  <select
+                    value={configModal.defaultParamsStrategy}
+                    onChange={(e) =>
+                      setConfigModal({
+                        ...configModal,
+                        defaultParamsStrategy: e.target.value as 'fill' | 'override',
+                      })
+                    }
+                    className="text-xs border border-[rgb(var(--border))] rounded px-2 py-1 bg-[rgb(var(--surface))] text-[rgb(var(--foreground))]"
+                    data-testid="config-default-params-strategy"
+                  >
+                    <option value="fill">Caller wins</option>
+                    <option value="override">Defaults win</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -2115,7 +2496,10 @@ export function ServersPage() {
                   onClick={handleSaveConfig}
                   disabled={
                     (configModal.server.transport.metadata?.inputs ?? [])
-                      .some((i: InputDefinition) => i.required && !configModal.inputValues[i.id])
+                      .some((i: InputDefinition) => i.required && !configModal.inputValues[i.id]) ||
+                    (configModal.updatePolicy === 'pinned' &&
+                      (!configModal.pinnedVersion.trim() ||
+                        !isValidSemver(configModal.pinnedVersion)))
                   }
                   className="px-4 py-2 text-sm rounded-lg bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] hover:bg-[rgb(var(--primary-hover))] disabled:opacity-50 transition-colors"
                   data-testid="config-save-btn"

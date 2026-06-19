@@ -123,7 +123,8 @@ jobs:
   # Rust Tests (cross-platform matrix)
   # ─────────────────────────────────────────────────────────────
   rust-test:
-    needs: rust-check
+    needs: [rust-check, changes]
+    if: "needs.changes.outputs.rust == 'true'"
     strategy:
       fail-fast: false
       matrix:
@@ -191,7 +192,8 @@ jobs:
   # Build Verification (macOS only - Linux/Windows covered by e2e-desktop)
   # ─────────────────────────────────────────────────────────────
   build:
-    needs: [rust-check, ts-check]
+    needs: [rust-check, ts-check, changes]
+    if: "needs.changes.outputs.app == 'true'"
     runs-on: macos-latest
     env:
       MACOSX_DEPLOYMENT_TARGET: '10.13'
@@ -239,11 +241,25 @@ jobs:
             tauri-cli-${{ runner.os }}-
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+
+      - name: Resolve updater signing
+        id: updater_signing
+        uses: ./.github/actions/resolve-updater-signing
+        with:
+          signing_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Build (with updater signing)
+        if: steps.updater_signing.outputs.signing_enabled == 'true'
+        run: pnpm build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Ad-hoc signing (no Apple Developer ID)
+          APPLE_SIGNING_IDENTITY: '-'
+
+      - name: Build (updater artifacts gated off)
+        if: steps.updater_signing.outputs.signing_enabled != 'true'
+        run: pnpm --filter @mcpmux/desktop exec tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        env:
           APPLE_SIGNING_IDENTITY: '-'
 
   # ─────────────────────────────────────────────────────────────
@@ -251,7 +267,7 @@ jobs:
   # Uses dorny/test-reporter for granular GitHub Check Runs
   # ─────────────────────────────────────────────────────────────
   test-report:
-    needs: [rust-test, ts-check]
+    needs: [rust-test, ts-check, changes]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -266,7 +282,7 @@ jobs:
       # Rust Unit Tests - Per OS
       - name: 'Report: Rust Unit Tests (Linux)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         with:
           name: '🦀 Rust Unit Tests (Linux)'
           path: test-results/test-results-rust-unit-ubuntu-latest/*.xml
@@ -275,7 +291,7 @@ jobs:
 
       - name: 'Report: Rust Unit Tests (Windows)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         with:
           name: '🦀 Rust Unit Tests (Windows)'
           path: test-results/test-results-rust-unit-windows-latest/*.xml
@@ -284,7 +300,7 @@ jobs:
 
       - name: 'Report: Rust Unit Tests (macOS)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         with:
           name: '🦀 Rust Unit Tests (macOS)'
           path: test-results/test-results-rust-unit-macos-latest/*.xml
@@ -294,7 +310,7 @@ jobs:
       # Rust Integration Tests - Per OS
       - name: 'Report: Rust Integration Tests (Linux)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         with:
           name: '🔗 Rust Integration Tests (Linux)'
           path: test-results/test-results-rust-integration-ubuntu-latest/*.xml
@@ -303,7 +319,7 @@ jobs:
 
       - name: 'Report: Rust Integration Tests (Windows)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         with:
           name: '🔗 Rust Integration Tests (Windows)'
           path: test-results/test-results-rust-integration-windows-latest/*.xml
@@ -312,7 +328,7 @@ jobs:
 
       - name: 'Report: Rust Integration Tests (macOS)'
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         with:
           name: '🔗 Rust Integration Tests (macOS)'
           path: test-results/test-results-rust-integration-macos-latest/*.xml
@@ -358,15 +374,97 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────
-  # E2E Tests (Web-only Playwright for UI smoke tests)
-  # Skip with [skip e2e] in commit message for faster PR iteration
+  # Detect changed areas — gates the heavy jobs (rust matrix, Tauri
+  # build, desktop + web E2E) so doc-only or unrelated commits skip
+  # them entirely. CI workflow edits intentionally trip every filter.
   # ─────────────────────────────────────────────────────────────
-  e2e-web:
-    needs: [ts-check]
-    if: "!contains(github.event.head_commit.message, '[skip e2e]')"
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      app: ${{ steps.filter.outputs.app }}
+      e2e_desktop: ${{ steps.filter.outputs.e2e_desktop }}
+      e2e_web: ${{ steps.filter.outputs.e2e_web }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'apps/desktop/src-tauri/**'
+              - 'apps/desktop/src/commands/**'
+              - 'tests/rust/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'clippy.toml'
+              - 'rustfmt.toml'
+              - '.config/nextest.toml'
+              - '.github/**'
+            app:
+              - 'apps/**'
+              - 'packages/**'
+              - 'crates/**'
+              - 'schemas/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'scripts/**'
+              - '.github/**'
+            e2e_desktop:
+              - 'apps/**'
+              - 'crates/**'
+              - 'packages/**'
+              - 'tests/e2e/**'
+              - 'scripts/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/**'
+            e2e_web:
+              - 'apps/desktop/**'
+              - 'crates/**'
+              - 'packages/ui/**'
+              - 'tests/e2e/**'
+              - 'scripts/admin-e2e-fixture.mjs'
+              - 'scripts/cf-access-env.mjs'
+              - 'scripts/build-web-admin.mjs'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+
+  # ─────────────────────────────────────────────────────────────
+  # E2E Tests (web admin Playwright against a real backend)
+  # PRs run the smoke gate; pushes (post-merge) run the full catalog.
+  # Skip with [skip e2e] in commit message; auto-skips on unrelated paths.
+  # ─────────────────────────────────────────────────────────────
+  e2e-web:
+    needs: [ts-check, changes]
+    if: "needs.changes.outputs.e2e_web == 'true' && !contains(github.event.head_commit.message, '[skip e2e]')"
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        uses: ./.github/actions/install-linux-deps
+        with:
+          e2e: 'true'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-e2e-web
+          shared-key: rust-x86_64-unknown-linux-gnu
+          cache-on-failure: true
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -374,6 +472,9 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Build web admin SPA
+        run: pnpm build:web:admin
 
       # Cache Playwright browsers
       - name: Cache Playwright browsers
@@ -387,8 +488,25 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run web-only E2E tests
+      # PR gate — wiring + curated smoke (~few tests, one fixture boot).
+      - name: Run web admin UI smoke gate (PR, :1420 → backend :45819)
+        if: github.event_name == 'pull_request'
+        run: pnpm test:e2e:web:smoke
+        env:
+          MCPMUX_ADMIN_TEST: '1'
+
+      # Post-merge — full web catalog + admin parity (depth, not on every PR).
+      - name: Run full web admin UI suite (push, :1420 → backend :45819)
+        if: github.event_name == 'push'
         run: pnpm test:e2e:web --project=chromium
+        env:
+          MCPMUX_ADMIN_TEST: '1'
+
+      - name: Run admin web E2E tests (push, :45819)
+        if: github.event_name == 'push'
+        run: pnpm test:e2e:web:admin --project=chromium
+        env:
+          MCPMUX_ADMIN_TEST: '1'
 
       - name: Upload E2E web test results
         uses: actions/upload-artifact@v4
@@ -407,14 +525,25 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
+      - name: 'Report: E2E Admin Web Tests'
+        uses: dorny/test-reporter@v2
+        if: github.event_name == 'push'
+        with:
+          name: '🌐 E2E Admin Web Tests'
+          path: tests/e2e/reports/admin-junit.xml
+          reporter: java-junit
+          fail-on-error: false
+
   # ─────────────────────────────────────────────────────────────
-  # E2E Tests (Desktop app with WebDriver - Linux/Windows)
-  # Runs on all commits; skip with [skip e2e] in commit message
+  # E2E Tests (Desktop app with WebDriver)
+  # PR: Windows only. Push (post-merge): Linux + Windows. Skip with [skip e2e].
   # ─────────────────────────────────────────────────────────────
   e2e-desktop:
-    needs: [rust-check, ts-check]
-    if: "!contains(github.event.head_commit.message, '[skip e2e]')"
+    needs: [rust-check, ts-check, changes]
+    if: "needs.changes.outputs.e2e_desktop == 'true' && !contains(github.event.head_commit.message, '[skip e2e]')"
     uses: ./.github/workflows/e2e-desktop.yml
     with:
       ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      # PR gate: Windows only (~15 min). Post-merge push runs Linux + Windows for full coverage.
+      platforms: ${{ github.event_name == 'pull_request' && '["windows-latest"]' || '["ubuntu-latest", "windows-latest"]' }}
     secrets: inherit

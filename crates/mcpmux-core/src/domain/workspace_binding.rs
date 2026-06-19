@@ -32,6 +32,10 @@ use uuid::Uuid;
 pub struct WorkspaceBinding {
     pub id: Uuid,
     pub workspace_root: String,
+    /// When set, this binding applies only to the given OAuth client. When
+    /// `None`, the binding is global — any client without a scoped override
+    /// on the same path may resolve to it.
+    pub client_id: Option<String>,
     /// Optional friendly display name shown in the UI instead of the path.
     pub label: Option<String>,
     /// Optional icon value (emoji text or URL/local ref).
@@ -46,7 +50,7 @@ pub struct WorkspaceBinding {
 }
 
 impl WorkspaceBinding {
-    /// Convenience for the common single-FS case.
+    /// Convenience for the common single-FS case (global — no client scope).
     pub fn new(
         workspace_root: impl Into<String>,
         space_id: Uuid,
@@ -55,7 +59,7 @@ impl WorkspaceBinding {
         Self::new_multi(workspace_root, space_id, vec![feature_set_id.into()])
     }
 
-    /// Construct a binding with one or more FeatureSets. Caller must
+    /// Construct a global binding with one or more FeatureSets. Caller must
     /// guarantee `feature_set_ids` is non-empty; the storage layer rejects
     /// empties with a validation error.
     pub fn new_multi(
@@ -63,10 +67,22 @@ impl WorkspaceBinding {
         space_id: Uuid,
         feature_set_ids: Vec<String>,
     ) -> Self {
+        Self::new_scoped_multi(workspace_root, space_id, None, feature_set_ids)
+    }
+
+    /// Construct a binding scoped to a specific OAuth client (or global when
+    /// `client_id` is `None`).
+    pub fn new_scoped_multi(
+        workspace_root: impl Into<String>,
+        space_id: Uuid,
+        client_id: Option<String>,
+        feature_set_ids: Vec<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             workspace_root: workspace_root.into(),
+            client_id,
             label: None,
             icon: None,
             space_id,

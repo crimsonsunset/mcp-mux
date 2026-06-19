@@ -112,7 +112,7 @@ If **no** FeatureSet contains the needed tool, the agent cannot proceed on its o
 **Effort:** ~1 day
 
 - `mcpmux_search_tools` **defaults to active/bound scope** (lean). It _can_ match **inactive** servers/feature sets, but only via an explicit `include_inactive: true` — inactive matches annotated `{ status: "inactive", bindable_feature_set_id }`.
-- On zero/thin active results, the tool's response tells the agent to widen (`include_inactive`) or call `list_feature_sets` → `bind_current_workspace`. The wide search is a deliberate second step, not the default cost.
+- On zero/thin active results, the tool's response tells the agent to call **`mcpmux_list_servers`** first (readiness + bindable ids), widen with **`include_inactive: true`**, or bind via **`list_feature_sets` → `bind_current_workspace`**. When matching tools exist on **ready** but unbound servers, up to 3 hits appear in **`inactive_preview`** (Jun 2026). The wide search is a deliberate second step, not the default cost.
 - Extend `mcpmux_list_feature_sets` / `mcpmux_list_servers` to clearly distinguish bound vs available-but-inactive, each carrying the id needed to bind.
 - Remove `ListAllToolsTool` from `build_default_registry` (Decision 9) — kills the catalog firehose; agents discover via the scoped tools instead.
 - **Regression guard (Decision 8):** first confirm nothing in the bind path surfaces tools today (only `surfaced: true` members should reach `tools/list`); then keep inactive discovery paginated + `detail_level`-bounded, and binding a bundle must not promote anything into `tools/list`. Add a test asserting startup `tools/list` size is invariant to bound-bundle size.

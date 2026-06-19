@@ -1,5 +1,14 @@
 import { formatStampInstant } from '@/utils/build-date.helpers';
-import { getBuildInfo, getVersion } from '@/lib/api/app';
+import { getBuildInfo, getVersion, type BuildInfo } from '@/lib/api/app';
+import { isTauri } from '@/lib/backend/shell';
+
+/** A labeled row for build stamp display in Settings UI. */
+export interface BuildStampRow {
+  label: string;
+  value: string;
+  mono?: boolean;
+  testId: string;
+}
 
 /** Git/build metadata stamped into the web-admin SPA at Vite build time. */
 export interface BuildStamp {
@@ -31,6 +40,38 @@ export function getSpaBuildStamp(): BuildStamp {
 }
 
 /**
+ * Map SPA compile-time stamp fields to labeled display rows.
+ */
+export function buildStampDisplayRows(stamp: BuildStamp): BuildStampRow[] {
+  return [
+    { label: 'Branch', value: stamp.gitBranch || 'unknown', mono: true, testId: 'build-stamp-branch' },
+    { label: 'Commit', value: stamp.gitSha || 'unknown', mono: true, testId: 'build-stamp-commit' },
+    { label: 'Committed', value: stamp.commitAt || 'unknown', testId: 'build-stamp-committed' },
+    { label: 'Built', value: stamp.buildAt || 'unknown', testId: 'build-stamp-built' },
+  ];
+}
+
+/**
+ * Map backend compile-time build info to labeled display rows.
+ */
+export function backendBuildInfoRows(info: BuildInfo): BuildStampRow[] {
+  return [
+    { label: 'Branch', value: info.git_branch || 'unknown', mono: true, testId: 'build-stamp-branch' },
+    { label: 'Commit', value: info.git_sha || 'unknown', mono: true, testId: 'build-stamp-commit' },
+    {
+      label: 'Committed',
+      value: formatStampInstant(info.commit_time),
+      testId: 'build-stamp-committed',
+    },
+    {
+      label: 'Built',
+      value: formatStampInstant(info.build_time),
+      testId: 'build-stamp-built',
+    },
+  ];
+}
+
+/**
  * Format a gateway-style build line for Node/build logs.
  */
 export function formatBuildStampLine(prefix: string, stamp: BuildStamp): string {
@@ -46,21 +87,19 @@ function logConsoleRow(label: string, value: string): void {
 }
 
 /**
- * Log SPA and backend build metadata to the browser console (web-admin transport only).
+ * Log SPA and backend build metadata to the browser console on every boot
+ * (dev, production Tauri, and web-admin static bundle).
  * Visual style matches generAIt Frontend startup banner (group + gray labels).
  */
 export async function logWebAdminBuildInfo(): Promise<void> {
-  if (!import.meta.env.VITE_ADMIN_WEB) {
-    return;
-  }
-
   const headerColor = import.meta.env.DEV ? '#70e000' : '#DA7756';
+  const appLabel = import.meta.env.VITE_ADMIN_WEB ? 'McpMux Web Admin' : 'McpMux';
   console.group(
-    '%c McpMux Web Admin ',
+    `%c ${appLabel} `,
     `background: ${headerColor}; color: #000; font-weight: bold; border-radius: 4px; padding: 2px 6px;`,
   );
 
-  logConsoleRow('Transport', 'admin-http');
+  logConsoleRow('Transport', isTauri() ? 'tauri' : 'admin-http');
   logConsoleRow('Host', window.location.hostname);
   logConsoleRow('Mode', import.meta.env.DEV ? 'development' : 'production');
 

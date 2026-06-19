@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::services::ServerVersionProbeService;
 use mcpmux_core::{
     AppSettingsRepository, ApplicationServices, FeatureSetRepository, GatewayPortService,
     ServerDiscoveryService, ServerFeatureRepository, ServerLogManager, SpaceService,
@@ -50,4 +51,6 @@ pub struct AdminBridgeCtx {
     pub bundle_version: Option<String>,
     /// Git/build metadata compiled into the desktop binary (`MCPMUX_BUILD_*`).
     pub backend_build: BackendBuildStamp,
+    /// npm/uv version probe for notify/auto servers (manual + scheduled).
+    pub version_probe: Arc<ServerVersionProbeService>,
 }

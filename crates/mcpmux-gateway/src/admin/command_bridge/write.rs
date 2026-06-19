@@ -8,8 +8,8 @@ use chrono::Utc;
 use image::GenericImageView;
 use mcpmux_core::{
     validate_workspace_root as validate_workspace_root_path, AppSettingsService, Client,
-    FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerSource, WorkspaceAppearance,
-    WorkspaceBinding, WorkspaceRootValidation,
+    DefaultParamsStrategy, FeatureSet, FeatureSetMember, MemberMode, MemberType, ServerSource,
+    UpdatePolicy, WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,6 +23,25 @@ use crate::admin::command_bridge::read::{
 use crate::admin::command_bridge::space::{self, UpdateSpaceInput};
 
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
+const DEFAULT_UPDATE_POLICY_KEY: &str = "servers.default_update_policy";
+
+/// Load the app-wide default update policy for newly installed servers.
+async fn default_update_policy(ctx: &AdminBridgeCtx) -> UpdatePolicy {
+    match ctx.settings_repository.get(DEFAULT_UPDATE_POLICY_KEY).await {
+        Ok(Some(value)) => UpdatePolicy::from_db_str(&value),
+        _ => UpdatePolicy::Notify,
+    }
+}
+
+/// Parse an optional update policy string from an API request body.
+fn parse_update_policy(value: Option<String>) -> Option<UpdatePolicy> {
+    value.map(|policy| UpdatePolicy::from_db_str(&policy))
+}
+
+/// Parse an optional default params strategy string from an API request body.
+fn parse_default_params_strategy(value: Option<String>) -> Option<DefaultParamsStrategy> {
+    value.map(|s| DefaultParamsStrategy::from_db_str(&s))
+}
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
 const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ICON_DIMENSION: u32 = 256;
@@ -79,6 +98,7 @@ pub struct WorkspaceBindingBody {
     pub icon: Option<String>,
     pub space_id: String,
     pub feature_set_ids: Vec<String>,
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +113,12 @@ pub struct StartupSettingsBody {
     pub auto_launch: bool,
     pub start_minimized: bool,
     pub close_to_tray: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerUpdateSettingsBody {
+    pub default_update_policy: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,7 +140,10 @@ pub struct SaveServerInputsBody {
     pub args_append: Option<Vec<String>>,
     pub extra_headers: Option<HashMap<String, String>>,
     pub default_params: Option<HashMap<String, Value>>,
+    pub default_params_strategy: Option<String>,
     pub display_name_override: Option<String>,
+    pub update_policy: Option<String>,
+    pub pinned_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -526,7 +555,12 @@ pub async fn create_workspace_binding(
     let feature_set_ids = validate_feature_set_ids(&body.feature_set_ids)?;
     let normalized = normalize_workspace_root(&body.workspace_root)?;
 
-    let mut binding = WorkspaceBinding::new_multi(normalized.clone(), space_id, feature_set_ids);
+    let mut binding = WorkspaceBinding::new_scoped_multi(
+        normalized.clone(),
+        space_id,
+        body.client_id.clone(),
+        feature_set_ids,
+    );
     binding.label = normalize_label(&body.label);
     binding.icon = normalize_icon(&body.icon);
 
@@ -576,6 +610,7 @@ pub async fn update_workspace_binding(
     let updated = WorkspaceBinding {
         id: existing.id,
         workspace_root: normalized,
+        client_id: body.client_id.or(existing.client_id),
         label,
         icon: icon.clone(),
         space_id,
@@ -702,6 +737,17 @@ pub async fn update_startup_settings(
     Ok(json!({ "ok": true }))
 }
 
+pub async fn update_server_update_settings(
+    ctx: &AdminBridgeCtx,
+    body: ServerUpdateSettingsBody,
+) -> Result<Value> {
+    let policy = UpdatePolicy::from_db_str(&body.default_update_policy);
+    ctx.settings_repository
+        .set(DEFAULT_UPDATE_POLICY_KEY, policy.as_db_str())
+        .await?;
+    Ok(json!({ "ok": true }))
+}
+
 pub async fn set_meta_tools_enabled(ctx: &AdminBridgeCtx, enabled: bool) -> Result<Value> {
     ctx.settings_repository
         .set(
@@ -756,9 +802,16 @@ pub async fn refresh_registry(ctx: &AdminBridgeCtx) -> Result<Value> {
                 continue;
             }
             let space_uuid = Uuid::parse_str(space_id)?;
+            let policy = default_update_policy(ctx).await;
             ctx.services
                 .server()
-                .install(space_uuid, &server.id, &server, HashMap::new())
+                .install(
+                    space_uuid,
+                    &server.id,
+                    &server,
+                    HashMap::new(),
+                    Some(policy),
+                )
                 .await?;
             count += 1;
         }
@@ -774,10 +827,17 @@ pub async fn install_server(ctx: &AdminBridgeCtx, body: InstallServerBody) -> Re
         .await
         .ok_or_else(|| anyhow!("Server definition not found"))?;
     let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let policy = default_update_policy(ctx).await;
     let installed = ctx
         .services
         .server()
-        .install(space_uuid, &body.id, &definition, HashMap::new())
+        .install(
+            space_uuid,
+            &body.id,
+            &definition,
+            HashMap::new(),
+            Some(policy),
+        )
         .await?;
     as_json(installed)
 }
@@ -805,7 +865,10 @@ pub async fn save_server_inputs(
             body.args_append,
             body.extra_headers,
             body.default_params,
+            parse_default_params_strategy(body.default_params_strategy),
             body.display_name_override,
+            parse_update_policy(body.update_policy),
+            body.pinned_version,
         )
         .await?;
     as_json(installed)
@@ -949,6 +1012,12 @@ pub async fn retry_connection(ctx: &AdminBridgeCtx, body: ServerConnectionBody) 
         .await
 }
 
+pub async fn update_server_package(ctx: &AdminBridgeCtx, body: ServerConnectionBody) -> Result<Value> {
+    ctx.gateway_writes
+        .update_server_package(body.space_id, body.server_id)
+        .await
+}
+
 pub async fn logout_server(ctx: &AdminBridgeCtx, body: ServerConnectionBody) -> Result<Value> {
     ctx.gateway_writes
         .logout_server(body.space_id, body.server_id)
@@ -1010,4 +1079,33 @@ pub async fn revoke_oauth_client_feature_set(
     ctx.gateway_writes
         .revoke_oauth_client_feature_set(client_id, body.space_id, body.feature_set_id)
         .await
+}
+
+/// Probe npm/PyPI for a single installed server package update.
+pub async fn check_server_version(
+    ctx: &AdminBridgeCtx,
+    body: ServerConnectionBody,
+) -> Result<Value> {
+    let result = ctx
+        .version_probe
+        .probe_server(&body.space_id, &body.server_id)
+        .await?;
+    Ok(json!({
+        "spaceId": result.space_id,
+        "serverId": result.server_id,
+        "currentVersion": result.current_version,
+        "latestVersion": result.latest_version,
+        "updateAvailable": result.update_available,
+        "checkedAt": result.checked_at.to_rfc3339(),
+    }))
+}
+
+/// Probe all notify/auto package-managed servers for available updates.
+pub async fn check_all_server_versions(ctx: &AdminBridgeCtx) -> Result<Value> {
+    let summary = ctx.version_probe.probe_all().await?;
+    Ok(json!({
+        "checked": summary.checked,
+        "updatesAvailable": summary.updates_available,
+        "checkedAt": summary.checked_at.to_rfc3339(),
+    }))
 }

@@ -13,6 +13,7 @@ export type {
   DomainEventPayload,
   SpaceChangedPayload,
   ServerChangedPayload,
+  ServerUpdateAvailablePayload,
   ServerStatusChangedPayload,
   ServerAuthProgressPayload,
   ServerFeaturesRefreshedPayload,

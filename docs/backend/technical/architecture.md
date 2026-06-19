@@ -9,7 +9,7 @@
 A local MCP gateway (`localhost:45818`) that multiplexes AI clients (Cursor, Claude Desktop, VS Code, Windsurf) over a single endpoint to any number of backend MCP servers. Core product properties:
 
 - **Credentials stay local** — encrypted with AES-256-GCM in SQLite + OS keychain (macOS/Linux) or DPAPI (Windows), never in plain-text JSON.
-- **Fixed meta surface** — clients see ~14–15 `mcpmux_*` meta tools at startup, not the full backend catalog. Backend tools are discovered progressively via search and invoked through a single entry point.
+- **Lean meta surface** — clients see 4 `mcpmux_*` meta tools in `tools/list` at startup (`search_tools`, `invoke_tool`, `get_tool_schema`, `list_servers`). The other 7 stay registered and callable but hidden — agents reach them through error/hint recovery strings. Backend tools are discovered progressively via search and invoked through a single entry point.
 - **Workspace-scoped capability** — a `WorkspaceBinding` maps a folder root to a curated `FeatureSet`. An agent in `~/code/my-app` only reaches the tools that binding authorizes.
 - **Human-authored consent** — capability bundles (FeatureSets) are written by humans. An agent can bind an existing bundle (with approval) but cannot create one.
 
@@ -28,7 +28,7 @@ A local MCP gateway (`localhost:45818`) that multiplexes AI clients (Cursor, Cla
 graph TD
     Client["AI Client\n(Cursor / Claude / VSCode)"]
     Gateway["McpMux Gateway :45818\nMCP over HTTP/SSE"]
-    Meta["MetaToolRegistry\n~14 meta tools in tools/list"]
+    Meta["MetaToolRegistry\n4 core meta tools in tools/list\n(+7 hidden-but-callable)"]
     Resolver["FeatureSetResolverService\nWorkspaceBinding → Space + FeatureSet IDs"]
     Discovery["ToolDiscoveryService\nsearch + schema lookup\nhybrid lexical + embedding rank"]
     Invoke["InvokeToolTool\n→ RoutingService::call_tool"]

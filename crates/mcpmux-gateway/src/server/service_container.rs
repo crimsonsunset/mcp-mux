@@ -9,7 +9,7 @@ use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
     meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService, EmbeddingWarmer,
     FeatureSetResolverService, GrantService, MetaToolRegistry, PrefixCacheService,
-    SessionRootsRegistry, SpaceResolverService,
+    ServerVersionProbeService, SessionRootsRegistry, SpaceResolverService,
 };
 use mcpmux_core::DomainEvent;
 
@@ -49,6 +49,9 @@ pub struct ServiceContainer {
 
     /// Background warmer for per-server tool embedding catalogs.
     pub embedding_warmer: Arc<EmbeddingWarmer>,
+
+    /// Background npm/uv version probe for notify/auto servers.
+    pub version_probe: Arc<ServerVersionProbeService>,
 
     /// Space resolver for determining client's active space (SRP)
     pub space_resolver_service: Arc<SpaceResolverService>,
@@ -159,6 +162,16 @@ impl ServiceContainer {
             meta_tool_registry.context().embeddings.clone(),
         ));
 
+        let version_probe = Arc::new(ServerVersionProbeService::new(
+            deps.installed_server_repo.clone(),
+            deps.settings_repo
+                .clone()
+                .expect("settings_repo is required for version probe"),
+            deps.event_bus
+                .clone()
+                .expect("event_bus is required for version probe"),
+        ));
+
         // Space resolver — currently just exposes the active Space, but
         // keeps a stable seam for future session-targeted routing.
         let space_resolver_service = Arc::new(SpaceResolverService::new(deps.space_repo.clone()));
@@ -185,6 +198,7 @@ impl ServiceContainer {
             approval_broker,
             meta_tool_registry,
             embedding_warmer,
+            version_probe,
             space_resolver_service,
             prefix_cache_service,
             client_metadata_service,

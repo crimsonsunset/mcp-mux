@@ -380,6 +380,7 @@ pub fn run() {
             let server_log_manager = app_state.server_log_manager.clone();
             let port_service = app_state.gateway_port_service.clone();
             let settings_repo = app_state.settings_repository.clone();
+            let event_bus_for_gateway = event_bus.clone();
 
             // Auto-start gateway on app launch
             let gw_state_clone = gateway_state.clone();
@@ -467,7 +468,8 @@ pub fn run() {
                     .with_log_manager(server_log_manager)
                     .with_database(db_for_gateway)
                     .with_state_dir(app_data_dir.clone())
-                    .with_settings_repo(settings_repo.clone());
+                    .with_settings_repo(settings_repo.clone())
+                    .with_event_bus(event_bus_for_gateway);
 
                 if let Some(secret) = jwt_secret {
                     deps_builder = deps_builder.with_jwt_secret(secret);
@@ -1047,6 +1049,7 @@ pub fn run() {
             commands::start_auth_v2,
             commands::cancel_auth_v2,
             commands::retry_connection,
+            commands::update_server_package,
             commands::logout_server,
             commands::disconnect_server_v2,
             // Log commands
@@ -1061,6 +1064,10 @@ pub fn run() {
             // Startup settings commands
             commands::get_startup_settings,
             commands::update_startup_settings,
+            commands::get_server_update_settings,
+            commands::update_server_update_settings,
+            commands::check_all_server_updates,
+            commands::check_server_version,
             commands::get_admin_web_settings,
             commands::update_admin_web_settings,
         ])

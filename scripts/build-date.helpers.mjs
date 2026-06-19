@@ -46,6 +46,20 @@ export function formatBuiltAt(date) {
 }
 
 /**
+ * Normalize git `%ci` (`YYYY-MM-DD HH:MM:SS ±HHMM`) to ISO 8601 for cross-engine parsing.
+ * @param {string} raw
+ * @returns {string}
+ */
+function normalizeStampInstant(raw) {
+  const gitCi = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-])(\d{2})(\d{2})$/.exec(raw);
+  if (gitCi) {
+    const [, date, time, sign, hours, minutes] = gitCi;
+    return `${date}T${time}${sign}${hours}:${minutes}`;
+  }
+  return raw;
+}
+
+/**
  * Parse git `%ci` commit time or Rust UTC build strings.
  * @param {string} raw
  * @returns {Date | null}
@@ -60,7 +74,7 @@ export function parseStampInstant(raw) {
     const parsed = Date.parse(iso);
     return Number.isNaN(parsed) ? null : new Date(parsed);
   }
-  const parsed = Date.parse(trimmed);
+  const parsed = Date.parse(normalizeStampInstant(trimmed));
   return Number.isNaN(parsed) ? null : new Date(parsed);
 }
 

@@ -1,5 +1,10 @@
 import { Page, Locator } from '@playwright/test';
 
+import {
+  attachWebPageDiagnostics,
+  waitForWebAppReady,
+} from '../helpers/web-app-ready.helpers';
+
 /**
  * Base Page Object class with common functionality
  */
@@ -18,15 +23,16 @@ export abstract class BasePage {
    * Navigate to a URL
    */
   async goto(path: string = '/') {
-    await this.page.goto(path);
+    attachWebPageDiagnostics(this.page);
+    await this.page.goto(path, { waitUntil: 'domcontentloaded' });
     await this.waitForLoad();
   }
 
   /**
-   * Wait for the page to finish loading
+   * Wait until the SPA shell is interactive (not networkidle — admin SSE stays open).
    */
   async waitForLoad() {
-    await this.page.waitForLoadState('networkidle');
+    await waitForWebAppReady(this.page);
   }
 
   /**

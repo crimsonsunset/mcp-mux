@@ -96,6 +96,14 @@ impl GatewayWriteRuntime for BrokerWriteRuntime {
         Err(anyhow::anyhow!("Gateway not running"))
     }
 
+    async fn update_server_package(
+        &self,
+        _space_id: String,
+        _server_id: String,
+    ) -> anyhow::Result<Value> {
+        Err(anyhow::anyhow!("Gateway not running"))
+    }
+
     async fn logout_server(&self, _space_id: String, _server_id: String) -> anyhow::Result<Value> {
         Err(anyhow::anyhow!("Gateway not running"))
     }

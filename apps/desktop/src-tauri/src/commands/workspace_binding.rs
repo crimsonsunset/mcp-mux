@@ -57,6 +57,8 @@ async fn emit_binding_changed(
 pub struct WorkspaceBindingDto {
     pub id: String,
     pub workspace_root: String,
+    /// When set, this binding applies only to the given OAuth client.
+    pub client_id: Option<String>,
     pub label: Option<String>,
     pub icon: Option<String>,
     pub space_id: String,
@@ -70,6 +72,7 @@ impl From<WorkspaceBinding> for WorkspaceBindingDto {
         Self {
             id: b.id.to_string(),
             workspace_root: b.workspace_root,
+            client_id: b.client_id,
             label: b.label,
             icon: b.icon,
             space_id: b.space_id.to_string(),
@@ -91,6 +94,8 @@ pub struct WorkspaceBindingInput {
     pub icon: Option<String>,
     pub space_id: String,
     pub feature_set_ids: Vec<String>,
+    /// When set, creates a client-scoped binding instead of a global one.
+    pub client_id: Option<String>,
 }
 
 fn normalize_label(label: &Option<String>) -> Option<String> {
@@ -216,7 +221,12 @@ pub async fn create_workspace_binding(
     let feature_set_ids = validate_fs_list(&input)?;
     let normalized = normalize_and_validate(&input.workspace_root)?;
 
-    let mut binding = WorkspaceBinding::new_multi(normalized.clone(), space_id, feature_set_ids);
+    let mut binding = WorkspaceBinding::new_scoped_multi(
+        normalized.clone(),
+        space_id,
+        input.client_id.clone(),
+        feature_set_ids,
+    );
     binding.label = normalize_label(&input.label);
     binding.icon = normalize_icon(&input.icon);
 
@@ -299,6 +309,7 @@ pub async fn update_workspace_binding(
     let updated = WorkspaceBinding {
         id: existing.id,
         workspace_root: normalized,
+        client_id: input.client_id.or(existing.client_id),
         label,
         icon,
         space_id,
@@ -560,7 +571,7 @@ pub async fn get_workspace_effective_features(
     // 3. Tier 1: longest-prefix workspace binding match.
     let binding = state
         .workspace_binding_repository
-        .find_longest_prefix_match(&default_space.id, std::slice::from_ref(&normalized))
+        .find_longest_prefix_match(&default_space.id, None, std::slice::from_ref(&normalized))
         .await
         .map_err(|e| e.to_string())?;
 

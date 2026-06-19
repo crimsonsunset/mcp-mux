@@ -1,6 +1,6 @@
 # Testing Docs
 
-Manual QA runbooks and automated verification gates for McpMux subsystems.
+Manual QA runbooks, automated verification gates, and CI strategy for McpMux.
 
 These docs were moved from `docs/planning/`. They are operational artifacts — step-by-step procedures for verifying a specific feature or PR — rather than architecture docs.
 
@@ -28,6 +28,14 @@ Architecture reference: [`docs/backend/technical/consent-and-binding.md`](../bac
 | [`meta-gateway-invoke-retest.md`](./meta-gateway-invoke-retest.md) | Targeted retest after DX fix commit `85113e7` — ACL error messages, schema batch limits, max_bytes |
 
 Architecture reference: [`docs/backend/technical/tool-discovery-and-search.md`](../backend/technical/tool-discovery-and-search.md), [`docs/backend/reference/meta-gateway-invoke.md`](../backend/reference/meta-gateway-invoke.md)
+
+---
+
+## CI strategy
+
+| Doc | Scope |
+|-----|-------|
+| [`ci-strategy.md`](./ci-strategy.md) | Job map, path gating, web E2E smoke-vs-full split, escape hatches, required checks |
 
 ---
 

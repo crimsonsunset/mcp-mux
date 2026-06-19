@@ -5,7 +5,8 @@
 //! ```text
 //! workspace_bindings
 //!   id              TEXT PK
-//!   workspace_root  TEXT UNIQUE      — routing key, globally unique
+//!   workspace_root  TEXT NOT NULL
+//!   client_id       TEXT NULL UNIQUE per (client_id, root) when set
 //!   space_id        TEXT NOT NULL    — FK → spaces(id)
 //!   created_at      TEXT NOT NULL
 //!   updated_at      TEXT NOT NULL
@@ -62,15 +63,17 @@ impl SqliteWorkspaceBindingRepository {
     fn row_to_binding_no_fs(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceBinding> {
         let id_str: String = row.get(0)?;
         let workspace_root: String = row.get(1)?;
-        let label: Option<String> = row.get(2)?;
-        let icon: Option<String> = row.get(3)?;
-        let space_id_str: String = row.get(4)?;
-        let created_at: String = row.get(5)?;
-        let updated_at: String = row.get(6)?;
+        let client_id: Option<String> = row.get(2)?;
+        let label: Option<String> = row.get(3)?;
+        let icon: Option<String> = row.get(4)?;
+        let space_id_str: String = row.get(5)?;
+        let created_at: String = row.get(6)?;
+        let updated_at: String = row.get(7)?;
 
         Ok(WorkspaceBinding {
             id: id_str.parse().unwrap_or_else(|_| Uuid::new_v4()),
             workspace_root,
+            client_id,
             label,
             icon,
             space_id: space_id_str.parse().unwrap_or_else(|_| Uuid::nil()),
@@ -143,7 +146,7 @@ impl SqliteWorkspaceBindingRepository {
     }
 
     const SELECT_COLS: &'static str =
-        "id, workspace_root, label, icon, space_id, created_at, updated_at";
+        "id, workspace_root, client_id, label, icon, space_id, created_at, updated_at";
 
     /// Fetch bindings + their FeatureSet lists in two queries.
     /// `where_clause` is appended to the binding SELECT (use `""` for none);
@@ -214,11 +217,12 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
 
         conn.execute(
             "INSERT INTO workspace_bindings
-                (id, workspace_root, label, icon, space_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (id, workspace_root, client_id, label, icon, space_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
+                binding.client_id,
                 binding.label,
                 binding.icon,
                 binding.space_id.to_string(),
@@ -243,11 +247,12 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
 
         let rows_affected = conn.execute(
             "UPDATE workspace_bindings
-             SET workspace_root = ?2, label = ?3, icon = ?4, space_id = ?5, updated_at = ?6
+             SET workspace_root = ?2, client_id = ?3, label = ?4, icon = ?5, space_id = ?6, updated_at = ?7
              WHERE id = ?1",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
+                binding.client_id,
                 binding.label,
                 binding.icon,
                 binding.space_id.to_string(),
@@ -280,11 +285,8 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
 
     async fn find_longest_prefix_match(
         &self,
-        // `space_id` is no longer used for lookup — routing is keyed on root
-        // alone and each binding already carries its target space. Kept in
-        // the signature for trait compatibility with callers that still hold
-        // onto a "caller's space" hint.
         _space_id: &Uuid,
+        client_id: Option<&str>,
         candidate_roots: &[String],
     ) -> Result<Option<WorkspaceBinding>> {
         if candidate_roots.is_empty() {
@@ -292,17 +294,25 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         }
 
         let bindings = self.list().await?;
-        if bindings.is_empty() {
+        let filtered: Vec<&WorkspaceBinding> = bindings
+            .iter()
+            .filter(|b| match client_id {
+                Some(cid) => b.client_id.as_deref() == Some(cid),
+                None => b.client_id.is_none(),
+            })
+            .collect();
+
+        if filtered.is_empty() {
             return Ok(None);
         }
 
         let candidate_strings: Vec<&str> =
-            bindings.iter().map(|b| b.workspace_root.as_str()).collect();
+            filtered.iter().map(|b| b.workspace_root.as_str()).collect();
 
         let mut best: Option<&WorkspaceBinding> = None;
         for root in candidate_roots {
             if let Some(winner) = longest_prefix_match(root, candidate_strings.iter().copied()) {
-                let winning = bindings
+                let winning = filtered
                     .iter()
                     .find(|b| b.workspace_root == winner)
                     .expect("candidate came from bindings");
@@ -316,6 +326,27 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         }
 
         Ok(best.cloned())
+    }
+
+    async fn scoped_binding_client_for_path(
+        &self,
+        workspace_root: &str,
+        excluding_client_id: Option<&str>,
+    ) -> Result<Option<String>> {
+        let bindings = self.list().await?;
+        for binding in bindings {
+            if binding.client_id.is_none() {
+                continue;
+            }
+            if binding.workspace_root != workspace_root {
+                continue;
+            }
+            if excluding_client_id.is_some_and(|cid| binding.client_id.as_deref() == Some(cid)) {
+                continue;
+            }
+            return Ok(binding.client_id);
+        }
+        Ok(None)
     }
 }
 
@@ -489,6 +520,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_scoped_and_global_bindings_coexist_on_same_path() {
+        let (repo, space_id, fs_id1) = fixture().await;
+        let db = repo.db.clone();
+        let fs_id2 = add_fs(&db, space_id, "scoped-fs").await;
+        let root = if cfg!(windows) {
+            "d:\\scoped"
+        } else {
+            "/scoped"
+        };
+
+        {
+            let guard = db.lock().await;
+            guard
+                .connection()
+                .execute(
+                    "INSERT INTO inbound_clients
+                        (client_id, registration_type, client_name, redirect_uris,
+                         grant_types, response_types, token_endpoint_auth_method,
+                         approved, created_at, updated_at, reports_roots, roots_capability_known)
+                     VALUES (?1, 'dcr', 'client-b', '[]', '[]', '[]', 'none', 1,
+                             datetime('now'), datetime('now'), 1, 1)",
+                    params!["client-b"],
+                )
+                .unwrap();
+        }
+
+        repo.create(&WorkspaceBinding::new(root, space_id, fs_id1.clone()))
+            .await
+            .unwrap();
+        repo.create(&WorkspaceBinding::new_scoped_multi(
+            root,
+            space_id,
+            Some("client-b".to_string()),
+            vec![fs_id2.clone()],
+        ))
+        .await
+        .unwrap();
+
+        let global = repo
+            .find_longest_prefix_match(&space_id, None, &[root.to_string()])
+            .await
+            .unwrap()
+            .expect("global");
+        assert_eq!(global.feature_set_ids, vec![fs_id1]);
+
+        let scoped = repo
+            .find_longest_prefix_match(&space_id, Some("client-b"), &[root.to_string()])
+            .await
+            .unwrap()
+            .expect("scoped");
+        assert_eq!(scoped.feature_set_ids, vec![fs_id2]);
+    }
+
+    #[tokio::test]
     async fn test_longest_prefix_match_picks_nested_root() {
         let (repo, space_id, fs_id) = fixture().await;
         let (outer, inner) = if cfg!(windows) {
@@ -508,7 +593,7 @@ mod tests {
             "/work/proj/src"
         };
         let hit = repo
-            .find_longest_prefix_match(&space_id, &[deep.to_string()])
+            .find_longest_prefix_match(&space_id, None, &[deep.to_string()])
             .await
             .unwrap()
             .expect("match");

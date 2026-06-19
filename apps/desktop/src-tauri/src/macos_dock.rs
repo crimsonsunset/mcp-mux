@@ -2,6 +2,7 @@
 
 #[cfg(target_os = "macos")]
 use tauri::{ActivationPolicy, AppHandle, Runtime};
+#[cfg(target_os = "macos")]
 use tracing::warn;
 
 /// Show or hide the app in the macOS Dock (no-op on other platforms).

@@ -144,6 +144,7 @@ impl McpMuxGatewayHandler {
                             session_id: sid.to_string(),
                             space_id,
                             workspace_root: root.to_string(),
+                            collision_client_id: resolved.collision_client_id.clone(),
                         },
                     );
                 }

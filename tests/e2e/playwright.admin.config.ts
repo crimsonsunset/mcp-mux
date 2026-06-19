@@ -14,30 +14,41 @@
  * headers when `MCPMUX_CF_ACCESS_*` env vars are set on the admin process) when trust
  * is enabled — Cloudflare Tunnel origin health probes cannot authenticate to the admin server.
  *
- * CI: `test:e2e:web:admin` is wired in package.json; full Linux CI job deferred until
- * an AdminServer fixture starts automatically in the workflow.
+ * CI/local: `webServer` runs `scripts/admin-e2e-fixture.mjs`. With CF credentials in `.env`,
+ * Playwright waits on port :45819 (not HTTP 200) because trust-on returns 401 without headers.
  */
+
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { defineConfig, devices } from '@playwright/test';
 
-import { cfAccessHeadersFromEnv } from '../../scripts/cf-access-env.mjs';
+import {
+  adminCfProbeHeaders,
+  hasAdminCfProbeAuth,
+  loadRepoDotEnv,
+} from '../../scripts/cf-access-env.mjs';
 
-const cfJwt = process.env.MCPMUX_ADMIN_CF_JWT?.trim();
-const cfServiceHeaders = cfAccessHeadersFromEnv();
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+loadRepoDotEnv(REPO_ROOT);
+
+delete process.env.NO_COLOR;
+
+const cfProbeAuth = hasAdminCfProbeAuth();
 const extraHTTPHeaders =
-  cfJwt !== undefined && cfJwt.length > 0
-    ? { 'CF-Access-Jwt-Assertion': cfJwt }
-    : Object.keys(cfServiceHeaders).length > 0
-      ? cfServiceHeaders
-      : undefined;
+  Object.keys(adminCfProbeHeaders()).length > 0 ? adminCfProbeHeaders() : undefined;
 
 export default defineConfig({
   testDir: './specs/admin',
   testMatch: '**/*.spec.ts',
-  fullyParallel: true,
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
+  maxFailures: 1,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Single worker: one AdminServer + SQLite; parallel runs race startup sync.
+  workers: 1,
   reporter: [
     ['html', { outputFolder: './reports/admin-html' }],
     ['junit', { outputFile: './reports/admin-junit.xml' }],
@@ -56,4 +67,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
+  webServer: {
+    command: 'node scripts/admin-e2e-fixture.mjs',
+    ...(cfProbeAuth
+      ? { port: Number.parseInt(process.env.MCPMUX_ADMIN_PORT ?? '45819', 10) }
+      : { url: 'http://127.0.0.1:45819/' }),
+    reuseExistingServer: !process.env.CI,
+    cwd: '../..',
+    timeout: 300_000,
+  },
 });

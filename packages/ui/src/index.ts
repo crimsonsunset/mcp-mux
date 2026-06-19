@@ -36,7 +36,8 @@ export { Card, CardHeader, CardTitle, CardDescription, CardContent } from './com
 export { Switch } from './components/common/Switch';
 export { Toast, ToastContainer } from './components/common/Toast';
 export type { ToastProps, ToastType, ToastAction } from './components/common/Toast';
-export { ConfirmDialog, useConfirm } from './components/common/ConfirmDialog';
+export { ConfirmDialog } from './components/common/ConfirmDialog';
+export { useConfirm } from './components/common/use-confirm.hook';
 export type { ConfirmDialogState, ConfirmDialogProps } from './components/common/ConfirmDialog';
 
 // Hooks

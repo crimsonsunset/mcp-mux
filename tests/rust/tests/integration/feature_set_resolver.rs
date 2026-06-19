@@ -285,3 +285,56 @@ async fn capable_session_does_not_fall_through_to_grants() {
     assert_eq!(r.source, ResolutionSource::PendingRoots);
     assert!(r.feature_set_ids.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Client-scoped bindings
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scoped_binding_takes_priority_over_global() {
+    let f = Fixture::new().await;
+    let root = normalize_workspace_root(test_root());
+    let client_a = "client-a";
+    let client_b = "client-b";
+    f.make_client(client_a).await;
+    f.make_client(client_b).await;
+
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            root.clone(),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
+        .await
+        .unwrap();
+    f.binding_repo
+        .create(&WorkspaceBinding::new_scoped_multi(
+            root.clone(),
+            f.space_id,
+            Some(client_b.to_string()),
+            vec![f.fs_b_id.clone()],
+        ))
+        .await
+        .unwrap();
+
+    f.session_roots.set("s-a", [test_root()]);
+    f.session_roots.set_roots_capable("s-a", true);
+    f.session_roots.set("s-b", [test_root()]);
+    f.session_roots.set_roots_capable("s-b", true);
+
+    let r_a = f
+        .resolver
+        .resolve(Some("s-a"), Some(client_a))
+        .await
+        .unwrap();
+    assert_eq!(r_a.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(r_a.feature_set_ids, vec![f.fs_a_id]);
+
+    let r_b = f
+        .resolver
+        .resolve(Some("s-b"), Some(client_b))
+        .await
+        .unwrap();
+    assert_eq!(r_b.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(r_b.feature_set_ids, vec![f.fs_b_id]);
+}

@@ -145,6 +145,31 @@ pub fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, Value) {
                 "server_id": server_id,
             }),
         ),
+        DomainEvent::ServerVersionChecked {
+            space_id,
+            server_id,
+        } => (
+            "server-changed",
+            serde_json::json!({
+                "action": "version_checked",
+                "space_id": space_id,
+                "server_id": server_id,
+            }),
+        ),
+        DomainEvent::ServerUpdateAvailable {
+            space_id,
+            server_id,
+            current_version,
+            latest_version,
+        } => (
+            "server-update-available",
+            serde_json::json!({
+                "space_id": space_id,
+                "server_id": server_id,
+                "current_version": current_version,
+                "latest_version": latest_version,
+            }),
+        ),
         DomainEvent::ServerStatusChanged {
             space_id,
             server_id,
@@ -388,6 +413,7 @@ pub fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, Value) {
             session_id,
             space_id,
             workspace_root,
+            collision_client_id,
         } => (
             "workspace-needs-binding",
             serde_json::json!({
@@ -395,6 +421,7 @@ pub fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, Value) {
                 "session_id": session_id,
                 "space_id": space_id,
                 "workspace_root": workspace_root,
+                "collision_client_id": collision_client_id,
             }),
         ),
         DomainEvent::ClientGrantChanged {

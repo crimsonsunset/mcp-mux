@@ -14,6 +14,16 @@ export interface StartupSettings {
   closeToTray: boolean;
 }
 
+/** Per-server package update policy. */
+export type UpdatePolicy = 'auto' | 'notify' | 'pinned';
+
+/** App-wide default update policy for new server installs. */
+export interface ServerUpdateSettings {
+  defaultUpdatePolicy: UpdatePolicy;
+  /** ISO timestamp of the last bulk version probe, when available. */
+  lastCheckedAt?: string | null;
+}
+
 /** Persisted gateway port override, default, and currently active port. */
 export interface GatewayPortSettings {
   configuredPort: number | null;
@@ -42,6 +52,44 @@ export async function getStartupSettings(): Promise<StartupSettings> {
  */
 export async function updateStartupSettings(settings: StartupSettings): Promise<void> {
   return apiCall('update_startup_settings', { settings });
+}
+
+/**
+ * Load the default update policy for newly installed servers.
+ */
+export async function getServerUpdateSettings(): Promise<ServerUpdateSettings> {
+  return apiCall('get_server_update_settings');
+}
+
+/**
+ * Persist the default update policy for newly installed servers.
+ */
+export async function updateServerUpdateSettings(settings: ServerUpdateSettings): Promise<void> {
+  return apiCall('update_server_update_settings', { settings });
+}
+
+/** Probe all notify/auto package-managed servers for updates. */
+export async function checkAllServerUpdates(): Promise<{
+  checked: number;
+  updatesAvailable: number;
+  checkedAt: string;
+}> {
+  return apiCall('check_all_server_updates');
+}
+
+/** Probe a single installed server for package updates. */
+export async function checkServerVersion(
+  spaceId: string,
+  serverId: string
+): Promise<{
+  spaceId: string;
+  serverId: string;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkedAt: string;
+}> {
+  return apiCall('check_server_version', { spaceId, serverId });
 }
 
 /**

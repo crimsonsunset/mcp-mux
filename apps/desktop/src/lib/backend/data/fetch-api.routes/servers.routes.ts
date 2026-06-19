@@ -32,6 +32,8 @@ export const serversRoutes: Record<string, RouteHandler> = {
       extra_headers: args.extraHeaders,
       default_params: args.defaultParams,
       display_name_override: args.displayNameOverride,
+      update_policy: args.updatePolicy,
+      pinned_version: args.pinnedVersion,
     },
   }),
   set_server_display_name: (args) => ({
@@ -67,6 +69,11 @@ export const serversRoutes: Record<string, RouteHandler> = {
   retry_connection: (args) => ({
     method: 'POST',
     path: '/api/v1/servers/connections/retry',
+    body: { space_id: args.spaceId, server_id: args.serverId },
+  }),
+  update_server_package: (args) => ({
+    method: 'POST',
+    path: '/api/v1/servers/connections/update-package',
     body: { space_id: args.spaceId, server_id: args.serverId },
   }),
   logout_server: (args) => ({
@@ -106,5 +113,14 @@ export const serversRoutes: Record<string, RouteHandler> = {
       spaceId: args.spaceId,
       sourceServerId: args.sourceServerId,
     })}`,
+  }),
+  check_all_server_updates: () => ({
+    method: 'POST',
+    path: '/api/v1/servers/updates/check-all',
+  }),
+  check_server_version: (args) => ({
+    method: 'POST',
+    path: `/api/v1/servers/${encodeURIComponent(String(args.serverId))}/updates/check`,
+    body: { space_id: args.spaceId },
   }),
 };

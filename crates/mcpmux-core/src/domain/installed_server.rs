@@ -9,6 +9,68 @@ use uuid::Uuid;
 
 use super::ServerDefinition;
 
+/// Per-server package update policy for npx/uvx stdio transports.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdatePolicy {
+    /// Inject `@latest` (npx) or run `uv tool upgrade` (uvx) at spawn time.
+    Auto,
+    /// Default — surface available updates without auto-upgrading (Phase 2 probe).
+    #[default]
+    Notify,
+    /// Lock to `pinned_version` at spawn time (enforced in Phase 3).
+    Pinned,
+}
+
+impl UpdatePolicy {
+    /// Parse a database-stored policy string (`auto` / `notify` / `pinned`).
+    pub fn from_db_str(value: &str) -> Self {
+        match value {
+            "auto" => Self::Auto,
+            "pinned" => Self::Pinned,
+            _ => Self::Notify,
+        }
+    }
+
+    /// Serialize to the `installed_servers.update_policy` column value.
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Notify => "notify",
+            Self::Pinned => "pinned",
+        }
+    }
+}
+
+/// Merge strategy when `default_params` and caller-supplied args share a key.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultParamsStrategy {
+    /// Default — caller-supplied args win on collision.
+    #[default]
+    Fill,
+    /// Pre-configured defaults win on collision; caller args only fill missing keys.
+    Override,
+}
+
+impl DefaultParamsStrategy {
+    /// Parse a database-stored strategy string (`fill` / `override`).
+    pub fn from_db_str(value: &str) -> Self {
+        match value {
+            "override" => Self::Override,
+            _ => Self::Fill,
+        }
+    }
+
+    /// Serialize to the `installed_servers.default_params_strategy` column value.
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Fill => "fill",
+            Self::Override => "override",
+        }
+    }
+}
+
 /// Tracks how a server was installed (for sync/cleanup decisions)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -77,10 +139,17 @@ pub struct InstalledServer {
 
     /// Default tool-call arguments merged into every call routed to this server.
     ///
-    /// Shallow merge at invoke time: `{ ...default_params, ...caller_args }` — caller wins on
-    /// key collision. Non-secret values only (e.g. cloudId, projectKey).
+    /// Non-secret values only (e.g. cloudId, projectKey).
+    /// Merge behaviour is controlled by `default_params_strategy`.
     #[serde(default)]
     pub default_params: HashMap<String, Value>,
+
+    /// How `default_params` are merged with caller-supplied args.
+    ///
+    /// `fill` (default) — caller wins on collision.
+    /// `override` — defaults win; caller args only fill missing keys.
+    #[serde(default)]
+    pub default_params_strategy: DefaultParamsStrategy,
 
     /// Whether OAuth authentication has been completed
     pub oauth_connected: bool,
@@ -100,6 +169,28 @@ pub struct InstalledServer {
     /// unaffected.
     #[serde(default)]
     pub display_name_override: Option<String>,
+
+    /// Package update policy for npx/uvx stdio transports.
+    #[serde(default)]
+    pub update_policy: UpdatePolicy,
+
+    /// Exact semver pin when `update_policy` is `Pinned` (enforced in Phase 3).
+    #[serde(default)]
+    pub pinned_version: Option<String>,
+
+    /// Latest registry version from the most recent notify-mode probe.
+    #[serde(default)]
+    pub latest_available_version: Option<String>,
+
+    /// Resolved installed version from the most recent probe (npx cache /
+    /// `uv tool list`). Lets the UI badge bare `npx -y pkg` / `uvx pkg`
+    /// installs that carry no `@semver` in their args.
+    #[serde(default)]
+    pub current_version: Option<String>,
+
+    /// When `latest_available_version` was last probed (RFC3339 in DB).
+    #[serde(default)]
+    pub version_checked_at: Option<DateTime<Utc>>,
 
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
@@ -126,10 +217,16 @@ impl InstalledServer {
             args_append: Vec::new(),
             extra_headers: HashMap::new(),
             default_params: HashMap::new(),
+            default_params_strategy: DefaultParamsStrategy::default(),
             oauth_connected: false,
             source: InstallationSource::default(),
             cloned_from: None,
             display_name_override: None,
+            update_policy: UpdatePolicy::default(),
+            pinned_version: None,
+            latest_available_version: None,
+            current_version: None,
+            version_checked_at: None,
             created_at: now,
             updated_at: now,
         }
@@ -189,6 +286,21 @@ impl InstalledServer {
     /// Set enabled state
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Set the package update policy for this installation.
+    pub fn with_update_policy(mut self, policy: UpdatePolicy) -> Self {
+        self.update_policy = policy;
+        self
+    }
+
+    /// Set the pinned package version (used when policy is `Pinned`).
+    pub fn with_pinned_version(mut self, version: Option<impl Into<String>>) -> Self {
+        self.pinned_version = version
+            .map(Into::into)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         self
     }
 

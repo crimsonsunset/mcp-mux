@@ -2,7 +2,7 @@
 
 use crate::AppState;
 use mcpmux_core::application::ServerAppService;
-use mcpmux_core::domain::InstalledServer;
+use mcpmux_core::domain::{DefaultParamsStrategy, InstalledServer, UpdatePolicy};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
@@ -35,8 +35,23 @@ pub async fn install_server(
         .ok_or("Server definition not found")?;
 
     // Pass the full definition for caching (offline support)
+    let default_policy = state
+        .settings_repository
+        .get("servers.default_update_policy")
+        .await
+        .ok()
+        .flatten()
+        .map(|value| UpdatePolicy::from_db_str(&value))
+        .unwrap_or_default();
+
     service
-        .install(space_uuid, &id, &definition, HashMap::new())
+        .install(
+            space_uuid,
+            &id,
+            &definition,
+            HashMap::new(),
+            Some(default_policy),
+        )
         .await
         .map_err(|e| e.to_string())
 }
@@ -138,7 +153,10 @@ pub async fn save_server_inputs(
     args_append: Option<Vec<String>>,
     extra_headers: Option<HashMap<String, String>>,
     default_params: Option<HashMap<String, serde_json::Value>>,
+    default_params_strategy: Option<String>,
     display_name_override: Option<String>,
+    update_policy: Option<String>,
+    pinned_version: Option<String>,
 ) -> Result<InstalledServer, String> {
     let service_lock = app_service.read().await;
     let service = service_lock
@@ -156,7 +174,11 @@ pub async fn save_server_inputs(
             args_append,
             extra_headers,
             default_params,
+            default_params_strategy
+                .map(|s| DefaultParamsStrategy::from_db_str(&s)),
             display_name_override,
+            update_policy.map(|policy| UpdatePolicy::from_db_str(&policy)),
+            pinned_version,
         )
         .await
         .map_err(|e| e.to_string())

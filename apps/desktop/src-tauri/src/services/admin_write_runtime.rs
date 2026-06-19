@@ -18,6 +18,7 @@ use crate::commands::oauth::{
 };
 use crate::commands::server_manager::{
     cancel_auth_v2, disable_server_v2, enable_server_v2, logout_server, retry_connection,
+    update_server_package,
     start_auth_v2,
 };
 
@@ -50,6 +51,7 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
             self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),
+            self.app_handle.state(),
             self.app_handle.clone(),
         )
         .await
@@ -77,6 +79,7 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         let url = restart_gateway(
             port,
             allow_dynamic_fallback,
+            self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),
@@ -185,6 +188,24 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         retry_connection(
             space_id,
             server_id,
+            self.app_handle.state(),
+            self.app_handle.state(),
+            self.app_handle.state(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+        Ok(json!({ "ok": true }))
+    }
+
+    async fn update_server_package(
+        &self,
+        space_id: String,
+        server_id: String,
+    ) -> anyhow::Result<Value> {
+        update_server_package(
+            space_id,
+            server_id,
+            self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),
             self.app_handle.state(),

@@ -1,6 +1,6 @@
 # Per-Server Config Lanes
 
-**Last Updated:** Jun 1, 2026
+**Last Updated:** Jun 19, 2026
 
 Each **installed server** in a Space can carry user-specific configuration beyond registry `input_values` (credentials). Four **config lanes** live on the `installed_servers` row and are edited in the desktop or web admin UI under **Servers → Configure** on an installed server.
 
@@ -134,9 +134,14 @@ The gateway forwards `{ "cloudId": "...", "issueIdOrKey": "PROJ-123" }` to the b
 - Values are arbitrary JSON (string, number, boolean, object) — not string-only
 - Applied only on the **`mcpmux_invoke_tool`** meta path, not direct gateway `call_tool` or surfaced one-hop tools
 - **Non-secret** sticky params only; API keys and tokens stay in `input_values`
-- Caller-supplied `args` always override keys present in `default_params`
+- Caller-supplied `args` always override keys present in `default_params` (unless **Collision strategy** is set to Override in Configure)
 
-**Implementation:** `crates/mcpmux-gateway/src/services/meta_tools/invoke.rs` (`merge_default_params`).
+**Agent visibility:** Agents do not need to call `getAccessibleAtlassianResources` when defaults are configured. After setup:
+
+- `mcpmux_list_servers` includes `prefilled_params: ["cloudId", ...]` per server when defaults are set
+- `mcpmux_search_tools` marks matching entries in `required_params` with `"prefilled": true` so agents know those keys are auto-filled at invoke
+
+**Implementation:** `crates/mcpmux-gateway/src/services/meta_tools/invoke_tool.rs` (`merge_default_params`).
 
 ---
 
@@ -154,6 +159,6 @@ The gateway forwards `{ "cloudId": "...", "issueIdOrKey": "PROJ-123" }` to the b
 
 ## Related docs
 
-- [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md) — search → invoke workflow, `required_params` on search hits
+- [`tool-discovery-and-search.md`](../technical/tool-discovery-and-search.md) — search → invoke workflow, `bare_name` and `required_params` (`{ name, type }`) on search hits
 - [`server-lifecycle-and-pool.md`](../technical/server-lifecycle-and-pool.md) — when env/args/headers are applied (connect time vs invoke time)
-- [`meta-tool-invoke-ergonomics.md`](../../planning/meta-tool-invoke-ergonomics.md) — design rationale for `default_params`
+- [`meta-tool-invoke-ergonomics.md`](../../planning/meta-tool-invoke-ergonomics.md) — design rationale for `default_params`; Round 3 search UX + agent visibility

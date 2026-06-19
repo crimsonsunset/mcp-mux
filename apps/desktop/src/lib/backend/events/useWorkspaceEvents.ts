@@ -32,6 +32,8 @@ export interface WorkspaceNeedsBindingPayload {
   session_id: string;
   space_id: string;
   workspace_root: string;
+  /** Set when another client's scoped binding blocked the global route. */
+  collision_client_id?: string | null;
 }
 
 /** Payload map for type-safe subscriptions. */

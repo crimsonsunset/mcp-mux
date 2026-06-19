@@ -1,6 +1,6 @@
 # Dev Workflow
 
-**Last Updated:** Jun 1, 2026
+**Last Updated:** Jun 17, 2026
 
 This guide covers the daily dev loop for `mcp-mux/`: starting the app, recovering from stale processes, rebuilding after gateway changes, and using the admin mode. All commands run from the repo root (`mcp-mux/`).
 
@@ -153,6 +153,7 @@ pnpm test:coverage
 
 ## Related docs
 
+- [`new-workspace-onboarding.md`](./new-workspace-onboarding.md) — bind a new project folder for agent routing
 - [`run-from-source.md`](./run-from-source.md) — first-time setup, prerequisites, initial build
 - [`../technical/services-overview.md`](../technical/services-overview.md) — port roles and gateway internals
 - [`server-config-lanes.md`](./server-config-lanes.md) — per-server env, headers, args, and default tool parameters

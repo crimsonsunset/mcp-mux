@@ -1,0 +1,17 @@
+# Gitleaks configuration for mcp-mux.
+# Extends the bundled default ruleset so we only add allowlists on top.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+CF Access test-only RSA key pair. Generated with `openssl genrsa` purely for the
+admin Cloudflare Access gate integration tests (compiled in only under the
+`mcpmux-gateway/test-utils` feature). These keys protect nothing — they are not
+tied to any Cloudflare account, production endpoint, or the gitignored `.env`,
+so there is nothing to rotate. See tests/fixtures/README.md.
+"""
+paths = [
+  '''tests/fixtures/cf_access_test_private\.pem''',
+  '''tests/fixtures/cf_access_test_pubkey\.pem''',
+]

@@ -286,12 +286,22 @@ impl GatewayServer {
             self.config.port,
             public_url.as_deref(),
         );
+        // Extend the session keep-alive well beyond RMCP's 5-minute default.
+        // The default evicts sessions that have no request/response exchange
+        // for 300s — SSE keepalive pings don't reset it. For an always-on
+        // local gateway, long-lived sessions (Cursor, VS Code) would cycle
+        // every 5 min: the GET SSE returns 404, the client reconnects, and
+        // the SessionRootsRegistry entry is wiped, restarting the roots probe.
+        // 2 hours is a reasonable upper bound before forcing a clean reconnect.
+        let mut session_manager = LocalSessionManager::default();
+        session_manager.session_config.keep_alive =
+            Some(std::time::Duration::from_secs(60 * 60 * 2));
         let mcp_service = StreamableHttpService::new(
             move || {
                 debug!("[Gateway] Creating handler instance for MCP session");
                 Ok(handler.clone())
             },
-            LocalSessionManager::default().into(),
+            session_manager.into(),
             http_cfg,
         );
 
@@ -496,6 +506,13 @@ impl GatewayServer {
             // Step 3: Auto-connect enabled servers (non-blocking)
             // As each server connects, it will emit list_changed notifications
             self_for_autoconnect.auto_connect_servers().await;
+
+            // Step 4: Probe npm/uv package versions for notify/auto servers
+            self_for_autoconnect
+                .services
+                .version_probe
+                .clone()
+                .start_scheduler();
         });
 
         // Build router and start server immediately

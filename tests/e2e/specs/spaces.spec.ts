@@ -51,7 +51,7 @@ test.describe('Space Switcher', () => {
     await dashboard.navigate();
 
     await expect(dashboard.activeSpaceCard).toBeVisible();
-    await expect(page.getByText('Currently viewing')).toBeVisible();
+    await expect(page.getByTestId('stat-active-space-value')).toBeVisible();
   });
 
   test('should display active space info', async ({ page }) => {

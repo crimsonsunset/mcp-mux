@@ -14,4 +14,5 @@ mod inbound_client;
 mod installed_server;
 mod migrations;
 mod outbound_oauth;
+mod server_update_policy;
 mod repositories;

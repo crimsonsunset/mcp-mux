@@ -145,8 +145,20 @@ pub fn build_admin_router(state: AdminState) -> Router {
             post(write::retry_connection),
         )
         .route(
+            "/api/v1/servers/connections/update-package",
+            post(write::update_server_package),
+        )
+        .route(
             "/api/v1/servers/connections/logout",
             post(write::logout_server),
+        )
+        .route(
+            "/api/v1/servers/updates/check-all",
+            post(write::check_all_server_versions),
+        )
+        .route(
+            "/api/v1/servers/{server_id}/updates/check",
+            post(write::check_server_version),
         )
         .route("/api/v1/servers/clones", post(write::clone_server))
         .route("/api/v1/registry/discover", get(read::discover_servers))
@@ -241,6 +253,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/v1/settings/startup",
             get(read::get_startup_settings).put(write::update_startup_settings),
+        )
+        .route(
+            "/api/v1/settings/server-updates",
+            get(read::get_server_update_settings).put(write::update_server_update_settings),
         )
         .route(
             "/api/v1/settings/meta-tools-enabled",

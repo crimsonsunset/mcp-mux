@@ -4,6 +4,7 @@ import type { RouteHandler } from '../fetch-api.types';
 /** App settings, logs, and meta-tool admin routes. */
 export const appSettingsRoutes: Record<string, RouteHandler> = {
   get_startup_settings: () => ({ method: 'GET', path: '/api/v1/settings/startup' }),
+  get_server_update_settings: () => ({ method: 'GET', path: '/api/v1/settings/server-updates' }),
   get_meta_tools_enabled: () => ({ method: 'GET', path: '/api/v1/settings/meta-tools-enabled' }),
   get_version: () => ({ method: 'GET', path: '/api/v1/app/version' }),
   get_bundle_version: () => ({ method: 'GET', path: '/api/v1/app/bundle-version' }),
@@ -24,6 +25,11 @@ export const appSettingsRoutes: Record<string, RouteHandler> = {
   update_startup_settings: (args) => ({
     method: 'PUT',
     path: '/api/v1/settings/startup',
+    body: args.settings as Record<string, unknown>,
+  }),
+  update_server_update_settings: (args) => ({
+    method: 'PUT',
+    path: '/api/v1/settings/server-updates',
     body: args.settings as Record<string, unknown>,
   }),
   set_meta_tools_enabled: (args) => ({

@@ -18,8 +18,8 @@ export class DashboardPage extends BasePage {
   constructor(page: Page) {
     super(page);
     this.heading = page.getByRole('heading', { name: 'Dashboard' });
-    this.gatewayStatus = page.locator('text=Gateway:').first();
-    this.gatewayToggleButton = page.getByRole('button', { name: /Start|Stop/ });
+    this.gatewayStatus = page.getByTestId('connection-status-text');
+    this.gatewayToggleButton = page.getByTestId('gateway-toggle-btn');
     this.serverCountCard = page.locator('text=Servers').first();
     this.featureSetsCard = page.locator('text=FeatureSets').first();
     this.clientsCard = page.locator('text=Clients').first();
@@ -30,7 +30,6 @@ export class DashboardPage extends BasePage {
 
   async navigate() {
     await this.goto('/');
-    await this.waitForLoad();
   }
 
   async isGatewayRunning(): Promise<boolean> {

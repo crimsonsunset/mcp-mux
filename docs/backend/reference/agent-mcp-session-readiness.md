@@ -132,7 +132,7 @@ After dev restart + Cursor reload: first `mcpmux_search_tools` either returns to
 
 ### Symptom
 
-User toggles **Surface** on a FeatureSet member, saves, but Cursor agent still sees only 10 `mcpmux_*` tools until manual **Reload tools**. Direct `github_list_issues` may work via gateway while Cursor descriptor cache is stale.
+User toggles **Surface** on a FeatureSet member, saves, but Cursor agent still sees only 4 `mcpmux_*` tools (the lean core) until manual **Reload tools**. Direct `github_list_issues` may work via gateway while Cursor descriptor cache is stale.
 
 ### What we already do (dig here first)
 

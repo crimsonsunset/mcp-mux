@@ -205,6 +205,20 @@ pub enum DomainEvent {
     /// Server was disabled (will disconnect)
     ServerDisabled { space_id: Uuid, server_id: String },
 
+    /// Version probe completed for a server (fired regardless of whether an update is available).
+    /// Used to signal the UI to re-query the pending-update list after an explicit update.
+    ServerVersionChecked { space_id: Uuid, server_id: String },
+
+    /// Notify-mode probe found a newer package version than the installed/pinned one.
+    ServerUpdateAvailable {
+        space_id: Uuid,
+        server_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_version: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        latest_version: Option<String>,
+    },
+
     // ════════════════════════════════════════════════════════════════════════
     // SERVER CONNECTION STATE (Runtime)
     // ════════════════════════════════════════════════════════════════════════
@@ -371,6 +385,11 @@ pub enum DomainEvent {
         session_id: String,
         space_id: Uuid,
         workspace_root: String,
+        /// When set, a scoped binding for another OAuth client blocked the
+        /// global binding on this path — the UI should offer to create a
+        /// client-scoped binding for `client_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        collision_client_id: Option<String>,
     },
 
     /// The live set of reported session roots changed (a client connected
@@ -419,6 +438,8 @@ impl DomainEvent {
             Self::ServerConfigUpdated { .. } => "server_config_updated",
             Self::ServerEnabled { .. } => "server_enabled",
             Self::ServerDisabled { .. } => "server_disabled",
+            Self::ServerVersionChecked { .. } => "server_version_checked",
+            Self::ServerUpdateAvailable { .. } => "server_update_available",
             Self::ServerStatusChanged { .. } => "server_status_changed",
             Self::ServerAuthProgress { .. } => "server_auth_progress",
             Self::ServerFeaturesRefreshed { .. } => "server_features_refreshed",
@@ -489,6 +510,8 @@ impl DomainEvent {
             | Self::ServerConfigUpdated { space_id, .. }
             | Self::ServerEnabled { space_id, .. }
             | Self::ServerDisabled { space_id, .. }
+            | Self::ServerVersionChecked { space_id, .. }
+            | Self::ServerUpdateAvailable { space_id, .. }
             | Self::ServerStatusChanged { space_id, .. }
             | Self::ServerAuthProgress { space_id, .. }
             | Self::ServerFeaturesRefreshed { space_id, .. }
@@ -526,6 +549,8 @@ impl DomainEvent {
             | Self::ServerConfigUpdated { server_id, .. }
             | Self::ServerEnabled { server_id, .. }
             | Self::ServerDisabled { server_id, .. }
+            | Self::ServerVersionChecked { server_id, .. }
+            | Self::ServerUpdateAvailable { server_id, .. }
             | Self::ServerStatusChanged { server_id, .. }
             | Self::ServerAuthProgress { server_id, .. }
             | Self::ServerFeaturesRefreshed { server_id, .. }
@@ -708,6 +733,7 @@ mod tests {
             session_id: "sess-1".to_string(),
             space_id: Uuid::new_v4(),
             workspace_root: "/proj/foo".to_string(),
+            collision_client_id: None,
         };
         assert!(!e.affects_mcp_capabilities());
         assert!(e.is_ui_only());
@@ -733,6 +759,7 @@ mod tests {
             session_id: "s".into(),
             space_id: Uuid::nil(),
             workspace_root: "/r".into(),
+            collision_client_id: Some("other-client".into()),
         };
         let json = serde_json::to_string(&needs).unwrap();
         assert!(json.contains("\"type\":\"workspace_needs_binding\""));

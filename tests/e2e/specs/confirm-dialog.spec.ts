@@ -79,7 +79,7 @@ test.describe('ConfirmDialog – Clients', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
-    await expect(page.getByRole('heading', { name: 'Connected Clients' })).toBeVisible();
+    await expect(page.getByTestId('clients-title')).toBeVisible();
 
     // Click the first client card to open the detail panel
     const clientCards = page.locator('[data-testid^="client-card-"]');
