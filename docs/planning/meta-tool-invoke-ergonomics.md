@@ -37,7 +37,7 @@ Follow-up from agent sessions (Atlassian/Jira workflows). Shipped on `feat/meta-
 | `prefilled: true` on search hits | Required params covered by `default_params` are marked in `required_params[]` |
 | `display_name` on search hits | Human server label alongside `server_id` |
 | Invoke denial `action` | Appends display name when known, e.g. `… (Jira - S2H)` |
-| `get_tool_schema` aliases | Accepts `tool_name` or `tool` (single name) in addition to `tools` — mirrors `invoke_tool` |
+| `get_tool_schema` name resolution | Accepts `tool_name` or `tool` aliases (single name); resolves **bare names** (`getJiraIssue`) and qualified names (`atlassian-mcp_getJiraIssue`) — passing bare name from search no longer returns missing |
 
 **Operator setup unchanged:** configure `default_params` in **Servers → Configure**; agents learn what's pre-filled via `list_servers` / search hits, not by calling `getAccessibleAtlassianResources`. Full lane guide: [`server-config-lanes.md`](../backend/guides/server-config-lanes.md#default_params).
 

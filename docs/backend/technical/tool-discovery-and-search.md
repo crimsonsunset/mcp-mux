@@ -43,7 +43,7 @@ The canonical agent workflow (one to three steps depending on tool complexity):
       → ranked hits with qualified_name, bare_name, required_params, optional_params, server_readiness, schema_complex
 
 2. mcpmux_get_tool_schema({ tools: ["github_list_issues"] })   ← optional when required_params is enough
-   // Aliases: tool_name or tool (single qualified name) — same as invoke_tool's tool/tool_name pattern
+   // Accepts bare name ("list_issues") OR qualified name ("github_list_issues"); aliases: tool_name, tool
       → full JSON input schema; compact: true strips examples/descriptions
 
 3. mcpmux_invoke_tool({ server_id: "github", tool: "list_issues" | "github_list_issues", args: { … } })
