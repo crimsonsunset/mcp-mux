@@ -8,7 +8,7 @@ use tracing::{debug, info, trace};
 
 use crate::services::discovery_rank::{
     build_corpus_doc_freq, filter_and_rank, filter_and_rank_traced, lexical_score_precomputed,
-    tokenize, RankTraceContext,
+    prepare_query_tokens, tokenize, RankTraceContext,
 };
 use crate::services::embedding::{EmbeddingService, EmbeddingState};
 
@@ -258,7 +258,7 @@ where
     let corpus_started = Instant::now();
     let haystacks: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
     let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(&haystacks);
-    let query_tokens = tokenize(query);
+    let query_tokens = prepare_query_tokens(query);
     let corpus_ms = corpus_started.elapsed().as_millis() as u64;
 
     let lexical_scores_started = Instant::now();

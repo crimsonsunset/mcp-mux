@@ -304,11 +304,68 @@ impl MetaTool for SearchToolsTool {
             payload["hint"] = json!("Narrow with `server_id` for faster results.");
         }
 
-        if !include_inactive && result.total == 0 {
-            payload["hint"] = json!(
-                "No active tools matched. Retry with include_inactive: true to discover \
-                 bindable capability, or call mcpmux_bind_current_workspace with a \
-                 feature_set_id (use mcpmux_list_feature_sets to list bundles if needed)."
+        if !include_inactive && result.total == 0 && effective_query.is_some() {
+            let inactive_started = Instant::now();
+            let inactive = call
+                .ctx
+                .feature_service
+                .list_inactive_discovery_tools(
+                    &space_id.to_string(),
+                    &resolved.feature_set_ids,
+                    Some(query_id.as_str()),
+                )
+                .await
+                .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+
+            let ready_inactive: Vec<_> = inactive
+                .into_iter()
+                .filter(|entry| {
+                    readiness_map
+                        .get(&entry.feature.server_id)
+                        .is_some_and(|readiness| *readiness == "ready")
+                })
+                .collect();
+
+            if ready_inactive.is_empty() {
+                payload["hint"] = json!(
+                    "No active tools matched. Retry with include_inactive: true to discover \
+                     bindable capability, or call mcpmux_bind_current_workspace with a \
+                     feature_set_id (use mcpmux_list_feature_sets to list bundles if needed)."
+                );
+            } else {
+                let preview_index =
+                    crate::services::tool_discovery::ToolDiscoveryService::build_inactive_index(
+                        &ready_inactive,
+                    );
+                let preview = crate::services::tool_discovery::ToolDiscoveryService::search(
+                    &preview_index,
+                    effective_query,
+                    server_id_filter,
+                    detail_level,
+                    3,
+                    None,
+                    Some(query_id.as_str()),
+                    None,
+                    Some(&readiness_map),
+                    false,
+                );
+                payload["inactive_preview"] = json!(preview.tools);
+                payload["hint"] = json!(
+                    "No active tools matched, but ready-to-invoke tools exist in an unbound \
+                     FeatureSet (see inactive_preview). Call mcpmux_bind_current_workspace with \
+                     the bindable_feature_set_id shown on each preview entry to activate them."
+                );
+            }
+            inactive_widen_ms = inactive_started.elapsed().as_millis() as u64;
+            debug!(
+                query_id = %query_id,
+                ready_inactive_preview = payload
+                    .get("inactive_preview")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0),
+                inactive_widen_ms,
+                "[search] zero-result inactive preview"
             );
         } else if include_inactive && result.total == 0 {
             let catalog = call

@@ -8,6 +8,23 @@ use tracing::debug;
 /// Boost applied when every query token appears in the document haystack.
 const AND_MATCH_BOOST: f64 = 1.0;
 
+/// Common stop tokens dropped from lexical matching on both query and document sides.
+const STOPWORDS: &[&str] = &["a", "an", "the", "on", "in", "for", "of", "to", "with"];
+
+/// Query-side synonym groups for intent phrasing variants (tools, resources, prompts).
+const SYNONYM_MAP: &[(&str, &[&str])] = &[
+    ("ticket", &["issue"]),
+    ("tickets", &["issues"]),
+    ("jira", &["atlassian"]),
+    ("fetch", &["get"]),
+    ("find", &["search", "get"]),
+    ("retrieve", &["get"]),
+    ("create", &["add", "post"]),
+    ("make", &["create", "add"]),
+    ("delete", &["remove"]),
+    ("remove", &["delete"]),
+];
+
 /// Optional tracing context for tool search ranking.
 pub struct RankTraceContext<'a> {
     pub query_id: &'a str,
@@ -15,14 +32,40 @@ pub struct RankTraceContext<'a> {
 
 /// Tokenize text for TF-IDF scoring.
 pub(crate) fn tokenize(text: &str) -> Vec<String> {
-    // TODO(stopwords): filter common stop tokens (e.g. "a", "on", "the") before
-    // overlap matching — intent queries like "post a comment on a jira issue" currently
-    // match almost every tool via single-letter tokens.
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|token| !token.is_empty())
+        .filter(|token| !token.is_empty() && !STOPWORDS.contains(token))
         .map(String::from)
         .collect()
+}
+
+/// Expand query tokens with synonym variants while preserving first-seen order.
+pub(crate) fn expand_query_tokens(tokens: Vec<String>) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut expanded: Vec<String> = Vec::with_capacity(tokens.len() * 2);
+
+    for token in tokens {
+        if seen.insert(token.clone()) {
+            expanded.push(token.clone());
+        }
+        for (key, synonyms) in SYNONYM_MAP {
+            if token == *key {
+                for syn in *synonyms {
+                    let synonym = syn.to_string();
+                    if seen.insert(synonym.clone()) {
+                        expanded.push(synonym);
+                    }
+                }
+            }
+        }
+    }
+
+    expanded
+}
+
+/// Tokenize and expand a search query for lexical and hybrid ranking.
+pub(crate) fn prepare_query_tokens(query: &str) -> Vec<String> {
+    expand_query_tokens(tokenize(query))
 }
 
 /// Return true when at least one query token appears in `haystack`.
@@ -174,7 +217,7 @@ where
     FServer: Fn(&T) -> &str,
     FHaystack: Fn(&T) -> String,
 {
-    let query_tokens = query.map(tokenize).unwrap_or_default();
+    let query_tokens = query.map(prepare_query_tokens).unwrap_or_default();
     let mut and_boost_hits = 0usize;
     let index_entries = entries.len();
     let filter_started = Instant::now();
@@ -411,5 +454,31 @@ mod tests {
             &corpus_doc_freq,
         );
         assert!(full > partial);
+    }
+
+    #[test]
+    fn stopwords_filtered_from_tokens() {
+        let tokens = tokenize("post a comment on a jira issue");
+        assert!(!tokens.contains(&"a".to_string()));
+        assert!(!tokens.contains(&"on".to_string()));
+        assert!(tokens.contains(&"jira".to_string()));
+        assert!(tokens.contains(&"issue".to_string()));
+    }
+
+    #[test]
+    fn synonym_expansion_jira_ticket_matches_issue_tools() {
+        let entries = vec![TestEntry {
+            qualified_name: "atlassian_getJiraIssue".to_string(),
+            haystack: "getJiraIssue atlassian_getJiraIssue Get a Jira issue".to_string(),
+        }];
+        let matched = filter_and_rank(
+            &entries,
+            Some("jira ticket"),
+            None,
+            test_server_id,
+            test_haystack,
+        );
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].qualified_name, "atlassian_getJiraIssue");
     }
 }

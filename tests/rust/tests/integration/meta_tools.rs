@@ -467,6 +467,71 @@ async fn search_default_empty_suggests_widen_or_bind() {
     let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
     assert!(hint.contains("include_inactive"));
     assert!(hint.contains("mcpmux_list_feature_sets"));
+    assert!(body.get("inactive_preview").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_zero_result_surfaces_ready_inactive_preview() {
+    let f = Fixture::new().await;
+    let inactive_fs_id = bind_ready_github_with_inactive_create_issue(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "create issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("total"), Some(&json!(0)));
+    assert_eq!(body.get("scope"), Some(&json!("active_only")));
+
+    let preview = body
+        .get("inactive_preview")
+        .and_then(|v| v.as_array())
+        .expect("expected inactive_preview for ready-but-inactive tools");
+    assert!(!preview.is_empty());
+    assert!(preview.len() <= 3);
+    let tool = preview
+        .iter()
+        .find(|t| t.get("qualified_name") == Some(&json!("github_create_issue")))
+        .expect("expected inactive github_create_issue in preview");
+    assert_eq!(tool.get("status"), Some(&json!("inactive")));
+    assert_eq!(
+        tool.get("bindable_feature_set_id"),
+        Some(&json!(inactive_fs_id))
+    );
+    assert_eq!(tool.get("server_readiness"), Some(&json!("ready")));
+
+    let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(hint.contains("inactive_preview"));
+    assert!(hint.contains("mcpmux_bind_current_workspace"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_zero_result_generic_hint_when_no_ready_inactive() {
+    let f = Fixture::new().await;
+    let _fs_id = github_only_fs(&f).await;
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_search_tools",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "query": "create issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&result);
+    assert_eq!(body.get("total"), Some(&json!(0)));
+    assert!(body.get("inactive_preview").is_none());
+    let hint = body.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(hint.contains("include_inactive"));
+    assert!(hint.contains("mcpmux_list_feature_sets"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1046,6 +1111,40 @@ async fn bind_github_only_to_session_root(f: &Fixture) -> String {
     let binding = WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, fs_id.clone());
     f.binding_repo.create(&binding).await.unwrap();
     fs_id
+}
+
+/// Bind a workspace to a FeatureSet that includes only `list_repos`, leaving
+/// `create_issue` in an unbound FeatureSet so the server is ready but the issue
+/// tool stays inactive.
+async fn bind_ready_github_with_inactive_create_issue(f: &Fixture) -> String {
+    use mcpmux_core::WorkspaceBinding;
+
+    let mut list_repos = ServerFeature::tool(f.space_id, "github", "list_repos");
+    list_repos.description = Some("List repositories".into());
+    f.server_feature_repo.upsert(&list_repos).await.unwrap();
+
+    let mut bound_fs = FeatureSet::new_custom("GitHub bound slice", f.space_id.to_string());
+    bound_fs.members.push(FeatureSetMember {
+        id: Uuid::new_v4().to_string(),
+        feature_set_id: bound_fs.id.clone(),
+        member_type: MemberType::Feature,
+        member_id: list_repos.id.to_string(),
+        mode: MemberMode::Include,
+        surfaced: false,
+    });
+    let bound_fs_id = bound_fs.id.clone();
+    f.feature_set_repo.create(&bound_fs).await.unwrap();
+    let inactive_fs_id = github_only_fs(f).await;
+
+    seed_diagnose_servers(f).await;
+
+    let root = "/tmp/mcpmux-ready-inactive-preview";
+    f.session_roots.set_roots_capable(&f.session_id, true);
+    f.session_roots.set(&f.session_id, [root]);
+    let binding =
+        WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, bound_fs_id.clone());
+    f.binding_repo.create(&binding).await.unwrap();
+    inactive_fs_id
 }
 
 #[tokio::test(flavor = "multi_thread")]
