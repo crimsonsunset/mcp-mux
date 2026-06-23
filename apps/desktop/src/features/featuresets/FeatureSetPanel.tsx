@@ -775,6 +775,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                 title: t('confirm.deleteTitle'),
                 message: t('confirm.deleteMessage', { name: featureSet.name }),
                 confirmLabel: t('confirm.deleteLabel'),
+                cancelLabel: t('common:actions.cancel'),
                 variant: 'danger',
               })) {
                 onDelete(featureSet.id);

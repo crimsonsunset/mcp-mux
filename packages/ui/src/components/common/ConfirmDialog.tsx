@@ -5,6 +5,7 @@ export interface ConfirmDialogState {
   title: string;
   message: string;
   confirmLabel?: string;
+  cancelLabel?: string;
   variant?: 'danger' | 'default';
 }
 
@@ -18,6 +19,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
   variant = 'default',
   onConfirm,
   onCancel,
@@ -56,7 +58,7 @@ export function ConfirmDialog({
             className="px-4 py-2 text-sm font-medium rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface-active))] text-[rgb(var(--foreground))] hover:bg-[rgb(var(--surface-hover))] transition-colors"
             data-testid="confirm-dialog-cancel"
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             onClick={onConfirm}

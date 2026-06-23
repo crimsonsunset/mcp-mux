@@ -211,6 +211,7 @@ export default function ClientsPage() {
         title: t('confirm.revokeTitle'),
         message: t('confirm.revokeMessage', { name }),
         confirmLabel: t('confirm.revokeLabel'),
+        cancelLabel: t('common:actions.cancel'),
         variant: 'danger',
       }))
     ) {

@@ -319,6 +319,7 @@ export function WorkspacesPage() {
       title: t('confirm.removeTitle'),
       message: t('confirm.removeMessage', { path: binding.workspace_root }),
       confirmLabel: t('confirm.removeLabel'),
+      cancelLabel: t('common:actions.cancel'),
       variant: 'danger',
     });
     if (!ok) return;

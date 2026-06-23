@@ -12,9 +12,28 @@ import settings from './locales/en/settings.json';
 import spaces from './locales/en/spaces.json';
 import workspaces from './locales/en/workspaces.json';
 
+const namespaces = [
+  'common',
+  'nav',
+  'dashboard',
+  'servers',
+  'workspaces',
+  'featuresets',
+  'clients',
+  'settings',
+  'spaces',
+  'registry',
+] as const;
+
+/**
+ * Initialize i18next with static English bundles (Tauri + Vite web admin).
+ * escapeValue is false because React escapes text in JSX.
+ */
 i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
+  defaultNS: 'common',
+  ns: [...namespaces],
   interpolation: { escapeValue: false },
   resources: {
     en: {

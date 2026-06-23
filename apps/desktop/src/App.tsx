@@ -106,6 +106,7 @@ function McpIcon({ className }: { className?: string }) {
 
 function AppContent() {
   const { t } = useTranslation('nav');
+  const { t: tDashboard } = useTranslation('dashboard');
 
   // Sync data from backend on mount
   useDataSync();
@@ -311,7 +312,7 @@ function AppContent() {
           onClick={() => navigateTo('home')}
           className="flex items-center gap-1.5 hover:text-[rgb(var(--foreground))] transition-colors"
           data-testid="statusbar-gateway"
-          title="View connection details on the dashboard"
+          title={tDashboard('statusbar.gatewayTitle')}
         >
           <span
             className={`h-2 w-2 rounded-full ${

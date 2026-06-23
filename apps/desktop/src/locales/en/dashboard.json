@@ -1,4 +1,7 @@
 {
+  "statusbar": {
+    "gatewayTitle": "View connection details on the dashboard"
+  },
   "quickLinks": {
     "title": "Quick links",
     "description": "Jump to any section from the sidebar",
