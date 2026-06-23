@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Home,
-  Server,
   Globe,
-  Wrench,
   Monitor,
   Settings,
   Sun,
@@ -11,6 +9,8 @@ import {
   FolderOpen,
   Download,
   X,
+  Search,
+  ShoppingBasket,
 } from 'lucide-react';
 import {
   AppShell,
@@ -82,6 +82,23 @@ function McpMuxGlyph({ className }: { className?: string }) {
       {/* Whiskers right */}
       <path d="M 18 21 C 19.2 20.4 21 20.2 22.5 20.4 C 23 20.4 23.3 20.2 23.4 19.9" stroke="white" strokeWidth="0.9" strokeLinecap="round" fill="none" opacity="0.7" />
       <circle cx="23.4" cy="19.9" r="1.1" fill="white" opacity="0.75" />
+    </svg>
+  );
+}
+
+/** MCP protocol icon for the My Servers nav item */
+function McpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="3" cy="3" r="1.5" fill="currentColor" />
+      <circle cx="13" cy="3" r="1.5" fill="currentColor" />
+      <circle cx="3" cy="13" r="1.5" fill="currentColor" />
+      <circle cx="13" cy="13" r="1.5" fill="currentColor" />
+      <circle cx="8" cy="8" r="2" fill="currentColor" />
+      <line x1="3" y1="3" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="13" y1="3" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="3" y1="13" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="13" y1="13" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -221,15 +238,15 @@ function AppContent() {
           data-testid="nav-dashboard"
         />
         <SidebarItem
-          icon={<Server className="h-4 w-4" />}
+          icon={<McpIcon className="h-4 w-4" />}
           label="My Servers"
           active={activeNav === 'servers'}
           onClick={() => navigateTo('servers')}
           data-testid="nav-my-servers"
         />
         <SidebarItem
-          icon={<Server className="h-4 w-4" />}
-          label="Discover"
+          icon={<Search className="h-4 w-4" />}
+          label="Search"
           active={activeNav === 'registry'}
           onClick={() => navigateTo('registry')}
           data-testid="nav-discover"
@@ -245,8 +262,9 @@ function AppContent() {
           data-testid="nav-spaces"
         />
         <SidebarItem
-          icon={<Wrench className="h-4 w-4" />}
-          label="FeatureSets"
+          icon={<ShoppingBasket className="h-4 w-4" />}
+          label="Bundles"
+          title="FeatureSets"
           active={activeNav === 'featuresets'}
           onClick={() => navigateTo('featuresets')}
           data-testid="nav-featuresets"
@@ -256,7 +274,7 @@ function AppContent() {
       <SidebarSection title="Connections">
         <SidebarItem
           icon={<FolderOpen className="h-4 w-4" />}
-          label="Workspaces"
+          label="Projects"
           active={activeNav === 'workspaces'}
           onClick={() => navigateTo('workspaces')}
           data-testid="nav-workspaces"

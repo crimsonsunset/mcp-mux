@@ -3,9 +3,10 @@ import {
   FolderOpen,
   Globe,
   Monitor,
+  Search,
   Server,
   Settings,
-  Wrench,
+  ShoppingBasket,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@mcpmux/ui';
 import { useNavigateTo } from '@/stores';
@@ -29,9 +30,9 @@ const QUICK_LINKS: QuickLink[] = [
   },
   {
     nav: 'registry',
-    label: 'Discover',
+    label: 'Search',
     description: 'Browse the server registry',
-    icon: <Server className="h-4 w-4" />,
+    icon: <Search className="h-4 w-4" />,
     testId: 'quick-link-discover',
   },
   {
@@ -43,15 +44,15 @@ const QUICK_LINKS: QuickLink[] = [
   },
   {
     nav: 'featuresets',
-    label: 'FeatureSets',
+    label: 'Bundles',
     description: 'Edit permission bundles',
-    icon: <Wrench className="h-4 w-4" />,
+    icon: <ShoppingBasket className="h-4 w-4" />,
     testId: 'quick-link-featuresets',
   },
   {
     nav: 'workspaces',
-    label: 'Workspaces',
-    description: 'Bind folders to FeatureSets',
+    label: 'Projects',
+    description: 'Bind folders to Bundles',
     icon: <FolderOpen className="h-4 w-4" />,
     testId: 'quick-link-workspaces',
   },

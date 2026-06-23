@@ -77,14 +77,14 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-featuresets"
         role="button"
         tabIndex={0}
-        aria-label="Go to FeatureSets"
+        aria-label="Go to Bundles"
         onClick={() => navigateTo('featuresets')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('featuresets'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Wrench className="h-5 w-5 text-primary-500" />
-            FeatureSets
+            Bundles
           </CardTitle>
           <CardDescription>Permission bundles scoped to this Space</CardDescription>
         </CardHeader>
@@ -151,16 +151,16 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-workspaces"
         role="button"
         tabIndex={0}
-        aria-label="Go to Workspaces"
+        aria-label="Go to Projects"
         onClick={() => navigateTo('workspaces')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('workspaces'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <FolderOpen className="h-5 w-5 text-primary-500" />
-            Workspaces
+            Projects
           </CardTitle>
-          <CardDescription>Folder paths mapped to FeatureSets</CardDescription>
+          <CardDescription>Folder paths mapped to Bundles</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold" data-testid="stat-workspaces-value">

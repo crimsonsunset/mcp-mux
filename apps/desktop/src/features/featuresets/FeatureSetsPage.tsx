@@ -208,7 +208,7 @@ export function FeatureSetsPage() {
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">Feature Sets</h1>
+                <h1 className="text-3xl font-bold">Bundles</h1>
                 {viewSpace && (
                   <span className="px-2 py-0.5 rounded-full bg-[rgb(var(--surface-elevated))] text-xs border border-[rgb(var(--border))] whitespace-nowrap">
                     {viewSpace.icon || '📁'} {viewSpace.name}

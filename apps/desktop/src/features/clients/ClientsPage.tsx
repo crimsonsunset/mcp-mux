@@ -252,12 +252,12 @@ export default function ClientsPage() {
                 Connections
               </h1>
               <p className="mt-2 max-w-2xl text-base text-[rgb(var(--muted))]">
-                Approved AI clients. Routing (which Space, which FeatureSet) is configured in{' '}
+                Approved AI clients. Routing (which Space, which Bundle) is configured in{' '}
                 <button
                   onClick={() => navigateTo('workspaces')}
                   className="font-medium text-[rgb(var(--accent))] hover:underline"
                 >
-                  Workspaces
+                  Projects
                 </button>{' '}
                 per folder, not per client.
               </p>
@@ -557,14 +557,14 @@ function SidePanel({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">Routing is workspace-driven</p>
               <p className="mt-1 text-xs text-[rgb(var(--muted))]">
-                When this client reports a folder as an MCP root, mcpmux uses the matching Workspace
-                binding to pick the Space and FeatureSet.
+                When this client reports a folder as an MCP root, mcpmux uses the matching Project
+                binding to pick the Space and Bundle.
               </p>
               <button
                 onClick={onOpenWorkspaces}
                 className="mt-2 text-xs font-medium text-[rgb(var(--accent))] hover:underline"
               >
-                Open Workspaces →
+                Open Projects →
               </button>
             </div>
           </div>
@@ -753,7 +753,7 @@ function RootlessGrantsSection({
       <p className="mb-3 text-xs leading-relaxed text-[rgb(var(--muted))]">
         This client doesn&apos;t declare the MCP{' '}
         <code className="rounded bg-[rgb(var(--surface))] px-1 text-[10px]">roots</code> capability,
-        so its sessions route through the FeatureSets you pick here instead of through Workspace
+        so its sessions route through the Bundles you pick here instead of through Project
         bindings. Leaving the list empty denies the client — rootless sessions then see only the
         built-in
         <code className="mx-1 rounded bg-[rgb(var(--surface))] px-1 text-[10px]">mcpmux_*</code>
@@ -768,7 +768,7 @@ function RootlessGrantsSection({
         </div>
       ) : featureSets.length === 0 ? (
         <p className="text-xs italic text-[rgb(var(--muted))]">
-          No FeatureSets exist in the default Space yet.
+          No Bundles exist in the default Space yet.
         </p>
       ) : (
         // Bordered container, search at the top, scrollable body — same
@@ -867,7 +867,7 @@ function RootlessGrantsSection({
           <ShieldOff className="mt-0.5 h-4 w-4 flex-shrink-0 text-[rgb(var(--muted))]" />
           <p className="text-[11px] text-[rgb(var(--muted))]">
             No defaults set — rootless sessions from this client are denied. That&apos;s the safe
-            default. Pick a FeatureSet above only if you trust this client to operate without a
+            default. Pick a Bundle above only if you trust this client to operate without a
             workspace folder.
           </p>
         </div>

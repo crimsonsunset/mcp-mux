@@ -28,16 +28,18 @@ export function Sidebar({ children, header, footer }: SidebarProps) {
 interface SidebarItemProps {
   icon?: ReactNode;
   label: string;
+  title?: string;
   active?: boolean;
   onClick?: () => void;
   'data-testid'?: string;
 }
 
-export function SidebarItem({ icon, label, active, onClick, 'data-testid': testId }: SidebarItemProps) {
+export function SidebarItem({ icon, label, title, active, onClick, 'data-testid': testId }: SidebarItemProps) {
   return (
     <button
       onClick={onClick}
       data-testid={testId}
+      title={title}
       className={cn(
         'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150',
         'text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] hover:bg-[rgb(var(--surface-hover))]',

@@ -336,7 +336,7 @@ export function WorkspacesPage() {
           <div className="flex items-start justify-between gap-6 mb-6">
             <div className="min-w-0 flex-1">
               <h1 className="text-3xl font-bold" data-testid="workspaces-title">
-                Workspaces
+                Projects
               </h1>
               <p className="text-base text-[rgb(var(--muted))] mt-2 max-w-2xl">
                 Each binding tells mcpmux which Space and feature set a folder routes into.
