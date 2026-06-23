@@ -2,6 +2,7 @@ import 'i18next';
 import type clients from './locales/en/clients.json';
 import type common from './locales/en/common.json';
 import type dashboard from './locales/en/dashboard.json';
+import type metatools from './locales/en/metatools.json';
 import type featuresets from './locales/en/featuresets.json';
 import type nav from './locales/en/nav.json';
 import type registry from './locales/en/registry.json';
@@ -24,6 +25,7 @@ declare module 'i18next' {
       settings: typeof settings;
       spaces: typeof spaces;
       registry: typeof registry;
+      metatools: typeof metatools;
     };
   }
 }

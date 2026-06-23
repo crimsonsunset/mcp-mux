@@ -43,7 +43,7 @@ function activateStatCard(
 export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
   const navigateTo = useNavigateTo();
   const viewSpace = useViewSpace();
-  const { t } = useTranslation('dashboard');
+  const { t } = useTranslation(['dashboard', 'common']);
 
   return (
     <div
@@ -140,7 +140,7 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         </CardHeader>
         <CardContent>
           <div className="truncate text-xl font-bold" data-testid="stat-active-space-value">
-            {viewSpace?.icon} {viewSpace?.name || 'None'}
+            {viewSpace?.icon} {viewSpace?.name || t('common:none')}
           </div>
           <div className="text-sm text-[rgb(var(--muted))]">
             {t('statCards.space.total', { count: stats.spaces })}

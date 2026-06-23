@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { KeyRound, Loader2, Trash2 } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
 import {
@@ -18,6 +19,7 @@ import {
  * calls to `revokeMetaToolGrant`).
  */
 export function MetaToolGrantsPanel() {
+  const { t } = useTranslation(['metatools', 'common']);
   const [grants, setGrants] = useState<MetaToolGrantEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -56,12 +58,12 @@ export function MetaToolGrantsPanel() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <KeyRound className="h-4 w-4" />
-          Meta-tool auto-approvals
+          {t('grants.title')}
         </CardTitle>
         <p className="text-xs text-[rgb(var(--muted))] mt-1">
-          &quot;Always for this session&quot; approvals granted to clients for
-          specific <code className="font-mono">mcpmux_*</code> tools. Wipes on
-          gateway restart.
+          {t('grants.description.before')}
+          <code className="font-mono">mcpmux_*</code>
+          {t('grants.description.after')}
         </p>
       </CardHeader>
       <CardContent>
@@ -72,11 +74,11 @@ export function MetaToolGrantsPanel() {
         )}
         {grants === null ? (
           <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('common:loading')}
           </div>
         ) : grants.length === 0 ? (
           <p className="text-sm text-[rgb(var(--muted))] italic">
-            No auto-approvals yet. Each dialog defaults to &quot;Allow once&quot;.
+            {t('grants.empty')}
           </p>
         ) : (
           <ul className="divide-y divide-[rgb(var(--border-subtle))]">
@@ -93,7 +95,7 @@ export function MetaToolGrantsPanel() {
                       {g.tool_name}
                     </span>
                     <span className="text-[11px] text-[rgb(var(--muted))] truncate">
-                      client {g.client_id.slice(0, 8)}…
+                      {t('grants.clientPrefix', { id: g.client_id.slice(0, 8) })}
                     </span>
                   </div>
                   <Button
@@ -107,7 +109,7 @@ export function MetaToolGrantsPanel() {
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
                       <>
-                        <Trash2 className="h-3 w-3 mr-1" /> Revoke
+                        <Trash2 className="h-3 w-3 mr-1" /> {t('grants.revoke')}
                       </>
                     )}
                   </Button>

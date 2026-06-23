@@ -66,6 +66,36 @@
       "ariaLabel": "Go to Projects"
     }
   },
+  "health": {
+    "title": "Server health",
+    "description": "Enabled servers that need configuration, auth, or reconnect attention",
+    "loading": "Checking server status…",
+    "badges": {
+      "error": "Error",
+      "authRequired": "Auth required",
+      "needsSetup": "Needs setup"
+    },
+    "allGood": {
+      "title": "All enabled servers look good",
+      "description": "No missing config, auth, or connection errors in this Space."
+    },
+    "viewAllErrors": "View all errors →",
+    "viewAllServers": "View all servers →",
+    "details": {
+      "connectionError": "Connection error",
+      "authRequired": "Authentication required",
+      "missingConfig": "Missing required configuration"
+    }
+  },
+  "activity": {
+    "title": "Recent activity",
+    "description": "Latest meta-tool calls from connected MCP clients (live, last {{count}})",
+    "empty": {
+      "before": "No activity yet. Rows appear when clients invoke ",
+      "after": " tools."
+    },
+    "clientPrefix": "client {{id}}…"
+  },
   "connectionCard": {
     "running": "Gateway running",
     "stopped": "Gateway stopped",
