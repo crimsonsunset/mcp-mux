@@ -33,8 +33,9 @@ test.describe('Connections Page', () => {
     const clients = new ClientsPage(page);
     await dashboard.navigate();
     await page.getByTestId('nav-clients').click();
+    await clients.waitForContent();
 
-    const hasEmpty = await clients.emptyState.isVisible().catch(() => false);
+    const hasEmpty = await clients.emptyState.isVisible();
     const clientCount = await clients.clientCards.count();
 
     expect(hasEmpty || clientCount > 0).toBeTruthy();
@@ -103,7 +104,7 @@ test.describe('Connections toast container', () => {
 
     await page.getByTestId('nav-clients').click();
     await expect(clients.heading).toBeVisible();
-    await expect(clients.toastContainer).toBeAttached();
+    await expect(clients.pageRoot.getByTestId('toast-container')).toBeAttached();
   });
 
   test.skip('should toast on display-name save', async ({ page }) => {

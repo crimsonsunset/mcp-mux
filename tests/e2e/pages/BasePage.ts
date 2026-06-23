@@ -91,9 +91,9 @@ export abstract class BasePage {
   }
 
   /**
-   * Assert that a toast container is present in the main content area
+   * Assert that a toast container is present (SpaceSwitcher mounts a second instance in the sidebar).
    */
   get toastContainer(): Locator {
-    return this.page.getByTestId('toast-container');
+    return this.page.getByTestId('toast-container').first();
   }
 }

@@ -1,7 +1,7 @@
 # i18n — react-i18next Full String Extraction
 
 **Last updated:** Jun 23, 2026
-**Status:** Phase 1 complete (major pages + shared components); remaining extraction tracked below
+**Status:** Complete (Phases 1–4 + Phase 2 extraction shipped on `i18n`)
 **Branch:** `i18n` (off `dev`)
 **Base branch:** `dev`
 **Depends on:** Nothing — purely additive; no Rust changes
@@ -218,5 +218,6 @@ Imported at the top of [`main.tsx`](../../apps/desktop/src/main.tsx) before the 
 
 ## Related documentation
 
+- [`i18n-react-i18next-phase-2.md`](./i18n-react-i18next-phase-2.md) — Phase 2 plan: remaining ~22 components, helpers, audit gate
 - [`docs/planning/web-e2e-parity-handoff.md`](./web-e2e-parity-handoff.md) — prior work migrating stale copy locators; same testid rationale
 - [`ui-cleanup` branch](https://github.com/crimsonsunset/mcp-mux/tree/ui-cleanup) — the 7-file rename that triggered this work

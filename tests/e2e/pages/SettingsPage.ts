@@ -17,7 +17,6 @@ export class SettingsPage extends BasePage {
   readonly autoLaunchSwitch: Locator;
   readonly startMinimizedSwitch: Locator;
   readonly closeToTraySwitch: Locator;
-  readonly toastContainer: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -33,7 +32,6 @@ export class SettingsPage extends BasePage {
     this.autoLaunchSwitch = page.getByTestId('auto-launch-switch');
     this.startMinimizedSwitch = page.getByTestId('start-minimized-switch');
     this.closeToTraySwitch = page.getByTestId('close-to-tray-switch');
-    this.toastContainer = page.getByTestId('toast-container');
   }
 
   async selectTheme(theme: 'light' | 'dark' | 'system') {

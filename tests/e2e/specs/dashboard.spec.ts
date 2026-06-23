@@ -42,6 +42,6 @@ test.describe('Dashboard', () => {
     await page.getByTestId('client-icon-copy-config').first().click();
     await page.getByTestId('copy-config-btn').click();
 
-    await expect(page.getByTestId('connection-url-copied')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('copy-config-copied')).toBeVisible({ timeout: 5000 });
   });
 });

@@ -17,8 +17,9 @@ test.describe('FeatureSets Page', () => {
     await page.getByTestId('nav-featuresets').click({ force: true });
     await expect(page.getByTestId('featuresets-page')).toBeVisible();
 
-    const count = await page.locator('[data-testid^="featureset-card-"]').count();
-    expect(count).toBeGreaterThan(0);
+    const cards = page.locator('[data-testid^="featureset-card-"]');
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    expect(await cards.count()).toBeGreaterThan(0);
   });
 
   test('should display built-in feature sets', async ({ page }) => {
@@ -65,7 +66,7 @@ test.describe('Feature Set Toast Container', () => {
 
     await page.getByTestId('nav-featuresets').click({ force: true });
     await expect(page.getByTestId('featuresets-title')).toBeVisible();
-    await expect(page.getByTestId('toast-container')).toBeAttached();
+    await expect(page.getByTestId('toast-container').first()).toBeAttached();
   });
 });
 

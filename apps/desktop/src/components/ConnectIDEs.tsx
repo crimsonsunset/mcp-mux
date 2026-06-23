@@ -175,7 +175,10 @@ export function ConnectIDEsGrid({ gatewayUrl, gatewayRunning }: ConnectIDEsGridP
                     {t('connectIdes.addTo', { name })}
                   </Button>
                 ) : isCopied ? (
-                  <div className="flex items-center justify-center gap-1 text-xs text-green-600 h-7 relative">
+                  <div
+                    className="flex items-center justify-center gap-1 text-xs text-green-600 h-7 relative"
+                    data-testid={entry.id === 'copy-config' ? 'copy-config-copied' : undefined}
+                  >
                     <Check className="h-3 w-3" />
                     {t('connectIdes.copied')}
                   </div>
