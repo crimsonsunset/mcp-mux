@@ -107,6 +107,7 @@ function McpIcon({ className }: { className?: string }) {
 function AppContent() {
   const { t } = useTranslation('nav');
   const { t: tDashboard } = useTranslation('dashboard');
+  const { t: tCommon } = useTranslation('common');
 
   // Sync data from backend on mount
   useDataSync();
@@ -320,10 +321,16 @@ function AppContent() {
             }`}
           />
           {gatewayRunning
-            ? `Gateway${gatewayPort ? ` · :${gatewayPort}` : ''}`
-            : 'Gateway stopped'}
+            ? `${tDashboard('statusbar.gatewayRunning')}${
+                gatewayPort ? tDashboard('statusbar.gatewayPortSuffix', { port: gatewayPort }) : ''
+              }`
+            : tDashboard('statusbar.gatewayStopped')}
         </button>
-        <span>Space: {viewSpace?.name || 'None'}</span>
+        <span>
+          {tDashboard('statusbar.spaceLabel', {
+            name: viewSpace?.name || tCommon('none'),
+          })}
+        </span>
       </div>
       {appVersion && (
         <span className="opacity-70" data-testid="statusbar-version">
@@ -350,7 +357,7 @@ function AppContent() {
         type="button"
         onClick={toggleDarkMode}
         className="no-drag rounded-md p-1 transition-colors hover:bg-[rgb(var(--surface-hover))]"
-        title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        title={theme === 'dark' ? tDashboard('theme.lightMode') : tDashboard('theme.darkMode')}
       >
         {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-[rgb(var(--muted))]" /> : <Moon className="h-3.5 w-3.5 text-[rgb(var(--muted))]" />}
       </button>
@@ -381,7 +388,9 @@ function AppContent() {
             <div className="flex items-center gap-2">
               <Download className="h-4 w-4 text-blue-500 flex-shrink-0" />
               <span>
-                McpMux <strong>v{availableUpdate.version}</strong> is available.
+                {tDashboard('updateBanner.brand')}{' '}
+                <strong>v{availableUpdate.version}</strong>{' '}
+                {tDashboard('updateBanner.isAvailable')}
               </span>
               <button
                 onClick={() => {
@@ -390,13 +399,13 @@ function AppContent() {
                 }}
                 className="text-blue-500 hover:text-blue-400 font-medium underline underline-offset-2"
               >
-                Update now
+                {tDashboard('updateBanner.updateNow')}
               </button>
             </div>
             <button
               onClick={() => setAvailableUpdate(null)}
               className="text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] transition-colors flex-shrink-0"
-              aria-label="Dismiss update notification"
+              aria-label={tDashboard('updateBanner.dismissAria')}
               data-testid="dismiss-update-banner"
             >
               <X className="h-4 w-4" />

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, Check, Plus, Loader2 } from 'lucide-react';
 import { Button, useToast, ToastContainer } from '@mcpmux/ui';
 import { useAppStore, useViewSpace, useSpaces, useIsLoading } from '@/stores';
@@ -15,6 +16,8 @@ interface SpaceSwitcherProps {
  * session has no matching WorkspaceBinding).
  */
 export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
+  const { t } = useTranslation('common');
+  const { t: tSpaces } = useTranslation('spaces');
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -54,9 +57,12 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
       setNewName('');
       setShowCreateInput(false);
       setIsOpen(false);
-      success('Space created', `"${space.name}" has been created`);
+      success(tSpaces('toast.created'), tSpaces('toast.createdBody', { name: space.name }));
     } catch (e) {
-      showError('Failed to create space', e instanceof Error ? e.message : String(e));
+      showError(
+        tSpaces('toast.createFailed'),
+        e instanceof Error ? e.message : String(e),
+      );
     } finally {
       setIsCreating(false);
     }
@@ -80,8 +86,8 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
           )}
           <span className="font-medium text-sm truncate">
             {isLoadingSpaces && spaces.length === 0
-              ? 'Loading...'
-              : viewSpace?.name || (spaces.length > 0 ? 'Select Space' : 'No Spaces')}
+              ? t('loading')
+              : viewSpace?.name || (spaces.length > 0 ? t('spaceSwitcher.selectSpace') : t('spaceSwitcher.noSpaces'))}
           </span>
         </span>
         <ChevronDown
@@ -97,11 +103,11 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
             {isLoadingSpaces ? (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="h-5 w-5 animate-spin text-primary-500" />
-                <span className="ml-2 text-sm text-[rgb(var(--muted))]">Loading spaces...</span>
+                <span className="ml-2 text-sm text-[rgb(var(--muted))]">{t('spaceSwitcher.loadingSpaces')}</span>
               </div>
             ) : spaces.length === 0 ? (
               <div className="text-center py-4 text-sm text-[rgb(var(--muted))]">
-                No spaces found. Create one below.
+                {t('spaceSwitcher.emptyState')}
               </div>
             ) : (
               spaces.map((space) => (
@@ -123,9 +129,9 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
                       {space.is_default && (
                         <div
                           className="text-xs text-[rgb(var(--muted))]"
-                          title="Routing fallback when no WorkspaceBinding matches"
+                          title={t('spaceSwitcher.defaultTitle')}
                         >
-                          Default
+                          {t('spaceSwitcher.defaultBadge')}
                         </div>
                       )}
                     </div>
@@ -147,7 +153,7 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Space name..."
+                  placeholder={t('spaceSwitcher.namePlaceholder')}
                   autoFocus
                   className="input flex-1 py-1.5"
                   onKeyDown={(e) => {
@@ -164,7 +170,7 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
                   onClick={handleCreateSpace}
                   disabled={isCreating || !newName.trim()}
                 >
-                  {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Add'}
+                  {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : t('spaceSwitcher.add')}
                 </Button>
               </div>
             ) : (
@@ -173,7 +179,7 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-[rgb(var(--muted))] hover:bg-[rgb(var(--surface-hover))] hover:text-[rgb(var(--foreground))] transition-all duration-150"
               >
                 <Plus className="h-4 w-4" />
-                Create new space
+                {t('spaceSwitcher.createNew')}
               </button>
             )}
           </div>

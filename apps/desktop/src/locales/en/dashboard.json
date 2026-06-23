@@ -4,7 +4,21 @@
     "welcome": "Welcome to McpMux — your centralized MCP server manager."
   },
   "statusbar": {
-    "gatewayTitle": "View connection details on the dashboard"
+    "gatewayTitle": "View connection details on the dashboard",
+    "gatewayRunning": "Gateway",
+    "gatewayPortSuffix": " · :{{port}}",
+    "gatewayStopped": "Gateway stopped",
+    "spaceLabel": "Space: {{name}}"
+  },
+  "theme": {
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode"
+  },
+  "updateBanner": {
+    "brand": "McpMux",
+    "isAvailable": "is available.",
+    "updateNow": "Update now",
+    "dismissAria": "Dismiss update notification"
   },
   "quickLinks": {
     "title": "Quick links",

@@ -8,6 +8,23 @@
   },
   "loading": "Loading…",
   "none": "None",
+  "spaceSwitcher": {
+    "selectSpace": "Select Space",
+    "noSpaces": "No Spaces",
+    "loadingSpaces": "Loading spaces…",
+    "emptyState": "No spaces found. Create one below.",
+    "defaultBadge": "Default",
+    "defaultTitle": "Routing fallback when no WorkspaceBinding matches",
+    "namePlaceholder": "Space name…",
+    "add": "Add",
+    "createNew": "Create new space"
+  },
+  "staleBuild": {
+    "title": "Web admin UI is out of date",
+    "descriptionBefore": "The served bundle does not match the running backend. From the repo root run",
+    "descriptionAfter": "then hard-refresh this page.",
+    "dismissAria": "Dismiss stale build warning"
+  },
   "sourceBadge": {
     "registry": "Registry",
     "registryTitle": "Installed from registry",

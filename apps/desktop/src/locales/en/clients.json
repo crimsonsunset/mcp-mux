@@ -73,6 +73,17 @@
     "revokeMessage": "Remove \"{{name}}\"? All tokens for this client will be revoked. The client will need to re-approve to connect again.",
     "revokeLabel": "Revoke"
   },
+  "gatewayConfirm": {
+    "title": "Gateway port is in use",
+    "portTakenMessage": "{{sourceLabel}} (:{{port}}) is already taken by another process. Start the gateway on a different port that the system picks automatically? Your IDE configs will need to be updated to point at the new port.",
+    "portTakenShortMessage": "{{sourceLabel}} (:{{port}}) is already in use. Start on a different port?",
+    "confirmLabel": "Use another port",
+    "source": {
+      "configured": "Your configured gateway port",
+      "default": "The default gateway port",
+      "override": "The requested gateway port"
+    }
+  },
   "onboarding": {
     "title": "Let's hook up your first IDE",
     "intro": "mcpmux is one connection your AI client uses to reach every MCP server. Three steps and you're done:",
