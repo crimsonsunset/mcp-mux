@@ -21,10 +21,14 @@
   },
   "status": {
     "disabled": "Disabled",
+    "notEnabled": "Not enabled",
     "needsConfiguration": "Needs Configuration",
     "connecting": "Connecting...",
+    "refreshing": "Refreshing...",
     "authenticating": "Authenticating...",
+    "authenticatingMinutesRemaining": "Authenticating... ({{minutes}}m remaining)",
     "authenticatingWithTime": "Authenticating... ({{minutes}}m {{seconds}}s)",
+    "authRequired": "Authentication required",
     "reconnectRequired": "Reconnect Required",
     "connectRequired": "Connect Required",
     "connected": "Connected",
@@ -53,6 +57,9 @@
     "viewLogs": "View logs for details"
   },
   "actions": {
+    "enable": "Enable",
+    "enabling": "Enabling...",
+    "disable": "Disable",
     "configure": "Configure",
     "settings": "Settings",
     "saving": "Saving...",

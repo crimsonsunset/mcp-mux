@@ -1,4 +1,8 @@
 {
+  "page": {
+    "title": "Dashboard",
+    "welcome": "Welcome to McpMux — your centralized MCP server manager."
+  },
   "statusbar": {
     "gatewayTitle": "View connection details on the dashboard"
   },
@@ -47,5 +51,25 @@
       "metric": "Path bindings",
       "ariaLabel": "Go to Projects"
     }
+  },
+  "connectionCard": {
+    "running": "Gateway running",
+    "stopped": "Gateway stopped",
+    "localOnly": "Local only",
+    "runningDesc": "Accepting IDE connections on this device.",
+    "stoppedDesc": "Start the gateway to let IDEs connect through McpMux.",
+    "start": "Start",
+    "stop": "Stop",
+    "endpoint": "Endpoint",
+    "portLabel": "Port {{port}}",
+    "changeInSettings": "· change in Settings",
+    "clickToCopy": "Click to copy",
+    "copied": "Copied",
+    "copy": "Copy",
+    "pendingApprovals_one": "{{count}} client waiting for approval",
+    "pendingApprovals_other": "{{count}} clients waiting for approval",
+    "pendingApprovalsDesc": "Review and approve to let them through.",
+    "connectHeading": "Connect a client",
+    "connectDesc": "VS Code & Cursor are one-click. The rest copy a config you paste into your IDE's MCP settings. Either path ends with an approval prompt here."
   }
 }

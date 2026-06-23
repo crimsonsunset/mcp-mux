@@ -86,5 +86,24 @@
     "gatewayStoppedTitle": "Gateway is stopped",
     "gatewayStoppedBody": "Start it from the Dashboard first — otherwise the IDE will hang at initialize."
   },
+  "oauthConsent": {
+    "validating": "Validating authorization request…",
+    "errorTitle": "Authorization Failed",
+    "errorDesc": "Could not process the authorization request",
+    "close": "Close",
+    "errors": {
+      "notFound": "This authorization request was not found. It may have expired or been processed already.",
+      "expired": "This authorization request has expired. Please try again from your application.",
+      "alreadyProcessed": "This authorization request has already been processed.",
+      "gatewayUnavailable": "The gateway service is not running. Please check that MCPMux is fully started."
+    },
+    "allowTitle": "Allow {{clientName}} to connect?",
+    "allowDesc": "It will be able to call tools you enable for this folder.",
+    "allow": "Allow",
+    "allowWait": "Allow (wait…)",
+    "deny": "Deny",
+    "approveFailed": "Failed to approve connection",
+    "denyFailed": "Failed to deny connection"
+  },
   "fallbackClientName": "Client"
 }

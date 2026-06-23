@@ -1,7 +1,7 @@
 # i18n — react-i18next Full String Extraction
 
 **Last updated:** Jun 23, 2026
-**Status:** Phase 1 in progress
+**Status:** Phase 1 complete (major pages + shared components); remaining extraction tracked below
 **Branch:** `i18n` (off `dev`)
 **Base branch:** `dev`
 **Depends on:** Nothing — purely additive; no Rust changes
