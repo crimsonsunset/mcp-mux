@@ -1,1 +1,31 @@
-{}
+{
+  "title": "Workspaces",
+  "subtitle": "Manage isolated environments with their own credentials and server configurations",
+  "createSpace": "Create Space",
+  "searchPlaceholder": "Search workspaces...",
+  "empty": {
+    "noMatchTitle": "No spaces match your search",
+    "noCreatedTitle": "No spaces created",
+    "noMatchDesc": "Try adjusting your search terms",
+    "noCreatedDesc": "Create a workspace to isolate your MCP server configurations and credentials.",
+    "createFirst": "Create First Space"
+  },
+  "card": {
+    "noDescription": "No description",
+    "default": "Default",
+    "defaultTitle": "Default home for sessions whose reported root has no binding",
+    "editTitle": "Edit workspace"
+  },
+  "createModal": {
+    "title": "Create Workspace",
+    "iconLabel": "Icon",
+    "nameLabel": "Name *",
+    "namePlaceholder": "e.g., Personal, Work, Project X",
+    "createSpace": "Create Space"
+  },
+  "toast": {
+    "created": "Space created",
+    "createdBody": "\"{{name}}\" has been created",
+    "createFailed": "Failed to create space"
+  }
+}

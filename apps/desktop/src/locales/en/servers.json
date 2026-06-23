@@ -135,5 +135,19 @@
     "save": "Save",
     "saveAndEnable": "Save & Enable",
     "saveAndReconnect": "Save & Reconnect"
+  },
+  "updatePolicy": {
+    "notify": {
+      "label": "Notify",
+      "description": "Surface available updates without changing packages automatically"
+    },
+    "auto": {
+      "label": "Auto",
+      "description": "Always resolve the latest package on reconnect (npx/uvx servers only)"
+    },
+    "pinned": {
+      "label": "Pinned",
+      "description": "Lock to a specific version on every spawn"
+    }
   }
 }

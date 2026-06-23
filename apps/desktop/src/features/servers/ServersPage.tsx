@@ -31,7 +31,7 @@ import {
   isValidSemver,
   resolveCurrentPackageVersion,
   shouldShowPackageUpdate,
-  UPDATE_POLICY_OPTIONS,
+  getUpdatePolicyOptions,
 } from './server-update-policy.helpers';
 import { ServerEnabledToggle } from './ServerEnabledToggle';
 import { CloneAccountModal } from './CloneAccountModal';
@@ -248,6 +248,8 @@ interface ConfigModalState {
 
 export function ServersPage() {
   const { t } = useTranslation(['servers', 'common']);
+  const { t: tCommon } = useTranslation('common');
+  const updatePolicyOptions = getUpdatePolicyOptions(t);
   const [installedServers, setInstalledServers] = useState<ServerViewModelWithClone[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [transportFilter, setTransportFilter] = useState<TransportFilter>('all');
@@ -1248,7 +1250,7 @@ export function ServersPage() {
     }
 
     const { getUninstallLabel } = await import('@/components/source-badge.helpers');
-    const actionLabel = getUninstallLabel(server.installation_source);
+    const actionLabel = getUninstallLabel(tCommon, server.installation_source);
 
     setActionLoading(`uninstall-${server.id}`);
     try {
@@ -1268,7 +1270,7 @@ export function ServersPage() {
 
     const { server } = uninstallClonesDialog;
     const { getUninstallLabel } = await import('@/components/source-badge.helpers');
-    const actionLabel = getUninstallLabel(server.installation_source);
+    const actionLabel = getUninstallLabel(tCommon, server.installation_source);
 
     setUninstallClonesDialog(null);
     setActionLoading(`uninstall-${server.id}`);
@@ -2355,7 +2357,7 @@ export function ServersPage() {
                       </label>
                       <p className="text-xs text-[rgb(var(--muted))] mb-2">
                         {
-                          UPDATE_POLICY_OPTIONS.find(
+                          updatePolicyOptions.find(
                             (option) => option.value === configModal.updatePolicy
                           )?.description
                         }
@@ -2372,7 +2374,7 @@ export function ServersPage() {
                         className="input w-full"
                         data-testid="config-update-policy"
                       >
-                        {UPDATE_POLICY_OPTIONS.map((option) => (
+                        {updatePolicyOptions.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>

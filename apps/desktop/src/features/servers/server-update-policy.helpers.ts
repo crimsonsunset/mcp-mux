@@ -1,27 +1,32 @@
+import type { TFunction } from 'i18next';
 import type { UpdatePolicy } from '@/lib/api/settings';
 
-/** Per-server update policy labels for Configure and Settings. */
-export const UPDATE_POLICY_OPTIONS: {
+/**
+ * Per-server update policy labels for Configure and Settings.
+ */
+export function getUpdatePolicyOptions(t: TFunction<'servers'>): {
   value: UpdatePolicy;
   label: string;
   description: string;
-}[] = [
-  {
-    value: 'notify',
-    label: 'Notify',
-    description: 'Surface available updates without changing packages automatically',
-  },
-  {
-    value: 'auto',
-    label: 'Auto',
-    description: 'Always resolve the latest package on reconnect (npx/uvx servers only)',
-  },
-  {
-    value: 'pinned',
-    label: 'Pinned',
-    description: 'Lock to a specific version on every spawn',
-  },
-];
+}[] {
+  return [
+    {
+      value: 'notify',
+      label: t('updatePolicy.notify.label'),
+      description: t('updatePolicy.notify.description'),
+    },
+    {
+      value: 'auto',
+      label: t('updatePolicy.auto.label'),
+      description: t('updatePolicy.auto.description'),
+    },
+    {
+      value: 'pinned',
+      label: t('updatePolicy.pinned.label'),
+      description: t('updatePolicy.pinned.description'),
+    },
+  ];
+}
 
 /** Basic semver pattern (major.minor.patch with optional pre-release/build). */
 const BASIC_SEMVER_PATTERN =

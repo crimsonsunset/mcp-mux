@@ -1,1 +1,90 @@
-{}
+{
+  "title": "Connections",
+  "subtitlePrefix": "Approved AI clients. Routing (which Space, which Bundle) is configured in",
+  "subtitleSuffix": "per folder, not per client.",
+  "searchPlaceholder": "Search by name, alias, or id…",
+  "empty": {
+    "noMatchTitle": "No connections match your search",
+    "noMatchDesc": "Try adjusting your search terms."
+  },
+  "lastSeen": {
+    "never": "never",
+    "justNow": "just now",
+    "secondsAgo": "{{count}}s ago",
+    "minutesAgo": "{{count}}m ago",
+    "hoursAgo": "{{count}}h ago",
+    "daysAgo": "{{count}}d ago",
+    "label": "Last seen {{time}}"
+  },
+  "capability": {
+    "reportsWorkspace": "Reports workspace",
+    "reportsWorkspaceTitle": "This client declares the MCP roots capability. Its sessions route via Workspace bindings; the per-client grant list below applies only to rare rootless reconnects.",
+    "rootless": "Rootless",
+    "rootlessTitle": "This client does NOT declare the MCP roots capability. It always routes via the per-client grants set in this panel — configure them below."
+  },
+  "panel": {
+    "closeAria": "Close panel",
+    "displayName": "Display name",
+    "displayNameHint": "An alias shown in logs and this list. Doesn't affect routing.",
+    "routingTitle": "Routing is workspace-driven",
+    "routingDesc": "When this client reports a folder as an MCP root, mcpmux uses the matching Project binding to pick the Space and Bundle.",
+    "openProjects": "Open Projects →",
+    "clientInfo": "Client info",
+    "clientId": "Client ID",
+    "clientName": "Client name",
+    "software": "Software",
+    "version": "Version",
+    "registeredVia": "Registered via",
+    "lastSeen": "Last seen",
+    "revokeConnection": "Revoke connection"
+  },
+  "grants": {
+    "title": "Default for rootless sessions",
+    "badge": "Rootless only",
+    "badgeTitle": "Used only when this client connects without reporting a workspace folder",
+    "description": "This client doesn't declare the MCP roots capability, so its sessions route through the Bundles you pick here instead of through Project bindings. Leaving the list empty denies the client — rootless sessions then see only the built-in mcpmux_* management tools.",
+    "noDefaultSpace": "No default Space configured.",
+    "noBundles": "No Bundles exist in the default Space yet.",
+    "searchPlaceholder_one": "Search {{count}} feature set…",
+    "searchPlaceholder_other": "Search {{count}} feature sets…",
+    "noMatch": "No feature sets match \"{{query}}\".",
+    "shownCount": "{{shown}} of {{total}} shown",
+    "grantedAlwaysVisible": " (granted FSes always visible)",
+    "starterTitle": "Auto-seeded with this Space.",
+    "starter": "starter",
+    "noDefaultsWarning": "No defaults set — rootless sessions from this client are denied. That's the safe default. Pick a Bundle above only if you trust this client to operate without a workspace folder."
+  },
+  "toast": {
+    "reconnected": "Client reconnected",
+    "saved": "Saved",
+    "savedBody": "\"{{name}}\" updated",
+    "saveFailed": "Failed to save",
+    "revokeFailed": "Failed to revoke",
+    "connectionRevoked": "Connection revoked",
+    "connectionRevokedBody": "\"{{name}}\" removed",
+    "loadGrantsFailed": "Failed to load grants",
+    "revoked": "Revoked \"{{name}}\"",
+    "granted": "Granted \"{{name}}\"",
+    "revokeGrantFailed": "Failed to revoke grant",
+    "grantFailed": "Failed to grant"
+  },
+  "confirm": {
+    "revokeTitle": "Revoke connection",
+    "revokeMessage": "Remove \"{{name}}\"? All tokens for this client will be revoked. The client will need to re-approve to connect again.",
+    "revokeLabel": "Revoke"
+  },
+  "onboarding": {
+    "title": "Let's hook up your first IDE",
+    "intro": "mcpmux is one connection your AI client uses to reach every MCP server. Three steps and you're done:",
+    "step1Title": "Pick your IDE below and follow its prompt",
+    "step1Body": "Each card tells you exactly what the button does — either one-click install or copy a small config for you to paste.",
+    "step2Title": "Enable mcpmux in your IDE's MCP settings",
+    "step2Body": "One-click install usually wires it up automatically. If you pasted a config, open your IDE's MCP panel and toggle mcpmux on — a restart may be needed for the IDE to pick it up.",
+    "step3Title": "Approve the connection",
+    "step3Badge": "right here",
+    "step3Body": "mcpmux will pop a dialog the moment your IDE reaches the gateway. Until you accept it, nothing is routed.",
+    "gatewayStoppedTitle": "Gateway is stopped",
+    "gatewayStoppedBody": "Start it from the Dashboard first — otherwise the IDE will hang at initialize."
+  },
+  "fallbackClientName": "Client"
+}
