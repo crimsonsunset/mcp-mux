@@ -215,7 +215,10 @@ export function OAuthConsentModal() {
 
   if (modalState.type === 'error') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        data-testid="oauth-consent-error-modal"
+      >
         <Card className="animate-in fade-in zoom-in mx-4 w-full max-w-md shadow-xl duration-200">
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -223,7 +226,7 @@ export function OAuthConsentModal() {
                 <AlertCircle className="h-6 w-6 text-red-500" />
               </div>
               <div>
-                <CardTitle>Authorization Failed</CardTitle>
+                <CardTitle data-testid="oauth-consent-error-title">Authorization Failed</CardTitle>
                 <CardDescription>
                   Could not process the authorization request
                 </CardDescription>
@@ -231,7 +234,7 @@ export function OAuthConsentModal() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-[rgb(var(--muted))]">
+            <p className="text-sm text-[rgb(var(--muted))]" data-testid="oauth-consent-error-message">
               {getErrorMessage(modalState.error)}
             </p>
             <Button onClick={handleDismiss} className="w-full">

@@ -11,6 +11,9 @@ export class SettingsPage extends BasePage {
   readonly systemThemeButton: Locator;
   readonly openLogsButton: Locator;
   readonly logsPath: Locator;
+  readonly appearanceSection: Locator;
+  readonly logsSection: Locator;
+  readonly startupSection: Locator;
   readonly autoLaunchSwitch: Locator;
   readonly startMinimizedSwitch: Locator;
   readonly closeToTraySwitch: Locator;
@@ -18,16 +21,19 @@ export class SettingsPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.heading = page.getByRole('heading', { name: 'Settings' });
-    this.lightThemeButton = page.getByRole('button', { name: 'Light', exact: true });
-    this.darkThemeButton = page.getByRole('button', { name: 'Dark', exact: true });
-    this.systemThemeButton = page.getByRole('button', { name: 'System', exact: true });
-    this.openLogsButton = page.getByRole('button', { name: /Open Logs/i });
-    this.logsPath = page.locator('.font-mono').filter({ hasText: /logs|mcpmux/i });
+    this.heading = page.getByTestId('settings-title');
+    this.lightThemeButton = page.getByTestId('theme-light-btn');
+    this.darkThemeButton = page.getByTestId('theme-dark-btn');
+    this.systemThemeButton = page.getByTestId('theme-system-btn');
+    this.openLogsButton = page.getByTestId('open-logs-btn');
+    this.logsPath = page.getByTestId('logs-path');
+    this.appearanceSection = page.getByTestId('settings-appearance-section');
+    this.logsSection = page.getByTestId('settings-logs-section');
+    this.startupSection = page.getByTestId('settings-startup-section');
     this.autoLaunchSwitch = page.getByTestId('auto-launch-switch');
     this.startMinimizedSwitch = page.getByTestId('start-minimized-switch');
     this.closeToTraySwitch = page.getByTestId('close-to-tray-switch');
-    this.toastContainer = page.getByRole('main').getByTestId('toast-container');
+    this.toastContainer = page.getByTestId('toast-container');
   }
 
   async selectTheme(theme: 'light' | 'dark' | 'system') {
@@ -45,11 +51,10 @@ export class SettingsPage extends BasePage {
   }
 
   async getActiveTheme(): Promise<string> {
-    // Check which button has the primary variant
-    if (await this.lightThemeButton.getAttribute('class').then(c => c?.includes('primary'))) {
+    if (await this.lightThemeButton.getAttribute('class').then((c) => c?.includes('primary'))) {
       return 'light';
     }
-    if (await this.darkThemeButton.getAttribute('class').then(c => c?.includes('primary'))) {
+    if (await this.darkThemeButton.getAttribute('class').then((c) => c?.includes('primary'))) {
       return 'dark';
     }
     return 'system';
@@ -60,7 +65,7 @@ export class SettingsPage extends BasePage {
   }
 
   async getToastText() {
-    const toast = this.page.getByRole('main').getByTestId('toast-container').locator('[role="alert"]').first();
+    const toast = this.toastContainer.locator('[role="alert"]').first();
     return toast.textContent();
   }
 

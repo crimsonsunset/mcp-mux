@@ -211,7 +211,9 @@ export function FeatureSetsPage() {
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">{t('title')}</h1>
+                <h1 className="text-3xl font-bold" data-testid="featuresets-title">
+                  {t('title')}
+                </h1>
                 {viewSpace && (
                   <span className="px-2 py-0.5 rounded-full bg-[rgb(var(--surface-elevated))] text-xs border border-[rgb(var(--border))] whitespace-nowrap">
                     {viewSpace.icon || '📁'} {viewSpace.name}
@@ -221,16 +223,22 @@ export function FeatureSetsPage() {
               <p className="text-base text-[rgb(var(--muted))]">{t('subtitle')}</p>
             </div>
             <div className="flex gap-3 flex-shrink-0">
-              <Button 
-                variant="ghost" 
-                size="md" 
+              <Button
+                variant="ghost"
+                size="md"
                 onClick={() => loadData(viewSpace?.id)}
                 disabled={isLoading}
+                data-testid="featuresets-refresh-btn"
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 {t('common:actions.refresh')}
               </Button>
-              <Button variant="primary" size="md" onClick={() => setShowCreateModal(true)}>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setShowCreateModal(true)}
+                data-testid="featuresets-create-btn"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('create')}
               </Button>
@@ -395,7 +403,10 @@ export function FeatureSetsPage() {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          data-testid="featuresets-create-modal"
+        >
           <Card className="w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
@@ -455,6 +466,7 @@ export function FeatureSetsPage() {
                   variant="primary"
                   onClick={handleCreate}
                   disabled={isCreating || !createName.trim()}
+                  data-testid="featuresets-create-submit-btn"
                 >
                   {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : t('createModal.create')}
                 </Button>

@@ -1,7 +1,7 @@
 import { Page, Locator } from '@playwright/test';
 
 /**
- * Sidebar navigation component
+ * Sidebar navigation component — all items located via stable data-testid.
  */
 export class SidebarNav {
   readonly page: Page;
@@ -10,6 +10,7 @@ export class SidebarNav {
   readonly discover: Locator;
   readonly spaces: Locator;
   readonly featureSets: Locator;
+  readonly workspaces: Locator;
   readonly clients: Locator;
   readonly settings: Locator;
   readonly spaceSwitcher: Locator;
@@ -17,15 +18,15 @@ export class SidebarNav {
 
   constructor(page: Page) {
     this.page = page;
-    // Use exact matching and filter by text content in sidebar items
-    this.dashboard = page.getByRole('button', { name: 'Dashboard', exact: true });
-    this.myServers = page.getByRole('button', { name: 'My Servers', exact: true });
-    this.discover = page.getByRole('button', { name: 'Discover', exact: true });
-    this.spaces = page.getByRole('button', { name: 'Spaces', exact: true }).last();
-    this.featureSets = page.getByRole('button', { name: 'FeatureSets', exact: true });
-    this.clients = page.getByRole('button', { name: 'Clients', exact: true }).last();
-    this.settings = page.getByRole('button', { name: 'Settings', exact: true });
-    this.spaceSwitcher = page.locator('[data-testid="space-switcher"]');
+    this.dashboard = page.getByTestId('nav-dashboard');
+    this.myServers = page.getByTestId('nav-my-servers');
+    this.discover = page.getByTestId('nav-discover');
+    this.spaces = page.getByTestId('nav-spaces');
+    this.featureSets = page.getByTestId('nav-featuresets');
+    this.workspaces = page.getByTestId('nav-workspaces');
+    this.clients = page.getByTestId('nav-clients');
+    this.settings = page.getByTestId('nav-settings');
+    this.spaceSwitcher = page.getByTestId('space-switcher');
     this.themeToggle = page.locator('button[title*="mode"]');
   }
 
@@ -47,6 +48,10 @@ export class SidebarNav {
 
   async goToFeatureSets() {
     await this.featureSets.click();
+  }
+
+  async goToWorkspaces() {
+    await this.workspaces.click();
   }
 
   async goToClients() {

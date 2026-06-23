@@ -53,7 +53,10 @@ export function ServerDetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="dropdown-menu relative w-full max-w-lg max-h-[90vh] overflow-hidden animate-in fade-in scale-in duration-150">
+      <div
+        className="dropdown-menu relative w-full max-w-lg max-h-[90vh] overflow-hidden animate-in fade-in scale-in duration-150"
+        data-testid="registry-server-detail-modal"
+      >
         <div className="flex items-start gap-4 p-6 border-b border-[rgb(var(--border))]">
           <div className="flex-shrink-0 flex items-center justify-center">
             <ServerIcon icon={server.icon} className="w-12 h-12 object-contain rounded-lg" />
@@ -345,6 +348,7 @@ export function ServerDetailModal({
           <button
             onClick={() => setShowDefinition(true)}
             className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg border border-[rgb(var(--border))] hover:bg-[rgb(var(--surface-hover))] transition-colors mr-auto"
+            data-testid="registry-view-json-btn"
           >
             <Code className="h-4 w-4 text-[rgb(var(--muted))]" />
             {t('modal.viewJson')}

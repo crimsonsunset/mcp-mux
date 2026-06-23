@@ -126,6 +126,7 @@ export function ServerActionMenu({
           icon={Settings}
           label={hasInputs ? t('actions.configure') : t('actions.settings')}
           onSelect={onConfigure}
+          data-testid={`configure-server-${serverId}`}
         />
         {isEnabled && (
           <DropdownMenuAction icon={RefreshCw} label={t('actions.refresh')} onSelect={onRefresh} />

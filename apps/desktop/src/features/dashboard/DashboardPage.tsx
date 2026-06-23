@@ -12,10 +12,12 @@ export function DashboardPage() {
   const { stats, attentionServers, isLoading } = useDashboardData();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="dashboard-page">
       <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-[rgb(var(--muted))]">
+        <h1 className="text-2xl font-bold" data-testid="dashboard-title">
+          Dashboard
+        </h1>
+        <p className="text-[rgb(var(--muted))]" data-testid="dashboard-welcome">
           Welcome to McpMux — your centralized MCP server manager.
         </p>
       </div>

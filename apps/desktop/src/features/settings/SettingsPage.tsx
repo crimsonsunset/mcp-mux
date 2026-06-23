@@ -396,9 +396,11 @@ export function SettingsPage() {
     <>
       <ToastContainer toasts={toasts} onClose={(id) => toasts.find(t => t.id === id)?.onClose(id)} />
       {gatewayControl.ConfirmDialogElement}
-      <div className="space-y-6">
+      <div className="space-y-6" data-testid="settings-page">
         <div>
-          <h1 className="text-2xl font-bold">{t('title')}</h1>
+          <h1 className="text-2xl font-bold" data-testid="settings-title">
+            {t('title')}
+          </h1>
           <p className="text-[rgb(var(--muted))]">{t('subtitle')}</p>
         </div>
 
@@ -829,7 +831,7 @@ export function SettingsPage() {
       </Card>
 
       {/* Appearance Section */}
-      <Card>
+      <Card data-testid="settings-appearance-section">
         <CardHeader>
           <CardTitle>{t('appearance.title')}</CardTitle>
           <CardDescription>{t('appearance.description')}</CardDescription>
@@ -975,7 +977,7 @@ export function SettingsPage() {
       </Card>
 
       {/* Logs Section */}
-      <Card>
+      <Card data-testid="settings-logs-section">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />

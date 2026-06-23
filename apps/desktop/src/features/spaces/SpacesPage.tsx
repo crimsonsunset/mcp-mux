@@ -82,7 +82,9 @@ export function SpacesPage() {
           <div className="max-w-[2000px] mx-auto">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h1 className="text-3xl font-bold">{t('title')}</h1>
+                <h1 className="text-3xl font-bold" data-testid="spaces-title">
+                  {t('title')}
+                </h1>
                 <p className="text-base text-[rgb(var(--muted))] mt-2">{t('subtitle')}</p>
               </div>
               <Button
@@ -125,7 +127,10 @@ export function SpacesPage() {
                 <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
               </div>
             ) : filteredSpaces.length === 0 ? (
-              <Card className="max-w-2xl mx-auto">
+              <Card
+                className="max-w-2xl mx-auto"
+                data-testid={searchQuery ? 'spaces-empty-no-match' : 'spaces-empty-state'}
+              >
                 <CardContent className="flex flex-col items-center justify-center py-16">
                   <Layout className="h-16 w-16 text-[rgb(var(--muted))] mb-4" />
                   <h3 className="text-lg font-medium mb-2">

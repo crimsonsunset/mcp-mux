@@ -6,26 +6,28 @@ import { BasePage } from './BasePage';
  */
 export class DashboardPage extends BasePage {
   readonly heading: Locator;
+  readonly welcome: Locator;
   readonly gatewayStatus: Locator;
   readonly gatewayToggleButton: Locator;
   readonly serverCountCard: Locator;
   readonly featureSetsCard: Locator;
   readonly clientsCard: Locator;
   readonly activeSpaceCard: Locator;
-  readonly connectIDEsSection: Locator;
+  readonly connectClientHeading: Locator;
   readonly clientGrid: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.heading = page.getByRole('heading', { name: 'Dashboard' });
+    this.heading = page.getByTestId('dashboard-title');
+    this.welcome = page.getByTestId('dashboard-welcome');
     this.gatewayStatus = page.getByTestId('connection-status-text');
     this.gatewayToggleButton = page.getByTestId('gateway-toggle-btn');
-    this.serverCountCard = page.locator('text=Servers').first();
-    this.featureSetsCard = page.locator('text=FeatureSets').first();
-    this.clientsCard = page.locator('text=Clients').first();
+    this.serverCountCard = page.getByTestId('stat-servers');
+    this.featureSetsCard = page.getByTestId('stat-featuresets');
+    this.clientsCard = page.getByTestId('stat-clients');
     this.activeSpaceCard = page.getByTestId('stat-active-space');
-    this.connectIDEsSection = page.locator('text=Connect Your IDEs');
-    this.clientGrid = page.locator('[data-testid="client-grid"]');
+    this.connectClientHeading = page.getByTestId('connect-client-heading');
+    this.clientGrid = page.getByTestId('client-grid');
   }
 
   async navigate() {
@@ -34,24 +36,20 @@ export class DashboardPage extends BasePage {
 
   async isGatewayRunning(): Promise<boolean> {
     const text = await this.gatewayStatus.textContent();
-    return text?.includes('Running') ?? false;
+    return text?.toLowerCase().includes('running') ?? false;
   }
 
   async toggleGateway() {
     await this.gatewayToggleButton.click();
-    // Wait for status to change
     await this.page.waitForTimeout(500);
   }
 
   async getServerCount(): Promise<string> {
-    const card = this.page.locator('text=Connected / Installed').locator('..');
-    const countText = await card.locator('.text-3xl').textContent();
-    return countText || '0/0';
+    return (await this.page.getByTestId('stat-servers-value').textContent()) || '0/0';
   }
 
   async copyConfig() {
-    // Open JSON config popover and click copy
-    await this.page.locator('[data-testid="client-icon-copy-config"]').click();
-    await this.page.locator('[data-testid="copy-config-btn"]').click();
+    await this.page.getByTestId('client-icon-copy-config').click();
+    await this.page.getByTestId('copy-config-btn').click();
   }
 }

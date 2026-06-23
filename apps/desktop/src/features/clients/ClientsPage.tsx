@@ -259,13 +259,20 @@ export default function ClientsPage() {
                 <button
                   onClick={() => navigateTo('workspaces')}
                   className="font-medium text-[rgb(var(--accent))] hover:underline"
+                  data-testid="clients-workspaces-link"
                 >
                   {t('nav:projects')}
                 </button>{' '}
                 {t('subtitleSuffix')}
               </p>
             </div>
-            <Button variant="ghost" size="md" onClick={refreshClients} disabled={isRefreshing}>
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={refreshClients}
+              disabled={isRefreshing}
+              data-testid="clients-refresh-btn"
+            >
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               {t('common:actions.refresh')}
             </Button>
@@ -345,7 +352,7 @@ export default function ClientsPage() {
                       </div>
 
                       <div className="flex items-center justify-between text-xs text-[rgb(var(--muted))]">
-                        <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1.5" data-testid="client-last-seen">
                           <span
                             className={`h-1.5 w-1.5 rounded-full ${lastSeenDotColor(client.last_seen, renderNow)}`}
                           />
@@ -542,6 +549,7 @@ function SidePanel({
               variant="primary"
               onClick={onSaveAlias}
               disabled={!aliasDirty || isSaving}
+              data-testid="client-save-alias-btn"
             >
               {isSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -566,6 +574,7 @@ function SidePanel({
               <button
                 onClick={onOpenWorkspaces}
                 className="mt-2 text-xs font-medium text-[rgb(var(--accent))] hover:underline"
+                data-testid="client-open-workspaces-btn"
               >
                 {t('panel.openProjects')}
               </button>
@@ -617,6 +626,7 @@ function SidePanel({
           size="sm"
           onClick={onRevoke}
           className="w-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/20"
+          data-testid="client-revoke-btn"
         >
           <Trash2 className="mr-2 h-4 w-4" />
           {t('panel.revokeConnection')}

@@ -79,7 +79,7 @@ export abstract class BasePage {
    * Get text content of the first visible toast
    */
   async getToastText(): Promise<string | null> {
-    const toast = this.page.getByRole('main').getByTestId('toast-container').locator('[role="alert"]').first();
+    const toast = this.page.getByTestId('toast-container').locator('[role="alert"]').first();
     return toast.textContent();
   }
 
@@ -94,6 +94,6 @@ export abstract class BasePage {
    * Assert that a toast container is present in the main content area
    */
   get toastContainer(): Locator {
-    return this.page.getByRole('main').getByTestId('toast-container');
+    return this.page.getByTestId('toast-container');
   }
 }

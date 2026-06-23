@@ -220,6 +220,7 @@ export function ConnectionCard() {
                   ? 'text-green-600 dark:text-green-400'
                   : 'text-[rgb(var(--muted))] group-hover:text-[rgb(var(--primary))]'
               }`}
+              data-testid={copied ? 'connection-url-copied' : undefined}
             >
               {copied ? (
                 <>
@@ -264,7 +265,10 @@ export function ConnectionCard() {
         {/* Connect a client — the grid reuses the chromeless ConnectIDEsGrid. */}
         <div className="pt-4 border-t border-[rgb(var(--border-subtle))]">
           <div className="mb-3">
-            <p className="text-sm font-semibold text-[rgb(var(--card-foreground))]">
+            <p
+              className="text-sm font-semibold text-[rgb(var(--card-foreground))]"
+              data-testid="connect-client-heading"
+            >
               Connect a client
             </p>
             <p className="text-xs text-[rgb(var(--muted))] mt-0.5">

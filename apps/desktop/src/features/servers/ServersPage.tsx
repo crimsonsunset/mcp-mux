@@ -1445,6 +1445,7 @@ export function ServersPage() {
                 : 'bg-[rgb(var(--warning))]/10 border-[rgb(var(--warning))]/30'
             }`}
             data-testid="gateway-status-chip"
+            data-state={gatewayRunning ? 'running' : 'stopped'}
           >
             <span
               className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${
@@ -1532,7 +1533,7 @@ export function ServersPage() {
 
       {/* Server List */}
       {installedServers.length === 0 ? (
-        <div className="text-center py-12 text-[rgb(var(--muted))]">
+        <div className="text-center py-12 text-[rgb(var(--muted))]" data-testid="servers-empty-state">
           <div className="text-5xl mb-4">📦</div>
           <p className="text-lg mb-2">{t('empty.noneInstalled')}</p>
           <p className="text-sm max-w-md mx-auto mb-4">
@@ -2211,7 +2212,7 @@ export function ServersPage() {
               )}
 
               {/* Environment Variable Overrides */}
-              <div>
+              <div data-testid="config-env-section">
                 <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
                   Environment Variables
                 </label>
@@ -2279,7 +2280,7 @@ export function ServersPage() {
 
               {/* Extra HTTP Headers (http only) */}
               {configModal.server.transport.type === 'http' && (
-                <div>
+                <div data-testid="config-headers-section">
                   <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
                     HTTP Headers
                   </label>

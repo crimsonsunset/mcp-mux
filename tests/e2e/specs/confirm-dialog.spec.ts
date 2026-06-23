@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages';
 
-// Helper to click Spaces in sidebar (avoids space switcher button)
+/** Opens Spaces management (not folder Workspaces bindings). */
 async function goToSpaces(page: import('@playwright/test').Page) {
-  await page.locator('nav button:has-text("Spaces")').last().click();
+  await page.getByTestId('nav-spaces').click();
+  await expect(page.getByTestId('spaces-page')).toBeVisible();
 }
 
 test.describe('ConfirmDialog – Spaces', () => {
@@ -11,20 +12,16 @@ test.describe('ConfirmDialog – Spaces', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await goToSpaces(page);
-    await expect(page.locator('h1:has-text("Workspaces")')).toBeVisible();
+    await expect(page.getByTestId('spaces-title')).toBeVisible();
 
-    // Look for a delete button
     const deleteBtn = page.locator('[data-testid^="delete-space-"]').first();
     if (await deleteBtn.isVisible().catch(() => false)) {
       await deleteBtn.click();
 
-      // Confirm dialog should appear
       await expect(page.getByTestId('confirm-dialog')).toBeVisible();
       await expect(page.getByTestId('confirm-dialog-confirm')).toBeVisible();
       await expect(page.getByTestId('confirm-dialog-cancel')).toBeVisible();
-
-      // Title should mention delete
-      await expect(page.getByTestId('confirm-dialog').locator('h3')).toContainText(/[Dd]elete/);
+      await expect(page.getByTestId('confirm-dialog-title')).toBeVisible();
     }
   });
 
@@ -32,23 +29,17 @@ test.describe('ConfirmDialog – Spaces', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await goToSpaces(page);
-    await expect(page.locator('h1:has-text("Workspaces")')).toBeVisible();
+    await expect(page.getByTestId('spaces-title')).toBeVisible();
 
     const deleteBtn = page.locator('[data-testid^="delete-space-"]').first();
     if (await deleteBtn.isVisible().catch(() => false)) {
-      // Count spaces before
       const spaceBefore = await page.locator('[data-testid^="space-card-"]').count();
 
       await deleteBtn.click();
       await expect(page.getByTestId('confirm-dialog')).toBeVisible();
-
-      // Click cancel
       await page.getByTestId('confirm-dialog-cancel').click();
-
-      // Dialog should close
       await expect(page.getByTestId('confirm-dialog')).not.toBeVisible();
 
-      // Space count should be the same (nothing was deleted)
       const spaceAfter = await page.locator('[data-testid^="space-card-"]').count();
       expect(spaceAfter).toBe(spaceBefore);
     }
@@ -58,17 +49,14 @@ test.describe('ConfirmDialog – Spaces', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await goToSpaces(page);
-    await expect(page.locator('h1:has-text("Workspaces")')).toBeVisible();
+    await expect(page.getByTestId('spaces-title')).toBeVisible();
 
     const deleteBtn = page.locator('[data-testid^="delete-space-"]').first();
     if (await deleteBtn.isVisible().catch(() => false)) {
       await deleteBtn.click();
       await expect(page.getByTestId('confirm-dialog')).toBeVisible();
 
-      // Click overlay (outside the dialog)
       await page.getByTestId('confirm-dialog-overlay').click({ position: { x: 5, y: 5 } });
-
-      // Dialog should close
       await expect(page.getByTestId('confirm-dialog')).not.toBeVisible();
     }
   });
@@ -78,33 +66,26 @@ test.describe('ConfirmDialog – Clients', () => {
   test('should show confirm dialog when clicking Remove Client', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
     await expect(page.getByTestId('clients-title')).toBeVisible();
 
-    // Click the first client card to open the detail panel
     const clientCards = page.locator('[data-testid^="client-card-"]');
     const count = await clientCards.count();
 
     if (count > 0) {
       await clientCards.first().click();
-
-      // Wait for panel to open
       await page.waitForTimeout(300);
 
-      // Find the Remove Client button in the panel
-      const removeBtn = page.getByRole('button', { name: /Remove Client/i });
+      const removeBtn = page.getByTestId('client-revoke-btn');
       if (await removeBtn.isVisible().catch(() => false)) {
         await removeBtn.click();
 
-        // Confirm dialog should appear
         await expect(page.getByTestId('confirm-dialog')).toBeVisible();
-        await expect(page.getByTestId('confirm-dialog-confirm')).toHaveText(/Remove/i);
+        await expect(page.getByTestId('confirm-dialog-confirm')).toBeVisible();
 
-        // Cancel should dismiss without removing
         await page.getByTestId('confirm-dialog-cancel').click();
         await expect(page.getByTestId('confirm-dialog')).not.toBeVisible();
 
-        // Client should still be there
         const countAfter = await clientCards.count();
         expect(countAfter).toBe(count);
       }

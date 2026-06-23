@@ -10,6 +10,6 @@ test.describe('Admin feature sets browse', () => {
 
     await page.getByTestId('nav-featuresets').click();
     await expect(page.getByTestId('featuresets-page')).toBeVisible();
-    await expect(page.locator('body')).toContainText(/Feature/i);
+    await expect(page.getByTestId('featuresets-title')).toBeVisible();
   });
 });

@@ -1,4 +1,4 @@
-import { Page, Locator, expect } from '@playwright/test';
+import { Page, Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
@@ -8,67 +8,43 @@ export class ServersPage extends BasePage {
   readonly heading: Locator;
   readonly addServerButton: Locator;
   readonly gatewayStatus: Locator;
-  readonly startGatewayButton: Locator;
   readonly serverList: Locator;
   readonly emptyState: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.heading = page.getByRole('heading', { name: 'My Servers' });
-    this.addServerButton = page.getByRole('button', { name: /Add Custom Server/i });
-    this.gatewayStatus = page.locator('text=Gateway Running, text=Gateway Stopped').first();
-    this.startGatewayButton = page.getByRole('button', { name: 'Start Gateway' });
-    this.serverList = page.locator('.space-y-3');
-    this.emptyState = page.locator('text=No servers installed');
+    this.heading = page.getByTestId('servers-title');
+    this.addServerButton = page.getByTestId('add-server-menu-trigger');
+    this.gatewayStatus = page.getByTestId('gateway-status-chip');
+    this.serverList = page.locator('[data-testid^="installed-server-"]');
+    this.emptyState = page.getByTestId('servers-empty-state');
   }
 
   async isGatewayRunning(): Promise<boolean> {
-    return this.page.locator('text=Gateway Running').isVisible();
-  }
-
-  async startGateway() {
-    await this.startGatewayButton.click();
-    await this.page.waitForSelector('text=Gateway Running', { timeout: 10000 });
+    const text = await this.gatewayStatus.textContent();
+    return text?.toLowerCase().includes('running') ?? false;
   }
 
   async getServerCards(): Promise<Locator> {
-    return this.page.locator('[class*="bg-[rgb(var(--card))]"]');
+    return this.page.locator('[data-testid^="installed-server-"]');
   }
 
   async getServerByName(name: string): Promise<Locator> {
-    return this.page.locator(`text="${name}"`).first().locator('xpath=ancestor::div[contains(@class, "rounded-xl")]');
+    return this.page.locator(`[data-testid^="installed-server-"]`).filter({ hasText: name }).first();
   }
 
-  async enableServer(serverName: string) {
-    const serverCard = await this.getServerByName(serverName);
-    await serverCard.getByRole('button', { name: 'Enable' }).click();
+  async openServerMenu(serverId: string) {
+    await this.page.getByTestId(`action-menu-${serverId}`).click();
   }
 
-  async disableServer(serverName: string) {
-    const serverCard = await this.getServerByName(serverName);
-    await serverCard.getByRole('button', { name: 'Disable' }).click();
+  async viewServerLogs(serverId: string) {
+    await this.openServerMenu(serverId);
+    await this.page.getByTestId(`view-logs-${serverId}`).click();
   }
 
-  async getServerStatus(serverName: string): Promise<string> {
-    const serverCard = await this.getServerByName(serverName);
-    const statusBadge = serverCard.locator('[class*="inline-flex items-center"]').first();
-    return (await statusBadge.textContent()) || '';
-  }
-
-  async openServerMenu(serverName: string) {
-    const serverCard = await this.getServerByName(serverName);
-    await serverCard.getByRole('button', { name: /more/i }).click();
-  }
-
-  async viewServerLogs(serverName: string) {
-    await this.openServerMenu(serverName);
-    await this.page.getByRole('menuitem', { name: /View Logs/i }).click();
-  }
-
-  async uninstallServer(serverName: string) {
-    await this.openServerMenu(serverName);
-    await this.page.getByRole('menuitem', { name: /Uninstall|Remove/i }).click();
-    // Confirm dialog
-    await this.page.getByRole('button', { name: /OK|Confirm|Yes/i }).click();
+  async uninstallServer(serverId: string) {
+    await this.openServerMenu(serverId);
+    await this.page.getByTestId(`uninstall-menu-${serverId}`).click();
+    await this.page.getByTestId('confirm-dialog-confirm').click();
   }
 }

@@ -147,7 +147,10 @@ export function RegistryPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold" data-testid="registry-title">{t('title')}</h1>
             {isOffline && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-full">
+              <span
+                className="px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-full"
+                data-testid="registry-offline-badge"
+              >
                 {t('offline')}
               </span>
             )}
@@ -208,6 +211,7 @@ export function RegistryPage() {
                 value={activeSort}
                 onChange={(e) => setSort(e.target.value)}
                 className="bg-[rgb(var(--surface-hover))] border border-[rgb(var(--border-subtle))] rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--primary))]/50"
+                data-testid="registry-sort-select"
               >
                 {uiConfig.sort_options.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -223,6 +227,7 @@ export function RegistryPage() {
             <button
               onClick={clearFilters}
               className="text-sm text-[rgb(var(--primary))] hover:underline"
+              data-testid="registry-clear-filters"
             >
               {t('clearFilters')}
             </button>
@@ -247,7 +252,10 @@ export function RegistryPage() {
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-[rgb(var(--primary))] border-t-transparent" />
           </div>
         ) : displayServers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[rgb(var(--muted))] px-8">
+          <div
+            className="flex flex-col items-center justify-center h-full text-[rgb(var(--muted))] px-8"
+            data-testid="registry-empty-state"
+          >
             <svg className="w-16 h-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
@@ -265,7 +273,7 @@ export function RegistryPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="registry-server-grid">
             {paginatedServers.map((server) => (
               <ServerCard
                 key={server.id}
@@ -297,18 +305,23 @@ export function RegistryPage() {
               onClick={() => handlePageChange(activePage - 1)}
               disabled={activePage === 1}
               className="p-1.5 rounded-lg hover:bg-[rgb(var(--surface-hover))] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              data-testid="registry-pagination-prev"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
-            <span className="text-sm font-medium min-w-[3rem] text-center">
+            <span
+              className="text-sm font-medium min-w-[3rem] text-center"
+              data-testid="registry-pagination-info"
+            >
               {activePage} / {totalPages}
             </span>
             <button
               onClick={() => handlePageChange(activePage + 1)}
               disabled={activePage === totalPages}
               className="p-1.5 rounded-lg hover:bg-[rgb(var(--surface-hover))] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              data-testid="registry-pagination-next"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 18l6-6-6-6" />

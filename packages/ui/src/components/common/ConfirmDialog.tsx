@@ -44,7 +44,9 @@ export function ConfirmDialog({
             </div>
           )}
           <div>
-            <h3 className="font-semibold text-base">{title}</h3>
+            <h3 className="font-semibold text-base" data-testid="confirm-dialog-title">
+              {title}
+            </h3>
             <p className="text-sm text-[rgb(var(--muted))] mt-1">{message}</p>
           </div>
         </div>

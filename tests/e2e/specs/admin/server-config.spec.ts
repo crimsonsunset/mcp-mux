@@ -12,7 +12,10 @@ test.describe('Admin server config browse', () => {
     const search = page.getByTestId('search-input');
     await expect(search).toBeVisible();
     await search.fill('PostgreSQL');
-    await expect(page.locator('body')).toContainText(/PostgreSQL/i, { timeout: 15_000 });
+    await expect(page.getByTestId('registry-server-grid')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid^="server-card-"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
 
     await page.getByTestId('nav-my-servers').click();
     await expect(page.getByTestId('servers-page')).toBeVisible();

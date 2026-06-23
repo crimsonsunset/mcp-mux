@@ -213,8 +213,11 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
   return (
     <>
       <ToastContainer toasts={toasts} onClose={(id) => toasts.find(t => t.id === id)?.onClose(id)} />
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[rgb(var(--surface))] w-full max-w-4xl h-[80vh] rounded-xl shadow-2xl flex flex-col border border-[rgb(var(--border))]">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-testid="config-editor-modal-overlay">
+      <div
+        className="bg-[rgb(var(--surface))] w-full max-w-4xl h-[80vh] rounded-xl shadow-2xl flex flex-col border border-[rgb(var(--border))]"
+        data-testid="config-editor-modal"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[rgb(var(--border))]">
           <div className="flex items-center gap-3">

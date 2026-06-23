@@ -9,7 +9,7 @@ test.describe('Admin connections page', () => {
     await expect(page.getByTestId('nav-dashboard')).toBeVisible({ timeout: 30_000 });
 
     await page.getByTestId('nav-clients').click();
-    await expect(page.locator('body')).toContainText('Connections');
-    await expect(page.locator('body')).toContainText('Workspaces');
+    await expect(page.getByTestId('clients-title')).toBeVisible();
+    await expect(page.getByTestId('clients-workspaces-link')).toBeVisible();
   });
 });

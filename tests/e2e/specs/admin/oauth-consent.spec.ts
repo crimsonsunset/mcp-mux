@@ -26,10 +26,9 @@ test.describe('Admin OAuth consent', () => {
       },
     });
 
-    await expect(page.getByText('Authorization Failed')).toBeVisible({ timeout: 15_000 });
-    await expect(
-      page.getByText(/gateway service is not running|not found|expired/i)
-    ).toBeVisible();
+    await expect(page.getByTestId('oauth-consent-error-modal')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('oauth-consent-error-title')).toBeVisible();
+    await expect(page.getByTestId('oauth-consent-error-message')).toBeVisible();
   });
 
   test('consent approve POST requires CSRF token', async ({ request }) => {

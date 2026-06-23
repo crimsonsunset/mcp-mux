@@ -781,6 +781,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
               }
             }}
             className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 mr-auto"
+            data-testid="featureset-panel-delete"
           >
             <Trash2 className="h-4 w-4 mr-2" />
             {t('common:actions.delete')}
@@ -792,6 +793,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
             onClick={handleSave}
             disabled={isSaving}
             className="w-full flex-1"
+            data-testid="featureset-panel-save-changes"
           >
             {isSaving ? (
               <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {t('panel.saving')}</>
