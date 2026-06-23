@@ -8,6 +8,8 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { pickPath } from '@/lib/backend/shell';
 import {
   ChevronDown,
@@ -184,7 +186,7 @@ function createOfflineServerViewModel(state: InstalledServerState): ServerViewMo
   return {
     id: state.server_id,
     name: resolveInstalledDisplayName(state),
-    description: '(Server definition not cached)',
+    description: i18n.t('servers:offline.noCachedDefinition'),
     alias: null,
     icon: null,
     categories: [],
@@ -245,6 +247,7 @@ interface ConfigModalState {
 }
 
 export function ServersPage() {
+  const { t } = useTranslation(['servers', 'common']);
   const [installedServers, setInstalledServers] = useState<ServerViewModelWithClone[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [transportFilter, setTransportFilter] = useState<TransportFilter>('all');
@@ -388,7 +391,7 @@ export function ServersPage() {
         console.warn(
           '[ServersPage] Registry offline, showing installed servers with cached/minimal info'
         );
-        showToast('Registry offline - showing cached server info', 'info');
+        showToast(t('offline.registryOffline'), 'info');
       }
 
       // Merge definitions with installed states
@@ -453,7 +456,7 @@ export function ServersPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [viewSpace?.id, showToast]);
+  }, [viewSpace?.id, showToast, t]);
 
   // Clear any pending filter that was consumed during initialisation
   useEffect(() => {
@@ -707,21 +710,21 @@ export function ServersPage() {
     const remainingSeconds = getAuthRemainingSeconds(server.id);
     
     switch (action) {
-      case 'enable': return 'Disabled';
-      case 'configure': return 'Needs Configuration';
-      case 'connecting': return 'Connecting...';
+      case 'enable': return t('status.disabled');
+      case 'configure': return t('status.needsConfiguration');
+      case 'connecting': return t('status.connecting');
       case 'authenticating': 
         if (remainingSeconds !== undefined) {
           const minutes = Math.floor(remainingSeconds / 60);
           const seconds = remainingSeconds % 60;
-          return `Authenticating... (${minutes}m ${seconds}s)`;
+          return t('status.authenticatingWithTime', { minutes, seconds });
         }
-        return 'Authenticating...';
+        return t('status.authenticating');
       case 'auth_required': 
-        return hasConnectedBefore(server.id) ? 'Reconnect Required' : 'Connect Required';
-      case 'running': return 'Connected';
-      case 'connected_auto': return 'Connected';
-      case 'error': return 'Error';
+        return hasConnectedBefore(server.id) ? t('status.reconnectRequired') : t('status.connectRequired');
+      case 'running': return t('status.connected');
+      case 'connected_auto': return t('status.connected');
+      case 'error': return t('status.error');
     }
   };
 
@@ -896,11 +899,11 @@ export function ServersPage() {
     const clonedViewModel = createViewModelFromClone(cloned);
     if (clonedViewModel) {
       handleConfigureClick(clonedViewModel);
-      showToast(`Created ${clonedViewModel.name}`, 'success');
+      showToast(t('toast.created', { name: clonedViewModel.name }), 'success');
       return;
     }
 
-    showToast('Account created — configure it from My Servers', 'success');
+    showToast(t('toast.accountCreated'), 'success');
   };
 
   const handleSaveConfig = async () => {
@@ -913,11 +916,11 @@ export function ServersPage() {
 
     if (configModal.updatePolicy === 'pinned') {
       if (!trimmedPinnedVersion) {
-        showToast('Enter a pinned version (e.g. 1.2.3)', 'error');
+        showToast(t('toast.enterPinnedVersion'), 'error');
         return;
       }
       if (!isValidSemver(trimmedPinnedVersion)) {
-        showToast('Pinned version must be a valid semver (e.g. 1.2.3)', 'error');
+        showToast(t('toast.invalidSemver'), 'error');
         return;
       }
     }
@@ -1004,7 +1007,7 @@ export function ServersPage() {
         await retryConnectionV2(serverId);
       }
 
-      showToast('Configuration saved', 'success');
+      showToast(t('toast.configSaved'), 'success');
     } catch (e) {
       showToast(String(e), 'error');
     } finally {
@@ -1080,7 +1083,7 @@ export function ServersPage() {
       }
 
       if (!version || !isValidSemver(version)) {
-        showToast('Could not determine a valid version to pin', 'error');
+        showToast(t('toast.cannotPin'), 'error');
         return;
       }
 
@@ -1101,7 +1104,7 @@ export function ServersPage() {
         await retryConnectionV2(server.id);
       }
 
-      showToast(`Locked to v${version}`, 'success');
+      showToast(t('toast.lockedTo', { version }), 'success');
       await loadData();
     } catch (error) {
       showToast(String(error), 'error');
@@ -1155,7 +1158,7 @@ export function ServersPage() {
     try {
       const { updateServerPackage } = await import('@/lib/api/serverManager');
       await updateServerPackage(viewSpace.id, server.id);
-      showToast(`Updating ${server.name}…`, 'info');
+      showToast(t('toast.updating', { name: server.name }), 'info');
       await loadData();
     } catch (error) {
       showToast(String(error), 'error');
@@ -1189,9 +1192,9 @@ export function ServersPage() {
       );
 
       if (result.updateAvailable && result.latestVersion) {
-        showToast(`Update available: v${result.latestVersion}`, 'info');
+        showToast(t('toast.updateAvailable', { version: result.latestVersion }), 'info');
       } else {
-        showToast('Server package is up to date', 'success');
+        showToast(t('toast.upToDate'), 'success');
       }
     } catch (error) {
       showToast(String(error), 'error');
@@ -1292,7 +1295,7 @@ export function ServersPage() {
     try {
       await performUninstall(serverIds);
       showToast(
-        `${server.name} and ${dependents.length} clone${dependents.length === 1 ? '' : 's'} uninstalled`,
+        t('toast.uninstalledWithClones', { name: server.name, count: dependents.length }),
         'success'
       );
     } catch (error) {
@@ -1310,7 +1313,7 @@ export function ServersPage() {
       setGatewayUrl(outcome.url);
       if (outcome.fellBackToDynamic) {
         showToast(
-          `Preferred port was in use — gateway is now on :${outcome.port}. Update IDE configs.`,
+          t('toast.gatewayPortFallback', { port: outcome.port }),
           'info'
         );
       }
@@ -1345,7 +1348,7 @@ export function ServersPage() {
         return next;
       });
       if (logout) {
-        showToast(`${server.name} disconnected and logged out`, 'info');
+        showToast(t('toast.disconnectedLoggedOut', { name: server.name }), 'info');
       }
     } catch (e) {
       showToast(String(e), 'error');
@@ -1426,13 +1429,11 @@ export function ServersPage() {
           <div className="flex-shrink min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <h1 className="text-2xl font-bold" data-testid="servers-title">
-                My Servers
+                {t('title')}
               </h1>
               <ServersCountSummary summary={serverCountSummary} />
             </div>
-            <p className="text-sm text-[rgb(var(--muted))]">
-              Manage your installed MCP servers
-            </p>
+            <p className="text-sm text-[rgb(var(--muted))]">{t('subtitle')}</p>
           </div>
 
           <div
@@ -1449,7 +1450,7 @@ export function ServersPage() {
               }`}
             />
             <span className="font-medium whitespace-nowrap">
-              {gatewayRunning ? 'Gateway Running' : 'Gateway Stopped'}
+              {gatewayRunning ? t('gateway.running') : t('gateway.stopped')}
             </span>
             {gatewayRunning && gatewayUrl && (
               <code className="text-xs bg-[rgb(var(--surface-elevated))] px-2 py-0.5 rounded text-[rgb(var(--primary))] truncate max-w-[200px]">
@@ -1462,7 +1463,7 @@ export function ServersPage() {
                 onClick={handleStartGateway}
                 className="px-2.5 py-1 text-xs font-medium bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] rounded-md hover:bg-[rgb(var(--primary-hover))] transition-colors whitespace-nowrap"
               >
-                Start Gateway
+                {t('gateway.start')}
               </button>
             )}
           </div>
@@ -1477,11 +1478,11 @@ export function ServersPage() {
                   type="button"
                   onClick={expandAllServers}
                   disabled={expandableServerCount === 0}
-                  title="Expand all connected servers"
+                  title={t('toolbar.expandAllTitle')}
                   data-testid="expand-all-servers"
                 >
                   <UnfoldVertical className="h-4 w-4 text-[rgb(var(--muted))]" />
-                  Expand all
+                  {t('toolbar.expandAll')}
                 </Button>
                 <Button
                   variant="secondary"
@@ -1489,11 +1490,11 @@ export function ServersPage() {
                   type="button"
                   onClick={collapseAllServers}
                   disabled={!hasExpandedServers}
-                  title="Collapse all servers"
+                  title={t('toolbar.collapseAllTitle')}
                   data-testid="collapse-all-servers"
                 >
                   <FoldVertical className="h-4 w-4 text-[rgb(var(--muted))]" />
-                  Collapse all
+                  {t('toolbar.collapseAll')}
                 </Button>
                 </>
               )}
@@ -1509,7 +1510,7 @@ export function ServersPage() {
           <div className="flex items-center gap-2 w-full">
             <SearchField
               className="flex-1 min-w-0"
-              placeholder="Search servers or tools…"
+              placeholder={t('toolbar.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onClear={() => setSearchQuery('')}
@@ -1531,9 +1532,9 @@ export function ServersPage() {
       {installedServers.length === 0 ? (
         <div className="text-center py-12 text-[rgb(var(--muted))]">
           <div className="text-5xl mb-4">📦</div>
-          <p className="text-lg mb-2">No servers installed</p>
+          <p className="text-lg mb-2">{t('empty.noneInstalled')}</p>
           <p className="text-sm max-w-md mx-auto mb-4">
-            Add from the community registry or define a custom server in your Space config.
+            {t('empty.noneInstalledDesc')}
           </p>
           {viewSpace && (
             <div className="flex justify-center">
@@ -1547,8 +1548,8 @@ export function ServersPage() {
       ) : filteredServers.length === 0 ? (
         <div className="text-center py-12 text-[rgb(var(--muted))]">
           <Search className="h-12 w-12 mx-auto mb-4 opacity-40" />
-          <p className="text-lg mb-2">No servers match your filters</p>
-          <p className="text-sm">Try adjusting your search or filters</p>
+          <p className="text-lg mb-2">{t('empty.noMatch')}</p>
+          <p className="text-sm">{t('empty.noMatchDesc')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1649,19 +1650,19 @@ export function ServersPage() {
                               {counts.tools > 0 && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-purple-500/15 text-purple-600 dark:text-purple-400">
                                   <Wrench className="h-3 w-3" />
-                                  {counts.tools} tools
+                                  {t('features.tools', { count: counts.tools })}
                                 </span>
                               )}
                               {counts.prompts > 0 && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-blue-500/15 text-blue-600 dark:text-blue-400">
                                   <MessageSquare className="h-3 w-3" />
-                                  {counts.prompts} prompts
+                                  {t('features.prompts', { count: counts.prompts })}
                                 </span>
                               )}
                               {counts.resources > 0 && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-green-500/15 text-green-600 dark:text-green-400">
                                   <FileText className="h-3 w-3" />
-                                  {counts.resources} resources
+                                  {t('features.resources', { count: counts.resources })}
                                 </span>
                               )}
                             </>
@@ -1670,10 +1671,10 @@ export function ServersPage() {
                           {/* Auth Type Badge */}
                           {server.auth && server.auth.type !== 'none' && (
                             <span className="text-xs text-[rgb(var(--muted))] px-2 py-0.5 bg-[rgb(var(--surface-hover))] rounded-md">
-                              {server.auth.type === 'oauth' ? '🔐 OAuth' : 
-                               server.auth.type === 'api_key' ? '🔑 API Key' :
-                               server.auth.type === 'optional_api_key' ? '🔑 API Key (Optional)' :
-                               'Auth Required'}
+                              {server.auth.type === 'oauth' ? t('auth.oauth') : 
+                               server.auth.type === 'api_key' ? t('auth.apiKey') :
+                               server.auth.type === 'optional_api_key' ? t('auth.apiKeyOptional') :
+                               t('auth.required')}
                             </span>
                           )}
                           
@@ -1691,7 +1692,7 @@ export function ServersPage() {
                           <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400">
                             <Clock className="h-3 w-3" />
                             <span>
-                              {runtimeMessage || 'Waiting for browser authorization...'}
+                              {runtimeMessage || t('auth.waitingBrowser')}
                             </span>
                           </div>
                         )}
@@ -1699,7 +1700,7 @@ export function ServersPage() {
                         {/* Show error indicator if in error state */}
                         {serverAction === 'error' && (
                           <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg text-xs bg-[rgb(var(--error))]/10 text-[rgb(var(--error))]">
-                            <span className="font-medium">Connection error</span>
+                            <span className="font-medium">{t('connection.error')}</span>
                             <span className="text-[rgb(var(--muted))]">·</span>
                             <button
                               type="button"
@@ -1709,7 +1710,7 @@ export function ServersPage() {
                               }}
                               className="text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] underline cursor-pointer transition-colors"
                             >
-                              View logs for details
+                              {t('connection.viewLogs')}
                             </button>
                           </div>
                         )}
@@ -1746,7 +1747,7 @@ export function ServersPage() {
                           disabled={configLoading}
                           className="px-4 py-2 text-sm font-medium rounded-lg bg-[rgb(var(--warning))] text-white hover:bg-[rgb(var(--warning))]/80 shadow-sm transition-colors disabled:opacity-50"
                         >
-                          {configLoading ? 'Saving...' : 'Configure'}
+                          {configLoading ? t('actions.saving') : t('actions.configure')}
                         </button>
                       )}
 
@@ -1757,7 +1758,7 @@ export function ServersPage() {
                           className="px-4 py-2 text-sm rounded-lg bg-[rgb(var(--surface-elevated))] text-[rgb(var(--muted))] cursor-not-allowed flex items-center gap-2"
                         >
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          Connecting...
+                          {t('actions.connecting')}
                         </button>
                       )}
                       
@@ -1769,13 +1770,13 @@ export function ServersPage() {
                             className="px-4 py-2 text-sm rounded-lg bg-[rgb(var(--warning))] text-white cursor-not-allowed flex items-center gap-2"
                           >
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            Authenticating...
+                            {t('actions.authenticating')}
                           </button>
                           <button
                             onClick={() => handleCancelOAuth(server.id)}
                             className="px-4 py-2 text-sm rounded-lg border border-[rgb(var(--border))] text-[rgb(var(--muted))] hover:bg-[rgb(var(--surface-hover))] transition-colors"
                           >
-                            Cancel
+                            {t('actions.cancel')}
                           </button>
                         </>
                       )}
@@ -1787,7 +1788,7 @@ export function ServersPage() {
                           disabled={connectLoading}
                           className="px-4 py-2 text-sm font-medium rounded-lg bg-[rgb(var(--success))] text-white hover:bg-[rgb(var(--success))]/80 shadow-sm transition-colors disabled:opacity-50"
                         >
-                          {connectLoading ? 'Connecting...' : hasConnectedBefore(server.id) ? 'Reconnect' : 'Connect'}
+                          {connectLoading ? t('actions.connecting') : hasConnectedBefore(server.id) ? t('actions.reconnect') : t('actions.connect')}
                         </button>
                       )}
 
@@ -1797,9 +1798,9 @@ export function ServersPage() {
                           onClick={() => handleDisconnect(server, false)}
                           disabled={actionLoading === `disconnect-${server.id}`}
                           className="px-4 py-2 text-sm rounded-lg border border-[rgb(var(--border))] text-[rgb(var(--muted))] hover:bg-[rgb(var(--surface-hover))] transition-colors disabled:opacity-50"
-                          title="Disconnect (keep credentials)"
+                          title={t('actions.disconnectTitle')}
                         >
-                          {actionLoading === `disconnect-${server.id}` ? '...' : 'Disconnect'}
+                          {actionLoading === `disconnect-${server.id}` ? '...' : t('actions.disconnect')}
                         </button>
                       )}
 
@@ -1809,7 +1810,7 @@ export function ServersPage() {
                           disabled={retryLoading}
                           className="px-4 py-2 text-sm font-medium rounded-lg bg-[rgb(var(--error))] text-white hover:bg-[rgb(var(--error))]/80 shadow-sm transition-colors disabled:opacity-50"
                         >
-                          {retryLoading ? 'Retrying...' : hasConnectedBefore(server.id) ? 'Reconnect' : 'Retry'}
+                          {retryLoading ? t('actions.retrying') : hasConnectedBefore(server.id) ? t('actions.reconnect') : t('actions.retry')}
                         </button>
                       )}
 
@@ -1869,17 +1870,17 @@ export function ServersPage() {
                     {isLoadingServerFeatures ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin text-[rgb(var(--primary))]" />
-                        <span className="ml-2 text-sm text-[rgb(var(--muted))]">Loading features...</span>
+                        <span className="ml-2 text-sm text-[rgb(var(--muted))]">{t('features.loading')}</span>
                       </div>
                     ) : features.length === 0 ? (
                       <div className="text-center py-8 text-[rgb(var(--muted))]">
-                        <p className="text-sm">No features discovered yet</p>
-                        <p className="text-xs mt-1">Features will appear after the server initializes</p>
+                        <p className="text-sm">{t('features.noneDiscovered')}</p>
+                        <p className="text-xs mt-1">{t('features.noneDiscoveredHint')}</p>
                         <button
                           onClick={() => loadFeaturesForServer(server.id)}
                           className="mt-3 px-3 py-1 text-xs rounded bg-[rgb(var(--surface-hover))] hover:bg-[rgb(var(--surface-active))] transition-colors"
                         >
-                          Refresh
+                          {t('actions.refresh')}
                         </button>
                       </div>
                     ) : (
@@ -1889,7 +1890,7 @@ export function ServersPage() {
                           <div>
                             <h4 className="text-sm font-medium flex items-center gap-2 mb-2">
                               <Wrench className="h-4 w-4 text-purple-500" />
-                              Tools ({features.filter(f => f.feature_type === 'tool').length})
+                              {t('features.toolsHeading', { count: features.filter(f => f.feature_type === 'tool').length })}
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                               {features.filter(f => f.feature_type === 'tool').map(feature => (
@@ -1916,7 +1917,7 @@ export function ServersPage() {
                           <div>
                             <h4 className="text-sm font-medium flex items-center gap-2 mb-2">
                               <MessageSquare className="h-4 w-4 text-blue-500" />
-                              Prompts ({features.filter(f => f.feature_type === 'prompt').length})
+                              {t('features.promptsHeading', { count: features.filter(f => f.feature_type === 'prompt').length })}
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                               {features.filter(f => f.feature_type === 'prompt').map(feature => (
@@ -1943,7 +1944,7 @@ export function ServersPage() {
                           <div>
                             <h4 className="text-sm font-medium flex items-center gap-2 mb-2">
                               <FileText className="h-4 w-4 text-green-500" />
-                              Resources ({features.filter(f => f.feature_type === 'resource').length})
+                              {t('features.resourcesHeading', { count: features.filter(f => f.feature_type === 'resource').length })}
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                               {features.filter(f => f.feature_type === 'resource').map(feature => (
@@ -1990,10 +1991,10 @@ export function ServersPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-testid="config-modal-overlay">
           <div className="dropdown-menu w-full max-w-md p-6 animate-in fade-in scale-in duration-150 max-h-[80vh] overflow-y-auto" data-testid="config-modal">
             <h3 className="text-lg font-semibold text-[rgb(var(--foreground))] mb-2" data-testid="config-modal-title">
-              Configure {configModal.server.name}
+              {t('configModal.title', { name: configModal.server.name })}
             </h3>
             <p className="text-sm text-[rgb(var(--muted))] mb-4">
-              {(configModal.server.auth && 'instructions' in configModal.server.auth ? configModal.server.auth.instructions : null) || 'Enter the required configuration to enable this server.'}
+              {(configModal.server.auth && 'instructions' in configModal.server.auth ? configModal.server.auth.instructions : null) || t('configModal.defaultInstructions')}
             </p>
 
             <div className="space-y-4">
@@ -2002,10 +2003,10 @@ export function ServersPage() {
                   htmlFor="config-display-name"
                   className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
                 >
-                  Display name
+                  {t('configModal.displayName')}
                 </label>
                 <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                  Shown in My Servers only. Does not change the server ID or tool names.
+                  {t('configModal.displayNameDesc')}
                 </p>
                 <input
                   id="config-display-name"
@@ -2045,7 +2046,7 @@ export function ServersPage() {
                             className="w-4 h-4 rounded border-[rgb(var(--border))] text-[rgb(var(--primary))] focus:ring-[rgb(var(--primary))]"
                           />
                           <span className="text-sm text-[rgb(var(--muted))]">
-                            {input.placeholder || 'Enable'}
+                            {input.placeholder || t('configModal.enable')}
                           </span>
                         </label>
                       );
@@ -2490,7 +2491,7 @@ export function ServersPage() {
                   className="px-4 py-2 text-sm rounded-lg border border-[rgb(var(--border))] text-[rgb(var(--muted))] hover:bg-[rgb(var(--surface-hover))] transition-colors"
                   data-testid="config-cancel-btn"
                 >
-                  Cancel
+                  {t('configModal.cancel')}
                 </button>
                 <button
                   onClick={handleSaveConfig}
@@ -2505,10 +2506,10 @@ export function ServersPage() {
                   data-testid="config-save-btn"
                 >
                   {configModal.enableOnSave && !configModal.server.enabled 
-                    ? 'Save & Enable' 
+                    ? t('configModal.saveAndEnable')
                     : configModal.server.enabled 
-                      ? 'Save & Reconnect'
-                      : 'Save'
+                      ? t('configModal.saveAndReconnect')
+                      : t('configModal.save')
                   }
                 </button>
               </div>

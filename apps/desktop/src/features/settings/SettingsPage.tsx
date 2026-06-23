@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Card,
   CardHeader,
@@ -60,6 +61,7 @@ import { CONTRIBUTE, openExternal } from '@/lib/contribute';
 import { isTauri } from '@/lib/api/transport';
 
 export function SettingsPage() {
+  const { t } = useTranslation(['settings', 'common']);
   const theme = useTheme();
   const setTheme = useAppStore((state) => state.setTheme);
   const analyticsEnabled = useAnalyticsEnabled();
@@ -150,13 +152,13 @@ export function SettingsPage() {
       setAdminPortDraft(String(next.port));
       setAdminCfDomainDraft(next.cfTeamDomain);
       success(
-        'Web admin updated',
+        t('toast.webAdminUpdated'),
         next.enabled
-          ? `Browse http://127.0.0.1:${next.port}. Run pnpm build:web:admin after UI changes, then hard-refresh.`
-          : 'Web admin server stopped.'
+          ? t('toast.webAdminEnabled', { port: next.port })
+          : t('toast.webAdminStopped')
       );
     } catch (err) {
-      error('Failed to save web admin settings', String(err));
+      error(t('toast.failedWebAdmin'), String(err));
     } finally {
       setSavingAdminWeb(false);
     }
@@ -166,7 +168,7 @@ export function SettingsPage() {
     if (!adminWeb) return;
     const parsed = validatePort(adminPortDraft);
     if ('error' in parsed) {
-      error('Invalid admin port', parsed.error);
+      error(t('toast.invalidAdminPort'), parsed.error);
       return;
     }
     await persistAdminWeb({ ...adminWeb, port: parsed.port });
@@ -174,11 +176,11 @@ export function SettingsPage() {
 
   const validatePort = (raw: string): { port: number } | { error: string } => {
     const trimmed = raw.trim();
-    if (!trimmed) return { error: 'Enter a port number' };
-    if (!/^\d+$/.test(trimmed)) return { error: 'Port must be a number' };
+    if (!trimmed) return { error: t('validation.enterPort') };
+    if (!/^\d+$/.test(trimmed)) return { error: t('validation.portMustBeNumber') };
     const n = Number(trimmed);
     if (n < 1024 || n > 65535) {
-      return { error: 'Port must be between 1024 and 65535' };
+      return { error: t('validation.portRange') };
     }
     return { port: n };
   };
@@ -195,15 +197,15 @@ export function SettingsPage() {
       await setGatewayPort(parsed.port);
       await loadPortSettings();
       success(
-        'Gateway port saved',
+        t('toast.gatewayPortSaved'),
         portSettings?.activePort && portSettings.activePort !== parsed.port
-          ? `Restart the gateway for port ${parsed.port} to take effect.`
-          : `Next gateway start will use port ${parsed.port}.`
+          ? t('toast.gatewayRestartForPort', { port: parsed.port })
+          : t('toast.gatewayNextStartPort', { port: parsed.port })
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setPortError(msg);
-      error('Failed to save port', msg);
+      error(t('toast.failedSavePort'), msg);
     } finally {
       setSavingPort(false);
     }
@@ -215,14 +217,11 @@ export function SettingsPage() {
       await setGatewayPublicUrl(publicUrlDraft);
       await loadPortSettings();
       setPublicUrlError(null);
-      success(
-        'Public gateway URL saved',
-        'Remote clients via Cloudflare Tunnel will use this URL for OAuth discovery.'
-      );
+      success(t('toast.publicUrlSaved'), t('toast.publicUrlHint'));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setPublicUrlError(msg);
-      error('Failed to save public URL', msg);
+      error(t('toast.failedSavePublicUrl'), msg);
     } finally {
       setSavingPublicUrl(false);
     }
@@ -234,14 +233,14 @@ export function SettingsPage() {
       await resetGatewayPort();
       await loadPortSettings();
       success(
-        'Reset to default',
+        t('toast.resetToDefault'),
         portSettings && portSettings.activePort !== portSettings.defaultPort
-          ? `Restart the gateway for port ${portSettings.defaultPort} to take effect.`
-          : `Next gateway start will use port ${portSettings?.defaultPort ?? ''}.`
+          ? t('toast.gatewayRestartForPort', { port: portSettings.defaultPort })
+          : t('toast.gatewayNextStartPort', { port: portSettings?.defaultPort ?? '' })
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      error('Failed to reset port', msg);
+      error(t('toast.failedResetPort'), msg);
     } finally {
       setResettingPort(false);
     }
@@ -253,14 +252,14 @@ export function SettingsPage() {
       await loadPortSettings();
       if (outcome.status === 'cancelled') return;
       success(
-        'Gateway restarted',
+        t('toast.gatewayRestarted'),
         outcome.fellBackToDynamic
-          ? `Saved port was unavailable — now running on :${outcome.port} instead.`
-          : 'The new port is now active.'
+          ? t('toast.gatewayFellBack', { port: outcome.port })
+          : t('toast.gatewayPortActive')
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      error('Failed to restart gateway', msg);
+      error(t('toast.failedRestartGateway'), msg);
     }
   };
 
@@ -277,14 +276,12 @@ export function SettingsPage() {
     try {
       await setMetaToolsEnabled(next);
       success(
-        next ? 'Self-management tools enabled' : 'Self-management tools disabled',
-        next
-          ? 'Connected MCP clients will see the mcpmux_* toolset on next list_tools.'
-          : 'mcpmux_* is hidden from connected MCP clients.'
+        next ? t('toast.metaToolsEnabled') : t('toast.metaToolsDisabled'),
+        next ? t('toast.metaToolsEnabledDesc') : t('toast.metaToolsDisabledDesc')
       );
     } catch (e) {
       setMetaToolsEnabledState(previous);
-      error('Failed to save setting', e instanceof Error ? e.message : String(e));
+      error(t('toast.failedToSaveSetting'), e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -350,12 +347,12 @@ export function SettingsPage() {
       console.log('[Settings] Successfully saved:', newSettings);
       
       // Show success toast
-      success('Settings saved', 'Your preferences have been updated');
+      success(t('toast.settingsSaved'), t('toast.preferencesUpdated'));
     } catch (err) {
       console.error('[Settings] Failed to save:', err);
       // Show error toast
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      error('Failed to save settings', errorMessage);
+      error(t('toast.failedToSaveSettings'), errorMessage);
       // Revert on error
       setStartupSettings(oldSettings);
     } finally {
@@ -369,10 +366,15 @@ export function SettingsPage() {
     setSavingRetention(true);
     try {
       await saveLogRetentionDays(days);
-      success('Settings saved', `Log retention set to ${days === 0 ? 'keep forever' : `${days} days`}`);
+      success(
+        t('toast.settingsSaved'),
+        t('toast.logRetention', {
+          value: days === 0 ? t('toast.keepForever') : t('toast.days', { count: days }),
+        })
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      error('Failed to save setting', errorMessage);
+      error(t('toast.failedToSaveSetting'), errorMessage);
       setLogRetentionDays(oldDays);
     } finally {
       setSavingRetention(false);
@@ -396,8 +398,8 @@ export function SettingsPage() {
       {gatewayControl.ConfirmDialogElement}
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-[rgb(var(--muted))]">Configure McpMux preferences.</p>
+          <h1 className="text-2xl font-bold">{t('title')}</h1>
+          <p className="text-[rgb(var(--muted))]">{t('subtitle')}</p>
         </div>
 
       {/* Updates / About — desktop shows updater; web-admin shows build info */}
@@ -410,17 +412,15 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Power className="h-5 w-5" />
-            Startup & System Tray
+            {t('startup.title')}
           </CardTitle>
-          <CardDescription>
-            Control how McpMux starts and behaves with the system tray.
-          </CardDescription>
+          <CardDescription>{t('startup.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           {loadingSettings ? (
             <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))] mb-4">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading…
+              {t('loading')}
             </div>
           ) : null}
           <div className="space-y-6">
@@ -428,9 +428,9 @@ export function SettingsPage() {
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <Power className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
                   <div>
-                    <label className="text-sm font-medium">Launch at Startup</label>
+                    <label className="text-sm font-medium">{t('startup.autoLaunch')}</label>
                     <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                      Start McpMux automatically when you log in to your system
+                      {t('startup.autoLaunchDesc')}
                     </p>
                   </div>
                 </div>
@@ -449,9 +449,9 @@ export function SettingsPage() {
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <Minimize2 className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
                   <div>
-                    <label className="text-sm font-medium">Start Minimized</label>
+                    <label className="text-sm font-medium">{t('startup.startMinimized')}</label>
                     <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                      Launch in background to system tray (requires auto-launch enabled)
+                      {t('startup.startMinimizedDesc')}
                     </p>
                   </div>
                 </div>
@@ -470,9 +470,9 @@ export function SettingsPage() {
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <XCircle className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
                   <div>
-                    <label className="text-sm font-medium">Close to Tray</label>
+                    <label className="text-sm font-medium">{t('startup.closeToTray')}</label>
                     <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                      Keep running in system tray when window is closed (use "Quit" from tray to exit)
+                      {t('startup.closeToTrayDesc')}
                     </p>
                   </div>
                 </div>
@@ -490,7 +490,7 @@ export function SettingsPage() {
               {savingSettings && (
                 <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving settings...
+                  {t('savingSettings')}
                 </div>
               )}
           </div>
@@ -502,18 +502,15 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Network className="h-5 w-5" />
-            Gateway
+            {t('gateway.title')}
           </CardTitle>
-          <CardDescription>
-            The local port every AI client connects to. Changing it takes effect on the next
-            gateway start — existing IDE configs pointing at the old port will need updating.
-          </CardDescription>
+          <CardDescription>{t('gateway.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           {portSettings === null ? (
             <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading…
+              {t('loading')}
             </div>
           ) : (
             <div className="space-y-4">
@@ -524,24 +521,16 @@ export function SettingsPage() {
                     htmlFor="gateway-port-input"
                     className="text-sm font-medium"
                   >
-                    Gateway port
+                    {t('gateway.portLabel')}
                   </label>
                   <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                    Default is <span className="font-mono">{portSettings.defaultPort}</span>.
-                    Use a port between 1024 and 65535.
+                    {t('gateway.portDescDefault', { port: portSettings.defaultPort })}{' '}
                     {portSettings.activePort !== null ? (
                       <>
-                        {' '}Currently running on{' '}
-                        <span
-                          className="font-mono"
-                          data-testid="gateway-active-port"
-                        >
-                          :{portSettings.activePort}
-                        </span>
-                        .
+                        {t('gateway.portDescRunning', { port: portSettings.activePort })}
                       </>
                     ) : (
-                      ' Gateway is stopped.'
+                      t('gateway.portDescStopped')
                     )}
                   </p>
                   <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -574,7 +563,7 @@ export function SettingsPage() {
                       {savingPort ? (
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       ) : null}
-                      Save
+                      {t('common:actions.save')}
                     </Button>
                     <Button
                       variant="secondary"
@@ -588,8 +577,8 @@ export function SettingsPage() {
                       data-testid="gateway-port-reset-btn"
                       title={
                         portSettings.configuredPort === null
-                          ? 'Already using the default port'
-                          : `Reset to ${portSettings.defaultPort}`
+                          ? t('gateway.alreadyDefault')
+                          : t('gateway.resetTitle', { port: portSettings.defaultPort })
                       }
                     >
                       {resettingPort ? (
@@ -597,7 +586,7 @@ export function SettingsPage() {
                       ) : (
                         <RotateCcw className="h-4 w-4 mr-2" />
                       )}
-                      Reset to default
+                      {t('gateway.resetToDefault')}
                     </Button>
                   </div>
                   {portError ? (
@@ -618,19 +607,16 @@ export function SettingsPage() {
                     htmlFor="gateway-public-url-input"
                     className="text-sm font-medium"
                   >
-                    Public gateway URL
+                    {t('gateway.publicUrlLabel')}
                   </label>
                   <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                    HTTPS hostname for remote MCP clients via Cloudflare Tunnel. OAuth discovery
-                    uses this when requests arrive with matching{' '}
-                    <span className="font-mono">X-Forwarded-Host</span>. Local clients keep using{' '}
-                    <span className="font-mono">localhost</span>.
+                    {t('gateway.publicUrlDesc')}
                   </p>
                   <div className="flex flex-wrap items-center gap-2 mt-3">
                     <input
                       id="gateway-public-url-input"
                       type="url"
-                      placeholder="https://mcp.example.com"
+                      placeholder={t('gateway.publicUrlPlaceholder')}
                       value={publicUrlDraft}
                       onChange={(e) => {
                         setPublicUrlDraft(e.target.value);
@@ -653,7 +639,7 @@ export function SettingsPage() {
                       {savingPublicUrl ? (
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       ) : null}
-                      Save
+                      {t('common:actions.save')}
                     </Button>
                   </div>
                   {publicUrlError ? (
@@ -677,13 +663,13 @@ export function SettingsPage() {
                   <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
                     <p className="font-semibold text-amber-800 dark:text-amber-200">
-                      Restart required
+                      {t('gateway.restartRequired')}
                     </p>
                     <p className="text-amber-700 dark:text-amber-300 mt-0.5">
-                      Saved port <span className="font-mono">:{portSettings.configuredPort}</span>{' '}
-                      doesn't match the running port{' '}
-                      <span className="font-mono">:{portSettings.activePort}</span>. Restart the
-                      gateway to apply — your IDE configs will need to point at the new URL.
+                      {t('gateway.restartHint', {
+                        saved: portSettings.configuredPort,
+                        active: portSettings.activePort,
+                      })}
                     </p>
                   </div>
                   <Button
@@ -692,7 +678,7 @@ export function SettingsPage() {
                     onClick={handleRestartGateway}
                     data-testid="gateway-restart-btn"
                   >
-                    Restart gateway
+                    {t('gateway.restartButton')}
                   </Button>
                 </div>
               ) : null}
@@ -706,27 +692,24 @@ export function SettingsPage() {
                   <Globe className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
                   <div className="flex-1 min-w-0 space-y-4">
                     <div>
-                      <p className="text-sm font-medium">Web admin mode</p>
+                      <p className="text-sm font-medium">{t('gateway.webAdminTitle')}</p>
                       <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                        Serves the UI + REST API on loopback for remote access (e.g. Cloudflare
-                        Tunnel). Use{' '}
-                        <span className="font-mono">http://127.0.0.1:{adminPortDraft}</span> — not
-                        the Vite dev URL on :1420 unless admin is enabled and proxied.
+                        {t('gateway.webAdminDesc', { port: adminPortDraft })}
                       </p>
                     </div>
 
                     {loadingAdminWeb || adminWeb === null ? (
                       <div className="flex items-center gap-2 text-sm text-[rgb(var(--muted))]">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading…
+                        {t('loading')}
                       </div>
                     ) : (
                       <>
                         <div className="flex items-center justify-between gap-4">
                           <div>
-                            <p className="text-sm font-medium">Enable web admin</p>
+                            <p className="text-sm font-medium">{t('gateway.enableWebAdmin')}</p>
                             <p className="text-xs text-[rgb(var(--muted))]">
-                              Starts HTTP server on this Mac (default port 45819).
+                              {t('gateway.enableWebAdminDesc')}
                             </p>
                           </div>
                           <Switch
@@ -744,7 +727,7 @@ export function SettingsPage() {
                             htmlFor="admin-port-input"
                             className="text-sm font-medium"
                           >
-                            Admin port
+                            {t('gateway.adminPort')}
                           </label>
                           <div className="flex flex-wrap items-center gap-2 mt-2">
                             <input
@@ -770,16 +753,16 @@ export function SettingsPage() {
                               }
                               data-testid="settings-admin-port-save-btn"
                             >
-                              Save port
+                              {t('gateway.savePort')}
                             </Button>
                           </div>
                         </div>
 
                         <div className="flex items-center justify-between gap-4">
                           <div>
-                            <p className="text-sm font-medium">Trust Cloudflare Access JWT</p>
+                            <p className="text-sm font-medium">{t('gateway.trustCfAccess')}</p>
                             <p className="text-xs text-[rgb(var(--muted))]">
-                              Required for tunnel exposure; disable for local-only testing.
+                              {t('gateway.trustCfAccessDesc')}
                             </p>
                           </div>
                           <Switch
@@ -798,17 +781,16 @@ export function SettingsPage() {
                               htmlFor="admin-cf-domain-input"
                               className="text-sm font-medium"
                             >
-                              Cloudflare team domain
+                              {t('gateway.cfTeamDomain')}
                             </label>
                             <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                              Set this before enabling Trust CF Access JWT. Just the team slug
-                              (e.g. <code>your-team</code>), not the full URL.
+                              {t('gateway.cfTeamDomainDesc')}
                             </p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <input
                                 id="admin-cf-domain-input"
                                 type="text"
-                                placeholder="your-team.cloudflareaccess.com"
+                                placeholder={t('gateway.cfTeamDomainPlaceholder')}
                                 value={adminCfDomainDraft}
                                 onChange={(e) => setAdminCfDomainDraft(e.target.value)}
                                 disabled={savingAdminWeb || !adminWeb.enabled}
@@ -830,7 +812,7 @@ export function SettingsPage() {
                                   adminCfDomainDraft.trim() === adminWeb.cfTeamDomain
                                 }
                               >
-                                Save domain
+                                {t('gateway.saveDomain')}
                               </Button>
                             </div>
                           </div>
@@ -849,13 +831,13 @@ export function SettingsPage() {
       {/* Appearance Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Appearance</CardTitle>
-          <CardDescription>Customize the look and feel of McpMux.</CardDescription>
+          <CardTitle>{t('appearance.title')}</CardTitle>
+          <CardDescription>{t('appearance.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Theme</label>
+              <label className="text-sm font-medium">{t('appearance.theme')}</label>
               <div className="flex gap-2 mt-2" data-testid="theme-buttons">
                 <Button
                   variant={theme === 'light' ? 'primary' : 'secondary'}
@@ -864,7 +846,7 @@ export function SettingsPage() {
                   data-testid="theme-light-btn"
                 >
                   <Sun className="h-4 w-4 mr-2" />
-                  Light
+                  {t('appearance.light')}
                 </Button>
                 <Button
                   variant={theme === 'dark' ? 'primary' : 'secondary'}
@@ -873,7 +855,7 @@ export function SettingsPage() {
                   data-testid="theme-dark-btn"
                 >
                   <Moon className="h-4 w-4 mr-2" />
-                  Dark
+                  {t('appearance.dark')}
                 </Button>
                 <Button
                   variant={theme === 'system' ? 'primary' : 'secondary'}
@@ -882,7 +864,7 @@ export function SettingsPage() {
                   data-testid="theme-system-btn"
                 >
                   <Monitor className="h-4 w-4 mr-2" />
-                  System
+                  {t('appearance.system')}
                 </Button>
               </div>
             </div>
@@ -895,28 +877,17 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" />
-            Self-management tools (mcpmux_*)
+            {t('metaTools.title')}
           </CardTitle>
-          <CardDescription>
-            When enabled, connected MCP clients see a fixed meta-tool surface (~14 tools)
-            for search → schema → invoke and search → read/fetch workflows. FeatureSets
-            control what is invokable/readable/fetchable; optional surfaced items can
-            appear directly in tools/list, resources/list, or prompts/list. Writes always trigger
-            a native approval dialog; reads are silent.
-          </CardDescription>
+          <CardDescription>{t('metaTools.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3 flex-1 min-w-0">
               <Sparkles className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
               <div>
-                <label className="text-sm font-medium">Advertise self-management tools</label>
-                <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                  Shows <code className="font-mono">mcpmux_search_tools</code>,&nbsp;
-                  <code className="font-mono">mcpmux_invoke_tool</code>,&nbsp;
-                  <code className="font-mono">mcpmux_search_resources</code>, and other meta tools
-                  to every connected MCP client. Turn off to hide the whole namespace.
-                </p>
+                <label className="text-sm font-medium">{t('metaTools.advertise')}</label>
+                <p className="text-xs text-[rgb(var(--muted))] mt-1">{t('metaTools.advertiseDesc')}</p>
               </div>
             </div>
             <Switch
@@ -936,22 +907,17 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
-            Analytics
+            {t('analytics.title')}
           </CardTitle>
-          <CardDescription>
-            Help improve McpMux by sharing anonymous usage data. No personal information is collected.
-          </CardDescription>
+          <CardDescription>{t('analytics.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3 flex-1 min-w-0">
               <BarChart3 className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
               <div>
-                <label className="text-sm font-medium">Share Usage Data</label>
-                <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                  Sends anonymous data like app version, OS, and feature usage to help us prioritize improvements.
-                  Location is approximated from IP by PostHog. No credentials or server configurations are shared.
-                </p>
+                <label className="text-sm font-medium">{t('analytics.share')}</label>
+                <p className="text-xs text-[rgb(var(--muted))] mt-1">{t('analytics.shareDesc')}</p>
               </div>
             </div>
             <Switch
@@ -970,40 +936,37 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Heart className="h-5 w-5" />
-            Contribute &amp; feedback
+            {t('contribute.title')}
           </CardTitle>
-          <CardDescription>
-            mcpmux is open source. Request a server, report a bug, suggest a feature, or jump
-            straight to the source.
-          </CardDescription>
+          <CardDescription>{t('contribute.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ContributeRow
               icon={Package}
-              title="Request a new server"
-              subtitle="Ask the community to add an MCP server to the registry"
+              title={t('contribute.requestServer')}
+              subtitle={t('contribute.requestServerDesc')}
               onClick={() => openExternal(CONTRIBUTE.requestServer())}
               testId="contribute-request-server"
             />
             <ContributeRow
               icon={Bug}
-              title="Report a bug"
-              subtitle="Something broken in the desktop app or gateway"
+              title={t('contribute.reportBug')}
+              subtitle={t('contribute.reportBugDesc')}
               onClick={() => openExternal(CONTRIBUTE.bug)}
               testId="contribute-report-bug"
             />
             <ContributeRow
               icon={Lightbulb}
-              title="Suggest a feature"
-              subtitle="An idea for mcpmux itself"
+              title={t('contribute.suggestFeature')}
+              subtitle={t('contribute.suggestFeatureDesc')}
               onClick={() => openExternal(CONTRIBUTE.featureRequest)}
               testId="contribute-feature-request"
             />
             <ContributeRow
               icon={Github}
-              title="Open on GitHub"
-              subtitle="Browse source, issues, pull requests"
+              title={t('contribute.openGithub')}
+              subtitle={t('contribute.openGithubDesc')}
               onClick={() => openExternal(CONTRIBUTE.repo)}
               testId="contribute-open-github"
             />
@@ -1016,16 +979,16 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Logs
+            {t('logs.title')}
           </CardTitle>
-          <CardDescription>View application logs for debugging and troubleshooting.</CardDescription>
+          <CardDescription>{t('logs.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Log Files Location</label>
+              <label className="text-sm font-medium">{t('logs.location')}</label>
               <p className="text-sm text-[rgb(var(--muted))] mt-1 font-mono bg-surface-secondary rounded px-2 py-1" data-testid="logs-path">
-                {logsPath || 'Loading...'}
+                {logsPath || t('logs.loading')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1042,7 +1005,7 @@ export function SettingsPage() {
                   ) : (
                     <FolderOpen className="h-4 w-4 mr-2" />
                   )}
-                  Open Logs Folder
+                  {t('logs.openFolder')}
                 </Button>
               ) : null}
             </div>
@@ -1051,9 +1014,9 @@ export function SettingsPage() {
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <Trash2 className="h-5 w-5 mt-0.5 text-[rgb(var(--muted))] flex-shrink-0" />
                   <div>
-                    <label className="text-sm font-medium">Auto-Cleanup</label>
+                    <label className="text-sm font-medium">{t('logs.autoCleanup')}</label>
                     <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                      Automatically delete log files older than the selected period
+                      {t('logs.autoCleanupDesc')}
                     </p>
                   </div>
                 </div>
@@ -1064,17 +1027,17 @@ export function SettingsPage() {
                   className="px-3 py-1.5 text-sm border border-[rgb(var(--border))] rounded-lg bg-[rgb(var(--surface))] text-[rgb(var(--foreground))]"
                   data-testid="log-retention-select"
                 >
-                  <option value={7}>7 days</option>
-                  <option value={14}>14 days</option>
-                  <option value={30}>30 days</option>
-                  <option value={60}>60 days</option>
-                  <option value={90}>90 days</option>
-                  <option value={0}>Keep forever</option>
+                  <option value={7}>{t('logs.retention7')}</option>
+                  <option value={14}>{t('logs.retention14')}</option>
+                  <option value={30}>{t('logs.retention30')}</option>
+                  <option value={60}>{t('logs.retention60')}</option>
+                  <option value={90}>{t('logs.retention90')}</option>
+                  <option value={0}>{t('logs.keepForever')}</option>
                 </select>
               </div>
             </div>
             <p className="text-xs text-[rgb(var(--muted))]">
-              Logs are rotated daily. Each file contains detailed debug information including thread IDs and source locations.
+              {t('logs.footer')}
             </p>
           </div>
         </CardContent>

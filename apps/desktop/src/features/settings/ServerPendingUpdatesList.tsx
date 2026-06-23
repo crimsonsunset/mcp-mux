@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Button } from '@mcpmux/ui';
 import { Download, Loader2 } from 'lucide-react';
 
@@ -28,6 +29,8 @@ export function ServerPendingUpdatesList({
   onUpdateOne,
   onUpdateAll,
 }: ServerPendingUpdatesListProps) {
+  const { t } = useTranslation('settings');
+
   if (updates.length === 0) {
     return null;
   }
@@ -41,7 +44,7 @@ export function ServerPendingUpdatesList({
     >
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium">
-          {updates.length} update{updates.length === 1 ? '' : 's'} available
+          {t('serverUpdates.pending.available', { count: updates.length })}
         </p>
         <Button
           type="button"
@@ -53,12 +56,12 @@ export function ServerPendingUpdatesList({
           {updatingAll ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Updating…
+              {t('serverUpdates.pending.updating')}
             </>
           ) : (
             <>
               <Download className="h-4 w-4" />
-              Update All
+              {t('serverUpdates.pending.updateAll')}
             </>
           )}
         </Button>
@@ -78,8 +81,10 @@ export function ServerPendingUpdatesList({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{update.name}</p>
                 <p className="text-xs text-[rgb(var(--muted))]">
-                  {update.currentVersion ? `v${update.currentVersion}` : 'unpinned'} → v
-                  {update.latestVersion}
+                  {update.currentVersion
+                    ? `v${update.currentVersion}`
+                    : t('serverUpdates.pending.unpinned')}{' '}
+                  → v{update.latestVersion}
                 </p>
               </div>
               <Button
@@ -88,13 +93,13 @@ export function ServerPendingUpdatesList({
                 variant="secondary"
                 onClick={() => onUpdateOne(update)}
                 disabled={!update.enabled || isUpdating}
-                title={update.enabled ? undefined : 'Enable the server before updating'}
+                title={update.enabled ? undefined : t('serverUpdates.pending.enableFirst')}
                 data-testid={`update-server-${update.serverId}`}
               >
                 {isUpdating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  'Update'
+                  t('serverUpdates.pending.update')
                 )}
               </Button>
             </li>
