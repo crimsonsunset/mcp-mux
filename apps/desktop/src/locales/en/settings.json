@@ -216,5 +216,46 @@
       "unpinned": "unpinned",
       "enableFirst": "Enable the server before updating"
     }
+  },
+  "updates": {
+    "title": "Software Updates",
+    "description": "Keep your application up to date with the latest features and fixes.",
+    "currentVersion": "Current Version",
+    "restartRequired": "Restart Required",
+    "restartDescription": "Version v{{bundleVersion}} has been installed on disk, but you are still running v{{currentVersion}}. Restart to apply the update.",
+    "restartNow": "Restart Now",
+    "checking": "Checking for Updates...",
+    "checkForUpdates": "Check for Updates",
+    "versionAvailable": "Version {{version}} is available!",
+    "latestVersion": "You're running the latest version!",
+    "checkFailed": "Failed to check for updates: {{error}}",
+    "installFailed": "Failed to install update: {{error}}",
+    "updateAvailableTitle": "Update Available: v{{version}}",
+    "released": "Released: {{date}}",
+    "whatsNew": "What's New:",
+    "downloading": "Downloading...",
+    "installing": "Installing...",
+    "downloadAndInstall": "Download and Install",
+    "remindLater": "Remind Me Later",
+    "windowsNote": "Note: On Windows, the app will close automatically to install the update."
+  },
+  "about": {
+    "title": "About McpMux",
+    "description": "Version and build details for support and debugging.",
+    "currentVersion": "Current Version",
+    "loading": "Loading…",
+    "unknownVersion": "unknown"
+  },
+  "buildStamp": {
+    "loading": "Loading build info…",
+    "unavailable": "Build info unavailable",
+    "buildHeading": "Build",
+    "uiBundleHeading": "UI bundle",
+    "webAdminMismatchTitle": "Web admin UI is out of date",
+    "desktopMismatchTitle": "UI bundle mismatch",
+    "webAdminMismatchDescBefore": "The served bundle ({{spaSha}}) does not match the running backend ({{backendSha}}). From the repo root run",
+    "webAdminMismatchDescAfter": "then hard-refresh this page.",
+    "webAdminBuildCommand": "pnpm build:web:admin",
+    "desktopMismatchDesc": "UI bundle ({{spaSha}}) differs from running app ({{backendSha}})."
   }
 }

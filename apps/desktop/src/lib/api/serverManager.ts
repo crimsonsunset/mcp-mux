@@ -1,4 +1,4 @@
-/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import type { TFunction } from 'i18next';
 /**
  * Server Manager API — event-driven connection lifecycle (ServerManager path).
  *
@@ -293,26 +293,23 @@ export async function onFeaturesUpdated(
 // ============================================================================
 
 /**
- * Get the appropriate button label based on connection status and history
- *
- * @param status Current connection status
- * @param hasConnectedBefore Whether user has successfully connected before
- * @returns Button label string
+ * Get the appropriate button label based on connection status and history.
  */
 export function getConnectButtonLabel(
+  t: TFunction<'servers'>,
   status: ConnectionStatus,
   hasConnectedBefore: boolean
 ): string {
-  if (status === "oauth_required" || status === "error") {
-    return hasConnectedBefore ? "Reconnect" : "Connect";
+  if (status === 'oauth_required' || status === 'error') {
+    return hasConnectedBefore ? t('actions.reconnect') : t('actions.connect');
   }
-  if (status === "authenticating") {
-    return "Authenticating...";
+  if (status === 'authenticating') {
+    return t('actions.authenticating');
   }
-  if (status === "connecting") {
-    return "Connecting...";
+  if (status === 'connecting') {
+    return t('actions.connecting');
   }
-  return "Connect";
+  return t('actions.connect');
 }
 
 /**

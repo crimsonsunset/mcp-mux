@@ -2081,7 +2081,7 @@ export function ServersPage() {
                           className="input w-full"
                           data-testid={`config-input-${input.id}`}
                         >
-                          <option value="">{input.placeholder || `Select ${input.label.toLowerCase()}...`}</option>
+                          <option value="">{input.placeholder || t('configModal.selectOption', { label: input.label.toLowerCase() })}</option>
                           {(input.options ?? []).map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
@@ -2096,7 +2096,7 @@ export function ServersPage() {
                             type="text"
                             value={currentValue}
                             onChange={(e) => handleChange(e.target.value)}
-                            placeholder={input.placeholder || 'Select a file...'}
+                            placeholder={input.placeholder || t('configModal.selectFile')}
                             className="input w-full"
                             data-testid={`config-input-${input.id}`}
                           />
@@ -2121,7 +2121,7 @@ export function ServersPage() {
                             type="text"
                             value={currentValue}
                             onChange={(e) => handleChange(e.target.value)}
-                            placeholder={input.placeholder || 'Select a directory...'}
+                            placeholder={input.placeholder || t('configModal.selectDirectory')}
                             className="input w-full"
                             data-testid={`config-input-${input.id}`}
                           />
@@ -2146,7 +2146,7 @@ export function ServersPage() {
                           type={input.secret ? 'password' : 'text'}
                           value={currentValue}
                           onChange={(e) => handleChange(e.target.value)}
-                          placeholder={input.placeholder || `Enter ${input.label.toLowerCase()}...`}
+                          placeholder={input.placeholder || t('configModal.enterOption', { label: input.label.toLowerCase() })}
                           className="input w-full"
                           data-testid={`config-input-${input.id}`}
                         />
@@ -2171,7 +2171,7 @@ export function ServersPage() {
                         rel="noopener noreferrer"
                         className="text-xs text-[rgb(var(--primary))] hover:underline mt-1 inline-block"
                       >
-                        {obtainInstructions || 'Get your key here →'}
+                        {obtainInstructions || t('configModal.getKey')}
                       </a>
                     )}
                   </div>
@@ -2182,10 +2182,10 @@ export function ServersPage() {
               {configModal.server.transport.type === 'stdio' && (
                 <div>
                   <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
-                    Additional Arguments
+                    {t('configModal.additionalArgs')}
                   </label>
                   <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                    Extra command-line arguments (one per line)
+                    {t('configModal.additionalArgsDesc')}
                   </p>
                   <textarea
                     value={configModal.argsAppend.join('\n')}
@@ -2203,7 +2203,7 @@ export function ServersPage() {
                         argsAppend: e.target.value.split('\n').filter((l) => l.trim().length > 0),
                       });
                     }}
-                    placeholder="--flag&#10;value"
+                    placeholder={t('configModal.argsPlaceholder')}
                     rows={3}
                     className="input w-full font-mono text-sm resize-y"
                     data-testid="config-args-append"
@@ -2214,12 +2214,12 @@ export function ServersPage() {
               {/* Environment Variable Overrides */}
               <div data-testid="config-env-section">
                 <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
-                  Environment Variables
+                  {t('configModal.envVars')}
                 </label>
                 <p className="text-xs text-[rgb(var(--muted))] mb-2">
                   {configModal.server.transport.type === 'stdio'
-                    ? 'Additional environment variables for the server process'
-                    : 'Additional environment variables'}
+                    ? t('configModal.envVarsStdio')
+                    : t('configModal.envVarsDefault')}
                 </p>
                 <div className="space-y-2">
                   {Object.entries(configModal.envOverrides).map(([key, value], idx) => (
@@ -2235,7 +2235,7 @@ export function ServersPage() {
                             envOverrides: Object.fromEntries(entries),
                           });
                         }}
-                        placeholder="KEY"
+                        placeholder={t('configModal.keyPlaceholder')}
                         className="input flex-1 font-mono text-sm"
                       />
                       <input
@@ -2247,7 +2247,7 @@ export function ServersPage() {
                             envOverrides: { ...configModal.envOverrides, [key]: e.target.value },
                           });
                         }}
-                        placeholder="value"
+                        placeholder={t('configModal.valuePlaceholder')}
                         className="input flex-1 font-mono text-sm"
                       />
                       <button
@@ -2257,7 +2257,7 @@ export function ServersPage() {
                           setConfigModal({ ...configModal, envOverrides: rest });
                         }}
                         className="px-2 py-1 text-sm text-[rgb(var(--muted))] hover:text-[rgb(var(--error))] transition-colors"
-                        title="Remove"
+                        title={t('configModal.remove')}
                       >
                         ✕
                       </button>
@@ -2273,7 +2273,7 @@ export function ServersPage() {
                     className="text-xs text-[rgb(var(--primary))] hover:underline"
                     data-testid="config-add-env"
                   >
-                    + Add variable
+                    {t('configModal.addVariable')}
                   </button>
                 </div>
               </div>
@@ -2282,10 +2282,10 @@ export function ServersPage() {
               {configModal.server.transport.type === 'http' && (
                 <div data-testid="config-headers-section">
                   <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
-                    HTTP Headers
+                    {t('configModal.httpHeaders')}
                   </label>
                   <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                    Custom HTTP headers sent with each request
+                    {t('configModal.httpHeadersDesc')}
                   </p>
                   <div className="space-y-2">
                     {Object.entries(configModal.extraHeaders).map(([key, value], idx) => (
@@ -2301,7 +2301,7 @@ export function ServersPage() {
                               extraHeaders: Object.fromEntries(entries),
                             });
                           }}
-                          placeholder="Header-Name"
+                          placeholder={t('configModal.headerNamePlaceholder')}
                           className="input flex-1 font-mono text-sm"
                         />
                         <input
@@ -2313,7 +2313,7 @@ export function ServersPage() {
                               extraHeaders: { ...configModal.extraHeaders, [key]: e.target.value },
                             });
                           }}
-                          placeholder="value"
+                          placeholder={t('configModal.valuePlaceholder')}
                           className="input flex-1 font-mono text-sm"
                         />
                         <button
@@ -2323,7 +2323,7 @@ export function ServersPage() {
                             setConfigModal({ ...configModal, extraHeaders: rest });
                           }}
                           className="px-2 py-1 text-sm text-[rgb(var(--muted))] hover:text-[rgb(var(--error))] transition-colors"
-                          title="Remove"
+                          title={t('configModal.remove')}
                         >
                           ✕
                         </button>
@@ -2339,7 +2339,7 @@ export function ServersPage() {
                       className="text-xs text-[rgb(var(--primary))] hover:underline"
                       data-testid="config-add-header"
                     >
-                      + Add header
+                      {t('configModal.addHeader')}
                     </button>
                   </div>
                 </div>
@@ -2354,7 +2354,7 @@ export function ServersPage() {
                         htmlFor="config-update-policy"
                         className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
                       >
-                        Update Policy
+                        {t('configModal.updatePolicy')}
                       </label>
                       <p className="text-xs text-[rgb(var(--muted))] mb-2">
                         {
@@ -2389,10 +2389,10 @@ export function ServersPage() {
                           htmlFor="config-pinned-version"
                           className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
                         >
-                          Pinned Version
+                          {t('configModal.pinnedVersion')}
                         </label>
                         <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                          Exact semver injected on every spawn (e.g. 1.2.3)
+                          {t('configModal.pinnedVersionDesc')}
                         </p>
                         <input
                           id="config-pinned-version"
@@ -2408,7 +2408,7 @@ export function ServersPage() {
                         {configModal.pinnedVersion.trim().length > 0 &&
                           !isValidSemver(configModal.pinnedVersion) && (
                             <p className="text-xs text-[rgb(var(--error))] mt-1">
-                              Enter a valid semver (e.g. 1.2.3)
+                              {t('configModal.invalidSemver')}
                             </p>
                           )}
                       </div>
@@ -2430,7 +2430,7 @@ export function ServersPage() {
                           }
                           return (
                             <p>
-                              Current:{' '}
+                              {t('configModal.current')}{' '}
                               <span className="font-mono text-[rgb(var(--foreground))]">
                                 {currentVersion}
                               </span>
@@ -2439,7 +2439,7 @@ export function ServersPage() {
                         })()}
                         {configModal.server.latest_available_version && (
                           <p>
-                            Latest:{' '}
+                            {t('configModal.latest')}{' '}
                             <span className="font-mono text-[rgb(var(--foreground))]">
                               {configModal.server.latest_available_version}
                             </span>
@@ -2452,10 +2452,10 @@ export function ServersPage() {
 
               <div>
                 <label className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1">
-                  Default Tool Parameters
+                  {t('configModal.defaultParams')}
                 </label>
                 <p className="text-xs text-[rgb(var(--muted))] mb-2">
-                  JSON object merged into every tool call for this server. Example:{' '}
+                  {t('configModal.defaultParamsDesc')}{' '}
                   <code className="font-mono">{`{"cloudId": "abc123"}`}</code>
                 </p>
                 <textarea
@@ -2470,7 +2470,7 @@ export function ServersPage() {
                   spellCheck={false}
                 />
                 <div className="flex items-center gap-2 mt-2">
-                  <label className="text-xs text-[rgb(var(--muted))]">On collision:</label>
+                  <label className="text-xs text-[rgb(var(--muted))]">{t('configModal.onCollision')}</label>
                   <select
                     value={configModal.defaultParamsStrategy}
                     onChange={(e) =>
@@ -2482,8 +2482,8 @@ export function ServersPage() {
                     className="text-xs border border-[rgb(var(--border))] rounded px-2 py-1 bg-[rgb(var(--surface))] text-[rgb(var(--foreground))]"
                     data-testid="config-default-params-strategy"
                   >
-                    <option value="fill">Caller wins</option>
-                    <option value="override">Defaults win</option>
+                    <option value="fill">{t('configModal.callerWins')}</option>
+                    <option value="override">{t('configModal.defaultsWin')}</option>
                   </select>
                 </div>
               </div>

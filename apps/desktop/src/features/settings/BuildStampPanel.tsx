@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useBuildStamp, type UseBuildStampResult } from './use-build-stamp.hook';
 import type { BuildStampRow } from '@/lib/build-info.helpers';
@@ -22,6 +23,7 @@ export function BuildStampPanelContent({
   context: BuildStampContext;
   stamp: UseBuildStampResult;
 }) {
+  const { t } = useTranslation('settings');
   const { backendRows, spaRows, spaSha, backendSha, hasMismatch, loading, error } = stamp;
 
   if (loading) {
@@ -31,7 +33,7 @@ export function BuildStampPanelContent({
         data-testid="build-stamp-panel"
       >
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Loading build info…
+        {t('buildStamp.loading')}
       </div>
     );
   }
@@ -39,14 +41,14 @@ export function BuildStampPanelContent({
   if (error) {
     return (
       <p className="text-xs text-[rgb(var(--muted))] mt-2" data-testid="build-stamp-panel">
-        Build info unavailable
+        {t('buildStamp.unavailable')}
       </p>
     );
   }
 
   return (
     <div className="mt-3 space-y-3" data-testid="build-stamp-panel">
-      <BuildStampRowGroup rows={backendRows} heading="Build" />
+      <BuildStampRowGroup rows={backendRows} heading={t('buildStamp.buildHeading')} />
 
       {hasMismatch ? (
         <div
@@ -57,23 +59,21 @@ export function BuildStampPanelContent({
           <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-semibold text-amber-800 dark:text-amber-200">
-              {context === 'web-admin' ? 'Web admin UI is out of date' : 'UI bundle mismatch'}
+              {context === 'web-admin'
+                ? t('buildStamp.webAdminMismatchTitle')
+                : t('buildStamp.desktopMismatchTitle')}
             </p>
             <p className="text-amber-700 dark:text-amber-300 mt-0.5">
               {context === 'web-admin' ? (
                 <>
-                  The served bundle ({spaSha}) does not match the running backend ({backendSha}).
-                  From the repo root run{' '}
+                  {t('buildStamp.webAdminMismatchDescBefore', { spaSha, backendSha })}{' '}
                   <code className="font-mono text-[11px] bg-amber-100/80 dark:bg-amber-900/40 px-1 py-0.5 rounded">
-                    pnpm build:web:admin
+                    {t('buildStamp.webAdminBuildCommand')}
                   </code>{' '}
-                  then hard-refresh this page.
+                  {t('buildStamp.webAdminMismatchDescAfter')}
                 </>
               ) : (
-                <>
-                  UI bundle (<span className="font-mono">{spaSha}</span>) differs from running app (
-                  <span className="font-mono">{backendSha}</span>).
-                </>
+                t('buildStamp.desktopMismatchDesc', { spaSha, backendSha })
               )}
             </p>
           </div>
@@ -81,7 +81,11 @@ export function BuildStampPanelContent({
       ) : null}
 
       {hasMismatch ? (
-        <BuildStampRowGroup rows={spaRows} heading="UI bundle" testIdPrefix="spa-" />
+        <BuildStampRowGroup
+          rows={spaRows}
+          heading={t('buildStamp.uiBundleHeading')}
+          testIdPrefix="spa-"
+        />
       ) : null}
     </div>
   );

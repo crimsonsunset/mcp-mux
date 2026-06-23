@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import {
   Button,
@@ -9,10 +10,12 @@ import {
   HoverTooltip,
 } from '@mcpmux/ui';
 import {
-  STATUS_FILTERS,
-  TRANSPORT_FILTERS,
+  STATUS_FILTER_IDS,
+  TRANSPORT_FILTER_IDS,
   countActiveServerFilters,
   describeAppliedServerFilters,
+  getStatusFilterLabel,
+  getTransportFilterLabel,
   type StatusFilterKey,
   type TransportFilter,
 } from './servers-page.helpers';
@@ -37,13 +40,14 @@ export function ServersFiltersPopover({
   onClearStatusFilters,
   onClearAllFilters,
 }: ServersFiltersPopoverProps) {
+  const { t } = useTranslation('servers');
   const [open, setOpen] = useState(false);
   const activeCount = countActiveServerFilters(transportFilter, activeStatusFilters);
-  const appliedFilterLines = describeAppliedServerFilters(transportFilter, activeStatusFilters);
+  const appliedFilterLines = describeAppliedServerFilters(t, transportFilter, activeStatusFilters);
 
   return (
     <HoverTooltip
-      title="Applied filters"
+      title={t('filters.appliedTitle')}
       lines={appliedFilterLines}
       hidden={open}
       data-testid="servers-filters-tooltip"
@@ -58,7 +62,7 @@ export function ServersFiltersPopover({
             onClick={onClearAllFilters}
             data-testid="servers-filters-clear-all"
           >
-            Clear all
+            {t('filters.clearAll')}
           </Button>
         )}
         <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -74,7 +78,7 @@ export function ServersFiltersPopover({
               }
             >
               <SlidersHorizontal className="h-4 w-4" />
-              Filters
+              {t('filters.filters')}
               {activeCount > 0 && (
                 <span
                   className="min-w-[1.25rem] px-1.5 py-0.5 text-xs font-semibold rounded-full bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))]"
@@ -90,24 +94,24 @@ export function ServersFiltersPopover({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72 p-4 space-y-4" data-testid="servers-filters-popover">
           <div className="space-y-2">
-            <p className="text-xs font-medium text-[rgb(var(--muted))]">Transport</p>
+            <p className="text-xs font-medium text-[rgb(var(--muted))]">{t('filters.transport')}</p>
             <div className="flex flex-wrap gap-2">
-              {TRANSPORT_FILTERS.map((filter) => (
+              {TRANSPORT_FILTER_IDS.map((filterId) => (
                 <ChipButton
-                  key={filter.id}
-                  active={transportFilter === filter.id}
+                  key={filterId}
+                  active={transportFilter === filterId}
                   variant="fill"
-                  onClick={() => onTransportFilterChange(filter.id)}
-                  data-testid={`servers-transport-filter-${filter.id}`}
+                  onClick={() => onTransportFilterChange(filterId)}
+                  data-testid={`servers-transport-filter-${filterId}`}
                 >
-                  {filter.label}
+                  {getTransportFilterLabel(t, filterId)}
                 </ChipButton>
               ))}
             </div>
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs font-medium text-[rgb(var(--muted))]">Status</p>
+            <p className="text-xs font-medium text-[rgb(var(--muted))]">{t('filters.status')}</p>
             <div className="flex flex-wrap gap-2">
               <ChipButton
                 active={activeStatusFilters.size === 0}
@@ -115,23 +119,21 @@ export function ServersFiltersPopover({
                 onClick={onClearStatusFilters}
                 data-testid="servers-status-filter-all"
               >
-                All
+                {t('filters.all')}
               </ChipButton>
-              {STATUS_FILTERS.map((filter) => (
+              {STATUS_FILTER_IDS.map((filterId) => (
                 <ChipButton
-                  key={filter.id}
-                  active={activeStatusFilters.has(filter.id)}
+                  key={filterId}
+                  active={activeStatusFilters.has(filterId)}
                   variant="outline"
-                  onClick={() => onToggleStatusFilter(filter.id)}
-                  data-testid={`servers-status-filter-${filter.id}`}
+                  onClick={() => onToggleStatusFilter(filterId)}
+                  data-testid={`servers-status-filter-${filterId}`}
                 >
-                  {filter.label}
+                  {getStatusFilterLabel(t, filterId)}
                 </ChipButton>
               ))}
             </div>
-            <p className="text-xs text-[rgb(var(--muted))]">
-              Combine status filters (e.g. Connected + Error). All = no status filter.
-            </p>
+            <p className="text-xs text-[rgb(var(--muted))]">{t('filters.combineHint')}</p>
           </div>
           </DropdownMenuContent>
         </DropdownMenu>

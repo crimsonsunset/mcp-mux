@@ -141,7 +141,81 @@
     "cancel": "Cancel",
     "save": "Save",
     "saveAndEnable": "Save & Enable",
-    "saveAndReconnect": "Save & Reconnect"
+    "saveAndReconnect": "Save & Reconnect",
+    "keyPlaceholder": "KEY",
+    "valuePlaceholder": "value",
+    "headerNamePlaceholder": "Header-Name",
+    "argsPlaceholder": "--flag\nvalue"
+  },
+  "cloneModal": {
+    "title": "Add another account",
+    "subtitle": "Clone {{name}} with a separate credential set",
+    "closeAria": "Close",
+    "displayName": "Display name",
+    "displayNameDesc": "Shown in My Servers only. Leave blank to use the default.",
+    "displayNamePlaceholder": "{{name}} ({{suffix}})",
+    "displayNamePlaceholderDefault": "{{name}} (work)",
+    "accountLabel": "Account label",
+    "accountLabelDesc": "Used in the server ID and tool prefix (e.g. work, personal)",
+    "accountLabelPlaceholder": "work",
+    "collisionError": "An account with this label already exists in this space",
+    "suggestions": "Suggestions",
+    "serverId": "Server ID",
+    "toolPrefix": "Tool prefix",
+    "checkingAvailability": "Checking availability…",
+    "footerNote": "The clone copies the server definition but not credentials. You will configure this account before enabling it.",
+    "creating": "Creating…",
+    "createAccount": "Create account"
+  },
+  "uninstallClones": {
+    "title": "Uninstall server with account clones?",
+    "description_one": "{{sourceName}} has {{count}} account clone in this space: {{dependentList}}.",
+    "description_other": "{{sourceName}} has {{count}} account clones in this space: {{dependentList}}.",
+    "hint": "Uninstalling the source leaves clones installed and working. You can also remove everything at once.",
+    "sourceOnly": "Uninstall source only",
+    "uninstallAll": "Uninstall all ({{count}})"
+  },
+  "addMenu": {
+    "addServer": "Add Server",
+    "discover": "Discover from registry",
+    "discoverDesc": "Browse the community catalog — install with guided setup, OAuth, and credential fields.",
+    "custom": "Add custom server",
+    "customDesc": "Edit your Space JSON config for local CLIs, private servers, or anything not in the registry."
+  },
+  "filters": {
+    "appliedTitle": "Applied filters",
+    "clearAll": "Clear all",
+    "filters": "Filters",
+    "transport": "Transport",
+    "status": "Status",
+    "all": "All",
+    "combineHint": "Combine status filters (e.g. Connected + Error). All = no status filter.",
+    "transportAll": "All",
+    "transportStdio": "stdio",
+    "transportHttp": "http",
+    "statusConnected": "Connected",
+    "statusDisabled": "Disabled",
+    "statusError": "Error",
+    "statusNeedsSetup": "Needs setup",
+    "noFiltersApplied": "No filters applied",
+    "showingAll": "Showing all servers",
+    "transportLine": "Transport: {{label}}",
+    "statusLine": "Status: {{label}}"
+  },
+  "countSummary": {
+    "title": "Installed servers",
+    "inline": "{{installed}} installed, {{connected}} connected, {{disabled}} disabled, {{error}} error",
+    "installed": "{{count}} installed",
+    "connected": "{{count}} connected",
+    "disabled": "{{count}} disabled",
+    "error": "{{count}} error",
+    "needsSetup": "{{count}} needs setup"
+  },
+  "enabledToggle": {
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "enabling": "Enabling…",
+    "disabling": "Disabling…"
   },
   "updatePolicy": {
     "notify": {
