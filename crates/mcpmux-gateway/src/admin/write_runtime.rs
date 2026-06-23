@@ -11,10 +11,10 @@ use tokio::sync::RwLock;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::pool::transport::resolution::{
-    build_transport_config, TransportResolutionOptions,
+use crate::pool::transport::resolution::{build_transport_config, TransportResolutionOptions};
+use crate::pool::{
+    ConnectionContext, ConnectionResult, FeatureService, PoolService, ServerKey, ServerManager,
 };
-use crate::pool::{ConnectionContext, ConnectionResult, FeatureService, PoolService, ServerKey, ServerManager};
 use crate::server::GatewayServer;
 use crate::services::ServerVersionProbeService;
 use crate::GatewayState;
@@ -222,9 +222,7 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
                     .mark_unavailable(&space_id, &server_id)
                     .await
                 {
-                    warn!(
-                        "[LiveGatewayWriteRuntime] Failed to mark features unavailable: {error}"
-                    );
+                    warn!("[LiveGatewayWriteRuntime] Failed to mark features unavailable: {error}");
                 }
             }
             ConnectionResult::Failed { error } => {

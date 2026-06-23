@@ -577,10 +577,15 @@ async fn search_surfaces_display_name_and_prefilled_required_params() {
     bind_github_only_to_session_root(&f).await;
 
     let mut github = InstalledServer::new(&f.space_id.to_string(), "github")
-        .with_definition(&stdio_definition_with_required_input("github", "github_token"))
+        .with_definition(&stdio_definition_with_required_input(
+            "github",
+            "github_token",
+        ))
         .with_input("github_token", "secret")
         .with_display_name_override(Some("Jira - S2H"));
-    github.default_params.insert("cloudId".to_string(), json!("site-uuid"));
+    github
+        .default_params
+        .insert("cloudId".to_string(), json!("site-uuid"));
     f.installed_server_repo.install(&github).await.unwrap();
 
     let mut create_issue = f
@@ -1212,8 +1217,11 @@ async fn bind_ready_github_with_inactive_create_issue(f: &Fixture) -> String {
     let root = "/tmp/mcpmux-ready-inactive-preview";
     f.session_roots.set_roots_capable(&f.session_id, true);
     f.session_roots.set(&f.session_id, [root]);
-    let binding =
-        WorkspaceBinding::new(normalize_workspace_root(root), f.space_id, bound_fs_id.clone());
+    let binding = WorkspaceBinding::new(
+        normalize_workspace_root(root),
+        f.space_id,
+        bound_fs_id.clone(),
+    );
     f.binding_repo.create(&binding).await.unwrap();
     inactive_fs_id
 }
@@ -1221,9 +1229,12 @@ async fn bind_ready_github_with_inactive_create_issue(f: &Fixture) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn list_servers_includes_prefilled_params_when_default_params_set() {
     let f = Fixture::new().await;
-    let mut github = InstalledServer::new(&f.space_id.to_string(), "github")
-        .with_definition(&stdio_definition_with_required_input("github", "github_token"));
-    github.default_params.insert("cloudId".to_string(), json!("site-uuid"));
+    let mut github = InstalledServer::new(&f.space_id.to_string(), "github").with_definition(
+        &stdio_definition_with_required_input("github", "github_token"),
+    );
+    github
+        .default_params
+        .insert("cloudId".to_string(), json!("site-uuid"));
     f.installed_server_repo.install(&github).await.unwrap();
 
     let result = f

@@ -145,11 +145,8 @@ impl MetaTool for ListServersTool {
                 }
                 if let Some(server) = installed {
                     if !server.default_params.is_empty() {
-                        let mut keys: Vec<&str> = server
-                            .default_params
-                            .keys()
-                            .map(String::as_str)
-                            .collect();
+                        let mut keys: Vec<&str> =
+                            server.default_params.keys().map(String::as_str).collect();
                         keys.sort_unstable();
                         entry["prefilled_params"] = json!(keys);
                     }

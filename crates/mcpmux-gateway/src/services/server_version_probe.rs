@@ -258,8 +258,11 @@ impl ServerVersionProbeService {
             .await?;
 
         let npm_package_version = npm_package_version_suffix(server, &spec);
-        let update_available =
-            probe_update_available(current_version.as_deref(), latest_version.as_deref(), npm_package_version.as_deref());
+        let update_available = probe_update_available(
+            current_version.as_deref(),
+            latest_version.as_deref(),
+            npm_package_version.as_deref(),
+        );
 
         if update_available {
             let space_uuid = Uuid::parse_str(&server.space_id)
@@ -333,8 +336,7 @@ fn npm_package_version_suffix(server: &InstalledServer, spec: &PackageSpec) -> O
         return None;
     };
 
-    find_npx_package_arg(&args)
-        .and_then(|package| split_npm_package_arg(&package).1)
+    find_npx_package_arg(&args).and_then(|package| split_npm_package_arg(&package).1)
 }
 
 /// Best-effort current version: pin, package suffix, uv tool list, or uv arg pin.
@@ -373,8 +375,11 @@ async fn current_version(
             let cache_version = tokio::task::spawn_blocking({
                 let package_arg = package_arg.clone();
                 move || {
-                    npx_cache_resolved_version(&package_arg)
-                        .or_else(|| latest_versioned.as_deref().and_then(npx_cache_resolved_version))
+                    npx_cache_resolved_version(&package_arg).or_else(|| {
+                        latest_versioned
+                            .as_deref()
+                            .and_then(npx_cache_resolved_version)
+                    })
                 }
             })
             .await

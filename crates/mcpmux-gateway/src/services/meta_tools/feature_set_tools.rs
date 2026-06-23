@@ -217,8 +217,12 @@ impl MetaTool for GetToolSchemaTool {
             .iter()
             .flat_map(|s| {
                 [
-                    s.get("qualified_name").and_then(|v| v.as_str()).map(str::to_string),
-                    s.get("feature_name").and_then(|v| v.as_str()).map(str::to_string),
+                    s.get("qualified_name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    s.get("feature_name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
                 ]
                 .into_iter()
                 .flatten()

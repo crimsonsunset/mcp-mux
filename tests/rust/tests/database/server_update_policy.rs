@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use mcpmux_core::repository::{InstalledServerRepository, SpaceRepository};
-use mcpmux_core::{UpdatePolicy};
+use mcpmux_core::UpdatePolicy;
 use mcpmux_storage::{
     generate_master_key, FieldEncryptor, SqliteInstalledServerRepository, SqliteSpaceRepository,
 };
@@ -104,10 +104,7 @@ async fn installed_server_update_version_cache_round_trip() {
         .expect("get server")
         .expect("server exists");
 
-    assert_eq!(
-        loaded.latest_available_version.as_deref(),
-        Some("4.5.6")
-    );
+    assert_eq!(loaded.latest_available_version.as_deref(), Some("4.5.6"));
     assert_eq!(loaded.current_version.as_deref(), Some("1.2.3"));
     assert!(loaded.version_checked_at.is_some());
 }
@@ -151,10 +148,7 @@ async fn installed_server_update_preserves_version_cache_columns() {
 
     assert_eq!(reloaded.update_policy, UpdatePolicy::Notify);
     assert_eq!(reloaded.pinned_version.as_deref(), Some("1.0.0"));
-    assert_eq!(
-        reloaded.latest_available_version.as_deref(),
-        Some("9.9.9")
-    );
+    assert_eq!(reloaded.latest_available_version.as_deref(), Some("9.9.9"));
     assert_eq!(reloaded.current_version.as_deref(), Some("8.8.8"));
     assert!(reloaded.version_checked_at.is_some());
 }

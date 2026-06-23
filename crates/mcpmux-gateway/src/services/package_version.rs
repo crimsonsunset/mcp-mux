@@ -136,16 +136,8 @@ mod tests {
 
     #[test]
     fn probe_update_available_honors_floating_tag_and_unknown_current() {
-        assert!(!probe_update_available(
-            None,
-            Some("2.0.0"),
-            Some("latest"),
-        ));
+        assert!(!probe_update_available(None, Some("2.0.0"), Some("latest"),));
         assert!(!probe_update_available(None, Some("2.0.0"), None));
-        assert!(probe_update_available(
-            Some("1.0.0"),
-            Some("2.0.0"),
-            None,
-        ));
+        assert!(probe_update_available(Some("1.0.0"), Some("2.0.0"), None,));
     }
 }
