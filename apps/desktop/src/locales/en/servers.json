@@ -156,5 +156,36 @@
       "label": "Pinned",
       "description": "Lock to a specific version on every spawn"
     }
+  },
+  "configEditorModal": {
+    "title": "Custom Server Configuration",
+    "subtitle": "{{spaceName}} · JSON config",
+    "save": "Save",
+    "format": "Format",
+    "formatTitle": "Format JSON (Ctrl+Shift+F)",
+    "schemaError": "Schema Error",
+    "invalidJson": "Invalid JSON",
+    "keyboardHints": "Ctrl+S save · Ctrl+Shift+F format",
+    "editorLoadFailed": "Editor failed to load. You can still edit JSON below, or restart the app.",
+    "moreErrors": "(+{{count}} more)",
+    "toast": {
+      "saved": "Configuration saved",
+      "savedBody": "Space configuration updated successfully",
+      "invalidJsonTitle": "Invalid JSON",
+      "saveFailed": "Failed to save configuration"
+    },
+    "validation": {
+      "invalidJsonPrefix": "Invalid JSON:",
+      "cannotFormatPrefix": "Cannot format invalid JSON:",
+      "invalidJson": "Invalid JSON: {{message}}",
+      "cannotFormat": "Cannot format invalid JSON: {{message}}",
+      "line": "Line {{line}}: {{message}}"
+    }
+  },
+  "definitionModal": {
+    "subtitle": "Server Definition",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyTitle": "Copy to clipboard"
   }
 }

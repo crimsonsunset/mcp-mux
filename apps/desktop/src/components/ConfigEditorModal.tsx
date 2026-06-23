@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Save, Loader2, AlertTriangle, Wand2 } from 'lucide-react';
 import { readSpaceConfig, saveSpaceConfig } from '@/lib/api/spaces';
 import { refreshRegistry } from '@/lib/api/registry';
@@ -18,6 +19,7 @@ interface ConfigEditorModalProps {
 }
 
 export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: ConfigEditorModalProps) {
+  const { t } = useTranslation('servers');
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -72,11 +74,11 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
 
     const timer = setTimeout(() => {
       setEditorLoadFailed(true);
-      setError('Editor failed to load. You can still edit JSON below, or restart the app.');
+      setError(t('configEditorModal.editorLoadFailed'));
     }, EDITOR_MOUNT_TIMEOUT_MS);
 
     return () => clearTimeout(timer);
-  }, [isLoading, editorReady, editorMounted, editorLoadFailed]);
+  }, [isLoading, editorReady, editorMounted, editorLoadFailed, t]);
 
   const handleSave = useCallback(async () => {
     try {
@@ -85,8 +87,9 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
         JSON.parse(content);
       } catch (e) {
         setIsValidJson(false);
-        setError(`Invalid JSON: ${(e as Error).message}`);
-        showError('Invalid JSON', (e as Error).message);
+        const message = (e as Error).message;
+        setError(t('configEditorModal.validation.invalidJson', { message }));
+        showError(t('configEditorModal.toast.invalidJsonTitle'), message);
         return;
       }
 
@@ -96,17 +99,17 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
       // Refresh server discovery to pick up new/changed servers
       await refreshRegistry();
       
-      success('Configuration saved', 'Space configuration updated successfully');
+      success(t('configEditorModal.toast.saved'), t('configEditorModal.toast.savedBody'));
       onSaved();
       onClose();
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       setError(errorMsg);
-      showError('Failed to save configuration', errorMsg);
+      showError(t('configEditorModal.toast.saveFailed'), errorMsg);
     } finally {
       setIsSaving(false);
     }
-  }, [content, onClose, onSaved, showError, spaceId, success]);
+  }, [content, onClose, onSaved, showError, spaceId, success, t]);
 
   /**
    * Format JSON via Monaco or plain parse/stringify when the editor failed to load.
@@ -124,9 +127,9 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
       setValidationErrors([]);
     } catch (e) {
       setIsValidJson(false);
-      setError(`Cannot format invalid JSON: ${(e as Error).message}`);
+      setError(t('configEditorModal.validation.cannotFormat', { message: (e as Error).message }));
     }
-  }, [content]);
+  }, [content, t]);
 
   // Configure Monaco before mount to set up JSON schema validation
   const handleEditorBeforeMount = (monaco: Monaco) => {
@@ -157,7 +160,9 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
   };
 
   const handleEditorValidation = (markers: editor.IMarker[]) => {
-    const errors = markers.map(m => `Line ${m.startLineNumber}: ${m.message}`);
+    const errors = markers.map((m) =>
+      t('configEditorModal.validation.line', { line: m.startLineNumber, message: m.message }),
+    );
     setValidationErrors(errors);
     setIsValidJson(markers.length === 0);
   };
@@ -183,7 +188,11 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
       }
     }
 
-    if (error && (error.startsWith('Invalid JSON') || error.startsWith('Cannot format'))) {
+    if (
+      error &&
+      (error.startsWith(t('configEditorModal.validation.invalidJsonPrefix')) ||
+        error.startsWith(t('configEditorModal.validation.cannotFormatPrefix')))
+    ) {
       setError(null);
     }
   };
@@ -226,10 +235,10 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
             </div>
             <div>
               <h3 className="text-base font-semibold">
-                Custom Server Configuration
+                {t('configEditorModal.title')}
               </h3>
               <p className="text-xs text-[rgb(var(--muted))]">
-                {spaceName} &middot; JSON config
+                {t('configEditorModal.subtitle', { spaceName })}
               </p>
             </div>
           </div>
@@ -249,7 +258,7 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
             className="flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium bg-[rgb(var(--primary))] text-[rgb(var(--primary-foreground))] rounded-lg hover:bg-[rgb(var(--primary-hover))] disabled:opacity-50 shadow-sm transition-colors"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save
+            {t('configEditorModal.save')}
           </button>
 
           <div className="h-5 w-px bg-[rgb(var(--border))]" />
@@ -258,10 +267,10 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
             onClick={handleFormat}
             disabled={isLoading || !isValidJson}
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] hover:bg-[rgb(var(--surface-hover))] rounded-lg transition-colors disabled:opacity-50"
-            title="Format JSON (Ctrl+Shift+F)"
+            title={t('configEditorModal.formatTitle')}
           >
             <Wand2 className="h-4 w-4" />
-            Format
+            {t('configEditorModal.format')}
           </button>
 
           <div className="flex-1" />
@@ -269,12 +278,14 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
           {!isValidJson && (
             <span className="flex items-center gap-1.5 text-xs text-[rgb(var(--error))] px-2 font-medium">
               <AlertTriangle className="h-3 w-3" />
-              {validationErrors.length > 0 ? 'Schema Error' : 'Invalid JSON'}
+              {validationErrors.length > 0
+                ? t('configEditorModal.schemaError')
+                : t('configEditorModal.invalidJson')}
             </span>
           )}
 
           <span className="text-xs text-[rgb(var(--muted))]">
-            Ctrl+S save &middot; Ctrl+Shift+F format
+            {t('configEditorModal.keyboardHints')}
           </span>
         </div>
 
@@ -339,7 +350,8 @@ export function ConfigEditorModal({ spaceId, spaceName, onClose, onSaved }: Conf
         {(error || validationErrors.length > 0) && (
           <div className="p-2 bg-[rgb(var(--error))]/10 border-t border-[rgb(var(--error))]/20 text-[rgb(var(--error))] text-xs px-4 max-h-20 overflow-auto">
             {error || validationErrors.slice(0, 3).join(' • ')}
-            {validationErrors.length > 3 && ` (+${validationErrors.length - 3} more)`}
+            {validationErrors.length > 3 &&
+              ` ${t('configEditorModal.moreErrors', { count: validationErrors.length - 3 })}`}
           </div>
         )}
       </div>

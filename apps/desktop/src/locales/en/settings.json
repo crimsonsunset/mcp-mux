@@ -101,6 +101,7 @@
   "contribute": {
     "title": "Contribute & feedback",
     "description": "mcpmux is open source. Request a server, report a bug, suggest a feature, or jump straight to the source.",
+    "menuLabel": "Contribute",
     "requestServer": "Request a new server",
     "requestServerDesc": "Ask the community to add an MCP server to the registry",
     "reportBug": "Report a bug",
@@ -108,7 +109,14 @@
     "suggestFeature": "Suggest a feature",
     "suggestFeatureDesc": "An idea for mcpmux itself",
     "openGithub": "Open on GitHub",
-    "openGithubDesc": "Browse source, issues, pull requests"
+    "openGithubDesc": "Browse source, issues, pull requests",
+    "requestCta": {
+      "title": "Don't see what you need?",
+      "descriptionDefault": "Request a new server in the community registry, or add one yourself via a pull request.",
+      "descriptionWithSearch": "We couldn't find \"{{searchTerm}}\". Request it from the community registry or open a PR yourself.",
+      "request": "Request",
+      "contribute": "Contribute"
+    }
   },
   "logs": {
     "title": "Logs",
@@ -124,7 +132,41 @@
     "retention60": "60 days",
     "retention90": "90 days",
     "keepForever": "Keep forever",
-    "footer": "Logs are rotated daily. Each file contains detailed debug information including thread IDs and source locations."
+    "footer": "Logs are rotated daily. Each file contains detailed debug information including thread IDs and source locations.",
+    "viewer": {
+      "title": "Server Logs",
+      "allLevels": "All Levels",
+      "refreshTitle": "Refresh logs",
+      "autoRefresh": "Auto",
+      "autoRefreshTitle": "Toggle auto-refresh (every 2s)",
+      "openInEditorTitle": "Open log file in external editor",
+      "copyAllTitle": "Copy all visible logs to clipboard",
+      "clearTitle": "Clear all logs",
+      "noLogs": "No logs found",
+      "logCount_one": "{{count}} log",
+      "logCount_other": "{{count}} logs",
+      "filteredFrom": " (filtered from {{total}} total)",
+      "autoRefreshing": "Auto-refreshing...",
+      "confirm": {
+        "clearTitle": "Clear logs",
+        "clearMessage": "Clear all logs for \"{{serverName}}\"? This cannot be undone.",
+        "clearConfirm": "Clear"
+      },
+      "toast": {
+        "cleared": "Logs cleared",
+        "clearedBody": "All logs for \"{{serverName}}\" have been cleared",
+        "clearFailed": "Failed to clear logs",
+        "pathCopied": "Path copied",
+        "pathCopiedBody": "Log file path copied to clipboard",
+        "pathFailed": "Failed to get log file path",
+        "nothingToCopy": "Nothing to copy",
+        "nothingToCopyBody": "No logs match the current filter",
+        "logsCopiedTitle": "Logs copied",
+        "logsCopied_one": "{{count}} log copied to clipboard",
+        "logsCopied_other": "{{count}} logs copied to clipboard",
+        "copyFailed": "Failed to copy logs"
+      }
+    }
   },
   "serverUpdates": {
     "title": "Server Updates",

@@ -89,5 +89,33 @@
     "close": "Close",
     "install": "Install",
     "uninstall": "Uninstall"
+  },
+  "installModal": {
+    "loading": "Looking up server...",
+    "error": {
+      "title": "Server Not Found",
+      "description": "Could not find the requested server",
+      "notFound": "Server \"{{serverId}}\" was not found in the registry."
+    },
+    "success": {
+      "title": "Installed!",
+      "body": "{{serverName}} has been added to your space."
+    },
+    "title": "Install Server",
+    "description": "Add this server to your space",
+    "transport": {
+      "local": "Local",
+      "remote": "Remote"
+    },
+    "auth": {
+      "oauth": "OAuth",
+      "apiKey": "API Key"
+    },
+    "alreadyInstalled": "This server is already installed in the selected space.",
+    "installToSpace": "Install to space",
+    "noSpaces": "No spaces available. Create a space first.",
+    "cancel": "Cancel",
+    "install": "Install",
+    "close": "Close"
   }
 }

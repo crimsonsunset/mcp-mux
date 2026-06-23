@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Copy, Check, Loader2 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import type { ServerViewModel, ServerDefinition } from '../types/registry';
@@ -34,6 +35,7 @@ function extractDefinition(server: ServerViewModel): ServerDefinition {
 }
 
 export function ServerDefinitionModal({ server, onClose }: ServerDefinitionModalProps) {
+  const { t } = useTranslation('servers');
   const [copied, setCopied] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
 
@@ -75,24 +77,24 @@ export function ServerDefinitionModal({ server, onClose }: ServerDefinitionModal
               {server.name}
             </h3>
             <p className="text-sm text-[rgb(var(--muted))]">
-              Server Definition
+              {t('definitionModal.subtitle')}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-[rgb(var(--border))] hover:bg-[rgb(var(--surface-hover))] transition-colors"
-              title="Copy to clipboard"
+              title={t('definitionModal.copyTitle')}
             >
               {copied ? (
                 <>
                   <Check className="h-4 w-4 text-[rgb(var(--success))]" />
-                  Copied
+                  {t('definitionModal.copied')}
                 </>
               ) : (
                 <>
                   <Copy className="h-4 w-4 text-[rgb(var(--muted))]" />
-                  Copy
+                  {t('definitionModal.copy')}
                 </>
               )}
             </button>
