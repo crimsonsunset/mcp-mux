@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Home,
   Globe,
@@ -104,6 +105,8 @@ function McpIcon({ className }: { className?: string }) {
 }
 
 function AppContent() {
+  const { t } = useTranslation('nav');
+
   // Sync data from backend on mount
   useDataSync();
 
@@ -232,56 +235,56 @@ function AppContent() {
       <SidebarSection>
         <SidebarItem
           icon={<Home className="h-4 w-4" />}
-          label="Dashboard"
+          label={t('dashboard')}
           active={activeNav === 'home'}
           onClick={() => navigateTo('home')}
           data-testid="nav-dashboard"
         />
         <SidebarItem
           icon={<McpIcon className="h-4 w-4" />}
-          label="My Servers"
+          label={t('myServers')}
           active={activeNav === 'servers'}
           onClick={() => navigateTo('servers')}
           data-testid="nav-my-servers"
         />
         <SidebarItem
           icon={<Search className="h-4 w-4" />}
-          label="Search"
+          label={t('search')}
           active={activeNav === 'registry'}
           onClick={() => navigateTo('registry')}
           data-testid="nav-discover"
         />
       </SidebarSection>
 
-      <SidebarSection title="Workspaces">
+      <SidebarSection title={t('sectionWorkspaces')}>
         <SidebarItem
           icon={<Globe className="h-4 w-4" />}
-          label="Spaces"
+          label={t('spaces')}
           active={activeNav === 'spaces'}
           onClick={() => navigateTo('spaces')}
           data-testid="nav-spaces"
         />
         <SidebarItem
           icon={<ShoppingBasket className="h-4 w-4" />}
-          label="Bundles"
-          title="FeatureSets"
+          label={t('bundles')}
+          title={t('bundlesTooltip')}
           active={activeNav === 'featuresets'}
           onClick={() => navigateTo('featuresets')}
           data-testid="nav-featuresets"
         />
       </SidebarSection>
 
-      <SidebarSection title="Connections">
+      <SidebarSection title={t('sectionConnections')}>
         <SidebarItem
           icon={<FolderOpen className="h-4 w-4" />}
-          label="Projects"
+          label={t('projects')}
           active={activeNav === 'workspaces'}
           onClick={() => navigateTo('workspaces')}
           data-testid="nav-workspaces"
         />
         <SidebarItem
           icon={<Monitor className="h-4 w-4" />}
-          label="Clients"
+          label={t('clients')}
           active={activeNav === 'clients'}
           onClick={() => navigateTo('clients')}
           data-testid="nav-clients"
@@ -291,7 +294,7 @@ function AppContent() {
       <SidebarSection>
         <SidebarItem
           icon={<Settings className="h-4 w-4" />}
-          label="Settings"
+          label={t('settings')}
           active={activeNav === 'settings'}
           onClick={() => navigateTo('settings')}
           data-testid="nav-settings"

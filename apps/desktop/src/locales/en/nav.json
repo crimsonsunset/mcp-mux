@@ -1,0 +1,13 @@
+{
+  "dashboard": "Dashboard",
+  "myServers": "My Servers",
+  "search": "Search",
+  "spaces": "Spaces",
+  "bundles": "Bundles",
+  "bundlesTooltip": "FeatureSets",
+  "projects": "Projects",
+  "clients": "Clients",
+  "settings": "Settings",
+  "sectionWorkspaces": "Workspaces",
+  "sectionConnections": "Connections"
+}

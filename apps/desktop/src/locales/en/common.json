@@ -1,0 +1,11 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "refresh": "Refresh",
+    "save": "Save"
+  },
+  "loading": "Loading…",
+  "none": "None"
+}
