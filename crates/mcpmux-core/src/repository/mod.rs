@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::domain::{
-    Client, Credential, CredentialType, FeatureSet, FeatureSetMember, InstalledServer, MemberMode,
-    OutboundOAuthRegistration, ServerFeature, Space, SpaceBaseDir, WorkspaceAppearance,
-    WorkspaceBinding,
+    path_is_within, Client, Credential, CredentialType, FeatureSet, FeatureSetMember,
+    InstalledServer, MemberMode, OutboundOAuthRegistration, ServerFeature, Space, SpaceBaseDir,
+    WorkspaceAppearance, WorkspaceBinding,
 };
 
 /// Result type for repository operations
@@ -277,6 +277,56 @@ pub trait WorkspaceBindingRepository: Send + Sync {
         &self,
         candidate_roots: &[String],
     ) -> RepoResult<Option<WorkspaceBinding>>;
+
+    /// Resolve which binding applies for a set of candidate workspace roots by
+    /// longest-prefix containment.
+    ///
+    /// Returns the binding whose `workspace_root` is the longest prefix of (or
+    /// equals) any candidate. Every candidate MUST already be normalized. When
+    /// `client_id` is `Some`, the client's own scoped bindings are considered
+    /// alongside global (`client_id` unset) bindings — a scoped binding wins a
+    /// same-path tie so a client override shadows the global default. When
+    /// `client_id` is `None`, only global bindings are considered.
+    ///
+    /// Default impl scans `list_for_space` and matches in Rust on path-segment
+    /// boundaries — used by `mcpmux_bind_current_workspace` dedup.
+    async fn find_longest_prefix_match(
+        &self,
+        space_id: &Uuid,
+        client_id: Option<&str>,
+        candidate_roots: &[String],
+    ) -> RepoResult<Option<WorkspaceBinding>> {
+        let bindings = self.list_for_space(space_id).await?;
+        let mut best: Option<WorkspaceBinding> = None;
+        for binding in bindings {
+            let applies = match client_id {
+                Some(cid) => {
+                    binding.client_id.is_none() || binding.client_id.as_deref() == Some(cid)
+                }
+                None => binding.client_id.is_none(),
+            };
+            if !applies {
+                continue;
+            }
+            let contains_candidate = candidate_roots
+                .iter()
+                .any(|root| path_is_within(root, &binding.workspace_root));
+            if !contains_candidate {
+                continue;
+            }
+            let better = match &best {
+                Some(current) if binding.workspace_root.len() == current.workspace_root.len() => {
+                    binding.client_id.is_some() && current.client_id.is_none()
+                }
+                Some(current) => binding.workspace_root.len() > current.workspace_root.len(),
+                None => true,
+            };
+            if better {
+                best = Some(binding);
+            }
+        }
+        Ok(best)
+    }
 }
 
 /// Credential repository trait (local-only, never synced)

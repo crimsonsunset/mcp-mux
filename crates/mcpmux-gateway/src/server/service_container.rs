@@ -120,6 +120,11 @@ impl ServiceContainer {
         // by the Tauri layer; until then, writes return `approval_required`.
         let approval_broker = Arc::new(ApprovalBroker::new());
 
+        // Persistent embedding cache backing the hybrid `search_tools` ranking.
+        let embedding_repo: Arc<dyn mcpmux_core::EmbeddingRepository> = Arc::new(
+            mcpmux_storage::SqliteEmbeddingRepository::new(deps.database.clone()),
+        );
+
         // Registry of built-in `mcpmux_*` meta tools (introspection + self-
         // management). Each write tool is gated by the broker above.
         let meta_tool_registry = meta_tools::build_default_registry(
@@ -128,13 +133,25 @@ impl ServiceContainer {
             deps.feature_set_repo.clone(),
             deps.workspace_binding_repo.clone(),
             deps.feature_repo.clone(),
+            deps.installed_server_repo.clone(),
             feature_set_resolver.clone(),
             pool_services.feature_service.clone(),
+            Some(meta_tools::routing_as_invoke_backend(
+                pool_services.routing_service.clone(),
+            )),
+            Some(meta_tools::pool_as_disclosure_backend(
+                pool_services.pool_service.clone(),
+            )),
             session_roots.clone(),
             approval_broker.clone(),
             domain_event_tx.clone(),
             deps.settings_repo.clone(),
-            Some(deps.builtin_config_repo.clone()),
+            server_manager.clone(),
+            deps.log_manager.clone(),
+            deps.state_dir
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("mcpmux")),
+            embedding_repo,
         );
 
         // Space resolver — currently just exposes the active Space, but
