@@ -24,7 +24,6 @@ import {
 } from '@/stores';
 import { NAV_ZONES, NAV_SETTINGS } from '@/lib/navigation';
 import { spaceAccentColor } from '@/lib/spaceAccent';
-import { HomePage } from '@/features/home';
 import { DashboardPage } from '@/features/dashboard';
 import { RegistryPage } from '@/features/registry';
 import { FeatureSetsPage } from '@/features/featuresets';
@@ -261,7 +260,7 @@ function AppContent() {
       <div className="flex items-center gap-4">
         <button
           type="button"
-          onClick={() => navigateTo('home')}
+          onClick={() => navigateTo('dashboard')}
           className="flex items-center gap-1.5 transition-colors hover:text-[rgb(var(--foreground))]"
           data-testid="statusbar-gateway"
           title={tDashboard('statusbar.gatewayTitle')}
@@ -370,7 +369,6 @@ function AppContent() {
           </div>
         )}
         <StaleBuildBanner />
-        {activeNav === 'home' && <HomePage />}
         {activeNav === 'dashboard' && <DashboardPage />}
         {activeNav === 'registry' && <RegistryPage />}
         {activeNav === 'servers' && <ServersPage />}
