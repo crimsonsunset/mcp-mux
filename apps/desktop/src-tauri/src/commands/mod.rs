@@ -20,6 +20,7 @@ pub mod server_feature;
 pub mod server_manager;
 pub mod settings;
 pub mod space;
+pub mod workspace_appearance;
 pub mod workspace_binding;
 pub mod workspace_install;
 
@@ -40,5 +41,6 @@ pub use server_feature::*;
 pub use server_manager::*;
 pub use settings::*;
 pub use space::*;
+pub use workspace_appearance::*;
 pub use workspace_binding::*;
 pub use workspace_install::*;
