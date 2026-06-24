@@ -840,6 +840,102 @@ impl ServerHandler for McpMuxGatewayHandler {
             };
         }
 
+        // Hard cut: non-surfaced backend tools must use mcpmux_invoke_tool.
+        // Surfaced tools stay in tools/list for one-hop calls.
+        let space_id_str = space_id.to_string();
+        if let Ok(Some((server_id, actual_tool_name))) = self
+            .services
+            .pool_services
+            .feature_service
+            .find_server_for_qualified_tool(&space_id_str, &params.name)
+            .await
+        {
+            let advertised = self
+                .services
+                .pool_services
+                .feature_service
+                .get_advertised_tools_for_grants(&space_id_str, &feature_set_ids)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("Failed to get advertised tools: {}", e), None)
+                })?;
+
+            let is_surfaced = advertised
+                .iter()
+                .any(|feature| feature.qualified_name() == params.name.as_ref());
+
+            if !is_surfaced {
+                let invokable = self
+                    .services
+                    .pool_services
+                    .feature_service
+                    .get_invokable_tools_for_grants(&space_id_str, &feature_set_ids)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to get invokable tools: {}", e),
+                            None,
+                        )
+                    })?;
+                let is_invokable = invokable.iter().any(|feature| {
+                    feature.qualified_name() == params.name.as_ref() && feature.is_available
+                });
+
+                let message = if !is_invokable {
+                    let inactive = self
+                        .services
+                        .pool_services
+                        .feature_service
+                        .list_inactive_discovery_tools(&space_id_str, &feature_set_ids, None)
+                        .await
+                        .map_err(|e| {
+                            McpError::internal_error(
+                                format!("Failed to list inactive tools: {}", e),
+                                None,
+                            )
+                        })?;
+                    if let Some(entry) = inactive.iter().find(|candidate| {
+                        candidate.feature.qualified_name() == params.name.as_ref()
+                    }) {
+                        format!(
+                            "Tool '{}' is inactive for this workspace → \
+                             mcpmux_bind_current_workspace({{ \"feature_set_id\": \"{}\" }}) \
+                             (discover bundles via mcpmux_search_tools with include_inactive: true \
+                             or mcpmux_list_feature_sets)",
+                            params.name, entry.bindable_feature_set_id
+                        )
+                    } else {
+                        format!(
+                            "Tool '{}' is not invokable — no FeatureSet in this Space contains it. \
+                             Ask the user to create a bundle in the McpMux desktop or web UI \
+                             (Workspaces → Feature Sets), then mcpmux_bind_current_workspace \
+                             with the new feature_set_id",
+                            params.name
+                        )
+                    }
+                } else {
+                    crate::pool::format_direct_call_redirect(
+                        &params.name,
+                        &server_id,
+                        &actual_tool_name,
+                    )
+                };
+
+                let error_code = if is_invokable {
+                    "use_invoke_tool"
+                } else {
+                    "bind_feature_set"
+                };
+                return Ok(CallToolResult::error(vec![Content::text(
+                    serde_json::json!({
+                        "error": error_code,
+                        "message": message,
+                    })
+                    .to_string(),
+                )]));
+            }
+        }
+
         // Call tool via routing service (handles auth and routing)
         let tool_result = self
             .services
@@ -906,11 +1002,12 @@ impl ServerHandler for McpMuxGatewayHandler {
             "call_tool result"
         );
 
-        let result = if tool_result.is_error {
+        let mut result = if tool_result.is_error {
             CallToolResult::error(content)
         } else {
             CallToolResult::success(content)
         };
+        result.structured_content = tool_result.structured_content;
 
         Ok(result)
     }
@@ -988,33 +1085,64 @@ impl ServerHandler for McpMuxGatewayHandler {
             .resolve_routing(session_id_owned.as_deref(), &oauth_ctx.client_id)
             .await?;
 
-        // Authorize + route by matching the requested qualified name against
-        // the resolved prompt set — the SAME encoding the list path uses
-        // (ServerFeature::qualified_name). Guarantees "if it lists, it's
-        // callable"; no dependency on the prefix-cache reverse lookup (which
-        // could be stale and reject a listed prompt). Mirrors call_tool.
-        let authorized_prompts = self
+        let (server_id, prompt_name) = self
+            .services
+            .pool_services
+            .feature_service
+            .parse_qualified_prompt_name(&space_id.to_string(), &params.name)
+            .await
+            .map_err(|e| McpError::invalid_params(format!("Invalid prompt name: {}", e), None))?;
+
+        let advertised_prompts = self
             .services
             .pool_services
             .feature_service
             .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
+                McpError::internal_error(format!("Failed to get advertised prompts: {}", e), None)
+            })?;
+
+        let is_surfaced = advertised_prompts
+            .iter()
+            .any(|p| p.server_id == server_id && p.feature_name == prompt_name);
+
+        if !is_surfaced {
+            let message = crate::pool::format_direct_fetch_prompt_redirect(
+                &params.name,
+                &server_id,
+                &prompt_name,
+            );
+            return Err(McpError::invalid_params(
+                serde_json::json!({
+                    "error": "use_fetch_prompt",
+                    "message": message,
+                })
+                .to_string(),
+                None,
+            ));
+        }
+
+        let authorized_prompts = self
+            .services
+            .pool_services
+            .feature_service
+            .get_fetchable_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
+            .await
+            .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
             })?;
 
-        let (server_id, prompt_name) = match authorized_prompts
+        let is_authorized = authorized_prompts
             .iter()
-            .find(|p| p.is_available && p.qualified_name() == params.name)
-        {
-            Some(p) => (p.server_id.clone(), p.feature_name.clone()),
-            None => {
-                return Err(McpError::invalid_params(
-                    format!("Prompt '{}' not authorized", params.name),
-                    None,
-                ));
-            }
-        };
+            .any(|p| p.server_id == server_id && p.feature_name == prompt_name && p.is_available);
+
+        if !is_authorized {
+            return Err(McpError::invalid_params(
+                format!("Prompt '{}' not authorized", params.name),
+                None,
+            ));
+        }
 
         let result_value = self
             .services
@@ -1103,32 +1231,49 @@ impl ServerHandler for McpMuxGatewayHandler {
             .resolve_routing(session_id_owned.as_deref(), &oauth_ctx.client_id)
             .await?;
 
-        // Authorize + route by matching the requested URI against the resolved
-        // resource set (resources are namespaced by URI, so qualified_name ==
-        // feature_name == uri). The server_id comes from the matched feature,
-        // so a listed resource is always readable. Mirrors call_tool / get_prompt.
         let authorized_resources = self
+            .services
+            .pool_services
+            .feature_service
+            .get_readable_resources_for_grants(&space_id.to_string(), &feature_set_ids)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
+            })?;
+
+        let server_id = crate::pool::FeatureService::resolve_resource_server_from_grants(
+            &authorized_resources,
+            &params.uri,
+        )
+        .ok_or_else(|| {
+            McpError::invalid_params(format!("Resource '{}' not authorized", params.uri), None)
+        })?;
+
+        let advertised_resources = self
             .services
             .pool_services
             .feature_service
             .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
-                McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
+                McpError::internal_error(format!("Failed to get advertised resources: {}", e), None)
             })?;
 
-        let server_id = match authorized_resources
+        let is_surfaced = advertised_resources
             .iter()
-            .find(|r| r.is_available && r.qualified_name() == params.uri)
-        {
-            Some(r) => r.server_id.clone(),
-            None => {
-                return Err(McpError::invalid_params(
-                    format!("Resource '{}' not authorized", params.uri),
-                    None,
-                ));
-            }
-        };
+            .any(|r| r.server_id == server_id && r.feature_name == params.uri);
+
+        if !is_surfaced {
+            let message = crate::pool::format_direct_read_redirect(&params.uri);
+            return Err(McpError::invalid_params(
+                serde_json::json!({
+                    "error": "use_read_resource",
+                    "message": message,
+                })
+                .to_string(),
+                None,
+            ));
+        }
 
         let contents_values = self
             .services
