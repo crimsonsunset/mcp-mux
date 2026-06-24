@@ -10,6 +10,7 @@ const initialState: AppState = {
   pendingClientId: null,
   pendingSettingsSection: null,
   pendingWorkspaceNew: false,
+  pendingServersFilter: null,
   sidebarCollapsed: false,
   theme: 'system',
   analyticsEnabled: true,
@@ -88,6 +89,11 @@ export const useAppStore = create<AppStore>()(
       setPendingWorkspaceNew: (v) =>
         set((state) => {
           state.pendingWorkspaceNew = v;
+        }),
+
+      setPendingServersFilter: (filter) =>
+        set((state) => {
+          state.pendingServersFilter = filter;
         }),
 
       // UI

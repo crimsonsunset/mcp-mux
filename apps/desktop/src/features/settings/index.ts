@@ -1,4 +1,5 @@
 export { SettingsPage } from './SettingsPage';
+export { AboutSection } from './AboutSection';
 export { UpdateChecker } from './UpdateChecker';
 export { BuildStampPanel, BuildStampPanelContent } from './BuildStampPanel';
 export { ServerUpdatesSection } from './ServerUpdatesSection';

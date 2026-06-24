@@ -836,7 +836,7 @@ export function ServersPage() {
       return;
     }
 
-    const { getUninstallLabel } = await import('@/components/SourceBadge');
+    const { getUninstallLabel } = await import('@/components/source-badge.helpers');
     const actionLabel = getUninstallLabel(server.installation_source);
 
     setActionLoading(`uninstall-${server.id}`);
@@ -856,7 +856,7 @@ export function ServersPage() {
     }
 
     const { server } = uninstallClonesDialog;
-    const { getUninstallLabel } = await import('@/components/SourceBadge');
+    const { getUninstallLabel } = await import('@/components/source-badge.helpers');
     const actionLabel = getUninstallLabel(server.installation_source);
 
     setUninstallClonesDialog(null);

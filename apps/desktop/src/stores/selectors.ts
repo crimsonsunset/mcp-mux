@@ -15,6 +15,8 @@ export const useSetPendingSettingsSection = () =>
 export const usePendingWorkspaceNew = () => useAppStore((state) => state.pendingWorkspaceNew);
 export const useSetPendingWorkspaceNew = () =>
   useAppStore((state) => state.setPendingWorkspaceNew);
+export const usePendingServersFilter = () => useAppStore((state) => state.pendingServersFilter);
+export const useSetPendingServersFilter = () => useAppStore((state) => state.setPendingServersFilter);
 export const useTheme = () => useAppStore((state) => state.theme);
 export const useSidebarCollapsed = () => useAppStore((state) => state.sidebarCollapsed);
 export const useAnalyticsEnabled = () => useAppStore((state) => state.analyticsEnabled);

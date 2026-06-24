@@ -2,6 +2,7 @@ import { Space } from '@/lib/api/spaces';
 
 export type NavItem =
   | 'home'
+  | 'dashboard'
   | 'registry'
   | 'servers'
   | 'spaces'
@@ -30,6 +31,8 @@ export interface AppState {
   pendingSettingsSection: string | null;
   /** When true, the Workspaces page opens the New-mapping walkthrough on arrival. */
   pendingWorkspaceNew: boolean;
+  /** Status filter to pre-apply when navigating to My Servers */
+  pendingServersFilter: string | null;
 
   // UI state
   sidebarCollapsed: boolean;
@@ -56,6 +59,7 @@ export interface AppActions {
   setPendingClientId: (id: string | null) => void;
   setPendingSettingsSection: (section: string | null) => void;
   setPendingWorkspaceNew: (v: boolean) => void;
+  setPendingServersFilter: (filter: string | null) => void;
 
   // UI
   toggleSidebar: () => void;

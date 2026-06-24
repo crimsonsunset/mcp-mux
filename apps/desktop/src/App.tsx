@@ -22,6 +22,7 @@ import {
 import { NAV_ZONES, NAV_SETTINGS } from '@/lib/navigation';
 import { spaceAccentColor } from '@/lib/spaceAccent';
 import { HomePage } from '@/features/home';
+import { DashboardPage } from '@/features/dashboard';
 import { RegistryPage } from '@/features/registry';
 import { FeatureSetsPage } from '@/features/featuresets';
 import { ClientsPage } from '@/features/clients';
@@ -371,6 +372,7 @@ function AppContent() {
           </div>
         )}
         {activeNav === 'home' && <HomePage />}
+        {activeNav === 'dashboard' && <DashboardPage />}
         {activeNav === 'registry' && <RegistryPage />}
         {activeNav === 'servers' && <ServersPage />}
         {activeNav === 'spaces' && <SpacesPage />}
