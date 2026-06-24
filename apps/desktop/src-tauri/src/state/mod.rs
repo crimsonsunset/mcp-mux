@@ -21,7 +21,7 @@ use mcpmux_storage::{
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Global application state accessible from commands.
 pub struct AppState {
@@ -89,6 +89,14 @@ impl AppState {
         info!("Opening database at {:?}", db_path);
 
         let db = Database::open(&db_path)?;
+
+        // Re-encrypt any credentials written under the file fallback key (macOS keychain prompt dismissed)
+        if let Err(e) =
+            mcpmux_storage::migrate_file_key_encrypted_fields(&db, &data_dir, &encryptor)
+        {
+            warn!("File-key credential migration skipped: {}", e);
+        }
+
         let db = Arc::new(Mutex::new(db));
 
         // Initialize repositories
