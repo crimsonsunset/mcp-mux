@@ -430,9 +430,7 @@ impl Database {
             return Ok(());
         }
 
-        info!(
-            "Detected fork-era migration numbering; reconciling to upstream+port schema..."
-        );
+        info!("Detected fork-era migration numbering; reconciling to upstream+port schema...");
 
         let fk_was_on = self.foreign_keys_enabled();
         if fk_was_on {
@@ -441,22 +439,17 @@ impl Database {
 
         let tx = self.conn.unchecked_transaction()?;
 
-        for migration in MIGRATIONS
-            .iter()
-            .filter(|m| (16..=19).contains(&m.version))
-        {
+        for migration in MIGRATIONS.iter().filter(|m| (16..=19).contains(&m.version)) {
             info!(
                 "Applying upstream migration {} ({}) during fork reconcile...",
                 migration.version, migration.name
             );
-            self.conn
-                .execute_batch(migration.sql)
-                .with_context(|| {
-                    format!(
-                        "Failed upstream migration {} ({}) during fork reconcile",
-                        migration.version, migration.name
-                    )
-                })?;
+            self.conn.execute_batch(migration.sql).with_context(|| {
+                format!(
+                    "Failed upstream migration {} ({}) during fork reconcile",
+                    migration.version, migration.name
+                )
+            })?;
         }
 
         self.conn
