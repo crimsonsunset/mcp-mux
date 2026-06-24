@@ -3219,7 +3219,7 @@ dependencies = [
 
 [[package]]
 name = "mcpmux"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3262,7 +3262,7 @@ dependencies = [
 
 [[package]]
 name = "mcpmux-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3287,7 +3287,7 @@ dependencies = [
 
 [[package]]
 name = "mcpmux-gateway"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3333,7 +3333,7 @@ dependencies = [
 
 [[package]]
 name = "mcpmux-mcp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3352,7 +3352,7 @@ dependencies = [
 
 [[package]]
 name = "mcpmux-storage"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
