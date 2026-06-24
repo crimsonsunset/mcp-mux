@@ -3,9 +3,9 @@
  *
  * The app's IA follows the superapp plan (mcpmux.space/superapp/03-experience-design.md):
  * a "use" zone on top (today just Dashboard; Chat and Agents land here later), a
- * "Library" zone for capabilities (Tools, Context, Discover; Models lands here
- * later), and a "Control" zone for routing & access (Apps, Workspaces,
- * FeatureSets, Spaces). Settings is pinned to the sidebar footer.
+ * "Library" zone for capabilities (My Servers, Built-in, Search; Models lands here
+ * later), and a "Control" zone for routing & access (Clients, Projects, Bundles,
+ * Spaces). Settings is pinned to the sidebar footer.
  *
  * To add a future surface, append an entry to the right zone — the sidebar
  * renders from this data and nothing else.
@@ -14,18 +14,19 @@
  * contract (ADR-003) — both are stable identifiers. Only `labelKey`/`hintKey`/
  * `icon` are presentation and safe to change.
  */
+import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
-  Server,
   Sparkles,
-  Compass,
+  Search,
   Monitor,
   FolderOpen,
-  Wrench,
+  ShoppingBasket,
   Globe,
   Settings,
 } from 'lucide-react';
+import { McpNavIcon } from '@/components/McpNavIcon';
 import type { NavItem } from '@/stores/types';
 import type nav from '@/locales/en/nav.json';
 
@@ -38,14 +39,18 @@ type NavHintKey = `hints.${keyof typeof nav.hints}`;
 /** Zone section title keys under `nav.zones`. */
 type NavZoneTitleKey = `zones.${keyof typeof nav.zones}`;
 
+export type NavIcon = LucideIcon | ComponentType<{ className?: string }>;
+
 export interface NavEntry {
   key: NavItem;
-  /** i18n key under the `nav` namespace (e.g. `home` → nav:home). */
+  /** i18n key under the `nav` namespace (e.g. `dashboard` → nav:dashboard). */
   labelKey: NavLabelKey;
-  icon: LucideIcon;
+  icon: NavIcon;
   testId: string;
   /** i18n key under nav:hints.* */
   hintKey: NavHintKey;
+  /** Optional native tooltip when the visible label is an alias (e.g. Bundles → FeatureSets). */
+  labelTitleKey?: NavHintKey;
 }
 
 export interface NavZone {
@@ -71,10 +76,10 @@ export const NAV_ZONES: NavZone[] = [
     entries: [
       {
         key: 'servers',
-        labelKey: 'tools',
-        icon: Server,
+        labelKey: 'myServers',
+        icon: McpNavIcon,
         testId: 'nav-my-servers',
-        hintKey: 'hints.tools',
+        hintKey: 'hints.myServers',
       },
       {
         key: 'builtin-servers',
@@ -85,10 +90,10 @@ export const NAV_ZONES: NavZone[] = [
       },
       {
         key: 'registry',
-        labelKey: 'discover',
-        icon: Compass,
+        labelKey: 'search',
+        icon: Search,
         testId: 'nav-discover',
-        hintKey: 'hints.discover',
+        hintKey: 'hints.search',
       },
     ],
   },
@@ -97,24 +102,25 @@ export const NAV_ZONES: NavZone[] = [
     entries: [
       {
         key: 'clients',
-        labelKey: 'apps',
+        labelKey: 'clients',
         icon: Monitor,
         testId: 'nav-clients',
-        hintKey: 'hints.apps',
+        hintKey: 'hints.clients',
       },
       {
         key: 'workspaces',
-        labelKey: 'workspaces',
+        labelKey: 'projects',
         icon: FolderOpen,
         testId: 'nav-workspaces',
-        hintKey: 'hints.workspaces',
+        hintKey: 'hints.projects',
       },
       {
         key: 'featuresets',
-        labelKey: 'featuresets',
-        icon: Wrench,
+        labelKey: 'bundles',
+        icon: ShoppingBasket,
         testId: 'nav-featuresets',
-        hintKey: 'hints.featuresets',
+        hintKey: 'hints.bundles',
+        labelTitleKey: 'hints.bundlesTooltip',
       },
       {
         key: 'spaces',

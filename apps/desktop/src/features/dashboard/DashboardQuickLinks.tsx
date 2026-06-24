@@ -1,13 +1,6 @@
 import type { ReactNode } from 'react';
-import {
-  FolderOpen,
-  Globe,
-  Monitor,
-  Search,
-  Server,
-  Settings,
-  ShoppingBasket,
-} from 'lucide-react';
+import { FolderOpen, Globe, Monitor, Search, Settings, ShoppingBasket } from 'lucide-react';
+import { McpNavIcon } from '@/components/McpNavIcon';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@mcpmux/ui';
 import { useNavigateTo } from '@/stores';
@@ -15,7 +8,7 @@ import type { NavItem } from '@/stores/types';
 
 type QuickLinkConfig = {
   nav: NavItem;
-  labelKey: 'tools' | 'discover' | 'spaces' | 'featuresets' | 'workspaces' | 'apps' | 'settings';
+  labelKey: 'myServers' | 'search' | 'spaces' | 'bundles' | 'projects' | 'clients' | 'settings';
   descriptionKey:
     | 'quickLinks.descriptions.servers'
     | 'quickLinks.descriptions.registry'
@@ -31,14 +24,14 @@ type QuickLinkConfig = {
 const QUICK_LINK_CONFIG: QuickLinkConfig[] = [
   {
     nav: 'servers',
-    labelKey: 'tools',
+    labelKey: 'myServers',
     descriptionKey: 'quickLinks.descriptions.servers',
-    icon: <Server className="h-4 w-4" />,
+    icon: <McpNavIcon className="h-4 w-4" />,
     testId: 'quick-link-servers',
   },
   {
     nav: 'registry',
-    labelKey: 'discover',
+    labelKey: 'search',
     descriptionKey: 'quickLinks.descriptions.registry',
     icon: <Search className="h-4 w-4" />,
     testId: 'quick-link-discover',
@@ -52,21 +45,21 @@ const QUICK_LINK_CONFIG: QuickLinkConfig[] = [
   },
   {
     nav: 'featuresets',
-    labelKey: 'featuresets',
+    labelKey: 'bundles',
     descriptionKey: 'quickLinks.descriptions.featuresets',
     icon: <ShoppingBasket className="h-4 w-4" />,
     testId: 'quick-link-featuresets',
   },
   {
     nav: 'workspaces',
-    labelKey: 'workspaces',
+    labelKey: 'projects',
     descriptionKey: 'quickLinks.descriptions.workspaces',
     icon: <FolderOpen className="h-4 w-4" />,
     testId: 'quick-link-workspaces',
   },
   {
     nav: 'clients',
-    labelKey: 'apps',
+    labelKey: 'clients',
     descriptionKey: 'quickLinks.descriptions.clients',
     icon: <Monitor className="h-4 w-4" />,
     testId: 'quick-link-clients',

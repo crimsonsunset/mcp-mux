@@ -245,6 +245,7 @@ function AppContent() {
               icon={<entry.icon className="h-4 w-4" />}
               label={t(entry.labelKey)}
               hint={t(entry.hintKey)}
+              title={entry.labelTitleKey ? t(entry.labelTitleKey) : undefined}
               active={activeNav === entry.key}
               onClick={() => navigateTo(entry.key)}
               data-testid={entry.testId}
