@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
+import { apiCall } from './transport';
 
 /** An "always allow from (client, tool)" entry kept in the gateway's broker. */
 export interface MetaToolGrantEntry {
@@ -21,17 +22,17 @@ export interface MetaToolAuditEvent {
 
 /** List every session-scoped "always allow" entry in the gateway. */
 export async function listMetaToolGrants(): Promise<MetaToolGrantEntry[]> {
-  return invoke('list_meta_tool_grants');
+  return apiCall('list_meta_tool_grants');
 }
 
 /** Revoke a single "always allow" entry. */
 export async function revokeMetaToolGrant(clientId: string, toolName: string): Promise<boolean> {
-  return invoke('revoke_meta_tool_grant', { clientId, toolName });
+  return apiCall('revoke_meta_tool_grant', { clientId, toolName });
 }
 
 /** Whether write meta tools require approval (default true). Persisted. */
 export async function getMetaToolsRequireApproval(): Promise<boolean> {
-  return invoke('get_meta_tools_require_approval');
+  return apiCall('get_meta_tools_require_approval');
 }
 
 /**
@@ -42,22 +43,19 @@ export async function getMetaToolsRequireApproval(): Promise<boolean> {
  * restart) and applied to the running gateway immediately.
  */
 export async function setMetaToolsRequireApproval(required: boolean): Promise<boolean> {
-  return invoke('set_meta_tools_require_approval', { required });
+  return apiCall('set_meta_tools_require_approval', { required });
 }
 
 // Per-Space enablement also lives in `@/lib/api/builtinServers`.
 
-/**
- * Read the master switch that controls whether `mcpmux_*` meta tools are
- * advertised to connected MCP clients. Default ON.
- */
+/** Read the global meta-tools enablement switch (default ON). */
 export async function getMetaToolsEnabled(): Promise<boolean> {
-  return invoke('get_meta_tools_enabled');
+  return apiCall('get_meta_tools_enabled');
 }
 
 /** Persist the global meta-tools enablement switch. */
 export async function setMetaToolsEnabled(enabled: boolean): Promise<boolean> {
-  return invoke('set_meta_tools_enabled', { enabled });
+  return apiCall('set_meta_tools_enabled', { enabled });
 }
 
 /**
@@ -70,7 +68,7 @@ export async function respondToMetaToolApproval(
   toolName: string,
   decision: 'allow_once' | 'always_for_this_session_and_client' | 'deny'
 ): Promise<boolean> {
-  return invoke('respond_to_meta_tool_approval', {
+  return apiCall('respond_to_meta_tool_approval', {
     requestId,
     clientId,
     toolName,

@@ -16,11 +16,18 @@ export const spacesRoutes: Record<string, RouteHandler> = {
     path: '/api/v1/spaces',
     body: { name: args.name, icon: args.icon },
   }),
-  update_space: (args) => ({
-    method: 'PUT',
-    path: `/api/v1/spaces/${encodeURIComponent(String(args.id))}`,
-    body: args.input as Record<string, unknown>,
-  }),
+  update_space: (args) => {
+    const input = (args.input as Record<string, unknown> | undefined) ?? {
+      name: args.name,
+      icon: args.icon,
+      description: args.description,
+    };
+    return {
+      method: 'PUT',
+      path: `/api/v1/spaces/${encodeURIComponent(String(args.id))}`,
+      body: input,
+    };
+  },
   delete_space: (args) => ({
     method: 'DELETE',
     path: `/api/v1/spaces/${encodeURIComponent(String(args.id))}`,

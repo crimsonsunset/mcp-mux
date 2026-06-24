@@ -7,8 +7,10 @@
  * - No more polling for status changes
  */
 
-import { invoke } from "@tauri-apps/api/core";
+/** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+
+import { apiCall } from "./transport";
 
 /**
  * Connection status - matches backend ConnectionStatus enum
@@ -101,7 +103,7 @@ export type ServerEvent =
 export async function getServerStatuses(
   spaceId: string
 ): Promise<Record<string, ServerStatusResponse>> {
-  return invoke<Record<string, ServerStatusResponse>>("get_server_statuses", {
+  return apiCall<Record<string, ServerStatusResponse>>("get_server_statuses", {
     spaceId,
   });
 }
@@ -119,7 +121,7 @@ export async function enableServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("enable_server_v2", { spaceId, serverId });
+  return apiCall("enable_server_v2", { spaceId, serverId });
 }
 
 /**
@@ -129,7 +131,7 @@ export async function disableServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("disable_server_v2", { spaceId, serverId });
+  return apiCall("disable_server_v2", { spaceId, serverId });
 }
 
 /**
@@ -142,7 +144,7 @@ export async function startAuth(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("start_auth_v2", { spaceId, serverId });
+  return apiCall("start_auth_v2", { spaceId, serverId });
 }
 
 /**
@@ -152,7 +154,7 @@ export async function cancelAuth(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("cancel_auth_v2", { spaceId, serverId });
+  return apiCall("cancel_auth_v2", { spaceId, serverId });
 }
 
 /**
@@ -162,7 +164,7 @@ export async function retryConnection(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("retry_connection", { spaceId, serverId });
+  return apiCall("retry_connection", { spaceId, serverId });
 }
 
 /**
@@ -176,14 +178,14 @@ export async function logoutServer(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("logout_server", { spaceId, serverId });
+  return apiCall("logout_server", { spaceId, serverId });
 }
 
 /**
  * Reconnect and apply latest package resolution (explicit user update).
  */
 export async function updateServerPackage(spaceId: string, serverId: string): Promise<void> {
-  return invoke('update_server_package', { spaceId, serverId });
+  return apiCall('update_server_package', { spaceId, serverId });
 }
 
 /**
@@ -197,7 +199,7 @@ export async function disconnectServerV2(
   spaceId: string,
   serverId: string
 ): Promise<void> {
-  return invoke("disconnect_server_v2", { spaceId, serverId });
+  return apiCall("disconnect_server_v2", { spaceId, serverId });
 }
 
 // ============================================================================
