@@ -16,6 +16,7 @@ use crate::pool::{
     ConnectionContext, ConnectionResult, FeatureService, PoolService, ServerKey, ServerManager,
 };
 use crate::server::GatewayServer;
+use crate::services::ServerVersionProbeService;
 use crate::GatewayState;
 
 /// Async runtime adapter for writes that depend on live gateway / desktop state.
@@ -90,6 +91,7 @@ pub struct LiveGatewayWriteRuntime {
     feature_service: Arc<FeatureService>,
     installed_server_repo: Arc<dyn InstalledServerRepository>,
     data_dir: PathBuf,
+    version_probe: Arc<ServerVersionProbeService>,
 }
 
 impl LiveGatewayWriteRuntime {
@@ -98,6 +100,7 @@ impl LiveGatewayWriteRuntime {
         server: &GatewayServer,
         data_dir: PathBuf,
         installed_server_repo: Arc<dyn InstalledServerRepository>,
+        version_probe: Arc<ServerVersionProbeService>,
     ) -> Self {
         Self {
             gateway_state: server.state(),
@@ -106,6 +109,7 @@ impl LiveGatewayWriteRuntime {
             feature_service: server.feature_service(),
             installed_server_repo,
             data_dir,
+            version_probe,
         }
     }
 }
@@ -199,7 +203,9 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
             &server_definition.transport,
             &installed,
             Some(&self.data_dir),
-            TransportResolutionOptions::default(),
+            TransportResolutionOptions {
+                apply_package_update: true,
+            },
         );
 
         let ctx = ConnectionContext::auto(space_uuid, server_id.clone(), transport);
@@ -232,6 +238,12 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
                 }
                 return Err(anyhow!(error));
             }
+        }
+
+        if let Err(error) = self.version_probe.probe_server(&space_id, &server_id).await {
+            warn!(
+                "[LiveGatewayWriteRuntime] Post-update version probe failed for {server_id}: {error}"
+            );
         }
 
         Ok(json!({ "ok": true }))
