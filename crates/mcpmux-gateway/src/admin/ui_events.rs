@@ -428,11 +428,8 @@ pub fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, Value) {
             }),
         ),
         DomainEvent::BuiltinServerConfigChanged { space_id } => (
-            "server-changed",
-            serde_json::json!({
-                "action": "config-changed",
-                "space_id": space_id,
-            }),
+            "builtin-server-config-changed",
+            serde_json::json!({ "space_id": space_id }),
         ),
         DomainEvent::WorkspaceAppearanceChanged { workspace_root } => (
             "workspace-appearance-changed",
