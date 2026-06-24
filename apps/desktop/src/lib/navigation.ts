@@ -17,6 +17,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Home,
+  LayoutDashboard,
   Server,
   Sparkles,
   Compass,
@@ -50,8 +51,15 @@ export const NAV_ZONES: NavZone[] = [
         key: 'home',
         label: 'Home',
         icon: Home,
+        testId: 'nav-home',
+        hint: 'Gateway connection and Space overview',
+      },
+      {
+        key: 'dashboard',
+        label: 'Dashboard',
+        icon: LayoutDashboard,
         testId: 'nav-dashboard',
-        hint: 'Your gateway, connections, and Space at a glance',
+        hint: 'Server health, recent activity, and stats at a glance',
       },
     ],
   },

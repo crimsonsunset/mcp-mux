@@ -85,3 +85,19 @@ export async function addSpaceBaseDir(spaceId: string, path: string): Promise<Sp
 export async function removeSpaceBaseDir(id: string): Promise<void> {
   return invoke('remove_space_base_dir', { id });
 }
+
+export interface UpdateSpaceInput {
+  name?: string;
+  icon?: string;
+  description?: string;
+}
+
+/** Update a space's display metadata (name, icon, description). */
+export async function updateSpace(id: string, input: UpdateSpaceInput): Promise<Space> {
+  return invoke('update_space', {
+    id,
+    name: input.name,
+    icon: input.icon,
+    description: input.description,
+  });
+}
