@@ -10,6 +10,7 @@
  * the page that manages what it counts.
  */
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Server,
   Wrench,
@@ -195,6 +196,7 @@ function SetUpFolderCard() {
 }
 
 export function HomePage() {
+  const { t } = useTranslation('home');
   const [stats, setStats] = useState({
     installedServers: 0,
     connectedServers: 0,
@@ -264,8 +266,8 @@ export function HomePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Home"
-        subtitle="Your AI control plane at a glance — one gateway, every app, your rules."
+        title={t('page.title')}
+        subtitle={t('page.subtitle')}
       />
 
       {/* First-steps journey — only until the first server is installed. */}
