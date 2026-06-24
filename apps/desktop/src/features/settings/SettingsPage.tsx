@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Card,
@@ -31,8 +31,15 @@ import {
   Network,
   RotateCcw,
   AlertCircle,
+  ShieldOff,
 } from 'lucide-react';
-import { useAppStore, useTheme, useAnalyticsEnabled } from '@/stores';
+import {
+  useAppStore,
+  useTheme,
+  useAnalyticsEnabled,
+  usePendingSettingsSection,
+  useSetPendingSettingsSection,
+} from '@/stores';
 import { UpdateChecker } from './UpdateChecker';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { CONTRIBUTE, openExternal } from '@/lib/contribute';
@@ -59,6 +66,22 @@ export function SettingsPage() {
   const { toasts, success, error } = useToast();
   const gatewayControl = useGatewayControl();
 
+  // Deep-link: when another surface routes here for a specific section, scroll
+  // it into view and briefly flash it so the user lands on the right control.
+  const pendingSection = usePendingSettingsSection();
+  const clearPendingSection = useSetPendingSettingsSection();
+  const securityRef = useRef<HTMLDivElement>(null);
+  const [flashSecurity, setFlashSecurity] = useState(false);
+
+  useEffect(() => {
+    if (pendingSection !== 'security' || !securityRef.current) return;
+    securityRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashSecurity(true);
+    clearPendingSection(null);
+    const t = setTimeout(() => setFlashSecurity(false), 2200);
+    return () => clearTimeout(t);
+  }, [pendingSection, clearPendingSection]);
+
   // Startup settings state
   const [startupSettings, setStartupSettings] = useState<StartupSettings>({
     autoLaunch: false,
@@ -76,6 +99,11 @@ export function SettingsPage() {
   // opens an unmapped folder. On by default.
   const [mappingPromptEnabled, setMappingPromptEnabled] = useState(true);
   const [savingMappingPrompt, setSavingMappingPrompt] = useState(false);
+
+  // System-wide inbound auth toggle. When disabled, local apps connect to the
+  // gateway with no access key — used by the one-click per-workspace install.
+  const [authDisabled, setAuthDisabled] = useState(false);
+  const [savingAuthDisabled, setSavingAuthDisabled] = useState(false);
 
   // Meta-tools master switch — gates the entire `mcpmux_*` namespace.
 
@@ -242,6 +270,34 @@ export function SettingsPage() {
       setMappingPromptEnabled(prev);
     } finally {
       setSavingMappingPrompt(false);
+    }
+  };
+
+  // Load the system-wide inbound-auth toggle on mount.
+  useEffect(() => {
+    invoke<boolean>('get_gateway_auth_disabled')
+      .then(setAuthDisabled)
+      .catch((err) => console.error('Failed to load auth setting:', err));
+  }, []);
+
+  const updateAuthDisabled = async (disabled: boolean) => {
+    const prev = authDisabled;
+    setAuthDisabled(disabled);
+    setSavingAuthDisabled(true);
+    try {
+      await invoke('set_gateway_auth_disabled', { disabled });
+      success(
+        'Settings saved',
+        disabled
+          ? 'Authentication is off — local apps can connect with no access key.'
+          : 'Authentication is required again for inbound connections.'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      error('Failed to save setting', msg);
+      setAuthDisabled(prev);
+    } finally {
+      setSavingAuthDisabled(false);
     }
   };
 
@@ -590,6 +646,49 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Security Section */}
+        <div
+          ref={securityRef}
+          id="settings-security"
+          className={
+            flashSecurity
+              ? 'rounded-xl ring-2 ring-primary-500 ring-offset-2 ring-offset-[rgb(var(--background))] transition-shadow duration-500'
+              : 'rounded-xl ring-0 transition-shadow duration-500'
+          }
+        >
+        <Card data-testid="settings-security-section">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldOff className="h-5 w-5" />
+              Security
+            </CardTitle>
+            <CardDescription>
+              How McpMux authenticates apps connecting to the local gateway.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <ShieldOff className="mt-0.5 h-5 w-5 flex-shrink-0 text-[rgb(var(--muted))]" />
+                <div>
+                  <label className="text-sm font-medium">Disable authentication</label>
+                  <p className="mt-1 text-xs text-[rgb(var(--muted))]">
+                    Let local apps connect with no access key — just the URL and a workspace header.
+                    Quickest setup, but any app on this machine can then reach the gateway.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={authDisabled}
+                onCheckedChange={updateAuthDisabled}
+                disabled={savingAuthDisabled}
+                data-testid="disable-auth-switch"
+              />
+            </div>
+          </CardContent>
+        </Card>
+        </div>
 
         {/* Appearance Section */}
         <Card>

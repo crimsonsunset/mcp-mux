@@ -50,7 +50,9 @@ import {
   listFeatureSets,
   type FeatureSet,
 } from '@/lib/api/featureSets';
-import { useSpaces } from '@/stores';
+import { WorkspaceInstallPanel } from './WorkspaceInstallPanel';
+import { WorkspaceSetupWizard } from './WorkspaceSetupWizard';
+import { useSpaces, usePendingWorkspaceNew, useSetPendingWorkspaceNew } from '@/stores';
 import type { Space } from '@/lib/api/spaces';
 
 /**
@@ -81,6 +83,8 @@ type Selected = { mode: 'new' } | { mode: 'entry'; id: string };
 
 export function WorkspacesPage() {
   const spaces = useSpaces();
+  const pendingNew = usePendingWorkspaceNew();
+  const clearPendingNew = useSetPendingWorkspaceNew();
   const [bindings, setBindings] = useState<WorkspaceBinding[]>([]);
   const [reportedRoots, setReportedRoots] = useState<string[]>([]);
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
@@ -114,6 +118,14 @@ export function WorkspacesPage() {
     setIsLoading(true);
     void loadData().finally(() => setIsLoading(false));
   }, [loadData]);
+
+  // Opened from the home "Set up a folder" CTA — launch the create walkthrough.
+  useEffect(() => {
+    if (pendingNew) {
+      setSelected({ mode: 'new' });
+      clearPendingNew(false);
+    }
+  }, [pendingNew, clearPendingNew]);
 
   // Refresh whenever something the table reflects changes outside the page:
   //   • `session-roots-changed` — a connected client newly reported a root.
@@ -445,27 +457,45 @@ export function WorkspacesPage() {
             className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 animate-in fade-in duration-200"
             onClick={() => setSelected(null)}
           />
-          <InspectorPanel
-            key={selectedIsNew ? 'new' : selectedEntry?.id ?? 'new'}
-            entry={selectedEntry}
-            isNew={selectedIsNew}
-            spaces={spaces}
-            featureSets={featureSets}
-            existingBindings={bindings}
-            onClose={() => setSelected(null)}
-            onSubmit={async (input) => {
-              if (selectedEntry?.binding) {
-                await handleUpdate(selectedEntry.binding.id, input);
-              } else {
+          {selectedIsNew ? (
+            <WorkspaceSetupWizard
+              spaces={spaces}
+              featureSets={featureSets}
+              reportedRoots={reportedRoots}
+              existingBindings={bindings}
+              onClose={() => setSelected(null)}
+              onCreate={async (input) => {
                 const created = await handleCreate(input);
+                // Land on the new mapping's inspector so its effective features
+                // are shown right after creation.
                 setSelected({ mode: 'entry', id: created.id });
-              }
-            }}
-            onDelete={async () => {
-              if (selectedEntry?.binding) await handleDelete(selectedEntry.binding);
-            }}
-            onError={(msg) => showError('Could not save', msg)}
-          />
+                return created;
+              }}
+              onError={(msg) => showError('Could not save', msg)}
+            />
+          ) : (
+            <InspectorPanel
+              key={selectedEntry?.id ?? 'entry'}
+              entry={selectedEntry}
+              isNew={false}
+              spaces={spaces}
+              featureSets={featureSets}
+              existingBindings={bindings}
+              onClose={() => setSelected(null)}
+              onSubmit={async (input) => {
+                if (selectedEntry?.binding) {
+                  await handleUpdate(selectedEntry.binding.id, input);
+                } else {
+                  const created = await handleCreate(input);
+                  setSelected({ mode: 'entry', id: created.id });
+                }
+              }}
+              onDelete={async () => {
+                if (selectedEntry?.binding) await handleDelete(selectedEntry.binding);
+              }}
+              onError={(msg) => showError('Could not save', msg)}
+            />
+          )}
         </>
       )}
 
@@ -1016,6 +1046,19 @@ function InspectorPanel({
             onSaveStatusChange={setSaveStatus}
           />
         </CollapsibleSection>
+
+        {entry && !isNew && (
+          <CollapsibleSection
+            icon={<Wrench className="h-5 w-5" />}
+            tone="primary"
+            title="Connect apps to this folder"
+            subtitle="Write the McpMux config into this folder for the apps you use, with this folder's workspace header."
+            defaultOpen={!isMapped}
+            testId="workspace-install-section"
+          >
+            <WorkspaceInstallPanel workspaceRoot={entry.root} />
+          </CollapsibleSection>
+        )}
 
         {entry && !isNew && (
           <CollapsibleSection
