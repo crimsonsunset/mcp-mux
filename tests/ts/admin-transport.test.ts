@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
-import { routeFor } from '../../apps/desktop/src/lib/api/fetch-api';
+import { ADMIN_SSE_CHANNELS } from '../../apps/desktop/src/lib/backend/events/admin-sse-hub';
+import { routeFor, registeredCommands } from '../../apps/desktop/src/lib/api/fetch-api';
 
 const SPACE_ID = '11111111-1111-1111-1111-111111111111';
 const CLIENT_ID = '22222222-2222-2222-2222-222222222222';
@@ -173,6 +174,21 @@ const P4_READ_ROUTES: Array<{
     method: 'GET',
     path: `/api/v1/servers/clones/dependents?spaceId=${SPACE_ID}&sourceServerId=${SERVER_ID}`,
   },
+  {
+    command: 'list_builtin_servers',
+    args: { spaceId: SPACE_ID },
+    method: 'GET',
+    path: `/api/v1/builtins?spaceId=${SPACE_ID}`,
+  },
+  {
+    command: 'preview_config_export',
+    args: {
+      request: { client_type: 'cursor', space_id: SPACE_ID, mask_credentials: true },
+    },
+    method: 'GET',
+    path: `/api/v1/config-export/preview?clientType=cursor&spaceId=${SPACE_ID}&maskCredentials=true`,
+  },
+  { command: 'get_config_paths', method: 'GET', path: '/api/v1/config-export/paths' },
 ];
 
 /** P6 write commands — one vitest row per parity matrix entry. */
@@ -255,7 +271,47 @@ const P6_WRITE_ROUTES: Array<{
     method: 'POST',
     path: '/api/v1/oauth/consent/reject',
   },
+  {
+    command: 'set_builtin_server_enabled',
+    args: { spaceId: SPACE_ID, serverId: SERVER_ID, enabled: true },
+    method: 'PUT',
+    path: '/api/v1/builtins/server-enabled',
+  },
+  {
+    command: 'set_builtin_tool_enabled',
+    args: { spaceId: SPACE_ID, serverId: SERVER_ID, toolName: 'list_tools', enabled: false },
+    method: 'PUT',
+    path: '/api/v1/builtins/tool-enabled',
+  },
+  {
+    command: 'check_config_exists',
+    args: { clientType: 'cursor' },
+    method: 'POST',
+    path: '/api/v1/config-export/check',
+  },
+  {
+    command: 'backup_existing_config',
+    args: { clientType: 'cursor' },
+    method: 'POST',
+    path: '/api/v1/config-export/backup',
+  },
+  {
+    command: 'export_config_to_file',
+    args: {
+      request: { client_type: 'cursor', space_id: SPACE_ID },
+      path: '/tmp/mcp.json',
+    },
+    method: 'POST',
+    path: '/api/v1/config-export/export',
+  },
 ];
+
+/** Direct UI SSE channels fan-out outside the domain-event bus (`ADMIN_SSE_CHANNELS`). */
+const ADMIN_DIRECT_UI_SSE_CHANNELS = [
+  'oauth-consent-request',
+  'oauth-client-changed',
+  'builtin-server-config-changed',
+] as const;
 
 describe('admin transport mapping', () => {
   it.each(P4_READ_ROUTES)('maps read $command', ({ command, args, method, path }) => {
@@ -270,5 +326,26 @@ describe('admin transport mapping', () => {
 
   it('rejects unknown commands', () => {
     expect(() => routeFor('not_a_real_command')).toThrow('Unknown command: not_a_real_command');
+  });
+
+  it('does not register superseded apiCall commands', () => {
+    expect(registeredCommands).not.toContain('export_config');
+    expect(registeredCommands).not.toContain('connect_server');
+    expect(registeredCommands).not.toContain('disconnect_server_v2');
+  });
+});
+
+describe('admin SSE event channels', () => {
+  it.each(ADMIN_DIRECT_UI_SSE_CHANNELS)(
+    'documents web-admin direct SSE channel %s',
+    (channel) => {
+      expect(channel.length).toBeGreaterThan(0);
+    }
+  );
+
+  it('keeps direct UI SSE channels separate from domain SSE channels', () => {
+    for (const channel of ADMIN_DIRECT_UI_SSE_CHANNELS) {
+      expect(ADMIN_SSE_CHANNELS).not.toContain(channel);
+    }
   });
 });

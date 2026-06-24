@@ -14,11 +14,6 @@ export interface GatewayStatus {
 }
 
 /**
- * Config export format.
- */
-export type ExportFormat = 'cursor' | 'vscode' | 'claude';
-
-/**
  * Get gateway status.
  */
 export async function getGatewayStatus(spaceId?: string): Promise<GatewayStatus> {
@@ -122,16 +117,6 @@ export async function restartGateway(opts?: {
 }
 
 /**
- * Export config for a client.
- */
-export async function exportConfig(
-  format: ExportFormat,
-  clientId?: string
-): Promise<string> {
-  return apiCall('export_config', { format, clientId });
-}
-
-/**
  * Backend server status.
  */
 export interface BackendStatus {
@@ -139,13 +124,6 @@ export interface BackendStatus {
   name: string;
   status: string;
   tools_count: number;
-}
-
-/**
- * Connect an installed server to the gateway.
- */
-export async function connectServer(serverId: string): Promise<void> {
-  return apiCall('connect_server', { serverId });
 }
 
 /**

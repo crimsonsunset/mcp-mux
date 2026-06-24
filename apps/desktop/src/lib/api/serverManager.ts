@@ -190,20 +190,6 @@ export async function updateServerPackage(spaceId: string, serverId: string): Pr
   return apiCall('update_server_package', { spaceId, serverId });
 }
 
-/**
- * Disconnect server - Stop connection but keep enabled and preserve credentials
- * 
- * Preserves: Everything (tokens, DCR, inputs, enabled flag)
- * Result: State = auth_required (OAuth) or disconnected (non-OAuth)
- * Use case: Temporary pause, quick reconnect possible
- */
-export async function disconnectServerV2(
-  spaceId: string,
-  serverId: string
-): Promise<void> {
-  return apiCall("disconnect_server_v2", { spaceId, serverId });
-}
-
 // ============================================================================
 // Event Listeners (Backend → UI)
 // ============================================================================

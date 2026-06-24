@@ -1004,7 +1004,6 @@ pub fn run() {
             commands::restart_gateway,
             commands::reload_admin_server,
             commands::generate_gateway_config,
-            commands::connect_server,
             commands::disconnect_server,
             commands::list_connected_servers,
             commands::connect_all_enabled_servers,
@@ -1031,7 +1030,6 @@ pub fn run() {
             commands::cancel_auth_v2,
             commands::retry_connection,
             commands::logout_server,
-            commands::disconnect_server_v2,
             // Log commands
             commands::get_server_logs,
             commands::clear_server_logs,
