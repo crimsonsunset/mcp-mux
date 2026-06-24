@@ -37,6 +37,9 @@ use tracing::{debug, error, info, warn};
 use url::Url;
 
 use super::gateway::GatewayAppState;
+use crate::services::ui_events::{
+    emit_ui_channel_from_app, OAUTH_CLIENT_CHANGED_CHANNEL, OAUTH_CONSENT_REQUEST_CHANNEL,
+};
 
 // ============================================================================
 // Deep Link Handling
@@ -80,10 +83,6 @@ pub fn flush_pending_deep_link(app: tauri::AppHandle, pending: State<'_, Pending
         handle_deep_link(&app, &url);
     }
 }
-
-/// Event name for OAuth consent requests sent to frontend
-/// Now only contains request_id - frontend must call get_pending_consent
-pub const OAUTH_CONSENT_EVENT: &str = "oauth-consent-request";
 
 /// Event name for server install requests sent to frontend (from deep link)
 pub const SERVER_INSTALL_EVENT: &str = "server-install-request";
@@ -251,10 +250,11 @@ fn handle_authorize_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url:
     // Emit minimal payload - frontend will fetch details from backend
     let payload = OAuthDeepLinkPayload { request_id };
 
-    if let Err(e) = app.emit(OAUTH_CONSENT_EVENT, &payload) {
-        error!("[DeepLink] Failed to emit consent event: {}", e);
-        return;
-    }
+    emit_ui_channel_from_app(
+        app,
+        OAUTH_CONSENT_REQUEST_CHANNEL,
+        serde_json::json!({ "requestId": payload.request_id }),
+    );
 
     // Focus the main window
     if let Some(window) = app.get_webview_window("main") {
@@ -1101,15 +1101,14 @@ pub async fn grant_oauth_client_feature_set(
         .await
         .map_err(|e| format!("Failed to grant feature set: {}", e))?;
 
-    if let Err(e) = app_handle.emit(
-        "oauth-client-changed",
+    emit_ui_channel_from_app(
+        &app_handle,
+        OAUTH_CLIENT_CHANGED_CHANNEL,
         serde_json::json!({
             "action": "grants_updated",
             "client_id": client_id,
         }),
-    ) {
-        error!("[OAuth] Failed to emit oauth-client-changed event: {}", e);
-    }
+    );
 
     Ok(())
 }
@@ -1133,15 +1132,14 @@ pub async fn revoke_oauth_client_feature_set(
         .await
         .map_err(|e| format!("Failed to revoke feature set: {}", e))?;
 
-    if let Err(e) = app_handle.emit(
-        "oauth-client-changed",
+    emit_ui_channel_from_app(
+        &app_handle,
+        OAUTH_CLIENT_CHANGED_CHANNEL,
         serde_json::json!({
             "action": "grants_updated",
             "client_id": client_id,
         }),
-    ) {
-        error!("[OAuth] Failed to emit oauth-client-changed event: {}", e);
-    }
+    );
 
     Ok(())
 }
