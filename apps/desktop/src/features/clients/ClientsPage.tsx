@@ -277,7 +277,7 @@ export default function ClientsPage() {
                   className="font-medium text-[rgb(var(--accent))] hover:underline"
                   data-testid="clients-workspaces-link"
                 >
-                  {t('nav:workspaces')}
+                  {t('nav:projects')}
                 </button>{' '}
                 {t('subtitleSuffix')}
               </p>

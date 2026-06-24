@@ -35,7 +35,7 @@
   },
   "statCards": {
     "servers": {
-      "title": "Servers",
+      "title": "My Servers",
       "description": "MCP backends installed in this Space",
       "metric": "Connected / Installed",
       "ariaLabel": "Go to My Servers"
