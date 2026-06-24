@@ -14,45 +14,10 @@ export interface GatewayStatus {
 }
 
 /**
- * Public URL advertised by the gateway in OAuth metadata.
- */
-export interface GatewayPublicUrlSettings {
-  configuredPublicBaseUrl: string | null;
-  activePublicBaseUrl: string | null;
-  localBaseUrl: string | null;
-}
-
-/**
- * Config export format.
- */
-export type ExportFormat = 'cursor' | 'vscode' | 'claude';
-
-/**
  * Get gateway status.
  */
 export async function getGatewayStatus(spaceId?: string): Promise<GatewayStatus> {
   return apiCall('get_gateway_status', { spaceId });
-}
-
-/**
- * Get the configured and currently-active public gateway URL settings.
- */
-export async function getGatewayPublicUrlSettings(): Promise<GatewayPublicUrlSettings> {
-  return invoke('get_gateway_public_url_settings');
-}
-
-/**
- * Set the public base URL advertised in OAuth metadata. Pass null to clear it.
- */
-export async function setGatewayPublicBaseUrl(publicBaseUrl: string | null): Promise<void> {
-  return invoke('set_gateway_public_base_url', { publicBaseUrl });
-}
-
-/**
- * Clear the public base URL and return to local-only localhost metadata.
- */
-export async function resetGatewayPublicBaseUrl(): Promise<void> {
-  return invoke('reset_gateway_public_base_url');
 }
 
 /**
@@ -152,16 +117,6 @@ export async function restartGateway(opts?: {
 }
 
 /**
- * Export config for a client.
- */
-export async function exportConfig(
-  format: ExportFormat,
-  clientId?: string
-): Promise<string> {
-  return apiCall('export_config', { format, clientId });
-}
-
-/**
  * Backend server status.
  */
 export interface BackendStatus {
@@ -169,13 +124,6 @@ export interface BackendStatus {
   name: string;
   status: string;
   tools_count: number;
-}
-
-/**
- * Connect an installed server to the gateway.
- */
-export async function connectServer(serverId: string): Promise<void> {
-  return apiCall('connect_server', { serverId });
 }
 
 /**
