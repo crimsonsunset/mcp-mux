@@ -68,11 +68,23 @@ impl WorkspaceBinding {
         space_id: Uuid,
         feature_set_ids: Vec<String>,
     ) -> Self {
+        Self::new_scoped_multi(workspace_root, space_id, None, feature_set_ids)
+    }
+
+    /// Construct a binding optionally scoped to an OAuth `client_id`. A `None`
+    /// scope is a global binding; `Some(client_id)` restricts the binding to
+    /// that client during resolution.
+    pub fn new_scoped_multi(
+        workspace_root: impl Into<String>,
+        space_id: Uuid,
+        client_id: Option<String>,
+        feature_set_ids: Vec<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             workspace_root: workspace_root.into(),
-            client_id: None,
+            client_id,
             label: None,
             space_id,
             feature_set_ids,
