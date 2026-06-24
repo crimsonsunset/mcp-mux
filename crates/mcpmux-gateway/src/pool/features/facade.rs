@@ -144,6 +144,30 @@ impl FeatureService {
             .await
     }
 
+    /// Resources promoted into client `resources/list` (surfaced backend resources only).
+    pub async fn get_advertised_resources_for_grants(
+        &self,
+        space_id: &str,
+        feature_set_ids: &[String],
+    ) -> Result<Vec<ServerFeature>> {
+        if feature_set_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let readable = self
+            .get_readable_resources_for_grants(space_id, feature_set_ids)
+            .await?;
+        let surfaced_ids = self
+            .resolution
+            .resolve_surfaced_feature_ids(feature_set_ids)
+            .await?;
+
+        Ok(readable
+            .into_iter()
+            .filter(|f| surfaced_ids.contains(&f.id.to_string()))
+            .collect())
+    }
+
     /// Resolve granted feature sets to prompts fetchable via search/fetch ACL.
     pub async fn get_fetchable_prompts_for_grants(
         &self,
@@ -151,6 +175,30 @@ impl FeatureService {
         feature_set_ids: &[String],
     ) -> Result<Vec<ServerFeature>> {
         self.get_prompts_for_grants(space_id, feature_set_ids).await
+    }
+
+    /// Prompts promoted into client `prompts/list` (surfaced backend prompts only).
+    pub async fn get_advertised_prompts_for_grants(
+        &self,
+        space_id: &str,
+        feature_set_ids: &[String],
+    ) -> Result<Vec<ServerFeature>> {
+        if feature_set_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let fetchable = self
+            .get_fetchable_prompts_for_grants(space_id, feature_set_ids)
+            .await?;
+        let surfaced_ids = self
+            .resolution
+            .resolve_surfaced_feature_ids(feature_set_ids)
+            .await?;
+
+        Ok(fetchable
+            .into_iter()
+            .filter(|f| surfaced_ids.contains(&f.id.to_string()))
+            .collect())
     }
 
     /// Catalog tools in the Space that require binding a FeatureSet before invoke.
