@@ -736,12 +736,13 @@ impl ServerHandler for McpMuxGatewayHandler {
             .resolve_routing(session_id_owned.as_deref(), &oauth_ctx.client_id)
             .await?;
 
-        // Get tools via FeatureService — using the *resolved* space.
+        // Get advertised (surfaced) tools only — full invokable set is reachable
+        // via mcpmux_invoke_tool; non-surfaced tools stay off tools/list.
         let tools = self
             .services
             .pool_services
             .feature_service
-            .get_tools_for_grants(&space_id.to_string(), &feature_set_ids)
+            .get_advertised_tools_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get tools: {}", e), None))?;
 
