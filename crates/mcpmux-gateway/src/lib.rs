@@ -80,7 +80,9 @@ pub use pool::{
 };
 
 // Services module
-pub use services::{EventEmitter, GrantService, PrefixCacheService};
+pub use services::{
+    routing_as_invoke_backend, EventEmitter, GrantService, InvokeToolBackend, PrefixCacheService,
+};
 
 // MCP module (rmcp-based implementation)
 pub use mcp::McpMuxGatewayHandler;

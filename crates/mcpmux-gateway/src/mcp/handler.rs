@@ -758,16 +758,13 @@ impl ServerHandler for McpMuxGatewayHandler {
             })
             .collect();
 
-        // Append the resolved Space's built-in `mcpmux_*` (Tool Optimization)
-        // tools. The set is empty when that built-in server is disabled for the
-        // Space, and any individual tools the Space has turned off are filtered
-        // out — all configured per Space via the Built-in Servers tab.
-        mcp_tools.extend(
-            self.services
-                .meta_tool_registry
-                .list_as_tools_for_space(&space_id)
-                .await,
-        );
+        // Append the built-in `mcpmux_*` meta tools (introspection + self-
+        // management). Only the small advertised core set is listed; the
+        // remainder stay callable but hidden. Gated by the global
+        // `gateway.meta_tools_enabled` master switch.
+        if self.services.meta_tool_registry.is_enabled().await {
+            mcp_tools.extend(self.services.meta_tool_registry.list_as_tools());
+        }
 
         // Log tool names at DEBUG level for visibility
         let tool_names: Vec<String> = mcp_tools.iter().map(|t| t.name.to_string()).collect();
@@ -822,11 +819,7 @@ impl ServerHandler for McpMuxGatewayHandler {
         // normal "not found" error.
         if crate::services::is_meta_tool(&params.name)
             && self.services.meta_tool_registry.contains(&params.name)
-            && self
-                .services
-                .meta_tool_registry
-                .is_tool_enabled_for_space(&space_id, &params.name)
-                .await
+            && self.services.meta_tool_registry.is_enabled().await
         {
             // Note: client_id is the OAuth client identity (a URL for DCR-
             // registered clients like Claude, a UUID for others). The meta-

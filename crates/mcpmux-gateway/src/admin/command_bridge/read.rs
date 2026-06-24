@@ -349,15 +349,10 @@ pub async fn get_workspace_effective_features(
         .await?
         .ok_or_else(|| anyhow!("No default Space configured"))?;
 
-    // ponytail: find_longest_prefix_match lands in Phase 5; inline prefix search
-    let all_bindings = ctx
+    let binding = ctx
         .workspace_binding_repository
-        .list_for_space(&default_space.id)
+        .find_longest_prefix_match(&default_space.id, None, std::slice::from_ref(&normalized))
         .await?;
-    let binding = all_bindings
-        .into_iter()
-        .filter(|b| normalized.starts_with(b.workspace_root.as_str()))
-        .max_by_key(|b| b.workspace_root.len());
 
     let (source, binding_id, space_id, feature_set_ids) = match binding {
         Some(binding) => (

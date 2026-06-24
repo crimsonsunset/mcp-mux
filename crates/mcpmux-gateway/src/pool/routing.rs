@@ -48,10 +48,53 @@ pub struct RoutedResource {
 }
 
 /// Result of a tool call
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ToolCallResult {
     pub content: Vec<Value>,
+    pub structured_content: Option<Value>,
     pub is_error: bool,
+}
+
+/// Actionable error when a server is not in the effective enable set.
+pub fn format_server_inactive_error(server_id: &str) -> String {
+    format!(
+        "server '{server_id}' is inactive → mcpmux_bind_current_workspace with a FeatureSet that includes this server"
+    )
+}
+
+/// Actionable error when a bound server is not connected.
+pub fn format_server_bound_offline_error(server_id: &str) -> String {
+    format!(
+        "Server '{server_id}' is bound but not connected. Run mcpmux_diagnose_server to see why."
+    )
+}
+
+/// Actionable error when invoke targets a tool outside the permission set.
+pub fn format_invoke_permission_denied(
+    qualified_name: &str,
+    server_id: &str,
+    tool_name: &str,
+    suggestions: &[String],
+) -> String {
+    if suggestions.is_empty() {
+        format!(
+            "tool '{qualified_name}' is not invokable with current grants (server_id='{server_id}', tool='{tool_name}')"
+        )
+    } else {
+        format!(
+            "tool '{qualified_name}' is not invokable — did you mean {}?",
+            suggestions.join(", ")
+        )
+    }
+}
+
+/// Actionable error when a server is not in the binding FeatureSet ACL.
+pub fn format_server_not_in_binding_error(server_id: &str) -> String {
+    format!(
+        "server '{server_id}' has no readable/fetchable features with current FeatureSet grants — \
+         create a FeatureSet bundle in the McpMux desktop or web UI, then bind it with \
+         mcpmux_bind_current_workspace"
+    )
 }
 
 /// Default timeout for MCP tool calls (60 seconds)
@@ -292,6 +335,7 @@ impl RoutingService {
 
                     Ok(ToolCallResult {
                         content,
+                        structured_content: res.structured_content,
                         is_error: res.is_error.unwrap_or(false),
                     })
                 }

@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use mcpmux_core::normalize_workspace_root;
 
+use super::tool_discovery::ToolIndex;
+
 /// Thread-safe registry mapping `mcp-session-id` to the caller's reported
 /// workspace roots, plus the most recently resolved feature-set id so the
 /// gateway can tell when a session's resolution flips and emit a per-peer
@@ -66,6 +68,10 @@ pub struct SessionRootsRegistry {
     /// roots-capable client from flashing the default FeatureSet and then
     /// flipping to its mapped one the instant its root lands.
     first_seen: DashMap<String, Instant>,
+    /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
+    /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext)
+    /// so `mcpmux_search_tools` can reuse a session's resolved tool index.
+    search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
 }
 
 impl SessionRootsRegistry {
@@ -77,7 +83,27 @@ impl SessionRootsRegistry {
             last_probe: DashMap::new(),
             probe_lock: DashMap::new(),
             first_seen: DashMap::new(),
+            search_cache: Arc::new(DashMap::new()),
         })
+    }
+
+    /// Shared per-session `search_tools` active index cache.
+    pub fn search_cache(&self) -> Arc<DashMap<String, (u64, ToolIndex)>> {
+        self.search_cache.clone()
+    }
+
+    /// Evict cached active indexes for sessions reporting `workspace_root`.
+    pub fn evict_search_cache_for_workspace_root(&self, workspace_root: &str) {
+        let normalized = normalize_workspace_root(workspace_root);
+        let session_ids: Vec<String> = self
+            .map
+            .iter()
+            .filter(|entry| entry.value().iter().any(|root| root == &normalized))
+            .map(|entry| entry.key().clone())
+            .collect();
+        for session_id in session_ids {
+            self.search_cache.remove(&session_id);
+        }
     }
 
     /// Elapsed time since this session was first observed without roots,
@@ -167,6 +193,7 @@ impl SessionRootsRegistry {
         self.last_probe.remove(session_id);
         self.probe_lock.remove(session_id);
         self.first_seen.remove(session_id);
+        self.search_cache.remove(session_id);
     }
 
     /// Compare-and-set the session's resolved feature-set id. Returns `true`

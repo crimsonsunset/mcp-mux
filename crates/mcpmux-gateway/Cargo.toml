@@ -6,6 +6,10 @@ license.workspace = true
 publish = false
 description = "McpMux Gateway - MCP proxy server with OAuth and aggregation"
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 # Async runtime
 tokio.workspace = true
@@ -29,6 +33,7 @@ reqwest.workspace = true
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 
 # Error handling
 anyhow.workspace = true
@@ -38,6 +43,8 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # Utilities
+fastembed = "5"
+strsim = "0.11"
 uuid.workspace = true
 chrono.workspace = true
 dashmap = "6.1"
@@ -67,6 +74,4 @@ mcpmux-storage.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-
-[features]
-test-utils = []
+tracing-test = "0.2"
