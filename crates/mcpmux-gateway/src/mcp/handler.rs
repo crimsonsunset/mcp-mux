@@ -934,11 +934,13 @@ impl ServerHandler for McpMuxGatewayHandler {
             .resolve_routing(session_id_owned.as_deref(), &oauth_ctx.client_id)
             .await?;
 
+        // Get advertised (surfaced) prompts only — full fetchable set is reachable
+        // via mcpmux meta-tools; non-surfaced prompts stay off prompts/list.
         let prompts = self
             .services
             .pool_services
             .feature_service
-            .get_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
+            .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to get prompts: {}", e), None))?;
 
@@ -995,7 +997,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
+            .get_advertised_prompts_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
@@ -1049,11 +1051,13 @@ impl ServerHandler for McpMuxGatewayHandler {
             .resolve_routing(session_id_owned.as_deref(), &oauth_ctx.client_id)
             .await?;
 
+        // Get advertised (surfaced) resources only — full readable set is reachable
+        // via mcpmux meta-tools; non-surfaced resources stay off resources/list.
         let resources = self
             .services
             .pool_services
             .feature_service
-            .get_resources_for_grants(&space_id.to_string(), &feature_set_ids)
+            .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to get resources: {}", e), None)
@@ -1107,7 +1111,7 @@ impl ServerHandler for McpMuxGatewayHandler {
             .services
             .pool_services
             .feature_service
-            .get_resources_for_grants(&space_id.to_string(), &feature_set_ids)
+            .get_advertised_resources_for_grants(&space_id.to_string(), &feature_set_ids)
             .await
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
