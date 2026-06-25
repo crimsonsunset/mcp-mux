@@ -60,6 +60,7 @@ impl Ctx {
             inbound_client_repo.clone(),
             fs_repo.clone(),
             Arc::new(SqliteSpaceBaseDirRepository::new(db.clone())),
+            None,
         );
 
         Self {
@@ -161,6 +162,7 @@ async fn binding_to_non_default_space_reroutes_session() {
         inbound_client_repo.clone(),
         fs_repo.clone(),
         Arc::new(SqliteSpaceBaseDirRepository::new(db.clone())),
+        None,
     );
 
     let raw = if cfg!(windows) {

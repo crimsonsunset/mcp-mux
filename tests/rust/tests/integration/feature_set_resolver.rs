@@ -91,6 +91,7 @@ impl Fixture {
             client_repo.clone(),
             fs_repo.clone(),
             base_dir_repo.clone(),
+            None,
         );
 
         Self {
@@ -119,6 +120,7 @@ impl Fixture {
             self.client_repo.clone(),
             self.fs_repo.clone(),
             self.base_dir_repo.clone(),
+            None,
         )
         .with_pending_grace(grace)
     }

@@ -194,6 +194,7 @@ impl TestGateway {
             &deps,
             event_tx.clone(),
             gateway_state,
+            None,
         ));
 
         // Create MCPNotifier

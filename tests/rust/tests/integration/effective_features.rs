@@ -115,6 +115,7 @@ impl Ctx {
             client_repo.clone(),
             fs_repo.clone(),
             Arc::new(SqliteSpaceBaseDirRepository::new(db.clone())),
+            None,
         );
         let feature_service =
             FeatureService::new(feature_repo.clone(), fs_repo.clone(), prefix_cache);

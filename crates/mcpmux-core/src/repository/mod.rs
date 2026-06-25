@@ -311,6 +311,21 @@ pub trait WorkspaceBindingRepository: Send + Sync {
         candidate_roots: &[String],
     ) -> RepoResult<Option<WorkspaceBinding>>;
 
+    /// Exact match for a machine-scoped binding (`machine_id` set, `client_id`
+    /// unset) on `workspace_root`.
+    async fn find_exact_for_machine(
+        &self,
+        machine_id: &Uuid,
+        workspace_root: &str,
+    ) -> RepoResult<Option<WorkspaceBinding>>;
+
+    /// Exact match for a global canonical binding (`machine_id` and `client_id`
+    /// both unset) on `workspace_root`.
+    async fn find_exact_global(
+        &self,
+        workspace_root: &str,
+    ) -> RepoResult<Option<WorkspaceBinding>>;
+
     /// Resolve which binding applies for a set of candidate workspace roots by
     /// longest-prefix containment.
     ///

@@ -106,17 +106,30 @@ impl GatewayServer {
         let state = Arc::new(RwLock::new(state));
 
         // Set database and services in state (needs async, so we block here)
-        tokio::task::block_in_place(|| {
+        let local_machine_id = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let mut state_guard = state.write().await;
                 state_guard.set_database(dependencies.database.clone());
                 state_guard
                     .set_client_metadata_service(dependencies.client_metadata_service.clone());
-            });
+
+                if let Some(ref settings_repo) = dependencies.settings_repo {
+                    mcpmux_core::AppSettingsService::new(settings_repo.clone())
+                        .get_local_machine_id()
+                        .await
+                } else {
+                    None
+                }
+            })
         });
 
         // Initialize all services using DI container (pass domain event sender for non-blocking emission)
-        let services = ServiceContainer::initialize(&dependencies, domain_event_tx, state.clone());
+        let services = ServiceContainer::initialize(
+            &dependencies,
+            domain_event_tx,
+            state.clone(),
+            local_machine_id,
+        );
 
         info!("[Gateway] Services initialized successfully");
 

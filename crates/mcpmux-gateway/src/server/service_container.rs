@@ -74,6 +74,7 @@ impl ServiceContainer {
         deps: &GatewayDependencies,
         domain_event_tx: tokio::sync::broadcast::Sender<DomainEvent>,
         gateway_state: Arc<tokio::sync::RwLock<GatewayState>>,
+        local_machine_id: Option<uuid::Uuid>,
     ) -> Self {
         // Create prefix cache service with dependencies
         let prefix_cache_service = Arc::new(PrefixCacheService::new().with_dependencies(
@@ -110,6 +111,7 @@ impl ServiceContainer {
             deps.inbound_client_repo.clone(),
             deps.feature_set_repo.clone(),
             deps.space_base_dir_repo.clone(),
+            local_machine_id,
         ));
 
         // Authorization service is now a thin adapter over the resolver.
