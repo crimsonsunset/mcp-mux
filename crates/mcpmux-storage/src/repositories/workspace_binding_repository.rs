@@ -68,13 +68,15 @@ impl SqliteWorkspaceBindingRepository {
         let created_at: String = row.get(3)?;
         let updated_at: String = row.get(4)?;
         let client_id: Option<String> = row.get(5)?;
-        let label: Option<String> = row.get(6)?;
-        let icon: Option<String> = row.get(7)?;
+        let machine_id_str: Option<String> = row.get(6)?;
+        let label: Option<String> = row.get(7)?;
+        let icon: Option<String> = row.get(8)?;
 
         Ok(WorkspaceBinding {
             id: id_str.parse().unwrap_or_else(|_| Uuid::new_v4()),
             workspace_root,
             client_id,
+            machine_id: machine_id_str.and_then(|s| s.parse().ok()),
             label,
             icon,
             space_id: space_id_str.parse().unwrap_or_else(|_| Uuid::nil()),
@@ -147,7 +149,7 @@ impl SqliteWorkspaceBindingRepository {
     }
 
     const SELECT_COLS: &'static str =
-        "id, workspace_root, space_id, created_at, updated_at, client_id, label, icon";
+        "id, workspace_root, space_id, created_at, updated_at, client_id, machine_id, label, icon";
 
     /// Fetch bindings + their FeatureSet lists in two queries.
     /// `where_clause` is appended to the binding SELECT (use `""` for none);
@@ -219,8 +221,8 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO workspace_bindings
-                (id, workspace_root, space_id, created_at, updated_at, client_id, label, icon)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (id, workspace_root, space_id, created_at, updated_at, client_id, machine_id, label, icon)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
@@ -228,6 +230,7 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
                 binding.created_at.to_rfc3339(),
                 binding.updated_at.to_rfc3339(),
                 binding.client_id,
+                binding.machine_id.map(|id| id.to_string()),
                 binding.label,
                 binding.icon,
             ],
@@ -249,7 +252,8 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         let tx = conn.unchecked_transaction()?;
         let rows_affected = tx.execute(
             "UPDATE workspace_bindings
-             SET workspace_root = ?2, space_id = ?3, updated_at = ?4, client_id = ?5, label = ?6, icon = ?7
+             SET workspace_root = ?2, space_id = ?3, updated_at = ?4, client_id = ?5,
+                 machine_id = ?6, label = ?7, icon = ?8
              WHERE id = ?1",
             params![
                 binding.id.to_string(),
@@ -257,6 +261,7 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
                 binding.space_id.to_string(),
                 binding.updated_at.to_rfc3339(),
                 binding.client_id,
+                binding.machine_id.map(|id| id.to_string()),
                 binding.label,
                 binding.icon,
             ],
@@ -348,6 +353,44 @@ mod tests {
             )
             .unwrap();
         fs_id
+    }
+
+    #[tokio::test]
+    async fn test_machine_id_round_trip() {
+        let (repo, space_id, fs_id) = fixture().await;
+        let db = repo.db.clone();
+        let machine_id = Uuid::new_v4();
+        let now = Utc::now().to_rfc3339();
+        {
+            let guard = db.lock().await;
+            guard
+                .connection()
+                .execute(
+                    "INSERT INTO machines (id, name, created_at, updated_at)
+                     VALUES (?1, 'Box 4', ?2, ?2)",
+                    params![machine_id.to_string(), now],
+                )
+                .unwrap();
+        }
+
+        let root = if cfg!(windows) {
+            "d:\\machine-scoped"
+        } else {
+            "/machine-scoped"
+        };
+        let mut binding = WorkspaceBinding::new(root, space_id, fs_id.clone());
+        binding.machine_id = Some(machine_id);
+        repo.create(&binding).await.unwrap();
+
+        let got = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(got.machine_id, Some(machine_id));
+
+        let mut cleared = got;
+        cleared.machine_id = None;
+        cleared.updated_at = Utc::now();
+        repo.update(&cleared).await.unwrap();
+        let after = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(after.machine_id, None);
     }
 
     #[tokio::test]
