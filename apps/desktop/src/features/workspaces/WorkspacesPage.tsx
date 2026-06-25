@@ -644,13 +644,13 @@ export function WorkspacesPage() {
                     icon={resolveEntryIcon(entry)}
                     spaceName={resolvedSpaceName}
                     fsName={resolvedFsName}
-                    machineName={
-                      binding?.machine_id
-                        ? machinesById.get(binding.machine_id)?.name
-                        : undefined
-                    }
+                    bindings={entry.bindings}
+                    machinesById={machinesById}
+                    spaceById={spaceById}
+                    fsById={fsById}
                     selected={isSelected}
                     onClick={() => setSelected({ mode: 'entry', id: entry.id })}
+                    onMachineRowClick={() => {}}
                     t={t}
                   />
                 );
@@ -856,23 +856,46 @@ function SegmentedFilter<T extends string>({
 // Entry card — matches Clients page card anatomy (56×56 icon, 3xl size, chips)
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve a display label for a binding's machine scope.
+ */
+function machineBindingLabel(
+  binding: WorkspaceBinding,
+  machinesById: Map<string, Machine>,
+  t: TFunction<['workspaces', 'common']>
+): string {
+  if (binding.machine_id == null) return t('form.noMachine');
+  return machinesById.get(binding.machine_id)?.name ?? binding.machine_id;
+}
+
+/**
+ * Project card — single-machine byline or multi-machine footer rows.
+ */
 function EntryCard({
   entry,
   icon,
   spaceName,
   fsName,
-  machineName,
+  bindings,
+  machinesById,
+  spaceById,
+  fsById,
   selected,
   onClick,
+  onMachineRowClick,
   t,
 }: {
   entry: Entry;
   icon: string | null;
   spaceName: string | undefined;
   fsName: string | undefined;
-  machineName?: string;
+  bindings: WorkspaceBinding[];
+  machinesById: Map<string, Machine>;
+  spaceById: Map<string, Space>;
+  fsById: Map<string, FeatureSet>;
   selected: boolean;
   onClick: () => void;
+  onMachineRowClick: (bindingId: string) => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
   const tone =
@@ -885,6 +908,12 @@ function EntryCard({
   const displayTitle = entryDisplayTitle(entry);
   const binding = primaryBinding(entry);
   const hasLabel = Boolean(binding?.label?.trim());
+  const isMultiMachine = bindings.length > 1;
+  const singleMachineBinding =
+    bindings.length === 1 && bindings[0].machine_id != null ? bindings[0] : null;
+  const singleMachineName = singleMachineBinding
+    ? machinesById.get(singleMachineBinding.machine_id!)?.name
+    : undefined;
 
   return (
     <Card
@@ -948,36 +977,80 @@ function EntryCard({
             >
               {hasLabel ? entry.root : '\u00A0'}
             </p>
+            {singleMachineName ? (
+              <p className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-[rgb(var(--muted))]">
+                <Monitor className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="truncate" title={singleMachineName}>
+                  {singleMachineName}
+                </span>
+              </p>
+            ) : null}
           </div>
         </div>
 
         <div className="mt-auto min-h-[2.25rem] border-t border-[rgb(var(--border-subtle))] pt-4 text-xs text-[rgb(var(--muted))]">
-          <div className="flex flex-wrap items-start gap-1.5">
-            <span className="shrink-0">{t('card.routesTo')}</span>
-            <Chip tone="primary" title={fsName ?? undefined}>
-              {fsName ?? '—'}
-            </Chip>
-            <span className="shrink-0">{t('card.in')}</span>
-            <Chip tone="neutral" title={spaceName ?? undefined}>
-              {spaceName ?? '—'}
-            </Chip>
-            {!binding && (
-              <span
-                className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60"
-                title={t('card.unboundTooltip')}
-              >
-                {t('card.unbound')}
-              </span>
-            )}
-            {machineName ? (
-              <>
-                <span className="shrink-0">{t('card.machine')}</span>
-                <Chip tone="neutral" title={machineName}>
-                  {machineName}
-                </Chip>
-              </>
-            ) : null}
-          </div>
+          {isMultiMachine ? (
+            <div className="-mx-1 flex flex-col">
+              {bindings.map((rowBinding, index) => {
+                const machineLabel = machineBindingLabel(rowBinding, machinesById, t);
+                const rowFsName = formatFsList(
+                  rowBinding.feature_set_ids.map((id) => fsById.get(id)?.name ?? id)
+                );
+                const rowSpaceName = spaceById.get(rowBinding.space_id)?.name;
+                return (
+                  <button
+                    key={rowBinding.id}
+                    type="button"
+                    className={[
+                      'w-full rounded-md px-1 py-2 text-left transition-colors hover:bg-[rgb(var(--surface))]',
+                      index > 0 ? 'border-t border-[rgb(var(--border-subtle))]' : '',
+                    ].join(' ')}
+                    aria-label={t('card.machineRow', { machine: machineLabel })}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMachineRowClick(rowBinding.id);
+                    }}
+                  >
+                    <div className="mb-1 flex min-w-0 items-center gap-1.5">
+                      <Monitor className="h-3 w-3 shrink-0" aria-hidden />
+                      <span className="truncate text-[11px] font-medium text-[rgb(var(--foreground))]">
+                        {machineLabel}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-start gap-1.5 pl-[1.125rem]">
+                      <span className="shrink-0">{t('card.routesTo')}</span>
+                      <Chip tone="primary" title={rowFsName || undefined}>
+                        {rowFsName || '—'}
+                      </Chip>
+                      <span className="shrink-0">{t('card.in')}</span>
+                      <Chip tone="neutral" title={rowSpaceName ?? undefined}>
+                        {rowSpaceName ?? '—'}
+                      </Chip>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-start gap-1.5">
+              <span className="shrink-0">{t('card.routesTo')}</span>
+              <Chip tone="primary" title={fsName ?? undefined}>
+                {fsName ?? '—'}
+              </Chip>
+              <span className="shrink-0">{t('card.in')}</span>
+              <Chip tone="neutral" title={spaceName ?? undefined}>
+                {spaceName ?? '—'}
+              </Chip>
+              {!binding && (
+                <span
+                  className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60"
+                  title={t('card.unboundTooltip')}
+                >
+                  {t('card.unbound')}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

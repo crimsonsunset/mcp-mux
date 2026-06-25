@@ -47,7 +47,8 @@
     "in": "in",
     "unbound": "unbound",
     "unboundTooltip": "No binding matches this folder yet — a live session would be denied. Click to bind it to a FeatureSet.",
-    "machine": "Machine"
+    "machine": "Machine",
+    "machineRow": "Open binding for {{machine}}"
   },
   "machineIdentity": {
     "bannerMessage": "This McpMux install has no machine identity. Name it to organize and filter your projects by machine.",
