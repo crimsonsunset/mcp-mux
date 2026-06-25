@@ -97,9 +97,20 @@ interface Entry {
   id: string;
   kind: EntryKind;
   root: string;
-  binding: WorkspaceBinding | null;
+  bindings: WorkspaceBinding[];
   isLive: boolean;
 }
+
+/**
+ * Canonical binding for an entry — global (`machine_id IS NULL`) first,
+ * else first machine-scoped binding.
+ */
+function primaryBinding(entry: Entry): WorkspaceBinding | null {
+  return (
+    entry.bindings.find((b) => b.machine_id == null) ?? entry.bindings[0] ?? null
+  );
+}
+
 type Selected = { mode: 'new' } | { mode: 'entry'; id: string };
 
 const WORKSPACE_TABLE_REFRESH_CHANNELS: WorkspaceEventChannel[] = [
@@ -182,8 +193,13 @@ export function WorkspacesPage() {
   };
 
   const bindingsByRoot = useMemo(() => {
-    const m = new Map<string, WorkspaceBinding>();
-    for (const b of bindings) m.set(b.workspace_root.toLowerCase(), b);
+    const m = new Map<string, WorkspaceBinding[]>();
+    for (const b of bindings) {
+      const key = b.workspace_root.toLowerCase();
+      const list = m.get(key) ?? [];
+      list.push(b);
+      m.set(key, list);
+    }
     return m;
   }, [bindings]);
   const appearancesByRoot = useMemo(() => {
@@ -208,16 +224,6 @@ export function WorkspacesPage() {
     for (const machine of machines) m.set(machine.id, machine);
     return m;
   }, [machines]);
-  const machinesWithBindings = useMemo(() => {
-    const ids = new Set<string>();
-    for (const b of bindings) {
-      if (b.machine_id) ids.add(b.machine_id);
-    }
-    return machines
-      .filter((machine) => ids.has(machine.id))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [bindings, machines]);
-
   /**
    * The system's routing fallback: the `is_default` Space plus that Space's
    * Default FeatureSet. Sessions whose reported root has no binding resolve
@@ -245,12 +251,19 @@ export function WorkspacesPage() {
       const key = root.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      const binding = bindingsByRoot.get(key) ?? null;
-      list.push({
-        id: binding?.id ?? `live:${root}`,
-        kind: binding ? 'mapped-live' : 'unmapped-live',
+      const binds = bindingsByRoot.get(key) ?? [];
+      const primary = primaryBinding({
+        id: '',
+        kind: 'unmapped-live',
         root,
-        binding,
+        bindings: binds,
+        isLive: true,
+      });
+      list.push({
+        id: primary?.id ?? `live:${root}`,
+        kind: binds.length > 0 ? 'mapped-live' : 'unmapped-live',
+        root,
+        bindings: binds,
         isLive: true,
       });
     }
@@ -258,11 +271,19 @@ export function WorkspacesPage() {
       const key = b.workspace_root.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      list.push({
-        id: b.id,
+      const binds = bindingsByRoot.get(key) ?? [b];
+      const primary = primaryBinding({
+        id: '',
         kind: 'mapped-offline',
         root: b.workspace_root,
-        binding: b,
+        bindings: binds,
+        isLive: false,
+      });
+      list.push({
+        id: primary!.id,
+        kind: 'mapped-offline',
+        root: b.workspace_root,
+        bindings: binds,
         isLive: false,
       });
     }
@@ -277,21 +298,39 @@ export function WorkspacesPage() {
     });
   }, [bindings, bindingsByRoot, reportedRoots]);
 
+  const machinesWithBindings = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of entries) {
+      for (const b of entry.bindings) {
+        if (b.machine_id) ids.add(b.machine_id);
+      }
+    }
+    return machines
+      .filter((machine) => ids.has(machine.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [entries, machines]);
+
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return entries.filter((e) => {
       if (filter === 'live' && !e.isLive) return false;
-      if (filter === 'mapped' && !e.binding) return false;
+      if (filter === 'mapped' && e.bindings.length === 0) return false;
       if (filter === 'unmapped' && e.kind !== 'unmapped-live') return false;
-      if (machineFilter !== 'all' && e.binding?.machine_id !== machineFilter) return false;
+      if (
+        machineFilter !== 'all' &&
+        !e.bindings.some((b) => b.machine_id === machineFilter)
+      ) {
+        return false;
+      }
       if (!q) return true;
-      const spaceName = e.binding ? spaceById.get(e.binding.space_id)?.name ?? '' : '';
-      const fsNames = e.binding
-        ? e.binding.feature_set_ids
+      const binding = primaryBinding(e);
+      const spaceName = binding ? spaceById.get(binding.space_id)?.name ?? '' : '';
+      const fsNames = binding
+        ? binding.feature_set_ids
             .map((id) => fsById.get(id)?.name ?? '')
             .join(' ')
         : '';
-      const label = e.binding?.label?.toLowerCase() ?? '';
+      const label = binding?.label?.toLowerCase() ?? '';
       return (
         e.root.toLowerCase().includes(q) ||
         label.includes(q) ||
@@ -310,7 +349,7 @@ export function WorkspacesPage() {
     let unmapped = 0;
     for (const e of entries) {
       if (e.isLive) live++;
-      if (e.binding) mapped++;
+      if (e.bindings.length > 0) mapped++;
       if (e.kind === 'unmapped-live') unmapped++;
     }
     return { all: entries.length, live, mapped, unmapped };
@@ -321,7 +360,7 @@ export function WorkspacesPage() {
   const resolveEntryIcon = useCallback(
     (entry: Entry): string | null =>
       liveEntryIcons.get(entry.id) ??
-      entry.binding?.icon ??
+      primaryBinding(entry)?.icon ??
       appearancesByRoot.get(entry.root.toLowerCase()) ??
       null,
     [appearancesByRoot, liveEntryIcons]
@@ -572,15 +611,16 @@ export function WorkspacesPage() {
               {filtered.map((entry) => {
                 const isSelected =
                   selected?.mode === 'entry' && selected.id === entry.id;
+                const binding = primaryBinding(entry);
                 // For mapped entries: trust the binding. For unmapped: fall
                 // back to the system's default Space + its Default FS so
                 // every card answers "what tools does this folder see?".
-                const resolvedSpaceName = entry.binding
-                  ? spaceById.get(entry.binding.space_id)?.name
+                const resolvedSpaceName = binding
+                  ? spaceById.get(binding.space_id)?.name
                   : fallback?.space.name;
-                const resolvedFsName = entry.binding
+                const resolvedFsName = binding
                   ? formatFsList(
-                      entry.binding.feature_set_ids.map(
+                      binding.feature_set_ids.map(
                         (id) => fsById.get(id)?.name ?? id
                       )
                     )
@@ -593,8 +633,8 @@ export function WorkspacesPage() {
                     spaceName={resolvedSpaceName}
                     fsName={resolvedFsName}
                     machineName={
-                      entry.binding?.machine_id
-                        ? machinesById.get(entry.binding.machine_id)?.name
+                      binding?.machine_id
+                        ? machinesById.get(binding.machine_id)?.name
                         : undefined
                     }
                     selected={isSelected}
@@ -624,15 +664,17 @@ export function WorkspacesPage() {
             localMachineId={localMachineId}
             onClose={() => setSelected(null)}
             onSubmit={async (input) => {
-              if (selectedEntry?.binding) {
-                await handleUpdate(selectedEntry.binding.id, input);
+              const binding = selectedEntry ? primaryBinding(selectedEntry) : null;
+              if (binding) {
+                await handleUpdate(binding.id, input);
               } else {
                 const created = await handleCreate(input);
                 setSelected({ mode: 'entry', id: created.id });
               }
             }}
             onDelete={async () => {
-              if (selectedEntry?.binding) await handleDelete(selectedEntry.binding);
+              const binding = selectedEntry ? primaryBinding(selectedEntry) : null;
+              if (binding) await handleDelete(binding);
             }}
             resolvedIcon={selectedEntry ? resolveEntryIcon(selectedEntry) : null}
             onError={(msg) => showError(t('toast.couldNotSave'), msg)}
@@ -703,7 +745,7 @@ function normalizeIcon(icon: string | null | undefined): string | null {
  * Primary title for a workspace entry — label when set, otherwise the path.
  */
 function entryDisplayTitle(entry: Entry): string {
-  const label = entry.binding?.label?.trim();
+  const label = primaryBinding(entry)?.label?.trim();
   if (label) return label;
   return entry.root;
 }
@@ -811,7 +853,8 @@ function EntryCard({
         : 'neutral';
 
   const displayTitle = entryDisplayTitle(entry);
-  const hasLabel = Boolean(entry.binding?.label?.trim());
+  const binding = primaryBinding(entry);
+  const hasLabel = Boolean(binding?.label?.trim());
 
   return (
     <Card
@@ -852,9 +895,9 @@ function EntryCard({
               {entry.kind === 'unmapped-live' && <Pill tone="amber">{t('card.unmapped')}</Pill>}
               {entry.kind === 'mapped-offline' && <Pill tone="neutral">{t('card.offline')}</Pill>}
               {entry.kind === 'mapped-live' && <Pill tone="emerald">{t('card.live')}</Pill>}
-              {entry.binding?.client_id && (
-                <Pill tone="neutral" title={entry.binding.client_id}>
-                  {shortClientId(entry.binding.client_id)}
+              {binding?.client_id && (
+                <Pill tone="neutral" title={binding.client_id}>
+                  {shortClientId(binding.client_id)}
                 </Pill>
               )}
             </div>
@@ -888,7 +931,7 @@ function EntryCard({
             <Chip tone="neutral" title={spaceName ?? undefined}>
               {spaceName ?? '—'}
             </Chip>
-            {!entry.binding && (
+            {!binding && (
               <span
                 className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60"
                 title={t('card.unboundTooltip')}
@@ -1158,7 +1201,8 @@ function InspectorPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const isMapped = !!entry?.binding;
+  const binding = entry ? primaryBinding(entry) : null;
+  const isMapped = binding !== null;
   const mode: 'create' | 'edit' | 'create-from-live' = isNew
     ? 'create'
     : isMapped
@@ -1230,16 +1274,16 @@ function InspectorPanel({
               ? t('panel.mappingSubtitleCreate')
               : mode === 'create-from-live'
                 ? t('panel.mappingSubtitleLive')
-                : isMapped && entry?.binding
+                : isMapped && binding
                   ? t('panel.mappingSubtitleRoutes', {
                       featureSets:
                         formatFsList(
-                          entry.binding!.feature_set_ids.map(
+                          binding.feature_set_ids.map(
                             (id) => featureSets.find((f) => f.id === id)?.name ?? id
                           )
                         ) || '—',
                       space:
-                        spaces.find((s) => s.id === entry.binding!.space_id)?.name ?? '—',
+                        spaces.find((s) => s.id === binding.space_id)?.name ?? '—',
                     })
                   : t('panel.mappingSubtitleAutosave')
           }
@@ -1253,7 +1297,7 @@ function InspectorPanel({
             featureSets={featureSets}
             machines={machines}
             localMachineId={localMachineId}
-            initial={entry?.binding ?? null}
+            initial={binding}
             prefillRoot={entry && !isMapped ? entry.root : undefined}
             initialUnmappedIcon={!isMapped ? resolvedIcon : null}
             onCancel={onClose}
@@ -1285,14 +1329,14 @@ function InspectorPanel({
 
       </div>
 
-      {entry?.binding && (
+      {binding && (
         <div className="flex-shrink-0 p-4 border-t border-[rgb(var(--border))] bg-[rgb(var(--surface-elevated))]">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => void onDelete()}
             className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-            data-testid={`workspace-binding-delete-${entry.binding.id}`}
+            data-testid={`workspace-binding-delete-${binding.id}`}
           >
             <Trash2 className="h-4 w-4 mr-2" />
             {t('actions.removeBinding')}
