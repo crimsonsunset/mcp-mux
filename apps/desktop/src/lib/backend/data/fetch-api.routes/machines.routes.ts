@@ -6,12 +6,12 @@ export const machinesRoutes: Record<string, RouteHandler> = {
   create_machine: (args) => ({
     method: 'POST',
     path: '/api/v1/machines',
-    body: { name: args.name, icon: args.icon, hostname: args.hostname },
+    body: args.input as Record<string, unknown>,
   }),
   update_machine: (args) => ({
     method: 'PUT',
     path: `/api/v1/machines/${encodeURIComponent(String(args.id))}`,
-    body: { name: args.name, icon: args.icon, hostname: args.hostname },
+    body: args.input as Record<string, unknown>,
   }),
   delete_machine: (args) => ({
     method: 'DELETE',
@@ -21,7 +21,7 @@ export const machinesRoutes: Record<string, RouteHandler> = {
   set_local_machine_id: (args) => ({
     method: 'PUT',
     path: '/api/v1/machines/local',
-    body: { machine_id: args.machineId ?? null },
+    body: (args.input ?? { machine_id: null }) as Record<string, unknown>,
   }),
   get_hostname: () => ({ method: 'GET', path: '/api/v1/machines/hostname' }),
 };

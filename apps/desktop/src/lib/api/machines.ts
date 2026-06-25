@@ -29,12 +29,12 @@ export async function listMachines(): Promise<Machine[]> {
 
 /** Create a new machine. */
 export async function createMachine(input: CreateMachineInput): Promise<Machine> {
-  return apiCall('create_machine', { ...input });
+  return apiCall('create_machine', { input });
 }
 
 /** Update machine display metadata. */
 export async function updateMachine(id: string, input: UpdateMachineInput): Promise<Machine> {
-  return apiCall('update_machine', { id, ...input });
+  return apiCall('update_machine', { id, input });
 }
 
 /** Delete a machine by id. */
@@ -49,7 +49,7 @@ export async function getLocalMachineId(): Promise<string | null> {
 
 /** Set or clear the machine id for this install. */
 export async function setLocalMachineId(machineId: string | null): Promise<void> {
-  return apiCall('set_local_machine_id', { machineId });
+  return apiCall('set_local_machine_id', { input: { machine_id: machineId } });
 }
 
 /** OS hostname hint for first-time machine registration. */

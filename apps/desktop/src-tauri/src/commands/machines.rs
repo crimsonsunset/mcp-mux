@@ -138,13 +138,19 @@ pub async fn get_local_machine_id(state: State<'_, AppState>) -> Result<Option<S
         .map(|id| id.to_string()))
 }
 
+/// Input for setting this install's machine identity.
+#[derive(Debug, Deserialize)]
+pub struct SetLocalMachineIdInput {
+    pub machine_id: Option<String>,
+}
+
 /// Set or clear the machine id for this install.
 #[tauri::command]
 pub async fn set_local_machine_id(
-    machine_id: Option<String>,
+    input: SetLocalMachineIdInput,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let parsed = match machine_id {
+    let parsed = match input.machine_id {
         None => None,
         Some(value) => Some(Uuid::parse_str(&value).map_err(|e| e.to_string())?),
     };
