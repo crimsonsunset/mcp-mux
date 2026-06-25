@@ -237,6 +237,7 @@ impl Fixture {
             inbound_client_repo.clone(),
             feature_set_repo.clone(),
             Arc::new(SqliteSpaceBaseDirRepository::new(db.clone())),
+            None,
         ));
 
         let prefix_cache = Arc::new(PrefixCacheService::new());
@@ -2044,6 +2045,7 @@ async fn bare_registry(
         inbound_client_repo.clone(),
         feature_set_repo.clone(),
         Arc::new(SqliteSpaceBaseDirRepository::new(db.clone())),
+        None,
     ));
     let prefix_cache = Arc::new(PrefixCacheService::new());
     let feature_service = Arc::new(FeatureService::new(
@@ -2170,6 +2172,7 @@ async fn master_switch_toggles_registry_visibility() {
         inbound_client_repo.clone(),
         feature_set_repo.clone(),
         Arc::new(SqliteSpaceBaseDirRepository::new(db.clone())),
+        None,
     ));
     let prefix_cache = Arc::new(PrefixCacheService::new());
     let feature_service = Arc::new(FeatureService::new(

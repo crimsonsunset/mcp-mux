@@ -191,6 +191,9 @@ pub struct FeatureSetResolverService {
     /// [`DEFAULT_PENDING_ROOTS_GRACE`]. Configurable so tests can force the
     /// post-grace path deterministically without sleeping.
     pending_grace: Duration,
+    /// This install's registered machine id (`gateway.local_machine_id`).
+    /// When set, Tier 1 prefers machine-scoped bindings before global fallbacks.
+    local_machine_id: Option<Uuid>,
 }
 
 impl FeatureSetResolverService {
@@ -201,6 +204,7 @@ impl FeatureSetResolverService {
         client_repo: Arc<InboundClientRepository>,
         feature_set_repo: Arc<dyn FeatureSetRepository>,
         space_base_dir_repo: Arc<dyn SpaceBaseDirRepository>,
+        local_machine_id: Option<Uuid>,
     ) -> Self {
         Self {
             space_repo,
@@ -210,7 +214,36 @@ impl FeatureSetResolverService {
             feature_set_repo,
             space_base_dir_repo,
             pending_grace: DEFAULT_PENDING_ROOTS_GRACE,
+            local_machine_id,
         }
+    }
+
+    /// Tier 1 exact binding lookup: machine-scoped match first, then global.
+    async fn find_binding_for_roots(
+        &self,
+        roots: &[String],
+    ) -> Result<Option<mcpmux_core::WorkspaceBinding>> {
+        for root in roots {
+            if let Some(machine_id) = self.local_machine_id {
+                if let Some(binding) = self
+                    .binding_repo
+                    .find_exact_for_machine(&machine_id, root)
+                    .await?
+                {
+                    return Ok(Some(binding));
+                }
+            }
+            if let Some(binding) = self.binding_repo.find_exact_global(root).await? {
+                return Ok(Some(binding));
+            }
+        }
+        // ponytail: when this install has no machine identity, preserve the
+        // pre-machine exact match (includes client-scoped bindings). Once
+        // local_machine_id is set, only machine + global canonical bindings apply.
+        if self.local_machine_id.is_none() {
+            return self.binding_repo.find_exact_for_roots(roots).await;
+        }
+        Ok(None)
     }
 
     /// The Space that claims one of `roots` by base directory, or `None`. Each
@@ -351,11 +384,7 @@ impl FeatureSetResolverService {
             // (no ancestor inheritance).
             if has_roots {
                 let reported_roots = roots.expect("has_roots implies Some");
-                if let Some(binding) = self
-                    .binding_repo
-                    .find_exact_for_roots(&reported_roots)
-                    .await?
-                {
+                if let Some(binding) = self.find_binding_for_roots(&reported_roots).await? {
                     debug!(
                         workspace_root = %binding.workspace_root,
                         space_id = %binding.space_id,
