@@ -393,6 +393,10 @@ export function WorkspacesPage() {
   }) => {
     const created = await createMachine(input);
     await persistLocalMachineId(created.id);
+    const persistedId = await getLocalMachineId();
+    if (persistedId !== created.id) {
+      throw new Error('Machine was created but this install identity was not saved');
+    }
     setMachines((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
     setLocalMachineId(created.id);
     setShowIdentityModal(false);
