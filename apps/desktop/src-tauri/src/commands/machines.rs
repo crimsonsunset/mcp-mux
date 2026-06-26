@@ -2,11 +2,14 @@
 
 use chrono::Utc;
 use mcpmux_core::{AppSettingsService, Machine, MachineRepository};
-use mcpmux_storage::SqliteMachineRepository;
+use mcpmux_storage::{InboundClientRepository, SqliteMachineRepository};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::State;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::commands::gateway::{hot_reload_local_machine_id, GatewayAppState};
 use crate::state::AppState;
 
 /// Machine row exposed to the frontend.
@@ -55,6 +58,10 @@ fn machine_repo(state: &AppState) -> SqliteMachineRepository {
 
 fn settings_service(state: &AppState) -> AppSettingsService {
     AppSettingsService::new(state.settings_repository.clone())
+}
+
+fn inbound_client_repo(state: &AppState) -> InboundClientRepository {
+    InboundClientRepository::new(state.database())
 }
 
 /// List all registered machines.
@@ -149,6 +156,7 @@ pub struct SetLocalMachineIdInput {
 pub async fn set_local_machine_id(
     input: SetLocalMachineIdInput,
     state: State<'_, AppState>,
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<(), String> {
     let parsed = match input.machine_id {
         None => None,
@@ -168,6 +176,57 @@ pub async fn set_local_machine_id(
 
     settings_service(&state)
         .set_local_machine_id(parsed)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    hot_reload_local_machine_id(gateway_state.inner(), parsed).await;
+    Ok(())
+}
+
+/// Input for assigning a machine to an inbound OAuth client.
+#[derive(Debug, Deserialize)]
+pub struct SetClientMachineIdInput {
+    pub machine_id: Option<String>,
+}
+
+/// Get the machine id assigned to an inbound OAuth client.
+#[tauri::command]
+pub async fn get_client_machine_id(
+    client_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    Ok(inbound_client_repo(&state)
+        .get_machine_id(&client_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|id| id.to_string()))
+}
+
+/// Assign or clear the machine for an inbound OAuth client.
+#[tauri::command]
+pub async fn set_client_machine_id(
+    client_id: String,
+    input: SetClientMachineIdInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let parsed = match input.machine_id {
+        None => None,
+        Some(value) => Some(Uuid::parse_str(&value).map_err(|e| e.to_string())?),
+    };
+
+    if let Some(id) = parsed {
+        let exists = machine_repo(&state)
+            .get(&id)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if !exists {
+            return Err(format!("Machine not found: {id}"));
+        }
+    }
+
+    inbound_client_repo(&state)
+        .set_machine_id(&client_id, parsed)
         .await
         .map_err(|e| e.to_string())
 }

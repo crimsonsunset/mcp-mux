@@ -192,6 +192,13 @@
     "fsDefault": "The auto-seeded fallback set for this space",
     "fsMembers_one": "{{count}} member",
     "fsMembers_other": "{{count}} members",
-    "starter": "starter"
+    "starter": "starter",
+    "machine": "Machine",
+    "machineDesc": "Assign this client to a machine before mapping folders. Rohan and Gondor can then use different bindings for the same path.",
+    "newMachine": "New machine…",
+    "machineNamePlaceholder": "Machine name",
+    "machineNameRequired": "Enter a machine name",
+    "continue": "Continue",
+    "pickMachine": "Pick a machine first"
   }
 }

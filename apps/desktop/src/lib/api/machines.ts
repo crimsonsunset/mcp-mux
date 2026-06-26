@@ -56,3 +56,19 @@ export async function setLocalMachineId(machineId: string | null): Promise<void>
 export async function getHostname(): Promise<string> {
   return apiCall('get_hostname');
 }
+
+/** Get the machine id assigned to an inbound OAuth client. */
+export async function getClientMachineId(clientId: string): Promise<string | null> {
+  return apiCall('get_client_machine_id', { clientId });
+}
+
+/** Assign or clear the machine for an inbound OAuth client. */
+export async function setClientMachineId(
+  clientId: string,
+  machineId: string | null,
+): Promise<void> {
+  await apiCall('set_client_machine_id', {
+    clientId,
+    input: { machine_id: machineId },
+  });
+}

@@ -21,9 +21,16 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { apiCall } from '@/lib/api/transport';
 import { useWorkspaceEvents } from '@/lib/backend/events';
-import { Check, ChevronDown, FolderOpen, Loader2, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, FolderOpen, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import { createWorkspaceBinding } from '@/lib/api/workspaceBindings';
+import {
+  createMachine,
+  getClientMachineId,
+  listMachines,
+  setClientMachineId,
+  type Machine,
+} from '@/lib/api/machines';
 import {
   isStarterFeatureSet,
   listFeatureSetsBySpace,
@@ -57,6 +64,13 @@ function shortenPath(path: string): string {
 export function WorkspaceBindingSheet() {
   const { t } = useTranslation('workspaces');
   const [payload, setPayload] = useState<WorkspaceNeedsBindingPayload | null>(null);
+  const [step, setStep] = useState<'machine' | 'binding'>('binding');
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [loadingMachines, setLoadingMachines] = useState(false);
+  const [selectedMachineId, setSelectedMachineId] = useState('');
+  const [creatingMachine, setCreatingMachine] = useState(false);
+  const [newMachineName, setNewMachineName] = useState('');
+  const [assigningMachine, setAssigningMachine] = useState(false);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string>('');
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
@@ -92,8 +106,37 @@ export function WorkspaceBindingSheet() {
       setSelectedSpaceId(payloadData.space_id);
       setSelectedFsId('');
       setError(null);
+      setCreatingMachine(false);
+      setNewMachineName('');
+      try {
+        const clientMachineId = await getClientMachineId(payloadData.client_id);
+        setSelectedMachineId(clientMachineId ?? '');
+        setStep(clientMachineId ? 'binding' : 'machine');
+      } catch {
+        setSelectedMachineId('');
+        setStep('machine');
+      }
     });
   }, [subscribe]);
+
+  useEffect(() => {
+    if (!payload || step !== 'machine') return;
+    let cancelled = false;
+    setLoadingMachines(true);
+    listMachines()
+      .then((list) => {
+        if (!cancelled) setMachines(list);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMachines(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [payload, step]);
 
   // Load every Space once the sheet is visible so the user can pin the
   // binding to a different Space than the caller happened to land in.
@@ -146,6 +189,44 @@ export function WorkspaceBindingSheet() {
     setPayload(null);
   };
 
+  const handleContinueFromMachine = async () => {
+    if (!payload || assigningMachine || !selectedMachineId) {
+      if (!selectedMachineId) setError(t('sheet.pickMachine'));
+      return;
+    }
+    setAssigningMachine(true);
+    setError(null);
+    try {
+      await setClientMachineId(payload.client_id, selectedMachineId);
+      setStep('binding');
+    } catch (e) {
+      setError(typeof e === 'string' ? e : String(e));
+    } finally {
+      setAssigningMachine(false);
+    }
+  };
+
+  const handleCreateMachine = async () => {
+    const name = newMachineName.trim();
+    if (!name) {
+      setError(t('sheet.machineNameRequired'));
+      return;
+    }
+    setAssigningMachine(true);
+    setError(null);
+    try {
+      const created = await createMachine({ name });
+      setMachines((prev) => [...prev, created]);
+      setSelectedMachineId(created.id);
+      setCreatingMachine(false);
+      setNewMachineName('');
+    } catch (e) {
+      setError(typeof e === 'string' ? e : String(e));
+    } finally {
+      setAssigningMachine(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!payload || saving || !selectedSpaceId) return;
     if (!selectedFsId) {
@@ -160,6 +241,7 @@ export function WorkspaceBindingSheet() {
         space_id: selectedSpaceId,
         feature_set_ids: [selectedFsId],
         client_id: payload.client_id,
+        machine_id: selectedMachineId || null,
       });
       markSeenAndClose(payload);
     } catch (e) {
@@ -238,6 +320,78 @@ export function WorkspaceBindingSheet() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 pb-6 space-y-6">
+          {step === 'machine' ? (
+            <div>
+              <div className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))]">
+                {t('sheet.machine')}
+              </div>
+              <p className="mb-4 text-sm text-[rgb(var(--muted))]">{t('sheet.machineDesc')}</p>
+              {loadingMachines ? (
+                <div className="flex items-center justify-center py-8 text-[rgb(var(--muted))]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {machines.map((machine) => (
+                    <ChoiceRow
+                      key={machine.id}
+                      selected={selectedMachineId === machine.id}
+                      onSelect={() => setSelectedMachineId(machine.id)}
+                      title={machine.icon ? `${machine.icon}  ${machine.name}` : machine.name}
+                      subtitle={machine.hostname ?? undefined}
+                    />
+                  ))}
+                  {!creatingMachine ? (
+                    <button
+                      type="button"
+                      onClick={() => setCreatingMachine(true)}
+                      className="flex w-full items-center gap-2 rounded-xl border border-dashed border-[rgb(var(--border))] px-4 py-3 text-sm text-[rgb(var(--muted))] transition-colors hover:border-[rgb(var(--accent))] hover:text-[rgb(var(--foreground))]"
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t('sheet.newMachine')}
+                    </button>
+                  ) : (
+                    <div className="rounded-xl border border-[rgb(var(--border))] p-4 space-y-3">
+                      <input
+                        type="text"
+                        value={newMachineName}
+                        onChange={(e) => setNewMachineName(e.target.value)}
+                        placeholder={t('sheet.machineNamePlaceholder')}
+                        className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-3 py-2 text-sm"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          className="flex-1"
+                          onClick={() => {
+                            setCreatingMachine(false);
+                            setNewMachineName('');
+                          }}
+                          disabled={assigningMachine}
+                        >
+                          {t('sheet.notNow')}
+                        </Button>
+                        <Button
+                          variant="primary"
+                          className="flex-1"
+                          onClick={handleCreateMachine}
+                          disabled={assigningMachine}
+                        >
+                          {assigningMachine ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            t('sheet.continue')
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           <div>
             <div className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))]">
               {t('sheet.space')}
@@ -289,6 +443,8 @@ export function WorkspaceBindingSheet() {
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
 
         <div className="border-t border-[rgb(var(--border))] px-8 py-4">
@@ -305,10 +461,25 @@ export function WorkspaceBindingSheet() {
               variant="secondary"
               className="px-5"
               onClick={handleDismiss}
-              disabled={saving}
+              disabled={saving || assigningMachine}
             >
               {t('sheet.notNow')}
             </Button>
+            {step === 'machine' ? (
+              <Button
+                variant="primary"
+                className="flex-1 whitespace-nowrap"
+                onClick={handleContinueFromMachine}
+                disabled={assigningMachine || loadingMachines || !selectedMachineId}
+              >
+                {assigningMachine ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-1.5 h-4 w-4" />
+                )}
+                {t('sheet.continue')}
+              </Button>
+            ) : (
             <Button
               variant="primary"
               className="flex-1 whitespace-nowrap"
@@ -322,7 +493,10 @@ export function WorkspaceBindingSheet() {
               )}
               {t('sheet.remember')}
             </Button>
+            )}
           </div>
+          {step === 'binding' && (
+          <>
           <p className="mt-3 text-center text-[11px] text-[rgb(var(--muted))]">
             {t('sheet.footer')}
           </p>
@@ -338,6 +512,8 @@ export function WorkspaceBindingSheet() {
               {t('sheet.disablePrompt')}
             </button>
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

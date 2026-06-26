@@ -14,7 +14,8 @@ use crate::admin::command_bridge::write::{
     GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody, InstallServerBody, LogRetentionBody,
     MetaToolApprovalBody, MetaToolRevokeBody, MetaToolsEnabledBody, MetaToolsRequireApprovalBody,
     OAuthClientUpdateBody, OAuthGrantBody, SaveServerInputsBody, SaveSpaceConfigBody,
-    ServerConnectionBody, ServerUpdateSettingsBody, SetLocalMachineIdBody, SetMembersBody,
+    ServerConnectionBody, ServerUpdateSettingsBody, SetClientMachineIdBody, SetLocalMachineIdBody,
+    SetMembersBody,
     SetServerDisplayNameBody, SetServerEnabledBody, SetServerOAuthConnectedBody, SpaceBaseDirBody,
     StartupSettingsBody, UninstallServerBody, UpdateChannelBody, UpdateFeatureSetBody,
     UpdateMachineBody, UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
@@ -425,6 +426,17 @@ pub async fn set_local_machine_id(
     Json(body): Json<SetLocalMachineIdBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::set_local_machine_id(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn set_client_machine_id(
+    State(state): State<AdminState>,
+    Path(client_id): Path<String>,
+    Json(body): Json<SetClientMachineIdBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_client_machine_id(&state.bridge, client_id, body)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
