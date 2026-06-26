@@ -3,11 +3,11 @@
 //! IPC commands for controlling the local MCP gateway server.
 
 use crate::commands::server_manager::ServerManagerState;
+use crate::services::ui_events::OAUTH_CONSENT_REQUEST_CHANNEL;
 use crate::AppState;
 use mcpmux_core::service::{allocate_dynamic_port, is_port_available};
 use mcpmux_core::{AppSettingsService, DomainEvent};
 use mcpmux_gateway::admin::ui_events::AdminUiEventBus;
-use crate::services::ui_events::OAUTH_CONSENT_REQUEST_CHANNEL;
 use mcpmux_gateway::{
     ConnectionContext, ConnectionResult, FeatureService, InstalledServerInfo, OAuthCompleteEvent,
     PoolService, ResolvedTransport, ServerKey, ServerManager,
@@ -1224,7 +1224,8 @@ pub async fn set_gateway_public_url(
     app_state: State<'_, AppState>,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<(), String> {
-    let normalized = mcpmux_gateway::normalize_public_url(&public_url).map_err(|e| e.to_string())?;
+    let normalized =
+        mcpmux_gateway::normalize_public_url(&public_url).map_err(|e| e.to_string())?;
     let settings = AppSettingsService::new(app_state.settings_repository.clone());
 
     if normalized.is_empty() {
