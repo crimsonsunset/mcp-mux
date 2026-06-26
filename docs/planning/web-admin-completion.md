@@ -1,10 +1,29 @@
 # Web Admin Completion
 
-**Last Updated:** Jun 24, 2026
-**Status:** Active — pending implementation
+**Last Updated:** Jun 26, 2026
+**Status:** Phase 1 complete & verified — Phases 2–5 pending implementation
 **Branch:** `dev-rebased` (HEAD: `17d71ad`)
 **Depends on:** Phase 2 lib/api migration complete (`dev-rebased-post-port-completion.md`), admin SSE hub live
 **Unblocks:** Web admin at `mux.joe-hassio.com` fully functional with no `transformCallback` errors, config export, live consent flow, and working HMR dev path
+
+---
+
+## Update — Jun 26, 2026
+
+Phase 1 is implemented and verified end-to-end. `scripts/dev-env.mjs` exists, `scripts/dev-web-admin.mjs` calls it, and `vite.config.ts` proxies `/api` → `:45819` when `VITE_ADMIN_WEB`/`MCPMUX_DEV_ADMIN` is set. `pnpm dev:admin` boots Tauri + gateway + admin and auto-opens the browser at `:1420` once the gateway is stable; Rust changes recompile and restart via `tauri dev`'s watcher, TS/CSS hot-reload in both surfaces.
+
+Added while verifying the loop:
+
+- **`pnpm dev:stop`** (`scripts/dev-stop.mjs`) — quit McpMux.app + free `:1420`/`:45818`/`:45819`.
+- **`pnpm dev:rebuild`** (`scripts/dev-rebuild.mjs`) — force `cargo build --workspace` for stale-binary recovery.
+- **`.vscode/settings.json`** → `rust-analyzer.cargo.targetDir` so the editor's `cargo check` stops fighting `tauri dev` over `target/`.
+
+Two bugs fixed in the dev scripts:
+
+- `dev-admin.mjs` called `spawnSync('pnpm', ['dev'])`, which blocked the Node event loop for the life of the process — the async health-check + browser-open never ran. Switched to async `spawn`.
+- The Node-side admin health probes (`dev-admin.mjs`, `dev-web-admin.mjs`, `dev-env.mjs`) used bare `fetch`, so under CF Access (`cf_access=true`) `/api/v1/health` returned 401 and the poller timed out forever. They now send `adminCfProbeHeaders()` and `loadRepoDotEnv()`, matching the Vite proxy.
+
+Phases 2–5 below are unverified in this pass.
 
 ---
 
@@ -12,7 +31,7 @@
 
 Three phases of `invoke` → `apiCall` migration landed cleanly. The web admin loads spaces, data syncs, SSE events flow, and the console is clean of `transformCallback` spam. Five gaps remain before the web admin is feature-complete:
 
-**1. `pnpm dev:web:admin` is broken.** `scripts/dev-env.mjs` does not exist (referenced by `dev-web-admin.mjs:34`). Even if the prep call is removed, Vite at `:1420` has no `/api` proxy configured — API calls fall through to the Vite dev server which has no handler.
+**1. `pnpm dev:web:admin` is broken.** _(RESOLVED Jun 26, 2026 — see update note above.)_ `scripts/dev-env.mjs` does not exist (referenced by `dev-web-admin.mjs:34`). Even if the prep call is removed, Vite at `:1420` has no `/api` proxy configured — API calls fall through to the Vite dev server which has no handler.
 
 **2. Config export has zero Rust routes.** Five commands in `lib/api/configExport.ts` (`preview_config_export`, `get_config_paths`, `check_config_exists`, `backup_existing_config`, `export_config_to_file`) are mapped in `fetch-api.routes/` but have no handlers in `router.rs` or `command_bridge/`. All five throw 404 in web admin.
 
@@ -108,7 +127,7 @@ New handlers land in `crates/mcpmux-gateway/src/admin/command_bridge/read.rs` al
 
 ## Phases
 
-### Phase 1 — Dev tooling (~1 hour)
+### Phase 1 — Dev tooling (~1 hour) — DONE (verified Jun 26, 2026)
 
 - Write `scripts/dev-env.mjs`: check `:45819/api/v1/health`, fail fast with a clear message if gateway is not running, else exit 0
 - Update `scripts/dev-web-admin.mjs` to call `dev-env.mjs` via `execa`
