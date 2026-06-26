@@ -123,7 +123,13 @@
       "allowWait": "Allow & Connect (wait…)",
       "newMachine": "New machine",
       "namePlaceholder": "My Laptop",
-      "nameRequired": "Enter a name for this machine"
+      "iconLabel": "Icon",
+      "iconPlaceholder": "e.g. 🏠",
+      "hostnameLabel": "Hostname",
+      "nameRequired": "Enter a name for this machine",
+      "iconRequired": "Icon is required",
+      "hostnameRequired": "Hostname is required",
+      "profileIncomplete": "Selected machine is missing icon or hostname. Complete it in Settings first."
     }
   },
   "fallbackClientName": "Client"

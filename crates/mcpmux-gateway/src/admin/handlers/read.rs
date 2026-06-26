@@ -290,6 +290,16 @@ pub async fn get_local_machine_id(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_viewer_machine_id(
+    State(state): State<AdminState>,
+    Path(viewer_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_viewer_machine_id(&state.bridge, viewer_id)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_hostname() -> Result<Json<Value>, ApiError> {
     bridge::get_hostname()
         .map(ok)

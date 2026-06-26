@@ -5,6 +5,7 @@
 //! for persistence.
 
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -61,6 +62,12 @@ pub mod keys {
     pub mod registry {
         /// Cached ETag from last bundle fetch
         pub const BUNDLE_ETAG: &str = "registry.bundle_etag";
+    }
+
+    /// Browser/app viewer profiles mapped to machine catalog rows.
+    pub mod viewer {
+        /// JSON map of viewer_device_id → machine UUID string.
+        pub const DEVICES: &str = "viewer.devices";
     }
 }
 
@@ -324,6 +331,41 @@ impl AppSettingsService {
                     .delete(keys::gateway::LOCAL_MACHINE_ID)
                     .await
             }
+        }
+    }
+
+    /// Get the machine id linked to a viewer device profile, if any.
+    pub async fn get_viewer_machine_id(&self, viewer_id: &str) -> Option<Uuid> {
+        let map: HashMap<String, String> = self
+            .get_or_default(keys::viewer::DEVICES, HashMap::new())
+            .await;
+        map.get(viewer_id)
+            .and_then(|value| Uuid::parse_str(value).ok())
+    }
+
+    /// Link or unlink a viewer device profile to a machine catalog row.
+    pub async fn set_viewer_machine_id(
+        &self,
+        viewer_id: &str,
+        machine_id: Option<Uuid>,
+    ) -> anyhow::Result<()> {
+        let mut map: HashMap<String, String> = self
+            .get_or_default(keys::viewer::DEVICES, HashMap::new())
+            .await;
+
+        match machine_id {
+            Some(id) => {
+                map.insert(viewer_id.to_string(), id.to_string());
+            }
+            None => {
+                map.remove(viewer_id);
+            }
+        }
+
+        if map.is_empty() {
+            self.repository.delete(keys::viewer::DEVICES).await
+        } else {
+            self.set_typed(keys::viewer::DEVICES, &map).await
         }
     }
 

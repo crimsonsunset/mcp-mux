@@ -210,6 +210,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/v1/machines/hostname", get(read::get_hostname))
         .route(
+            "/api/v1/machines/viewer/{viewer_id}",
+            get(read::get_viewer_machine_id).put(write::set_viewer_machine_id),
+        )
+        .route(
             "/api/v1/machines/{id}",
             put(write::update_machine).delete(write::delete_machine),
         )

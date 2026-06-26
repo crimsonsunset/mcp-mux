@@ -31,6 +31,12 @@ import {
   setClientMachineId,
   type Machine,
 } from '@/lib/api/machines';
+import {
+  getMissingMachineProfileField,
+  isMachineProfileComplete,
+  isMachineRowComplete,
+  toMachineProfilePayload,
+} from '@/lib/machine-profile.helpers';
 import { subscribeOAuthConsentEvents } from '@/lib/backend/shell';
 import cursorIcon from '@/assets/client-icons/cursor.svg';
 import vscodeIcon from '@/assets/client-icons/vscode.png';
@@ -70,7 +76,7 @@ async function loadConsentRequest(
   requestId: string,
   setModalState: (state: ModalState) => void,
   setProcessError: (error: string | null) => void,
-  onNewClient: (hostname: string) => void
+  onNewClient: () => void
 ): Promise<void> {
   console.log('[OAuth] loadConsentRequest start:', requestId);
   setModalState({ type: 'loading', requestId });
@@ -81,8 +87,8 @@ async function loadConsentRequest(
     console.log('[OAuth] loadConsentRequest OK:', details.clientName, details.clientId);
 
     if (details.isNewClient) {
-      const [machines, hostname] = await Promise.all([listMachines(), getHostname()]);
-      onNewClient(hostname);
+      const machines = await listMachines();
+      onNewClient();
       setModalState({ type: 'name-machine', details, machines });
       return;
     }
@@ -196,6 +202,8 @@ export function OAuthConsentModal() {
   /** 1.5-second cooldown before Allow becomes active — prevents accidental taps. */
   const [approveReady, setApproveReady] = useState(false);
   const [machineName, setMachineName] = useState('');
+  const [machineIcon, setMachineIcon] = useState('');
+  const [machineHostname, setMachineHostname] = useState('');
   const [selectedMachineId, setSelectedMachineId] = useState('');
   const [creatingMachine, setCreatingMachine] = useState(false);
   const activeRequestIdRef = useRef<string | null>(null);
@@ -218,8 +226,10 @@ export function OAuthConsentModal() {
         return;
       }
       activeRequestIdRef.current = payload.requestId;
-      void loadConsentRequest(payload.requestId, setModalState, setProcessError, (hostname) => {
-        setMachineName(hostname);
+      void loadConsentRequest(payload.requestId, setModalState, setProcessError, () => {
+        setMachineName('');
+        setMachineIcon('');
+        setMachineHostname('');
         setSelectedMachineId('');
         setCreatingMachine(false);
       });
@@ -274,18 +284,28 @@ export function OAuthConsentModal() {
    */
   const handleNameAndAllow = async () => {
     if (modalState.type !== 'name-machine') return;
-    const { details } = modalState;
+    const { details, machines } = modalState;
 
     let machineId = selectedMachineId;
     if (creatingMachine) {
-      const name = machineName.trim();
-      if (!name) {
-        setProcessError(t('oauthConsent.nameMachine.nameRequired'));
+      const missingField = getMissingMachineProfileField({
+        name: machineName,
+        icon: machineIcon,
+        hostname: machineHostname,
+      });
+      if (missingField) {
+        setProcessError(t(`oauthConsent.nameMachine.${missingField}Required`));
         return;
       }
     } else if (!machineId) {
       setProcessError(t('oauthConsent.nameMachine.nameRequired'));
       return;
+    } else {
+      const selected = machines.find((machine) => machine.id === machineId);
+      if (selected && !isMachineRowComplete(selected)) {
+        setProcessError(t('oauthConsent.nameMachine.profileIncomplete'));
+        return;
+      }
     }
 
     setIsProcessing(true);
@@ -293,7 +313,13 @@ export function OAuthConsentModal() {
 
     try {
       if (creatingMachine) {
-        const created = await createMachine({ name: machineName.trim() });
+        const created = await createMachine(
+          toMachineProfilePayload({
+            name: machineName,
+            icon: machineIcon,
+            hostname: machineHostname,
+          }),
+        );
         machineId = created.id;
       }
 
@@ -409,8 +435,11 @@ export function OAuthConsentModal() {
 
   if (modalState.type === 'name-machine') {
     const { details, machines } = modalState;
-    const canSubmit =
-      creatingMachine ? machineName.trim().length > 0 : selectedMachineId.length > 0;
+    const createDraft = { name: machineName, icon: machineIcon, hostname: machineHostname };
+    const selectedMachine = machines.find((machine) => machine.id === selectedMachineId);
+    const canSubmit = creatingMachine
+      ? isMachineProfileComplete(createDraft)
+      : selectedMachineId.length > 0 && selectedMachine != null && isMachineRowComplete(selectedMachine);
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -466,7 +495,7 @@ export function OAuthConsentModal() {
                     {t('oauthConsent.nameMachine.newMachine')}
                   </button>
                 ) : (
-                  <div className="rounded-xl border border-[rgb(var(--border))] p-4">
+                  <div className="space-y-3 rounded-xl border border-[rgb(var(--border))] p-4">
                     <input
                       type="text"
                       value={machineName}
@@ -474,6 +503,27 @@ export function OAuthConsentModal() {
                       placeholder={t('oauthConsent.nameMachine.namePlaceholder')}
                       className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-3 py-2 text-sm"
                       autoFocus
+                    />
+                    <input
+                      type="text"
+                      value={machineIcon}
+                      onChange={(e) => setMachineIcon(e.target.value)}
+                      placeholder={t('oauthConsent.nameMachine.iconPlaceholder')}
+                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-3 py-2 text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={machineHostname}
+                      onChange={(e) => setMachineHostname(e.target.value)}
+                      onFocus={() => {
+                        if (!machineHostname) {
+                          void getHostname()
+                            .then(setMachineHostname)
+                            .catch(() => undefined);
+                        }
+                      }}
+                      placeholder={t('oauthConsent.nameMachine.hostnameLabel')}
+                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-3 py-2 font-mono text-sm"
                     />
                   </div>
                 )}
