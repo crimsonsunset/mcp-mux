@@ -1,10 +1,25 @@
 # Workspace Machine Binding
 
-**Last Updated:** Jun 25, 2026
-**Status:** Planning — not started
+**Last Updated:** Jun 26, 2026
+**Status:** In progress — Phases 1–4 largely landed; Phase 5 UI partially complete (machine filter/badges pending; Settings Machine Identity viewer-only layout done)
 **Branch:** `feat/workspace-machine-binding` (off `dev-rebased`)
 **Depends on:** `dev-rebased` label/icon port complete (migration 032 landed)
 **Unblocks:** Per-machine project organization and override routing; homelab multi-box workflow
+
+---
+
+## Update — Jun 26, 2026 (Settings Machine Identity, remote web admin)
+
+Remote web admin (`mux.joe-hassio.com` → static SPA on `:45819`) now uses a **viewer-only main card** in Settings → Machine Identity:
+
+- **Main card (remote):** `"This viewer"` editor bound to `useViewerIdentity()` — shows the browser's machine (e.g. Rohan on MacBook), matching the status bar `Viewer: Rohan`.
+- **Main card (local/Tauri):** single `"This install"` editor (viewer and gateway collapse to `gateway.local_machine_id`).
+- **Gateway machine (Gondor):** editable only in the **Manage all machines** expander (row labeled `THIS GATEWAY` + `local` badge when remote). The dedicated `"This gateway"` editor block was removed from the main card when the gateway is already registered.
+- **Unregistered gateway (remote only):** if `local_machine_id` is unset, a one-time register prompt still appears below the viewer editor so a fresh install can name the gateway host.
+
+Static tunnel bundles require `pnpm build:web:admin` after UI changes — HMR on `:1420` does not reach `mux.joe-hassio.com`.
+
+Implementation: [`apps/desktop/src/features/settings/SettingsPage.tsx`](../../apps/desktop/src/features/settings/SettingsPage.tsx) `MachineIdentitySection`; viewer resolution in [`use-viewer-identity.hook.tsx`](../../apps/desktop/src/hooks/use-viewer-identity.hook.tsx) + [`viewer-device.helpers.ts`](../../apps/desktop/src/lib/viewer-device.helpers.ts).
 
 ---
 
@@ -44,7 +59,7 @@ Two things break down:
 - `machine_id` field on `WorkspaceBindingInput` / `WorkspaceBindingDto`
 - Resolver: machine-aware binding lookup with global fallback
 - Projects page: machine filter dropdown + machine badge on `EntryCard`
-- Settings: Machine Identity section (this install's name + manage all machines)
+- Settings: Machine Identity section — viewer-only main card when remote; gateway editable in "Manage all machines" expander; local install uses single "This install" editor
 
 **Out:**
 
@@ -216,7 +231,7 @@ Clicking "Set up" opens a small modal: name field (required), icon (optional), h
 - `filtered` useMemo: add machine filter clause — include entry if `filter.machine === 'all'` or `entry.binding?.machine_id === filter.machine`
 - `EntryCard`: add machine badge (machine name as a `<Chip>`) in the footer when `binding.machine_id` is set; resolve machine name from a `machinesById` map passed down as prop
 - First-time banner: if `localMachineId` is null and `bindings.length > 0`, show a dismissible inline alert above the grid with a "Set up machine identity" button that opens a small modal (name + icon + hostname pre-filled); on confirm calls `createMachine` then `setLocalMachineId`
-- Settings Machine Identity section: shows current machine's name/icon/hostname with inline edit; "Manage all machines" expands a list of all machines with rename/delete
+- Settings Machine Identity section: **done (Jun 26, 2026)** — remote main card shows `"This viewer"` only (`useViewerIdentity`); gateway host editable in "Manage all machines" expander (`THIS GATEWAY` row); local/Tauri shows single `"This install"` editor. Unregistered gateway on remote still gets inline register prompt. Rebuild static SPA (`pnpm build:web:admin`) for tunnel users.
 - Add i18n strings (`filter.machine`, `machineIdentity.*`, `card.machine`)
 
 **Outcome:** The Projects page shows a machine dropdown. Selecting a machine filters the grid to only that machine's bindings. Cards with a machine show the machine name in the footer. A new McpMux install with existing bindings and no local machine identity shows the registration banner exactly once. `pnpm typecheck && pnpm lint` pass clean.

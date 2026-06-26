@@ -1109,12 +1109,8 @@ function MachineIdentitySection({
   const [machines, setMachines] = useState<Machine[]>([]);
   const [localMachineId, setLocalMachineIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [savingGateway, setSavingGateway] = useState(false);
   const [registeringGateway, setRegisteringGateway] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
-  const [gatewayNameDraft, setGatewayNameDraft] = useState('');
-  const [gatewayIconDraft, setGatewayIconDraft] = useState('');
-  const [gatewayHostnameDraft, setGatewayHostnameDraft] = useState('');
   const [registerName, setRegisterName] = useState('');
   const [registerIcon, setRegisterIcon] = useState('');
   const [registerHostname, setRegisterHostname] = useState('');
@@ -1133,12 +1129,6 @@ function MachineIdentitySection({
       const [list, localId] = await Promise.all([listMachines(), getLocalMachineId()]);
       setMachines(list);
       setLocalMachineIdState(localId);
-      const current = localId ? list.find((machine) => machine.id === localId) : null;
-      if (current) {
-        setGatewayNameDraft(current.name);
-        setGatewayIconDraft(current.icon ?? '');
-        setGatewayHostnameDraft(current.hostname ?? '');
-      }
       const drafts: Record<string, { name: string; icon: string; hostname: string }> = {};
       for (const machine of list) {
         drafts[machine.id] = {
@@ -1164,14 +1154,6 @@ function MachineIdentitySection({
     return () => window.removeEventListener(VIEWER_IDENTITY_CHANGED, onChanged);
   }, []);
 
-  useEffect(() => {
-    if (localMachine) {
-      setGatewayNameDraft(localMachine.name);
-      setGatewayIconDraft(localMachine.icon ?? '');
-      setGatewayHostnameDraft(localMachine.hostname ?? '');
-    }
-  }, [localMachine]);
-
   const handleViewerSave = async () => {
     const ok = await viewer.saveProfile();
     if (ok) {
@@ -1188,42 +1170,6 @@ function MachineIdentitySection({
       viewer.error === 'hostname'
     ) {
       onError(t(`machineIdentity.${viewer.error}Required`));
-    }
-  };
-
-  const handleSaveGateway = async () => {
-    if (!localMachine) return;
-    const missingField = getMissingMachineProfileField({
-      name: gatewayNameDraft,
-      icon: gatewayIconDraft,
-      hostname: gatewayHostnameDraft,
-    });
-    if (missingField) {
-      onError(t(`machineIdentity.${missingField}Required`));
-      return;
-    }
-    setSavingGateway(true);
-    try {
-      const updated = await updateMachine(
-        localMachine.id,
-        toMachineProfilePayload({
-          name: gatewayNameDraft,
-          icon: gatewayIconDraft,
-          hostname: gatewayHostnameDraft,
-        }),
-      );
-      setMachines((prev) =>
-        prev.map((machine) => (machine.id === updated.id ? updated : machine)),
-      );
-      window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
-      onSuccess(t('machineIdentity.toast.saved'), updated.name);
-    } catch (err) {
-      onError(
-        t('machineIdentity.toast.failedSave'),
-        err instanceof Error ? err.message : String(err),
-      );
-    } finally {
-      setSavingGateway(false);
     }
   };
 
@@ -1288,9 +1234,6 @@ function MachineIdentitySection({
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
       if (localMachineId === updated.id || viewer.machineId === updated.id) {
-        setGatewayNameDraft(updated.name);
-        setGatewayIconDraft(updated.icon ?? '');
-        setGatewayHostnameDraft(updated.hostname ?? '');
         window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
       }
       onSuccess(t('machineIdentity.toast.saved'), updated.name);
@@ -1322,9 +1265,6 @@ function MachineIdentitySection({
       if (localMachineId === machine.id) {
         await setLocalMachineId(null);
         setLocalMachineIdState(null);
-        setGatewayNameDraft('');
-        setGatewayIconDraft('');
-        setGatewayHostnameDraft('');
         window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
       }
       setRowDrafts((prev) => {
@@ -1343,17 +1283,6 @@ function MachineIdentitySection({
     }
   };
 
-  const gatewayProfileDraft = {
-    name: gatewayNameDraft,
-    icon: gatewayIconDraft,
-    hostname: gatewayHostnameDraft,
-  };
-  const gatewayDirty =
-    localMachine &&
-    (gatewayNameDraft.trim() !== localMachine.name ||
-      (gatewayIconDraft.trim() || null) !== localMachine.icon ||
-      (gatewayHostnameDraft.trim() || null) !== localMachine.hostname);
-  const gatewayCanSave = isMachineProfileComplete(gatewayProfileDraft);
   const registerCanSave = isMachineProfileComplete({
     name: registerName,
     icon: registerIcon,
@@ -1406,28 +1335,7 @@ function MachineIdentitySection({
               />
             </div>
 
-            {!viewingLocally ? (
-              localMachine ? (
-                <div className="space-y-4 border-t border-[rgb(var(--border-subtle))] pt-6">
-                  <p className="text-sm font-medium">{t('machineIdentity.thisGateway')}</p>
-                  <MachineProfileEditor
-                    nameDraft={gatewayNameDraft}
-                    iconDraft={gatewayIconDraft}
-                    hostnameDraft={gatewayHostnameDraft}
-                    onNameDraftChange={setGatewayNameDraft}
-                    onIconDraftChange={setGatewayIconDraft}
-                    onHostnameDraftChange={setGatewayHostnameDraft}
-                    onSave={() => void handleSaveGateway()}
-                    isSaving={savingGateway}
-                    saveDisabled={!gatewayDirty || !gatewayCanSave}
-                    nameLabel={t('machineIdentity.nameLabel')}
-                    iconLabel={t('machineIdentity.iconLabel')}
-                    hostnameLabel={t('machineIdentity.hostnameLabel')}
-                    saveLabel={t('machineIdentity.save')}
-                    testIdPrefix="machine-identity-gateway"
-                  />
-                </div>
-              ) : (
+            {!viewingLocally && !localMachine ? (
                 <div className="space-y-4 border-t border-[rgb(var(--border-subtle))] pt-6">
                   <p className="text-sm font-medium">{t('machineIdentity.thisGateway')}</p>
                   <p className="text-sm text-[rgb(var(--muted))]">{t('machineIdentity.notRegistered')}</p>
@@ -1471,7 +1379,6 @@ function MachineIdentitySection({
                     {t('machineIdentity.createMachine')}
                   </Button>
                 </div>
-              )
             ) : null}
           </>
         )}
