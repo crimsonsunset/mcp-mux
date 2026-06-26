@@ -23,7 +23,11 @@ import { apiCall } from '@/lib/api/transport';
 import { useWorkspaceEvents } from '@/lib/backend/events';
 import { Check, ChevronDown, FolderOpen, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
-import { createWorkspaceBinding } from '@/lib/api/workspaceBindings';
+import {
+  createWorkspaceBinding,
+  listWorkspaceBindings,
+  type WorkspaceBinding,
+} from '@/lib/api/workspaceBindings';
 import {
   createMachine,
   getClientMachineId,
@@ -48,6 +52,12 @@ interface WorkspaceNeedsBindingPayload {
   space_locked?: boolean;
 }
 
+/** Last path segment, normalized for cross-platform roots. */
+function folderName(root: string): string {
+  const parts = root.replace(/\\/g, '/').replace(/\/$/, '').split('/');
+  return parts[parts.length - 1] || root;
+}
+
 /**
  * Display-friendly path — strip the long prefix so a root like
  * `/home/user/code/project` or `d:\dev\project` renders compactly, while
@@ -61,10 +71,29 @@ function shortenPath(path: string): string {
   return `${head}/…/${tail}`;
 }
 
+interface AdoptRow {
+  bindingId: string;
+  machineName: string | null;
+  workspaceRoot: string;
+  spaceName: string;
+  fsNames: string[];
+}
+
+type SheetStep = 'machine' | 'adopt' | 'binding';
+
+/**
+ * Pick the next step after machine assignment (or on open when machine is known).
+ */
+function stepAfterMachine(hasSiblings: boolean): 'adopt' | 'binding' {
+  return hasSiblings ? 'adopt' : 'binding';
+}
+
 export function WorkspaceBindingSheet() {
   const { t } = useTranslation('workspaces');
   const [payload, setPayload] = useState<WorkspaceNeedsBindingPayload | null>(null);
-  const [step, setStep] = useState<'machine' | 'binding'>('binding');
+  const [step, setStep] = useState<SheetStep>('binding');
+  const [siblingBindings, setSiblingBindings] = useState<WorkspaceBinding[]>([]);
+  const [fsLookup, setFsLookup] = useState<Map<string, FeatureSet>>(new Map());
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loadingMachines, setLoadingMachines] = useState(false);
   const [selectedMachineId, setSelectedMachineId] = useState('');
@@ -88,6 +117,7 @@ export function WorkspaceBindingSheet() {
   // until the next app restart, which is how this bug surfaced before.
   const currentSessionRef = useRef<string | null>(null);
   currentSessionRef.current = payload?.session_id ?? null;
+  const pendingFsPrefillRef = useRef<string | null>(null);
 
   const { subscribe } = useWorkspaceEvents();
 
@@ -108,19 +138,37 @@ export function WorkspaceBindingSheet() {
       setError(null);
       setCreatingMachine(false);
       setNewMachineName('');
+      pendingFsPrefillRef.current = null;
+      setSiblingBindings([]);
+      setFsLookup(new Map());
       try {
-        const clientMachineId = await getClientMachineId(payloadData.client_id);
+        const [clientMachineId, allBindings] = await Promise.all([
+          getClientMachineId(payloadData.client_id),
+          listWorkspaceBindings(),
+        ]);
         setSelectedMachineId(clientMachineId ?? '');
-        setStep(clientMachineId ? 'binding' : 'machine');
+        const currentFolder = folderName(payloadData.workspace_root);
+        const siblings = allBindings.filter(
+          (b) =>
+            b.workspace_root.toLowerCase() !== payloadData.workspace_root.toLowerCase() &&
+            folderName(b.workspace_root).toLowerCase() === currentFolder.toLowerCase(),
+        );
+        setSiblingBindings(siblings);
+        if (!clientMachineId) {
+          setStep('machine');
+        } else {
+          setStep(stepAfterMachine(siblings.length > 0));
+        }
       } catch {
         setSelectedMachineId('');
+        setSiblingBindings([]);
         setStep('machine');
       }
     });
   }, [subscribe]);
 
   useEffect(() => {
-    if (!payload || step !== 'machine') return;
+    if (!payload || (step !== 'machine' && step !== 'adopt')) return;
     let cancelled = false;
     setLoadingMachines(true);
     listMachines()
@@ -137,6 +185,29 @@ export function WorkspaceBindingSheet() {
       cancelled = true;
     };
   }, [payload, step]);
+
+  useEffect(() => {
+    if (!payload || siblingBindings.length === 0) return;
+    let cancelled = false;
+    const spaceIds = [...new Set(siblingBindings.map((b) => b.space_id))];
+    Promise.all(spaceIds.map((id) => listFeatureSetsBySpace(id)))
+      .then((results) => {
+        if (cancelled) return;
+        const map = new Map<string, FeatureSet>();
+        for (const list of results) {
+          for (const fs of list) {
+            if (!fs.is_deleted) map.set(fs.id, fs);
+          }
+        }
+        setFsLookup(map);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [payload, siblingBindings]);
 
   // Load every Space once the sheet is visible so the user can pin the
   // binding to a different Space than the caller happened to land in.
@@ -169,10 +240,14 @@ export function WorkspaceBindingSheet() {
         if (cancelled) return;
         const visible = list.filter((fs) => !fs.is_deleted);
         setFeatureSets(visible);
-        // Pre-select the auto-seeded Starter as a sensible default in
-        // the sheet — operator can change it before approving.
-        const seedFs = visible.find(isStarterFeatureSet) ?? visible[0];
-        if (seedFs) setSelectedFsId(seedFs.id);
+        const prefill = pendingFsPrefillRef.current;
+        if (prefill && visible.some((fs) => fs.id === prefill)) {
+          setSelectedFsId(prefill);
+          pendingFsPrefillRef.current = null;
+        } else {
+          const seedFs = visible.find(isStarterFeatureSet) ?? visible[0];
+          if (seedFs) setSelectedFsId(seedFs.id);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -198,7 +273,7 @@ export function WorkspaceBindingSheet() {
     setError(null);
     try {
       await setClientMachineId(payload.client_id, selectedMachineId);
-      setStep('binding');
+      setStep(stepAfterMachine(siblingBindings.length > 0));
     } catch (e) {
       setError(typeof e === 'string' ? e : String(e));
     } finally {
@@ -256,6 +331,28 @@ export function WorkspaceBindingSheet() {
     markSeenAndClose(payload);
   };
 
+  const handleAdoptBinding = (binding: WorkspaceBinding) => {
+    const fsId = binding.feature_set_ids[0];
+    pendingFsPrefillRef.current = fsId ?? null;
+    const sameSpace = binding.space_id === selectedSpaceId;
+    if (!sameSpace) {
+      setSelectedSpaceId(binding.space_id);
+    } else if (fsId) {
+      const hasFs =
+        featureSets.some((fs) => fs.id === fsId) || fsLookup.has(fsId);
+      if (hasFs) {
+        setSelectedFsId(fsId);
+        pendingFsPrefillRef.current = null;
+      }
+    }
+    setStep('binding');
+  };
+
+  const handleStartFresh = () => {
+    pendingFsPrefillRef.current = null;
+    setStep('binding');
+  };
+
   const handleDisablePrompt = async () => {
     if (!payload || saving) return;
     try {
@@ -267,6 +364,10 @@ export function WorkspaceBindingSheet() {
   };
 
   if (!payload) return null;
+
+  const machinesById = new Map(machines.map((m) => [m.id, m]));
+  const spacesById = new Map(spaces.map((s) => [s.id, s]));
+  const adoptRows = buildAdoptRows(siblingBindings, machinesById, spacesById, fsLookup);
 
   return (
     <div
@@ -381,6 +482,17 @@ export function WorkspaceBindingSheet() {
                 </div>
               )}
             </div>
+          ) : step === 'adopt' ? (
+            <AdoptStep
+              rows={adoptRows}
+              loading={loadingMachines}
+              onAdopt={(bindingId) => {
+                const binding = siblingBindings.find((b) => b.id === bindingId);
+                if (binding) handleAdoptBinding(binding);
+              }}
+              onStartFresh={handleStartFresh}
+              t={t}
+            />
           ) : (
             <>
           <div>
@@ -470,7 +582,7 @@ export function WorkspaceBindingSheet() {
                 )}
                 {t('sheet.continue')}
               </Button>
-            ) : (
+            ) : step === 'binding' ? (
             <Button
               variant="primary"
               className="flex-1 whitespace-nowrap"
@@ -484,7 +596,7 @@ export function WorkspaceBindingSheet() {
               )}
               {t('sheet.remember')}
             </Button>
-            )}
+            ) : null}
           </div>
           {step === 'binding' && (
           <>
@@ -506,6 +618,113 @@ export function WorkspaceBindingSheet() {
           </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Build display rows for sibling bindings shown in the adopt step.
+ */
+function buildAdoptRows(
+  siblings: WorkspaceBinding[],
+  machinesById: Map<string, Machine>,
+  spacesById: Map<string, Space>,
+  fsById: Map<string, FeatureSet>,
+): AdoptRow[] {
+  return siblings.map((b) => {
+    const machine = b.machine_id ? machinesById.get(b.machine_id) : undefined;
+    const space = spacesById.get(b.space_id);
+    const fsNames = b.feature_set_ids
+      .map((id) => fsById.get(id)?.name)
+      .filter((name): name is string => Boolean(name));
+    return {
+      bindingId: b.id,
+      machineName: machine?.name ?? null,
+      workspaceRoot: b.workspace_root,
+      spaceName: space?.name ?? '—',
+      fsNames,
+    };
+  });
+}
+
+/**
+ * Adopt step — table of folder-name-matched bindings from other machines.
+ */
+function AdoptStep({
+  rows,
+  loading,
+  onAdopt,
+  onStartFresh,
+  t,
+}: {
+  rows: AdoptRow[];
+  loading: boolean;
+  onAdopt: (bindingId: string) => void;
+  onStartFresh: () => void;
+  t: TFunction<'workspaces'>;
+}) {
+  const headCls =
+    'pb-1 pr-2 text-left text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--muted))] last:pr-0';
+  const cellCls = 'py-1.5 pr-2 align-top text-[11px] text-[rgb(var(--foreground))] last:pr-0';
+
+  return (
+    <div>
+      <div className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))]">
+        {t('sheet.adopt')}
+      </div>
+      <p className="mb-4 text-sm text-[rgb(var(--muted))]">{t('sheet.adoptDesc')}</p>
+      {loading ? (
+        <div className="flex items-center justify-center py-8 text-[rgb(var(--muted))]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-[rgb(var(--border))]">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))]">
+                <th className={`${headCls} pl-3 pt-2`}>{t('sheet.adoptColMachine')}</th>
+                <th className={`${headCls} pt-2`}>{t('sheet.adoptColPath')}</th>
+                <th className={`${headCls} pt-2`}>{t('sheet.adoptColSpace')}</th>
+                <th className={`${headCls} pt-2`}>{t('sheet.adoptColToolSet')}</th>
+                <th className={`${headCls} pr-3 pt-2`} aria-hidden />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.bindingId}
+                  className="border-b border-[rgb(var(--border-subtle))] last:border-b-0"
+                >
+                  <td className={`${cellCls} pl-3 whitespace-nowrap`} title={row.machineName ?? undefined}>
+                    {row.machineName ?? t('sheet.adoptNoMachine')}
+                  </td>
+                  <td className={cellCls} title={row.workspaceRoot}>
+                    <span className="font-mono">{shortenPath(row.workspaceRoot)}</span>
+                  </td>
+                  <td className={`${cellCls} whitespace-nowrap`}>{row.spaceName}</td>
+                  <td className={cellCls}>
+                    {row.fsNames.length > 0 ? row.fsNames.join(', ') : '—'}
+                  </td>
+                  <td className={`${cellCls} pr-3 whitespace-nowrap`}>
+                    <Button variant="secondary" className="h-7 px-2.5 text-xs" onClick={() => onAdopt(row.bindingId)}>
+                      {t('sheet.adoptUseThis')}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="mt-4 text-center">
+        <button
+          type="button"
+          onClick={onStartFresh}
+          className="text-sm text-[rgb(var(--muted))] underline-offset-2 transition-colors hover:text-[rgb(var(--foreground))] hover:underline"
+        >
+          {t('sheet.adoptStartFresh')}
+        </button>
       </div>
     </div>
   );
