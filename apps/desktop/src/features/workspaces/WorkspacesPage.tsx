@@ -894,8 +894,8 @@ function EntryCard({
   const isMultiMachine = bindings.length > 1;
   const singleMachineBinding =
     bindings.length === 1 && bindings[0].machine_id != null ? bindings[0] : null;
-  const singleMachineName = singleMachineBinding
-    ? machinesById.get(singleMachineBinding.machine_id!)?.name
+  const singleMachine = singleMachineBinding
+    ? machinesById.get(singleMachineBinding.machine_id!)
     : undefined;
 
   return (
@@ -933,7 +933,7 @@ function EntryCard({
             )}
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
-            <div className="mb-1.5 flex min-h-[1.375rem] flex-wrap items-start gap-2">
+            <div className="mb-1.5 flex min-h-[1.375rem] flex-wrap items-center gap-2">
               {entry.kind === 'unmapped-live' && <Pill tone="amber">{t('card.unmapped')}</Pill>}
               {entry.kind === 'mapped-offline' && <Pill tone="neutral">{t('card.offline')}</Pill>}
               {entry.kind === 'mapped-live' && <Pill tone="emerald">{t('card.live')}</Pill>}
@@ -960,21 +960,14 @@ function EntryCard({
             >
               {hasLabel ? entry.root : '\u00A0'}
             </p>
-            {singleMachineName ? (
-              <p className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-[rgb(var(--muted))]">
-                <Monitor className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                <span className="truncate" title={singleMachineName}>
-                  {singleMachineName}
-                </span>
-              </p>
-            ) : null}
           </div>
         </div>
 
-        <div className="mt-auto min-h-[2.25rem] border-t border-[rgb(var(--border-subtle))] pt-4 text-xs text-[rgb(var(--muted))]">
+        <div className="mt-auto -mx-6 -mb-6 rounded-b-xl border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-5 py-3 text-xs text-[rgb(var(--muted))]">
           {isMultiMachine ? (
-            <div className="-mx-1 flex flex-col">
+            <div className="flex flex-col">
               {bindings.map((rowBinding, index) => {
+                const rowMachine = rowBinding.machine_id ? machinesById.get(rowBinding.machine_id) : undefined;
                 const machineLabel = machineBindingLabel(rowBinding, machinesById, t);
                 const rowFsName = formatFsList(
                   rowBinding.feature_set_ids.map((id) => fsById.get(id)?.name ?? id)
@@ -985,7 +978,7 @@ function EntryCard({
                     key={rowBinding.id}
                     type="button"
                     className={[
-                      'w-full rounded-md px-1 py-2 text-left transition-colors hover:bg-[rgb(var(--surface))]',
+                      'w-full rounded-md px-1 py-2 text-left transition-colors hover:bg-[rgb(var(--surface-hover,var(--background)))]',
                       index > 0 ? 'border-t border-[rgb(var(--border-subtle))]' : '',
                     ].join(' ')}
                     aria-label={t('card.machineRow', { machine: machineLabel })}
@@ -994,14 +987,14 @@ function EntryCard({
                       onMachineRowClick(rowBinding.id);
                     }}
                   >
-                    <div className="mb-1 flex min-w-0 items-center gap-1.5">
-                      <Monitor className="h-3 w-3 shrink-0" aria-hidden />
-                      <span className="truncate text-[11px] font-medium text-[rgb(var(--foreground))]">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <Chip tone="neutral" title={machineLabel}>
+                        {rowMachine?.icon ? (
+                          <span className="mr-1 text-[11px] leading-none">{rowMachine.icon}</span>
+                        ) : null}
                         {machineLabel}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-start gap-1.5 pl-[1.125rem]">
-                      <span className="shrink-0">{t('card.routesTo')}</span>
+                      </Chip>
+                      <span className="shrink-0 text-[rgb(var(--muted))]">→</span>
                       <Chip tone="primary" title={rowFsName || undefined}>
                         {rowFsName || '—'}
                       </Chip>
@@ -1015,8 +1008,20 @@ function EntryCard({
               })}
             </div>
           ) : (
-            <div className="flex flex-wrap items-start gap-1.5">
-              <span className="shrink-0">{t('card.routesTo')}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {singleMachine ? (
+                <>
+                  <Chip tone="neutral" title={singleMachine.name}>
+                    {singleMachine.icon ? (
+                      <span className="mr-1 text-[11px] leading-none">{singleMachine.icon}</span>
+                    ) : null}
+                    {singleMachine.name}
+                  </Chip>
+                  <span className="shrink-0 text-[rgb(var(--muted))]">→</span>
+                </>
+              ) : (
+                <span className="shrink-0">{t('card.routesTo')}</span>
+              )}
               <Chip tone="primary" title={fsName ?? undefined}>
                 {fsName ?? '—'}
               </Chip>
