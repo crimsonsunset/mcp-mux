@@ -369,7 +369,15 @@ export function OAuthConsentModal() {
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
         data-testid="oauth-consent-error-modal"
       >
-        <Card className="animate-in fade-in zoom-in mx-4 w-full max-w-md shadow-xl duration-200">
+        <Card className="animate-in fade-in zoom-in relative mx-4 w-full max-w-md shadow-xl duration-200">
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Close"
+            className="absolute right-3 top-3 rounded-md p-1.5 text-[rgb(var(--muted))] transition-colors hover:bg-[rgb(var(--surface))] hover:text-[rgb(var(--foreground))]"
+          >
+            <X className="h-4 w-4" />
+          </button>
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-red-500/10 p-2">
@@ -406,7 +414,15 @@ export function OAuthConsentModal() {
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-        <Card className="animate-in fade-in zoom-in mx-4 w-full max-w-md shadow-xl duration-200">
+        <Card className="animate-in fade-in zoom-in relative mx-4 w-full max-w-md shadow-xl duration-200">
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Close"
+            className="absolute right-3 top-3 rounded-md p-1.5 text-[rgb(var(--muted))] transition-colors hover:bg-[rgb(var(--surface))] hover:text-[rgb(var(--foreground))]"
+          >
+            <X className="h-4 w-4" />
+          </button>
           <CardContent className="flex flex-col gap-5 px-6 pb-6 pt-8">
             <div className="flex flex-col items-center gap-4 text-center">
               <ClientLogo clientName={details.clientName} />
@@ -507,7 +523,15 @@ export function OAuthConsentModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <Card className="animate-in fade-in zoom-in mx-4 w-full max-w-sm shadow-xl duration-200">
+      <Card className="animate-in fade-in zoom-in relative mx-4 w-full max-w-sm shadow-xl duration-200">
+        <button
+          type="button"
+          onClick={handleDismiss}
+          aria-label="Close"
+          className="absolute right-3 top-3 rounded-md p-1.5 text-[rgb(var(--muted))] transition-colors hover:bg-[rgb(var(--surface))] hover:text-[rgb(var(--foreground))]"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <CardContent className="flex flex-col items-center gap-5 px-8 pb-6 pt-8 text-center">
           <ClientLogo clientName={details.clientName} />
 
