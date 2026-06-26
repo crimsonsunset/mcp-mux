@@ -24,4 +24,13 @@ export const machinesRoutes: Record<string, RouteHandler> = {
     body: (args.input ?? { machine_id: null }) as Record<string, unknown>,
   }),
   get_hostname: () => ({ method: 'GET', path: '/api/v1/machines/hostname' }),
+  get_client_machine_id: (args) => ({
+    method: 'GET',
+    path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}/machine`,
+  }),
+  set_client_machine_id: (args) => ({
+    method: 'PUT',
+    path: `/api/v1/oauth/clients/${encodeURIComponent(String(args.clientId))}/machine`,
+    body: (args.input ?? { machine_id: null }) as Record<string, unknown>,
+  }),
 };

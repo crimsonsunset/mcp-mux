@@ -172,6 +172,7 @@ impl Fixture {
             updated_at: now,
             reports_roots: false,
             roots_capability_known: false,
+            machine_id: None,
         };
         self.client_repo.save_client(&c).await.unwrap();
     }

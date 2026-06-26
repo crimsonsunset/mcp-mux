@@ -81,6 +81,8 @@ pub struct GatewayAppState {
     /// Surfaced to the desktop Workspaces tab so users can see + act on
     /// every folder connected clients are currently operating in.
     pub session_roots: Option<Arc<mcpmux_gateway::services::SessionRootsRegistry>>,
+    /// FeatureSet resolver for live machine-identity hot-reload.
+    pub feature_set_resolver: Option<Arc<mcpmux_gateway::services::FeatureSetResolverService>>,
 }
 
 /// Load the persisted public gateway URL for OAuth metadata.
@@ -99,6 +101,16 @@ async fn apply_gateway_public_url(
     if let Some(gw) = app.gateway_state.as_ref() {
         let mut state = gw.write().await;
         state.set_public_url(public_url);
+    }
+}
+
+/// Hot-reload the resolver's local machine identity after settings persist.
+pub(crate) async fn hot_reload_local_machine_id(
+    gateway_state: &Arc<RwLock<GatewayAppState>>,
+    id: Option<Uuid>,
+) {
+    if let Some(resolver) = gateway_state.read().await.feature_set_resolver.as_ref() {
+        resolver.set_local_machine_id(id).await;
     }
 }
 
@@ -993,6 +1005,7 @@ pub async fn start_gateway(
     let server_manager = server.server_manager();
     let grant_service = server.grant_service();
     let session_roots = server.session_roots();
+    let feature_set_resolver = server.feature_set_resolver();
 
     // Subscribe to OAuth completions BEFORE spawn so we don't miss early
     // events emitted during initial auto-connect.
@@ -1040,6 +1053,7 @@ pub async fn start_gateway(
     state.grant_service = Some(grant_service);
     state.approval_broker = Some(approval_broker);
     state.session_roots = Some(session_roots);
+    state.feature_set_resolver = Some(feature_set_resolver);
     info!(
         "[Gateway] Started — url={}, event_emitter={}, grant_service={}",
         url,

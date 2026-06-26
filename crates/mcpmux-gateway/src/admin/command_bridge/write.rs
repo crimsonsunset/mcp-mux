@@ -101,6 +101,11 @@ pub struct SetLocalMachineIdBody {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SetClientMachineIdBody {
+    pub machine_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct WorkspaceAppearanceBody {
     pub workspace_root: String,
     pub icon: String,
@@ -612,6 +617,32 @@ pub async fn set_local_machine_id(
 
     let settings = AppSettingsService::new(ctx.settings_repository.clone());
     settings.set_local_machine_id(parsed).await?;
+    ctx.gateway_writes
+        .hot_reload_local_machine_id(parsed)
+        .await?;
+    Ok(json!({ "ok": true }))
+}
+
+pub async fn set_client_machine_id(
+    ctx: &AdminBridgeCtx,
+    client_id: String,
+    body: SetClientMachineIdBody,
+) -> Result<Value> {
+    let parsed = match body.machine_id {
+        None => None,
+        Some(value) => Some(Uuid::parse_str(&value)?),
+    };
+
+    if let Some(id) = parsed {
+        let exists = ctx.machine_repository.get(&id).await?.is_some();
+        if !exists {
+            anyhow::bail!("machine not found: {id}");
+        }
+    }
+
+    ctx.inbound_client_repository
+        .set_machine_id(&client_id, parsed)
+        .await?;
     Ok(json!({ "ok": true }))
 }
 

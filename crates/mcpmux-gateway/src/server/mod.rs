@@ -31,6 +31,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 use crate::consumers::MCPNotifier;
 use crate::mcp::{mcp_oauth_middleware, McpMuxGatewayHandler};
@@ -196,6 +197,16 @@ impl GatewayServer {
     /// one-shot prompt for.
     pub fn session_roots(&self) -> Arc<crate::services::SessionRootsRegistry> {
         self.services.session_roots.clone()
+    }
+
+    /// FeatureSet resolver — used for live machine-identity hot-reload.
+    pub fn feature_set_resolver(&self) -> Arc<crate::services::FeatureSetResolverService> {
+        self.services.feature_set_resolver.clone()
+    }
+
+    /// Hot-reload this install's machine identity without restarting the gateway.
+    pub async fn set_local_machine_id(&self, id: Option<Uuid>) {
+        self.services.set_local_machine_id(id).await;
     }
 
     /// Get the OAuth manager

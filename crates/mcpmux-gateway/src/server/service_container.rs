@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use crate::pool::{PoolServices, ServerManager, ServiceFactory};
 use crate::services::{
     meta_tools, ApprovalBroker, AuthorizationService, ClientMetadataService,
@@ -188,5 +190,12 @@ impl ServiceContainer {
             gateway_state,
             dependencies: deps.clone(),
         }
+    }
+}
+
+impl ServiceContainer {
+    /// Hot-reload this install's machine identity on the live resolver.
+    pub async fn set_local_machine_id(&self, id: Option<Uuid>) {
+        self.feature_set_resolver.set_local_machine_id(id).await;
     }
 }

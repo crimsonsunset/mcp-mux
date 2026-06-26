@@ -508,6 +508,7 @@ pub fn run() {
                 let event_emitter = server.event_emitter();
                 let grant_service = server.grant_service();
                 let session_roots = server.session_roots();
+                let feature_set_resolver = server.feature_set_resolver();
                 let approval_broker = server.approval_broker();
 
                 // Wire the approval broker to the desktop event bus so
@@ -557,6 +558,7 @@ pub fn run() {
                 state.grant_service = Some(grant_service);
                 state.approval_broker = Some(approval_broker);
                 state.session_roots = Some(session_roots);
+                state.feature_set_resolver = Some(feature_set_resolver);
 
                 // Attach the admin SSE bus so inbound OAuth consent reaches the
                 // web admin (not just the desktop webview) on the auto-start path.
@@ -993,6 +995,8 @@ pub fn run() {
             commands::delete_machine,
             commands::get_local_machine_id,
             commands::set_local_machine_id,
+            commands::get_client_machine_id,
+            commands::set_client_machine_id,
             commands::get_hostname,
             // Workspace binding commands (resolver v2)
             commands::list_workspace_bindings,

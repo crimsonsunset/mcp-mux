@@ -203,6 +203,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "workspace_binding_machine_scope",
         sql: include_str!("migrations/034_workspace_binding_machine_scope.sql"),
     },
+    Migration {
+        version: 35,
+        name: "inbound_client_machine",
+        sql: include_str!("migrations/035_inbound_client_machine.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

@@ -334,6 +334,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             put(write::update_oauth_client).delete(write::delete_oauth_client),
         )
         .route(
+            "/api/v1/oauth/clients/{client_id}/machine",
+            get(read::get_client_machine_id).put(write::set_client_machine_id),
+        )
+        .route(
             "/api/v1/oauth/clients/{client_id}/grants",
             post(write::grant_oauth_client_feature_set),
         )

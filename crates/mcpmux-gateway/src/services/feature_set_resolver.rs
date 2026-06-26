@@ -86,6 +86,7 @@ use mcpmux_core::{
 };
 use mcpmux_storage::InboundClientRepository;
 use serde::Serialize;
+use tokio::sync::RwLock;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -180,7 +181,7 @@ pub struct FeatureSetResolverService {
     pending_grace: Duration,
     /// This install's registered machine id (`gateway.local_machine_id`).
     /// When set, Tier 1 prefers machine-scoped bindings before global fallbacks.
-    local_machine_id: Option<Uuid>,
+    local_machine_id: Arc<RwLock<Option<Uuid>>>,
 }
 
 impl FeatureSetResolverService {
@@ -201,20 +202,37 @@ impl FeatureSetResolverService {
             feature_set_repo,
             space_base_dir_repo,
             pending_grace: DEFAULT_PENDING_ROOTS_GRACE,
-            local_machine_id,
+            local_machine_id: Arc::new(RwLock::new(local_machine_id)),
         }
     }
 
-    /// Tier 1 exact binding lookup: machine-scoped match first, then global.
+    /// Hot-reload this install's machine identity without restarting the gateway.
+    pub async fn set_local_machine_id(&self, id: Option<Uuid>) {
+        *self.local_machine_id.write().await = id;
+    }
+
+    /// Tier 1 exact binding lookup: client machine, then local machine, then global.
     async fn find_binding_for_roots(
         &self,
         roots: &[String],
+        client_id: Option<&str>,
     ) -> Result<Option<mcpmux_core::WorkspaceBinding>> {
         for root in roots {
-            if let Some(machine_id) = self.local_machine_id {
+            if let Some(cid) = client_id {
+                if let Some(client_machine) = self.client_repo.get_machine_id(cid).await? {
+                    if let Some(binding) = self
+                        .binding_repo
+                        .find_exact_for_machine(&client_machine, root)
+                        .await?
+                    {
+                        return Ok(Some(binding));
+                    }
+                }
+            }
+            if let Some(local_id) = *self.local_machine_id.read().await {
                 if let Some(binding) = self
                     .binding_repo
-                    .find_exact_for_machine(&machine_id, root)
+                    .find_exact_for_machine(&local_id, root)
                     .await?
                 {
                     return Ok(Some(binding));
@@ -227,7 +245,7 @@ impl FeatureSetResolverService {
         // ponytail: when this install has no machine identity, preserve the
         // pre-machine exact match (includes client-scoped bindings). Once
         // local_machine_id is set, only machine + global canonical bindings apply.
-        if self.local_machine_id.is_none() {
+        if self.local_machine_id.read().await.is_none() {
             return self.binding_repo.find_exact_for_roots(roots).await;
         }
         Ok(None)
@@ -371,7 +389,10 @@ impl FeatureSetResolverService {
             // (no ancestor inheritance).
             if has_roots {
                 let reported_roots = roots.expect("has_roots implies Some");
-                if let Some(binding) = self.find_binding_for_roots(&reported_roots).await? {
+                if let Some(binding) = self
+                    .find_binding_for_roots(&reported_roots, client_id)
+                    .await?
+                {
                     debug!(
                         workspace_root = %binding.workspace_root,
                         space_id = %binding.space_id,

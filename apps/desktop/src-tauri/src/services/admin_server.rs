@@ -500,6 +500,9 @@ pub async fn start_admin_server_if_enabled(
         settings_repository: app_state.settings_repository.clone(),
         workspace_binding_repository: app_state.workspace_binding_repository.clone(),
         machine_repository: Arc::new(SqliteMachineRepository::new(app_state.database())),
+        inbound_client_repository: Arc::new(mcpmux_storage::InboundClientRepository::new(
+            app_state.database(),
+        )),
         workspace_appearance_repository: app_state.workspace_appearance_repository.clone(),
         server_feature_repository: app_state.server_feature_repository_core.clone(),
         server_log_manager: app_state.server_log_manager.clone(),

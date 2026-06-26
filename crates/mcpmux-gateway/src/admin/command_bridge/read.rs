@@ -296,6 +296,15 @@ pub fn get_hostname() -> Result<Value> {
     Ok(json!(name))
 }
 
+pub async fn get_client_machine_id(ctx: &AdminBridgeCtx, client_id: String) -> Result<Value> {
+    Ok(ctx
+        .inbound_client_repository
+        .get_machine_id(&client_id)
+        .await?
+        .map(|id| json!(id.to_string()))
+        .unwrap_or(Value::Null))
+}
+
 pub async fn get_client(ctx: &AdminBridgeCtx, id: String) -> Result<Value> {
     let id = Uuid::parse_str(&id)?;
     let client = ctx.services.client().get(id).await?;
