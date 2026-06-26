@@ -285,6 +285,15 @@ pub async fn get_local_machine_id(ctx: &AdminBridgeCtx) -> Result<Value> {
         .unwrap_or(Value::Null))
 }
 
+pub async fn get_viewer_machine_id(ctx: &AdminBridgeCtx, viewer_id: String) -> Result<Value> {
+    let settings = AppSettingsService::new(ctx.settings_repository.clone());
+    Ok(settings
+        .get_viewer_machine_id(&viewer_id)
+        .await
+        .map(|id| json!(id.to_string()))
+        .unwrap_or(Value::Null))
+}
+
 pub fn get_hostname() -> Result<Value> {
     let name = hostname::get()?.to_string_lossy().into_owned();
     Ok(json!(name))

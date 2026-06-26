@@ -69,6 +69,11 @@ import {
   type Machine,
 } from '@/lib/api/machines';
 import {
+  getMissingMachineProfileField,
+  isMachineProfileComplete,
+  toMachineProfilePayload,
+} from '@/lib/machine-profile.helpers';
+import {
   deleteWorkspaceAppearance,
   listWorkspaceAppearances,
   upsertWorkspaceAppearance,
@@ -3041,18 +3046,14 @@ function MachineRegistrationModal({
   }, [open, onClose]);
 
   const handleConfirm = async () => {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      onError(t('machineIdentity.nameRequired'));
+    const missingField = getMissingMachineProfileField({ name, icon, hostname });
+    if (missingField) {
+      onError(t(`machineIdentity.${missingField}Required`));
       return;
     }
     setSubmitting(true);
     try {
-      await onSubmit({
-        name: trimmedName,
-        icon: icon.trim() || null,
-        hostname: hostname.trim() || null,
-      });
+      await onSubmit(toMachineProfilePayload({ name, icon, hostname }));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -3061,6 +3062,8 @@ function MachineRegistrationModal({
   };
 
   if (!open) return null;
+
+  const canSubmit = isMachineProfileComplete({ name, icon, hostname });
 
   return (
     <>
@@ -3134,7 +3137,7 @@ function MachineRegistrationModal({
                 variant="primary"
                 size="md"
                 onClick={() => void handleConfirm()}
-                disabled={submitting || !name.trim()}
+                disabled={submitting || !canSubmit}
                 className="flex-1"
                 data-testid="machine-identity-confirm-btn"
               >

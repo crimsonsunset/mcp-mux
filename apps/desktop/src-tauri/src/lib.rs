@@ -995,6 +995,8 @@ pub fn run() {
             commands::delete_machine,
             commands::get_local_machine_id,
             commands::set_local_machine_id,
+            commands::get_viewer_machine_id,
+            commands::set_viewer_machine_id,
             commands::get_client_machine_id,
             commands::set_client_machine_id,
             commands::get_hostname,

@@ -181,6 +181,47 @@ pub async fn set_local_machine_id(
     Ok(())
 }
 
+/// Get the machine id linked to a viewer device profile.
+#[tauri::command]
+pub async fn get_viewer_machine_id(
+    viewer_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    Ok(settings_service(&state)
+        .get_viewer_machine_id(&viewer_id)
+        .await
+        .map(|id| id.to_string()))
+}
+
+/// Link or unlink a viewer device profile to a machine catalog row.
+#[tauri::command]
+pub async fn set_viewer_machine_id(
+    viewer_id: String,
+    input: SetLocalMachineIdInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let parsed = match input.machine_id {
+        None => None,
+        Some(value) => Some(Uuid::parse_str(&value).map_err(|e| e.to_string())?),
+    };
+
+    if let Some(id) = parsed {
+        let exists = machine_repo(&state)
+            .get(&id)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if !exists {
+            return Err(format!("Machine not found: {id}"));
+        }
+    }
+
+    settings_service(&state)
+        .set_viewer_machine_id(&viewer_id, parsed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Input for assigning a machine to an inbound OAuth client.
 #[derive(Debug, Deserialize)]
 pub struct SetClientMachineIdInput {

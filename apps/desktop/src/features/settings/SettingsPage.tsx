@@ -69,6 +69,12 @@ import { getLogRetentionDays, setLogRetentionDays as saveLogRetentionDays } from
 import { MetaToolAuditLog, MetaToolGrantsPanel } from '@/features/metaTools';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { CONTRIBUTE, openExternal } from '@/lib/contribute';
+import { VIEWER_IDENTITY_CHANGED } from '@/hooks/use-viewer-identity.hook';
+import {
+  getMissingMachineProfileField,
+  isMachineProfileComplete,
+  toMachineProfilePayload,
+} from '@/lib/machine-profile.helpers';
 import { isTauri } from '@/lib/api/transport';
 import {
   createMachine,
@@ -80,6 +86,10 @@ import {
   updateMachine,
   type Machine,
 } from '@/lib/api/machines';
+import {
+  listWorkspaceBindings,
+  deleteWorkspaceBinding,
+} from '@/lib/api/workspaceBindings';
 import { ServerIcon } from '@/components/ServerIcon';
 
 interface GatewayPublicUrlSettings {
@@ -1561,6 +1571,9 @@ function MachineIdentitySection({
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [deletingRowId, setDeletingRowId] = useState<string | null>(null);
 
+  const isViewingLocally =
+    isTauri() || ['localhost', '127.0.0.1', '[::1]', ''].includes(window.location.hostname);
+
   const localMachine = localMachineId
     ? machines.find((machine) => machine.id === localMachineId) ?? null
     : null;
@@ -1606,18 +1619,26 @@ function MachineIdentitySection({
 
   const handleSaveLocal = async () => {
     if (!localMachine) return;
-    const trimmedName = nameDraft.trim();
-    if (!trimmedName) return;
+    const missingField = getMissingMachineProfileField({
+      name: nameDraft,
+      icon: iconDraft,
+      hostname: hostnameDraft,
+    });
+    if (missingField) {
+      onError(t(`machineIdentity.${missingField}Required`));
+      return;
+    }
     setSavingLocal(true);
     try {
-      const updated = await updateMachine(localMachine.id, {
-        name: trimmedName,
-        icon: iconDraft.trim() || null,
-        hostname: hostnameDraft.trim() || null,
-      });
+      const updated = await updateMachine(localMachine.id, toMachineProfilePayload({
+        name: nameDraft,
+        icon: iconDraft,
+        hostname: hostnameDraft,
+      }));
       setMachines((prev) =>
         prev.map((machine) => (machine.id === updated.id ? updated : machine))
       );
+      window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
       onSuccess(t('machineIdentity.toast.saved'), updated.name);
     } catch (err) {
       onError(
@@ -1630,21 +1651,31 @@ function MachineIdentitySection({
   };
 
   const handleRegister = async () => {
-    const trimmedName = registerName.trim();
-    if (!trimmedName) return;
+    const missingField = getMissingMachineProfileField({
+      name: registerName,
+      icon: registerIcon,
+      hostname: registerHostname,
+    });
+    if (missingField) {
+      onError(t(`machineIdentity.${missingField}Required`));
+      return;
+    }
     setRegistering(true);
     try {
-      const created = await createMachine({
-        name: trimmedName,
-        icon: registerIcon.trim() || null,
-        hostname: registerHostname.trim() || null,
-      });
+      const created = await createMachine(
+        toMachineProfilePayload({
+          name: registerName,
+          icon: registerIcon,
+          hostname: registerHostname,
+        }),
+      );
       await setLocalMachineId(created.id);
       setMachines((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
       setLocalMachineIdState(created.id);
       setRegisterName('');
       setRegisterIcon('');
       setRegisterHostname('');
+      window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
       onSuccess(t('machineIdentity.toast.registered'), created.name);
     } catch (err) {
       onError(
@@ -1668,15 +1699,14 @@ function MachineIdentitySection({
   const handleSaveRow = async (machine: Machine) => {
     const draft = rowDrafts[machine.id];
     if (!draft) return;
-    const trimmedName = draft.name.trim();
-    if (!trimmedName) return;
+    const missingField = getMissingMachineProfileField(draft);
+    if (missingField) {
+      onError(t(`machineIdentity.${missingField}Required`));
+      return;
+    }
     setSavingRowId(machine.id);
     try {
-      const updated = await updateMachine(machine.id, {
-        name: trimmedName,
-        icon: draft.icon.trim() || null,
-        hostname: draft.hostname.trim() || null,
-      });
+      const updated = await updateMachine(machine.id, toMachineProfilePayload(draft));
       setMachines((prev) =>
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
@@ -1684,6 +1714,7 @@ function MachineIdentitySection({
         setNameDraft(updated.name);
         setIconDraft(updated.icon ?? '');
         setHostnameDraft(updated.hostname ?? '');
+        window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
       }
       onSuccess(t('machineIdentity.toast.saved'), updated.name);
     } catch (err) {
@@ -1707,13 +1738,17 @@ function MachineIdentitySection({
     if (!ok) return;
     setDeletingRowId(machine.id);
     try {
-      await deleteMachine(machine.id);
+      const [, allBindings] = await Promise.all([deleteMachine(machine.id), listWorkspaceBindings()]);
+      const scopedBindings = allBindings.filter((b) => b.machine_id === machine.id);
+      await Promise.all(scopedBindings.map((b) => deleteWorkspaceBinding(b.id)));
       setMachines((prev) => prev.filter((row) => row.id !== machine.id));
       if (localMachineId === machine.id) {
+        await setLocalMachineId(null);
         setLocalMachineIdState(null);
         setNameDraft('');
         setIconDraft('');
         setHostnameDraft('');
+        window.dispatchEvent(new Event(VIEWER_IDENTITY_CHANGED));
       }
       setRowDrafts((prev) => {
         const next = { ...prev };
@@ -1731,11 +1766,18 @@ function MachineIdentitySection({
     }
   };
 
+  const localProfileDraft = { name: nameDraft, icon: iconDraft, hostname: hostnameDraft };
   const localDirty =
     localMachine &&
     (nameDraft.trim() !== localMachine.name ||
       (iconDraft.trim() || null) !== localMachine.icon ||
       (hostnameDraft.trim() || null) !== localMachine.hostname);
+  const localCanSave = isMachineProfileComplete(localProfileDraft);
+  const registerCanSave = isMachineProfileComplete({
+    name: registerName,
+    icon: registerIcon,
+    hostname: registerHostname,
+  });
 
   return (
     <Card data-testid="settings-machine-identity-section">
@@ -1754,7 +1796,11 @@ function MachineIdentitySection({
           </div>
         ) : localMachine ? (
           <div className="space-y-4">
-            <p className="text-sm font-medium">{t('machineIdentity.thisInstall')}</p>
+            <p className="text-sm font-medium">
+              {isViewingLocally
+                ? t('machineIdentity.thisInstall')
+                : t('machineIdentity.thisGateway')}
+            </p>
             <div className="flex items-start gap-3">
               <div className="w-12 h-12 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] flex items-center justify-center flex-shrink-0">
                 {iconDraft.trim() ? (
@@ -1805,7 +1851,7 @@ function MachineIdentitySection({
                   variant="primary"
                   size="sm"
                   onClick={() => void handleSaveLocal()}
-                  disabled={savingLocal || !localDirty || !nameDraft.trim()}
+                  disabled={savingLocal || !localDirty || !localCanSave}
                   data-testid="machine-identity-local-save"
                 >
                   {savingLocal ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
@@ -1850,7 +1896,7 @@ function MachineIdentitySection({
               variant="primary"
               size="sm"
               onClick={() => void handleRegister()}
-              disabled={registering || !registerName.trim()}
+              disabled={registering || !registerCanSave}
               data-testid="machine-identity-register-btn"
             >
               {registering ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
@@ -1904,7 +1950,11 @@ function MachineIdentitySection({
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold uppercase tracking-wide text-[rgb(var(--muted))]">
-                          {machine.id === localMachineId ? t('machineIdentity.thisInstall') : machine.name}
+                          {machine.id === localMachineId
+                            ? isViewingLocally
+                              ? t('machineIdentity.thisInstall')
+                              : t('machineIdentity.thisGateway')
+                            : machine.name}
                         </span>
                         {machine.id === localMachineId ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800">
@@ -1954,7 +2004,7 @@ function MachineIdentitySection({
                           variant="secondary"
                           size="sm"
                           onClick={() => void handleSaveRow(machine)}
-                          disabled={savingRowId === machine.id || !dirty || !draft.name.trim()}
+                          disabled={savingRowId === machine.id || !dirty || !isMachineProfileComplete(draft)}
                         >
                           {savingRowId === machine.id ? (
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />

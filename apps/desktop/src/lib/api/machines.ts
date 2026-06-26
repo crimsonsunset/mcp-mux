@@ -52,6 +52,22 @@ export async function setLocalMachineId(machineId: string | null): Promise<void>
   return apiCall('set_local_machine_id', { input: { machine_id: machineId } });
 }
 
+/** Get the machine id linked to a viewer device profile. */
+export async function getViewerMachineId(viewerId: string): Promise<string | null> {
+  return apiCall('get_viewer_machine_id', { viewerId });
+}
+
+/** Link or unlink a viewer device profile to a machine catalog row. */
+export async function setViewerMachineId(
+  viewerId: string,
+  machineId: string | null,
+): Promise<void> {
+  await apiCall('set_viewer_machine_id', {
+    viewerId,
+    input: { machine_id: machineId },
+  });
+}
+
 /** OS hostname hint for first-time machine registration. */
 export async function getHostname(): Promise<string> {
   return apiCall('get_hostname');

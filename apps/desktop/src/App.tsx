@@ -8,6 +8,8 @@ import { OAuthConsentModal } from '@/components/OAuthConsentModal';
 import { ServerInstallModal } from '@/components/ServerInstallModal';
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { StaleBuildBanner } from '@/components/StaleBuildBanner';
+import { ViewerIdentityModal, ViewerIdentityStatusItem } from '@/components/ViewerIdentity';
+import { ViewerIdentityProvider } from '@/hooks/use-viewer-identity.hook';
 import { useDataSync } from '@/hooks/useDataSync';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { startMetaToolActivityListener } from '@/stores/metaToolActivityStore';
@@ -289,6 +291,7 @@ function AppContent() {
             name: viewSpace?.name || tCommon('none'),
           })}
         </span>
+        <ViewerIdentityStatusItem />
       </div>
       {appVersion && (
         <span className="opacity-70" data-testid="statusbar-version">
@@ -389,12 +392,15 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
-      <AutoStartConflictResolver />
-      <OAuthConsentModal />
-      <WorkspaceBindingSheet />
-      <ServerInstallModal />
-      <MetaToolApprovalDialog />
+      <ViewerIdentityProvider>
+        <AppContent />
+        <AutoStartConflictResolver />
+        <OAuthConsentModal />
+        <ViewerIdentityModal />
+        <WorkspaceBindingSheet />
+        <ServerInstallModal />
+        <MetaToolApprovalDialog />
+      </ViewerIdentityProvider>
     </ThemeProvider>
   );
 }

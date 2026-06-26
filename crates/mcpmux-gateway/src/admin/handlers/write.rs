@@ -430,6 +430,17 @@ pub async fn set_local_machine_id(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn set_viewer_machine_id(
+    State(state): State<AdminState>,
+    Path(viewer_id): Path<String>,
+    Json(body): Json<SetLocalMachineIdBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_viewer_machine_id(&state.bridge, viewer_id, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn set_client_machine_id(
     State(state): State<AdminState>,
     Path(client_id): Path<String>,

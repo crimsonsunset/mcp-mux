@@ -623,6 +623,30 @@ pub async fn set_local_machine_id(
     Ok(json!({ "ok": true }))
 }
 
+pub async fn set_viewer_machine_id(
+    ctx: &AdminBridgeCtx,
+    viewer_id: String,
+    body: SetLocalMachineIdBody,
+) -> Result<Value> {
+    let parsed = match body.machine_id {
+        None => None,
+        Some(value) => Some(Uuid::parse_str(&value)?),
+    };
+
+    if let Some(id) = parsed {
+        let exists = ctx.machine_repository.get(&id).await?.is_some();
+        if !exists {
+            anyhow::bail!("machine not found: {id}");
+        }
+    }
+
+    let settings = AppSettingsService::new(ctx.settings_repository.clone());
+    settings
+        .set_viewer_machine_id(&viewer_id, parsed)
+        .await?;
+    Ok(json!({ "ok": true }))
+}
+
 pub async fn set_client_machine_id(
     ctx: &AdminBridgeCtx,
     client_id: String,
