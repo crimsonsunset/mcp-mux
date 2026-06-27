@@ -1229,7 +1229,7 @@ const SECTION_TONES: Record<SectionTone, SectionToneSpec> = {
   },
 };
 
-function CollapsibleSection({
+export function CollapsibleSection({
   icon,
   tone = 'primary',
   title,
@@ -1599,7 +1599,7 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
  * Reports the configured-features total to the parent via `onTotalChange`
  * so the section header can show a count badge without re-fetching.
  */
-function EffectiveFeaturesContent({
+export function EffectiveFeaturesContent({
   root,
   onTotalChange,
   t,
