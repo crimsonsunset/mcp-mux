@@ -211,15 +211,80 @@ fn redirect_uri_matches(registered: &str, requested: &str) -> bool {
         && reg_url.path() == req_url.path()
 }
 
+fn is_loopback_redirect_uri(uri: &str) -> bool {
+    let Ok(url) = url::Url::parse(uri) else {
+        return false;
+    };
+
+    if url.scheme() != "http" {
+        return false;
+    }
+
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        None => false,
+    }
+}
+
+/// URI schemes that must never be accepted as a redirect target. They can
+/// execute script or load arbitrary content if a redirect is ever navigated to
+/// one (e.g. the consent flow's `window.location.href` fallback), so they are
+/// rejected even though they are technically non-http "custom" schemes.
+const DANGEROUS_REDIRECT_SCHEMES: &[&str] = &["javascript", "data", "vbscript", "file", "blob"];
+
+fn is_custom_scheme_redirect_uri(uri: &str) -> bool {
+    let Ok(url) = url::Url::parse(uri) else {
+        return false;
+    };
+
+    // `url` normalizes the scheme to lowercase, so the denylist comparison is
+    // case-insensitive (e.g. `JavaScript:` is parsed as `javascript`).
+    let scheme = url.scheme();
+    scheme != "http" && scheme != "https" && !DANGEROUS_REDIRECT_SCHEMES.contains(&scheme)
+}
+
+fn is_chatgpt_connector_redirect_uri(uri: &str) -> bool {
+    let Ok(url) = url::Url::parse(uri) else {
+        return false;
+    };
+
+    url.scheme() == "https"
+        && matches!(url.host(), Some(url::Host::Domain(host)) if host.eq_ignore_ascii_case("chatgpt.com"))
+        && (url.path() == "/connector/oauth" || url.path().starts_with("/connector/oauth/"))
+}
+
+fn is_valid_registered_redirect_uri(uri: &str) -> bool {
+    is_loopback_redirect_uri(uri)
+        || is_custom_scheme_redirect_uri(uri)
+        || is_chatgpt_connector_redirect_uri(uri)
+}
+
+fn filter_valid_redirect_uris(uris: &[String]) -> Vec<String> {
+    let mut filtered = Vec::new();
+    for uri in uris {
+        if is_valid_registered_redirect_uri(uri) && !filtered.contains(uri) {
+            filtered.push(uri.clone());
+        }
+    }
+    filtered
+}
+
 /// Validate redirect URIs per RFC 8252 (OAuth 2.0 for Native Apps)
 ///
 /// Allowed redirect URI types:
 /// 1. Loopback: http://127.0.0.1:PORT/... or http://localhost:PORT/...
 /// 2. Custom URL schemes: cursor://, vscode://, claude://, etc.
+/// 3. ChatGPT connector OAuth callback URLs:
+///    https://chatgpt.com/connector/oauth/...
 ///
 /// NOT allowed (these are filtered from the request, not hard-failed):
-/// - https:// URLs (except for confidential clients with proper secrets)
+/// - Other https:// URLs (except for confidential clients with proper secrets)
 /// - http:// URLs to non-loopback addresses
+/// - Dangerous schemes (javascript:, data:, vbscript:, file:, blob:) — rejected
+///   even though they are non-http, since navigating a redirect to one can
+///   execute script or load arbitrary content
 ///
 /// Invalid URIs are silently skipped rather than rejecting the entire registration.
 /// This is necessary because some clients (notably Cursor) send a mix of valid and
@@ -236,28 +301,24 @@ pub fn validate_redirect_uris(uris: &[String]) -> Result<(), DcrError> {
     let mut valid_count = 0;
 
     for uri in uris {
-        let is_loopback = uri.starts_with("http://127.0.0.1")
-            || uri.starts_with("http://localhost")
-            || uri.starts_with("http://[::1]");
+        let is_loopback = is_loopback_redirect_uri(uri);
+        let is_custom_scheme = is_custom_scheme_redirect_uri(uri);
+        let is_chatgpt_connector = is_chatgpt_connector_redirect_uri(uri);
 
-        // Custom URL schemes (like cursor://, vscode://) are allowed
-        // They don't start with http:// or https://
-        let is_custom_scheme = !uri.starts_with("http://") && !uri.starts_with("https://");
-
-        if !is_loopback && !is_custom_scheme {
+        if !is_loopback && !is_custom_scheme && !is_chatgpt_connector {
             // Skip invalid URIs (e.g. https://www.cursor.com/agents/mcp/oauth/callback)
             // rather than rejecting the entire registration — clients like Cursor send a
             // mix of valid and invalid URIs and only ever use the valid ones in practice.
             warn!(
-                "[DCR] Skipping invalid redirect_uri: {} (must be loopback or custom scheme)",
+                "[DCR] Skipping invalid redirect_uri: {} (must be loopback, custom scheme, or ChatGPT connector callback)",
                 uri
             );
             continue;
         }
 
         debug!(
-            "[DCR] Validated redirect_uri: {} (loopback={}, custom_scheme={})",
-            uri, is_loopback, is_custom_scheme
+            "[DCR] Validated redirect_uri: {} (loopback={}, custom_scheme={}, chatgpt_connector={})",
+            uri, is_loopback, is_custom_scheme, is_chatgpt_connector
         );
         valid_count += 1;
     }
@@ -265,7 +326,8 @@ pub fn validate_redirect_uris(uris: &[String]) -> Result<(), DcrError> {
     if valid_count == 0 {
         return Err(DcrError::invalid_redirect_uri(
             "No valid redirect_uris provided — must include at least one loopback \
-             (http://127.0.0.1 or http://localhost) or custom URL scheme (e.g., cursor://, vscode://)",
+             (http://127.0.0.1 or http://localhost), custom URL scheme \
+             (e.g., cursor://, vscode://), or ChatGPT connector callback",
         ));
     }
 
@@ -284,8 +346,10 @@ pub async fn process_dcr_request(
         request.client_name, request.redirect_uris
     );
 
-    // Validate redirect URIs
+    // Validate and filter redirect URIs. DCR clients sometimes submit a mixed list;
+    // only registered-safe URIs are persisted and returned.
     validate_redirect_uris(&request.redirect_uris)?;
+    let valid_redirect_uris = filter_valid_redirect_uris(&request.redirect_uris);
 
     // Check for existing client with same name (idempotent registration by client_name)
     let existing = repo
@@ -306,9 +370,9 @@ pub async fn process_dcr_request(
             .unwrap()
             .as_secs();
 
-        // Merge redirect URIs (accumulate - keep old URIs valid)
-        let mut merged_uris = existing.redirect_uris;
-        for uri in &request.redirect_uris {
+        // Merge redirect URIs (accumulate - keep old valid URIs)
+        let mut merged_uris = filter_valid_redirect_uris(&existing.redirect_uris);
+        for uri in &valid_redirect_uris {
             if !merged_uris.contains(uri) {
                 merged_uris.push(uri.clone());
                 info!(
@@ -411,7 +475,7 @@ pub async fn process_dcr_request(
     let client = build_inbound_client_from_request(
         &request,
         client_id.clone(),
-        request.redirect_uris.clone(),
+        valid_redirect_uris.clone(),
         grant_types.clone(),
         response_types.clone(),
         token_endpoint_auth_method.clone(),
@@ -434,7 +498,7 @@ pub async fn process_dcr_request(
     Ok(DcrResponse {
         client_id,
         client_name: request.client_name,
-        redirect_uris: request.redirect_uris,
+        redirect_uris: valid_redirect_uris,
         grant_types,
         response_types,
         token_endpoint_auth_method,
@@ -493,12 +557,113 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_chatgpt_connector_redirect_uri() {
+        assert!(validate_redirect_uris(
+            &["https://chatgpt.com/connector/oauth/abc123".to_string()]
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_reject_dangerous_custom_schemes() {
+        // Script/content schemes must never count as a valid redirect target, even
+        // though they aren't http(s). A redirect navigated to one of these (e.g. via
+        // the consent modal's window.location.href fallback) could execute script or
+        // load arbitrary content.
+        for uri in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "file:///etc/passwd",
+            "blob:https://evil.example/uuid",
+        ] {
+            assert!(
+                !is_custom_scheme_redirect_uri(uri),
+                "{uri} must not be a valid custom-scheme redirect"
+            );
+            assert!(
+                validate_redirect_uris(&[uri.to_string()]).is_err(),
+                "{uri} must be rejected when it is the only redirect_uri"
+            );
+        }
+
+        // Legitimate native-app schemes still pass, with or without an authority.
+        assert!(is_custom_scheme_redirect_uri("cursor://callback"));
+        assert!(is_custom_scheme_redirect_uri(
+            "com.example.app:/oauth2redirect"
+        ));
+    }
+
+    #[test]
+    fn test_chatgpt_connector_anchoring_rejects_lookalikes() {
+        // Only https://chatgpt.com/connector/oauth[/...] is accepted.
+        assert!(is_chatgpt_connector_redirect_uri(
+            "https://chatgpt.com/connector/oauth/abc123"
+        ));
+        assert!(is_chatgpt_connector_redirect_uri(
+            "https://chatgpt.com/connector/oauth"
+        ));
+
+        for uri in [
+            "http://chatgpt.com/connector/oauth/abc",       // not https
+            "https://chatgpt.com.evil.com/connector/oauth", // suffix host
+            "https://chatgpt.com@evil.com/connector/oauth", // userinfo, host=evil.com
+            "https://evil.com/connector/oauth",             // wrong host
+            "https://chatgpt.com/connector/oauthEVIL",      // path not anchored
+            "https://chatgpt.com/connector/evil",           // wrong path
+        ] {
+            assert!(
+                !is_chatgpt_connector_redirect_uri(uri),
+                "{uri} must not match the ChatGPT connector rule"
+            );
+        }
+    }
+
+    #[test]
+    fn test_loopback_rejects_userinfo_and_subdomain_tricks() {
+        // Loopback-looking userinfo or subdomains must not be treated as loopback.
+        for uri in [
+            "http://localhost@evil.com/callback",
+            "http://127.0.0.1@evil.com/callback",
+            "http://localhost.evil.com/callback",
+            "http://127.0.0.1.evil.com/callback",
+        ] {
+            assert!(
+                !is_loopback_redirect_uri(uri),
+                "{uri} must not be treated as loopback"
+            );
+        }
+
+        // Genuine loopback hosts still pass.
+        assert!(is_loopback_redirect_uri("http://127.0.0.1:8080/callback"));
+        assert!(is_loopback_redirect_uri("http://localhost/callback"));
+        assert!(is_loopback_redirect_uri("http://[::1]:8080/callback"));
+    }
+
+    #[test]
     fn test_all_invalid_uris_fail() {
         let uris = vec![
             "https://www.cursor.com/agents/mcp/oauth/callback".to_string(),
             "http://example.com/callback".to_string(),
         ];
         assert!(validate_redirect_uris(&uris).is_err());
+    }
+
+    #[test]
+    fn test_filter_redirect_uris_drops_invalid_entries() {
+        let uris = vec![
+            "cursor://anysphere.cursor-mcp/oauth/callback".to_string(),
+            "https://www.cursor.com/agents/mcp/oauth/callback".to_string(),
+            "https://chatgpt.com/connector/oauth/abc123".to_string(),
+            "http://localhost.evil/callback".to_string(),
+        ];
+        assert_eq!(
+            filter_valid_redirect_uris(&uris),
+            vec![
+                "cursor://anysphere.cursor-mcp/oauth/callback".to_string(),
+                "https://chatgpt.com/connector/oauth/abc123".to_string(),
+            ]
+        );
     }
 
     #[test]
