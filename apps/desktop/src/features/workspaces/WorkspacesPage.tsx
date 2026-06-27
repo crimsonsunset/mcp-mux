@@ -48,6 +48,7 @@ import {
 } from '@mcpmux/ui';
 import {
   clearUnmappedReportedRoots,
+  forgetReportedRoot,
   createWorkspaceBinding,
   deleteWorkspaceBinding,
   getWorkspaceEffectiveFeatures,
@@ -473,6 +474,15 @@ export function WorkspacesPage() {
     success(t('machineIdentity.success'), created.name);
   };
 
+  const handleForgetRoot = async (root: string) => {
+    try {
+      await forgetReportedRoot(root);
+      await loadData();
+    } catch (e) {
+      showError(t('clearUnmapped.errorTitle'), String(e));
+    }
+  };
+
   const handleClearUnmapped = async () => {
     const n = counts.unmapped;
     const ok = await confirm({
@@ -682,6 +692,11 @@ export function WorkspacesPage() {
                     onClick={() => setSelected({ mode: 'entry', id: entry.id })}
                     onMachineRowClick={(bindingId) =>
                       setSelected({ mode: 'entry', id: entry.id, bindingId })
+                    }
+                    onForget={
+                      entry.kind === 'unmapped-live'
+                        ? () => handleForgetRoot(entry.root)
+                        : undefined
                     }
                     t={t}
                   />
@@ -1001,6 +1016,7 @@ function EntryCard({
   selected,
   onClick,
   onMachineRowClick,
+  onForget,
   t,
 }: {
   entry: Entry;
@@ -1014,6 +1030,7 @@ function EntryCard({
   selected: boolean;
   onClick: () => void;
   onMachineRowClick: (bindingId: string) => void;
+  onForget?: () => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
   const tone =
@@ -1063,13 +1080,26 @@ function EntryCard({
 
   return (
     <Card
-      className={`h-full cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] ${
+      className={`group relative h-full cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] ${
         selected ? 'ring-2 ring-primary-500 shadow-lg' : ''
       }`}
       onClick={onClick}
       data-testid={`workspace-entry-${entry.id}`}
     >
       <CardContent className="flex h-full flex-col p-6">
+        {onForget && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onForget();
+            }}
+            title={t('card.forgetRoot')}
+            className="absolute right-3 top-3 z-10 rounded-full p-1 text-[rgb(var(--muted))] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[rgb(var(--surface))] hover:text-[rgb(var(--foreground))]"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
         <div className="mb-4 flex flex-1 items-start gap-4">
           <div className="relative flex-shrink-0">
             <div

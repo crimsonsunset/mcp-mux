@@ -1005,6 +1005,7 @@ pub fn run() {
             commands::list_workspace_bindings_for_space,
             commands::list_reported_workspace_roots,
             commands::clear_unmapped_reported_roots,
+            commands::forget_reported_root,
             commands::create_workspace_binding,
             commands::update_workspace_binding,
             commands::delete_workspace_binding,

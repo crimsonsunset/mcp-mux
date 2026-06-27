@@ -268,6 +268,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             post(write::clear_unmapped_reported_roots),
         )
         .route(
+            "/api/v1/workspaces/reported-roots/forget",
+            post(write::forget_reported_root),
+        )
+        .route(
             "/api/v1/workspaces/validate-root",
             get(read::validate_workspace_root),
         )

@@ -725,6 +725,16 @@ pub async fn clear_unmapped_reported_roots(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn forget_reported_root(
+    State(state): State<AdminState>,
+    Json(body): Json<bridge::ForgetReportedRootBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::forget_reported_root(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn set_meta_tools_require_approval(
     State(state): State<AdminState>,
     Json(body): Json<MetaToolsRequireApprovalBody>,

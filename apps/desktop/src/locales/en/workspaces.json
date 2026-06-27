@@ -46,6 +46,7 @@
     "badgeLiveUnbound": "UNBOUND",
     "routesTo": "Enabled feature sets",
     "in": "Space",
+    "forgetRoot": "Remove this unbound folder from the list",
     "unbound": "unbound",
     "unboundTooltip": "No binding matches this folder yet — a live session would be denied. Click to bind it to a FeatureSet.",
     "machine": "Machine",
