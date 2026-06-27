@@ -266,6 +266,33 @@ pub async fn clear_unmapped_reported_roots(
     Ok(count)
 }
 
+/// Remove a single reported workspace root from the session registry.
+///
+/// Drops the root from every active MCP session that holds it, evicting
+/// sessions left with no roots. Unlike `clear_unmapped_reported_roots` this
+/// targets one specific path regardless of whether it has a binding. Returns
+/// `true` when the root was found and removed, `false` when the gateway is not
+/// running or the root wasn't in any session.
+#[tauri::command]
+pub async fn forget_reported_root(
+    root: String,
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+) -> Result<bool, String> {
+    let guard = gateway_state.read().await;
+    let Some(reg) = guard.session_roots.as_ref() else {
+        return Ok(false);
+    };
+    let found = reg.forget_root(&root);
+    if found {
+        if let Some(ref gw) = guard.gateway_state {
+            gw.read()
+                .await
+                .emit_domain_event(DomainEvent::SessionRootsChanged);
+        }
+    }
+    Ok(found)
+}
+
 /// List every binding (sorted by workspace_root).
 #[tauri::command]
 pub async fn list_workspace_bindings(

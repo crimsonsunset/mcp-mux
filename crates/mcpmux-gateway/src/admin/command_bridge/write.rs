@@ -1329,6 +1329,18 @@ pub async fn clear_unmapped_reported_roots(ctx: &AdminBridgeCtx) -> Result<Value
         .await
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct ForgetReportedRootBody {
+    pub root: String,
+}
+
+pub async fn forget_reported_root(
+    ctx: &AdminBridgeCtx,
+    body: ForgetReportedRootBody,
+) -> Result<Value> {
+    ctx.gateway_runtime.forget_reported_root(body.root).await
+}
+
 pub async fn set_meta_tools_require_approval(
     ctx: &AdminBridgeCtx,
     body: MetaToolsRequireApprovalBody,

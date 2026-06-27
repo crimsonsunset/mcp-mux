@@ -375,6 +375,22 @@ impl GatewayRuntime for DesktopGatewayRuntime {
         }
         Ok(json!(count))
     }
+
+    async fn forget_reported_root(&self, root: String) -> anyhow::Result<serde_json::Value> {
+        let guard = self.gateway_state.read().await;
+        let Some(reg) = guard.session_roots.as_ref() else {
+            return Ok(json!(false));
+        };
+        let found = reg.forget_root(&root);
+        if found {
+            if let Some(ref gw) = guard.gateway_state {
+                gw.read()
+                    .await
+                    .emit_domain_event(mcpmux_core::DomainEvent::SessionRootsChanged);
+            }
+        }
+        Ok(json!(found))
+    }
 }
 
 /// Map gateway pool status to the UI-facing string (`oauth_required`, not `auth_required`).

@@ -70,6 +70,16 @@ export async function clearUnmappedReportedRoots(): Promise<number> {
 }
 
 /**
+ * Remove a single reported workspace root from the session registry.
+ * Drops it from every active MCP session that holds it; unlike
+ * `clearUnmappedReportedRoots` this targets one specific path. Returns `true`
+ * when the root was found and removed.
+ */
+export async function forgetReportedRoot(root: string): Promise<boolean> {
+  return apiCall('forget_reported_root', { root });
+}
+
+/**
  * Live path validation for the manual-add form. Runs the SAME rules the
  * create/update commands apply so "validates in UI → saves OK" is a
  * guarantee, not a hope.
