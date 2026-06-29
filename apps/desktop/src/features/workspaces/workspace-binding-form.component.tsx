@@ -23,6 +23,7 @@ import {
 } from '@/lib/api/workspaceBindings';
 import { uploadWorkspaceIcon } from '@/lib/api/workspaceAppearances';
 import { ServerIcon } from '@/components/ServerIcon';
+import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
 import { isStarterFeatureSet, type FeatureSet } from '@/lib/api/featureSets';
 import { createMachine, getHostname, type Machine } from '@/lib/api/machines';
 import type { Space } from '@/lib/api/spaces';
@@ -91,6 +92,12 @@ export function normalizeLabel(label: string | null | undefined): string | null 
 export function normalizeIcon(icon: string | null | undefined): string | null {
   const trimmed = icon?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/** True when the icon value is an uploaded file ref or URL, not a plain emoji. */
+function isWorkspaceFileIcon(icon: string): boolean {
+  const trimmed = icon.trim();
+  return trimmed.startsWith('local:') || trimmed.startsWith('http://') || trimmed.startsWith('https://');
 }
 
 export type RootValidationState =
@@ -355,6 +362,8 @@ export function RoutingFields({
  */
 export function ScopeFields({
   mode,
+  label,
+  setLabel,
   machines,
   machineId,
   setMachineId,
@@ -371,6 +380,8 @@ export function ScopeFields({
   t,
 }: {
   mode: 'create' | 'edit' | 'create-from-live';
+  label: string;
+  setLabel: (value: string) => void;
   machines: Machine[];
   machineId: string;
   setMachineId: (value: string) => void;
@@ -387,6 +398,7 @@ export function ScopeFields({
   t: TFunction<['workspaces', 'common']>;
 }) {
   const rootRef = useRef<HTMLInputElement | null>(null);
+  const iconPathRef = useRef<HTMLInputElement | null>(null);
   const [iconFilePath, setIconFilePath] = useState('');
   const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
   const [showNewMachine, setShowNewMachine] = useState(false);
@@ -396,6 +408,8 @@ export function ScopeFields({
   const [creatingMachine, setCreatingMachine] = useState(false);
   const isEdit = mode === 'edit';
   const trimmedIcon = icon.trim();
+  const isFileIcon = isWorkspaceFileIcon(trimmedIcon);
+  const emojiPickerValue = !isFileIcon ? trimmedIcon : '';
 
   useEffect(() => {
     setLocalMachines(machines);
@@ -416,6 +430,50 @@ export function ScopeFields({
     if (onPersistIcon) {
       await onPersistIcon(nextIcon);
     }
+  };
+
+  /**
+   * Replace any uploaded icon with an emoji and persist when editing.
+   */
+  const handleEmojiPick = (emoji: string) => {
+    setIcon(emoji);
+    void persistIconNow(emoji).catch((e) => onError(e instanceof Error ? e.message : String(e)));
+  };
+
+  /**
+   * Open the native image picker and upload the chosen file as the workspace icon.
+   */
+  const handlePickIconFile = async () => {
+    try {
+      const picked = await pickPath({
+        directory: false,
+        multiple: false,
+        title: t('form.pickIconTitle'),
+        filters: [
+          {
+            name: t('form.imagesFilter'),
+            extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
+          },
+        ],
+      });
+      if (typeof picked !== 'string' || picked.length === 0) return;
+      const localRef = await uploadWorkspaceIcon(picked);
+      setIcon(localRef);
+      await persistIconNow(localRef);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /**
+   * Launch icon upload — native picker on desktop, path field focus on web.
+   */
+  const handleIconPreviewClick = () => {
+    if (isTauri()) {
+      void handlePickIconFile();
+      return;
+    }
+    iconPathRef.current?.focus();
   };
 
   const machineOptions = useMemo(
@@ -469,54 +527,55 @@ export function ScopeFields({
 
   return (
     <div className="space-y-5">
+      <FormField label={t('form.label')} hint={t('form.labelHint')}>
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder={t('form.labelPlaceholder')}
+          className="w-full px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
+          data-testid="workspace-binding-label-input"
+        />
+      </FormField>
+
       <FormField label={t('form.icon')} hint={t('form.iconHint')}>
         <div className="space-y-2.5">
           <div className="flex items-start gap-3">
-            <div className="w-14 h-14 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))] flex items-center justify-center flex-shrink-0">
+            <button
+              type="button"
+              onClick={handleIconPreviewClick}
+              className="w-14 h-14 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))] flex items-center justify-center flex-shrink-0 hover:bg-[rgb(var(--surface-hover))] transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label={t('form.pickIconTitle')}
+              data-testid="workspace-binding-icon-preview"
+            >
               {trimmedIcon ? (
                 <ServerIcon icon={trimmedIcon} className="h-9 w-9 object-contain" fallback="📁" />
               ) : (
                 <FolderOpen className="h-6 w-6 text-[rgb(var(--muted))]" />
               )}
-            </div>
+            </button>
             <div className="flex-1 min-w-0 space-y-2">
-              <input
-                type="text"
-                value={icon}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setIcon(next);
-                }}
-                placeholder={t('form.iconPlaceholder')}
-                className="w-full h-10 px-3 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
-                data-testid="workspace-binding-icon-input"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={isFileIcon ? trimmedIcon : ''}
+                  onChange={(e) => setIcon(e.target.value)}
+                  placeholder={t('form.iconPlaceholder')}
+                  className="min-w-0 flex-1 h-10 px-3 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  data-testid="workspace-binding-icon-input"
+                />
+                <EmojiPickerButton
+                  value={emojiPickerValue}
+                  onChange={handleEmojiPick}
+                  testId="workspace-binding-icon-emoji"
+                />
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {isTauri() ? (
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={async () => {
-                      try {
-                        const picked = await pickPath({
-                          directory: false,
-                          multiple: false,
-                          title: t('form.pickIconTitle'),
-                          filters: [
-                            {
-                              name: t('form.imagesFilter'),
-                              extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
-                            },
-                          ],
-                        });
-                        if (typeof picked !== 'string' || picked.length === 0) return;
-                        const localRef = await uploadWorkspaceIcon(picked);
-                        setIcon(localRef);
-                        await persistIconNow(localRef);
-                      } catch (e) {
-                        onError(e instanceof Error ? e.message : String(e));
-                      }
-                    }}
+                    onClick={() => void handlePickIconFile()}
                     data-testid="workspace-binding-icon-upload"
                   >
                     {t('form.upload')}
@@ -524,6 +583,7 @@ export function ScopeFields({
                 ) : (
                   <>
                     <input
+                      ref={iconPathRef}
                       type="text"
                       value={iconFilePath}
                       onChange={(e) => setIconFilePath(e.target.value)}

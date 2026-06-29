@@ -46,6 +46,7 @@
     "badgeLiveUnbound": "UNBOUND",
     "badgeBoundElsewhere": "BOUND ELSEWHERE",
     "notConfigured": "Not configured",
+    "addBinding": "Add binding",
     "addBindingForMachine": "Add binding for {{machine}}",
     "routesTo": "Enabled feature sets",
     "in": "Space",
@@ -93,7 +94,7 @@
     "identityPlaceholder": "Add a label…",
     "machineGlobal": "Global",
     "machineCount": "{{count}} machines",
-    "machineQuickSwitch": "Switch machine scope"
+    "machineQuickSwitch": "Change machine in Scope section"
   },
   "saveStatus": {
     "saving": "Saving",
