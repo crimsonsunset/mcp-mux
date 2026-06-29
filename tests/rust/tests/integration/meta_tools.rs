@@ -1923,7 +1923,6 @@ async fn registry_advertises_core_tools_read_only_in_list() {
     }
     for hidden in [
         "mcpmux_list_feature_sets",
-        "mcpmux_bind_current_workspace",
         "mcpmux_search_resources",
         "mcpmux_read_resource",
         "mcpmux_search_prompts",
@@ -1941,6 +1940,14 @@ async fn registry_advertises_core_tools_read_only_in_list() {
             .as_ref()
             .and_then(|a| a.destructive_hint)
             .unwrap_or(false);
+        if tool.name.as_ref() == "mcpmux_bind_current_workspace" {
+            assert!(
+                destructive,
+                "bind must be annotated as a write tool: {:?}",
+                tool.name
+            );
+            continue;
+        }
         assert!(
             !destructive,
             "advertised core tools must be read-only hints: {:?}",
@@ -1950,7 +1957,62 @@ async fn registry_advertises_core_tools_read_only_in_list() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hidden_bind_tool_callable_but_not_advertised() {
+async fn unbound_session_lists_bind_current_workspace() {
+    let f = Fixture::new().await;
+    let root = "/tmp/mcpmux-unbound-list-tools";
+    f.session_roots.set_roots_capable(&f.session_id, true);
+    f.session_roots.set(&f.session_id, [root]);
+
+    let advertised: Vec<_> = f
+        .registry
+        .list_as_tools()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    assert!(
+        advertised.iter().any(|n| n == "mcpmux_bind_current_workspace"),
+        "Unbound sessions must advertise bind in tools/list: {advertised:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unbound_session_invoke_tool_returns_bind_denial_hint() {
+    let f = Fixture::new().await;
+    let root = "/tmp/mcpmux-unbound-invoke-denial";
+    f.session_roots.set_roots_capable(&f.session_id, true);
+    f.session_roots.set(&f.session_id, [root]);
+
+    let result = f
+        .registry
+        .call(
+            "mcpmux_invoke_tool",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "github", "tool": "create_issue" }),
+        )
+        .await
+        .unwrap();
+    assert!(
+        Fixture::is_error(&result),
+        "backend invoke must be denied for Unbound sessions"
+    );
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("error").and_then(|v| v.as_str()),
+        Some("not_ready")
+    );
+    assert_eq!(
+        body.get("reason").and_then(|v| v.as_str()),
+        Some("inactive")
+    );
+    assert_eq!(
+        body.get("tool").and_then(|v| v.as_str()),
+        Some("mcpmux_bind_current_workspace")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_list_feature_sets_callable_but_not_advertised() {
     let f = Fixture::new().await;
     let advertised: Vec<_> = f
         .registry
@@ -1958,10 +2020,11 @@ async fn hidden_bind_tool_callable_but_not_advertised() {
         .iter()
         .map(|t| t.name.to_string())
         .collect();
-    assert!(!advertised
-        .iter()
-        .any(|n| n == "mcpmux_bind_current_workspace"));
-    assert!(f.registry.contains("mcpmux_bind_current_workspace"));
+    assert!(
+        !advertised.iter().any(|n| n == "mcpmux_list_feature_sets"),
+        "list_feature_sets stays off tools/list"
+    );
+    assert!(f.registry.contains("mcpmux_list_feature_sets"));
 
     let result = f
         .registry
