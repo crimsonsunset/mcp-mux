@@ -1,6 +1,8 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -1123,30 +1125,45 @@ const SECTION_TONES: Record<SectionTone, SectionToneSpec> = {
   },
 };
 
-export function CollapsibleSection({
-  icon,
-  tone = 'primary',
-  title,
-  subtitle,
-  defaultOpen = true,
-  badge,
-  headerExtra,
-  testId,
-  children,
-}: {
-  icon: React.ReactNode;
-  tone?: SectionTone;
-  title: string;
-  subtitle?: React.ReactNode;
-  defaultOpen?: boolean;
-  badge?: number;
-  /** Small element rendered next to the title (e.g. save status). */
-  headerExtra?: React.ReactNode;
-  testId?: string;
-  children: React.ReactNode;
-}) {
+/** Imperative handle for programmatically expanding a collapsible section. */
+export type CollapsibleSectionRef = {
+  expand: () => void;
+};
+
+export const CollapsibleSection = forwardRef<
+  CollapsibleSectionRef,
+  {
+    icon: React.ReactNode;
+    tone?: SectionTone;
+    title: string;
+    subtitle?: React.ReactNode;
+    defaultOpen?: boolean;
+    badge?: number;
+    /** Small element rendered next to the title (e.g. save status). */
+    headerExtra?: React.ReactNode;
+    testId?: string;
+    children: React.ReactNode;
+  }
+>(function CollapsibleSection(
+  {
+    icon,
+    tone = 'primary',
+    title,
+    subtitle,
+    defaultOpen = true,
+    badge,
+    headerExtra,
+    testId,
+    children,
+  },
+  ref,
+) {
   const [open, setOpen] = useState(defaultOpen);
   const toneSpec = SECTION_TONES[tone] ?? SECTION_TONES.primary;
+
+  useImperativeHandle(ref, () => ({
+    expand: () => setOpen(true),
+  }));
 
   return (
     <div
@@ -1213,7 +1230,7 @@ export function CollapsibleSection({
       )}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Effective features — what tools / prompts / resources this folder sees
