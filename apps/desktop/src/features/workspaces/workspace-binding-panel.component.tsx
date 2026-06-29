@@ -8,6 +8,7 @@ import {
   Loader2,
   Monitor,
   Plus,
+  Route,
   Sparkles,
   Trash2,
   X,
@@ -31,14 +32,19 @@ import {
   setClientMachineId,
   type Machine,
 } from '@/lib/api/machines';
+import {
+  deleteWorkspaceAppearance,
+  upsertWorkspaceAppearance,
+} from '@/lib/api/workspaceAppearances';
 import { listFeatureSets, type FeatureSet } from '@/lib/api/featureSets';
 import { listSpaces, type Space } from '@/lib/api/spaces';
 import { ServerIcon } from '@/components/ServerIcon';
 import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
 import { useBindingPanelStore } from '@/stores/bindingPanelStore';
 import {
-  BindingForm,
+  RoutingFields,
   SaveStatusPill,
+  ScopeFields,
   bindingMachineId,
   buildBindingPayload,
   normalizeIcon,
@@ -49,6 +55,7 @@ import {
 import {
   CollapsibleSection,
   EffectiveFeaturesContent,
+  type CollapsibleSectionRef,
 } from './WorkspacesPage';
 
 /**
@@ -189,7 +196,7 @@ function PanelIdentityHeader({
 }
 
 /**
- * Synthetic binding seed for create-from-live so BindingForm picks up event hints.
+ * Synthetic binding seed for create-from-live panel state initialization.
  */
 function buildFormInitial(
   payload: NonNullable<ReturnType<typeof useBindingPanelStore.getState>['payload']>,
@@ -249,7 +256,9 @@ export function WorkspaceBindingPanel() {
   const saveSeqRef = useRef(0);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<WorkspaceBindingInput | null>(null);
+  const lastSavedAppearanceRef = useRef<string | null>(null);
   const pendingPayloadRef = useRef<WorkspaceBindingInput | null>(null);
+  const scopeSectionRef = useRef<CollapsibleSectionRef>(null);
   const onSubmitRef = useRef<(input: WorkspaceBindingInput) => Promise<void>>(async () => undefined);
   const onSaveStatusChangeRef = useRef(setSaveStatus);
 
@@ -379,7 +388,9 @@ export function WorkspaceBindingPanel() {
     setSubmitting(false);
     lastSavedRef.current = null;
     pendingPayloadRef.current = null;
-  }, [panelKey, loadingData, isOpen, payload, formInitial, defaultSpaceId]);
+    lastSavedAppearanceRef.current =
+      mode === 'create-from-live' ? normalizeIcon(initial?.icon) : null;
+  }, [panelKey, loadingData, isOpen, payload, formInitial, defaultSpaceId, mode]);
 
   useEffect(() => {
     if (!rootEditable) {
@@ -406,6 +417,34 @@ export function WorkspaceBindingPanel() {
     }, 180);
     return () => clearTimeout(handle);
   }, [root, rootEditable]);
+
+  useEffect(() => {
+    if (mode !== 'create-from-live') return;
+    const workspaceRootValue = root.trim();
+    if (!workspaceRootValue) return;
+    const normalizedIcon = normalizeIcon(icon);
+    const baseline = lastSavedAppearanceRef.current;
+    if (normalizedIcon === baseline) return;
+
+    const handle = setTimeout(() => {
+      void (async () => {
+        try {
+          if (normalizedIcon) {
+            await upsertWorkspaceAppearance({
+              workspace_root: workspaceRootValue,
+              icon: normalizedIcon,
+            });
+          } else {
+            await deleteWorkspaceAppearance(workspaceRootValue);
+          }
+          lastSavedAppearanceRef.current = normalizedIcon;
+        } catch (e) {
+          showError(t('toast.couldNotSave'), e instanceof Error ? e.message : String(e));
+        }
+      })();
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [mode, root, icon, showError, t]);
 
   const canSubmit =
     !submitting &&
@@ -725,7 +764,7 @@ export function WorkspaceBindingPanel() {
   }, [isEdit, formInitial, canSubmit, handlePersistIcon, showError, t]);
 
   const handleMachineBadgeClick = useCallback(() => {
-    // Phase 3: scopeSectionRef.current?.expand()
+    scopeSectionRef.current?.expand();
   }, []);
 
   if (!isOpen || !payload) return null;
@@ -734,22 +773,25 @@ export function WorkspaceBindingPanel() {
   const showEffectiveFeatures =
     (mode === 'edit' && binding != null) || (mode === 'create-from-live' && !!workspaceRoot);
 
-  const mappingSubtitle =
+  const routingSubtitle =
     mode === 'create'
-      ? t('panel.mappingSubtitleCreate')
+      ? t('panel.routingSubtitleCreate')
       : mode === 'create-from-live'
-        ? t('panel.mappingSubtitleLive')
-        : binding
-          ? t('panel.mappingSubtitleRoutes', {
+        ? t('panel.routingSubtitleLive')
+        : isEdit
+          ? t('panel.routingSubtitleRoutes', {
               featureSets:
                 formatFsList(
-                  binding.feature_set_ids.map(
-                    (id) => featureSets.find((f) => f.id === id)?.name ?? id,
-                  ),
+                  fsIds.map((id) => featureSets.find((f) => f.id === id)?.name ?? id),
                 ) || '—',
-              space: spaces.find((s) => s.id === binding.space_id)?.name ?? '—',
+              space: spaces.find((s) => s.id === spaceId)?.name ?? '—',
             })
-          : t('panel.mappingSubtitleAutosave');
+          : t('panel.routingSubtitleAutosave');
+
+  const scopeSubtitle = t('panel.scopeSubtitle', {
+    machine: machineBadgeLabel,
+    path: root.trim() || workspaceRoot || '—',
+  });
 
   return (
     <>
@@ -916,32 +958,46 @@ export function WorkspaceBindingPanel() {
               )}
 
               <CollapsibleSection
-                icon={<FolderOpen className="h-5 w-5" />}
+                icon={<Route className="h-5 w-5" />}
                 tone="primary"
-                title={t('panel.mapping')}
-                subtitle={mappingSubtitle}
-                defaultOpen={mode !== 'edit'}
+                title={t('panel.routing')}
+                subtitle={routingSubtitle}
+                defaultOpen
                 headerExtra={isEdit ? <SaveStatusPill status={saveStatus} t={t} /> : null}
-                testId="workspace-mapping-section"
+                testId="workspace-routing-section"
               >
-                <BindingForm
-                  key={panelKey}
-                  mode={mode}
+                <RoutingFields
+                  key={`routing-${panelKey}`}
                   spaces={spaces}
                   featureSets={featureSets}
-                  machines={machines}
-                  localMachineId={effectiveMachineId}
-                  initial={formInitial}
-                  icon={icon}
                   spaceId={spaceId}
                   setSpaceId={setSpaceId}
                   fsIds={fsIds}
                   setFsIds={setFsIds}
+                  t={t}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                ref={scopeSectionRef}
+                icon={<Monitor className="h-5 w-5" />}
+                tone="primary"
+                title={t('panel.scope')}
+                subtitle={scopeSubtitle}
+                defaultOpen={false}
+                testId="workspace-scope-section"
+              >
+                <ScopeFields
+                  key={`scope-${panelKey}`}
+                  mode={mode}
+                  machines={machines}
+                  localMachineId={effectiveMachineId}
                   machineId={machineId}
                   setMachineId={setMachineId}
                   root={root}
                   setRoot={setRoot}
                   rootValidation={rootValidation}
+                  rootEditable={rootEditable}
                   canSubmit={canSubmit}
                   submitting={submitting}
                   onFormSubmit={handleFormSubmit}

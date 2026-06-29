@@ -17,13 +17,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import {
-  type WorkspaceBinding,
   type WorkspaceBindingInput,
 } from '@/lib/api/workspaceBindings';
-import {
-  deleteWorkspaceAppearance,
-  upsertWorkspaceAppearance,
-} from '@/lib/api/workspaceAppearances';
 import { isStarterFeatureSet, type FeatureSet } from '@/lib/api/featureSets';
 import { createMachine, getHostname, type Machine } from '@/lib/api/machines';
 import type { Space } from '@/lib/api/spaces';
@@ -36,7 +31,7 @@ export type SaveStatus =
   | { kind: 'error'; message: string };
 
 /**
- * Small pill shown in the Mapping section header during edit-mode autosave.
+ * Small pill shown in the Routing section header during edit-mode autosave.
  */
 export function SaveStatusPill({
   status,
@@ -148,80 +143,30 @@ export function sameBindingInput(
 }
 
 /**
- * Workspace binding create / edit form. Edit mode autosaves; create modes
- * submit once per selected machine (or once globally when none selected).
+ * Space picker and feature-set multiselect for workspace binding routing.
  */
-export function BindingForm({
-  mode,
+export function RoutingFields({
   spaces,
   featureSets,
-  machines,
-  localMachineId,
-  initial: _initial,
-  initialUnmappedIcon,
-  icon,
   spaceId,
   setSpaceId,
   fsIds,
   setFsIds,
-  machineId,
-  setMachineId,
-  root,
-  setRoot,
-  rootValidation,
-  canSubmit,
-  submitting,
-  onFormSubmit,
-  onCancel,
-  onError,
   t,
 }: {
-  mode: 'create' | 'edit' | 'create-from-live';
   spaces: Space[];
   featureSets: FeatureSet[];
-  machines: Machine[];
-  localMachineId: string | null;
-  initial?: WorkspaceBinding | null;
-  initialUnmappedIcon?: string | null;
-  icon: string;
   spaceId: string;
   setSpaceId: (value: string) => void;
   fsIds: string[];
   setFsIds: (value: string[] | ((prev: string[]) => string[])) => void;
-  machineId: string;
-  setMachineId: (value: string) => void;
-  root: string;
-  setRoot: (value: string) => void;
-  rootValidation: RootValidationState;
-  canSubmit: boolean;
-  submitting: boolean;
-  onFormSubmit: (machineTargets: (string | null)[]) => Promise<void>;
-  onCancel: () => void;
-  onError: (message: string) => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
-  const rootRef = useRef<HTMLInputElement | null>(null);
-  const [machineIds, setMachineIds] = useState<string[]>(() =>
-    mode === 'edit' ? [] : localMachineId ? [localMachineId] : []
-  );
-  const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
   const [fsSearch, setFsSearch] = useState('');
-  const [showNewMachine, setShowNewMachine] = useState(false);
-  const [newMachineName, setNewMachineName] = useState('');
-  const [newMachineIcon, setNewMachineIcon] = useState('');
-  const [newMachineHostname, setNewMachineHostname] = useState('');
-  const [creatingMachine, setCreatingMachine] = useState(false);
-  const isEdit = mode === 'edit';
-
-  const rootEditable = mode !== 'create-from-live';
-
-  useEffect(() => {
-    if (mode === 'create') rootRef.current?.focus();
-  }, [mode]);
 
   const availableFs = useMemo(
     () => featureSets.filter((f) => f.space_id === spaceId && !f.is_deleted),
-    [featureSets, spaceId]
+    [featureSets, spaceId],
   );
 
   const filteredFs = useMemo(() => {
@@ -254,296 +199,8 @@ export function BindingForm({
     setFsIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const toggleMachine = (id: string) => {
-    setMachineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
-  const machineOptions = useMemo(
-    () => localMachines.map((m) => ({ value: m.id, label: m.name, icon: m.icon ?? undefined })),
-    [localMachines]
-  );
-
-  /**
-   * Open the inline new-machine form and prefill hostname from the OS.
-   */
-  const handleShowNewMachine = async () => {
-    setShowNewMachine(true);
-    try {
-      const hostname = await getHostname();
-      setNewMachineHostname((prev) => prev || hostname);
-    } catch {
-      // hostname prefill is best-effort
-    }
-  };
-
-  /**
-   * Create a new machine inline and auto-select it (single picker in edit, multiselect in create).
-   */
-  const handleCreateMachine = async () => {
-    const name = newMachineName.trim();
-    const icon = newMachineIcon.trim();
-    const hostname = newMachineHostname.trim();
-    if (!name) return onError(t('machineIdentity.nameRequired'));
-    if (!icon) return onError(t('machineIdentity.iconRequired'));
-    if (!hostname) return onError(t('machineIdentity.hostnameRequired'));
-    if (creatingMachine) return;
-    setCreatingMachine(true);
-    try {
-      const created = await createMachine({ name, icon, hostname });
-      setLocalMachines((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
-      if (isEdit) {
-        setMachineId(created.id);
-      } else {
-        setMachineIds((prev) => [...prev, created.id]);
-      }
-      setShowNewMachine(false);
-      setNewMachineName('');
-      setNewMachineIcon('');
-      setNewMachineHostname('');
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreatingMachine(false);
-    }
-  };
-
-  const lastSavedAppearanceRef = useRef<string | null>(
-    mode === 'create-from-live' ? normalizeIcon(initialUnmappedIcon) : null
-  );
-
-  const submitLabel =
-    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
-
-  useEffect(() => {
-    if (mode !== 'create-from-live') return;
-    const workspaceRoot = root.trim();
-    if (!workspaceRoot) return;
-    const normalizedIcon = normalizeIcon(icon);
-    const baseline = lastSavedAppearanceRef.current;
-    if (normalizedIcon === baseline) return;
-
-    const handle = setTimeout(() => {
-      void (async () => {
-        try {
-          if (normalizedIcon) {
-            await upsertWorkspaceAppearance({
-              workspace_root: workspaceRoot,
-              icon: normalizedIcon,
-            });
-          } else {
-            await deleteWorkspaceAppearance(workspaceRoot);
-          }
-          lastSavedAppearanceRef.current = normalizedIcon;
-        } catch (e) {
-          onError(e instanceof Error ? e.message : String(e));
-        }
-      })();
-    }, 600);
-    return () => clearTimeout(handle);
-  }, [mode, root, icon, onError]);
-
   return (
     <div className="space-y-5">
-      <FormField label={t('form.machine')} hint={t('form.machineHint')}>
-        {isEdit ? (
-          <div className="space-y-2">
-            <Picker
-              value={machineId}
-              onChange={setMachineId}
-              options={machineOptions}
-              placeholder={t('form.noMachine')}
-              testId="workspace-binding-machine-select"
-            />
-            {showNewMachine ? (
-              <div className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3 space-y-3">
-                <MachineProfileEditor
-                  nameDraft={newMachineName}
-                  iconDraft={newMachineIcon}
-                  hostnameDraft={newMachineHostname}
-                  onNameDraftChange={setNewMachineName}
-                  onIconDraftChange={setNewMachineIcon}
-                  onHostnameDraftChange={setNewMachineHostname}
-                  onSave={() => void handleCreateMachine()}
-                  isSaving={creatingMachine}
-                  saveDisabled={!newMachineName.trim() || !newMachineIcon.trim() || !newMachineHostname.trim()}
-                  nameLabel={t('machineIdentity.nameLabel')}
-                  iconLabel={t('machineIdentity.iconLabel')}
-                  hostnameLabel={t('machineIdentity.hostnameLabel')}
-                  saveLabel={t('sheet.continue')}
-                  testIdPrefix="inline-machine-edit"
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setShowNewMachine(false);
-                    setNewMachineName('');
-                    setNewMachineIcon('');
-                    setNewMachineHostname('');
-                  }}
-                >
-                  {t('common:actions.cancel')}
-                </Button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void handleShowNewMachine()}
-                className="text-left text-xs text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] px-0.5 transition-colors"
-              >
-                + {t('sheet.newMachine')}
-              </button>
-            )}
-          </div>
-        ) : (
-          <div
-            className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))]"
-            data-testid="workspace-binding-machine-select"
-          >
-            {localMachines.length === 0 && !showNewMachine ? (
-              <p className="text-xs text-[rgb(var(--muted))] italic px-3 py-2">
-                {t('form.noMachine')}
-              </p>
-            ) : (
-              <div className="max-h-56 overflow-y-auto p-1.5 space-y-1">
-                {localMachines.map((m) => {
-                  const isSelected = machineIds.includes(m.id);
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => toggleMachine(m.id)}
-                      className={[
-                        'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-sm transition-colors',
-                        isSelected
-                          ? 'bg-primary-500/10 hover:bg-primary-500/15'
-                          : 'hover:bg-[rgb(var(--surface-hover))]',
-                      ].join(' ')}
-                      data-testid={`workspace-binding-machine-toggle-${m.id}`}
-                    >
-                      <div
-                        className={[
-                          'h-4 w-4 rounded border flex items-center justify-center flex-shrink-0',
-                          isSelected
-                            ? 'bg-primary-500 border-primary-500'
-                            : 'border-[rgb(var(--border-strong))] bg-[rgb(var(--surface))]',
-                        ].join(' ')}
-                      >
-                        {isSelected ? (
-                          <Check className="h-3 w-3 text-white" strokeWidth={3} />
-                        ) : null}
-                      </div>
-                      {m.icon && (
-                        <span className="text-base leading-none flex-shrink-0">{m.icon}</span>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{m.name}</p>
-                        {m.hostname && (
-                          <p className="text-[11px] text-[rgb(var(--muted))] truncate">
-                            {m.hostname}
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {showNewMachine ? (
-              <div className="border-t border-[rgb(var(--border))] p-3 space-y-3">
-                <MachineProfileEditor
-                  nameDraft={newMachineName}
-                  iconDraft={newMachineIcon}
-                  hostnameDraft={newMachineHostname}
-                  onNameDraftChange={setNewMachineName}
-                  onIconDraftChange={setNewMachineIcon}
-                  onHostnameDraftChange={setNewMachineHostname}
-                  onSave={() => void handleCreateMachine()}
-                  isSaving={creatingMachine}
-                  saveDisabled={!newMachineName.trim() || !newMachineIcon.trim() || !newMachineHostname.trim()}
-                  nameLabel={t('machineIdentity.nameLabel')}
-                  iconLabel={t('machineIdentity.iconLabel')}
-                  hostnameLabel={t('machineIdentity.hostnameLabel')}
-                  saveLabel={t('sheet.continue')}
-                  testIdPrefix="inline-machine-create"
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setShowNewMachine(false);
-                    setNewMachineName('');
-                    setNewMachineIcon('');
-                    setNewMachineHostname('');
-                  }}
-                >
-                  {t('common:actions.cancel')}
-                </Button>
-              </div>
-            ) : (
-              <div className="border-t border-[rgb(var(--border))] px-2 py-1.5">
-                <button
-                  type="button"
-                  onClick={() => void handleShowNewMachine()}
-                  className="w-full text-left text-xs text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] px-1.5 py-1 rounded transition-colors"
-                >
-                  + {t('sheet.newMachine')}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </FormField>
-
-      <FormField label={t('form.workspaceRoot')}>
-        <div className="flex gap-2">
-          <input
-            ref={rootRef}
-            type="text"
-            value={root}
-            onChange={(e) => setRoot(e.target.value)}
-            readOnly={!rootEditable}
-            placeholder={t('form.rootPlaceholder')}
-            className={[
-              'flex-1 min-w-0 px-3 py-2 rounded-lg text-sm font-mono focus:outline-none focus:ring-2',
-              !rootEditable
-                ? 'bg-[rgb(var(--background))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--muted))] cursor-not-allowed focus:ring-primary-500'
-                : rootValidation.state === 'error'
-                  ? 'bg-[rgb(var(--background))] border border-red-500/60 focus:ring-red-500 focus:border-red-500'
-                  : 'bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:ring-primary-500 focus:border-primary-500',
-            ].join(' ')}
-            data-testid="workspace-binding-root-input"
-          />
-          {rootEditable && isTauri() && (
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const picked = await pickPath({
-                    directory: true,
-                    multiple: false,
-                    title: t('form.pickFolderTitle'),
-                  });
-                  if (typeof picked === 'string' && picked.length > 0) {
-                    setRoot(picked);
-                  }
-                } catch (e) {
-                  onError(e instanceof Error ? e.message : String(e));
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] hover:bg-[rgb(var(--surface-hover))] text-sm font-medium text-[rgb(var(--foreground))] transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 flex-shrink-0"
-              title={t('form.pickFolder')}
-              data-testid="workspace-binding-browse"
-            >
-              <FolderSearch className="h-4 w-4" />
-              <span className="hidden sm:inline">{t('form.browse')}</span>
-            </button>
-          )}
-        </div>
-        <RootValidationHint state={rootValidation} editable={rootEditable} originalValue={root} t={t} />
-      </FormField>
-
       <FormField label={t('form.space')} hint={t('form.spaceHint')}>
         <Picker
           value={spaceId}
@@ -664,6 +321,327 @@ export function BindingForm({
             )}
           </div>
         )}
+      </FormField>
+    </div>
+  );
+}
+
+/**
+ * Machine scope and workspace root fields for workspace bindings.
+ */
+export function ScopeFields({
+  mode,
+  machines,
+  localMachineId,
+  machineId,
+  setMachineId,
+  root,
+  setRoot,
+  rootValidation,
+  rootEditable,
+  canSubmit,
+  submitting,
+  onFormSubmit,
+  onCancel,
+  onError,
+  t,
+}: {
+  mode: 'create' | 'edit' | 'create-from-live';
+  machines: Machine[];
+  localMachineId: string | null;
+  machineId: string;
+  setMachineId: (value: string) => void;
+  root: string;
+  setRoot: (value: string) => void;
+  rootValidation: RootValidationState;
+  rootEditable: boolean;
+  canSubmit: boolean;
+  submitting: boolean;
+  onFormSubmit: (machineTargets: (string | null)[]) => Promise<void>;
+  onCancel: () => void;
+  onError: (message: string) => void;
+  t: TFunction<['workspaces', 'common']>;
+}) {
+  const rootRef = useRef<HTMLInputElement | null>(null);
+  const [machineIds, setMachineIds] = useState<string[]>(() =>
+    mode === 'edit' ? [] : localMachineId ? [localMachineId] : [],
+  );
+  const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
+  const [showNewMachine, setShowNewMachine] = useState(false);
+  const [newMachineName, setNewMachineName] = useState('');
+  const [newMachineIcon, setNewMachineIcon] = useState('');
+  const [newMachineHostname, setNewMachineHostname] = useState('');
+  const [creatingMachine, setCreatingMachine] = useState(false);
+  const isEdit = mode === 'edit';
+
+  useEffect(() => {
+    setLocalMachines(machines);
+  }, [machines]);
+
+  useEffect(() => {
+    if (mode === 'create') rootRef.current?.focus();
+  }, [mode]);
+
+  const toggleMachine = (id: string) => {
+    setMachineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const machineOptions = useMemo(
+    () => localMachines.map((m) => ({ value: m.id, label: m.name, icon: m.icon ?? undefined })),
+    [localMachines],
+  );
+
+  /**
+   * Open the inline new-machine form and prefill hostname from the OS.
+   */
+  const handleShowNewMachine = async () => {
+    setShowNewMachine(true);
+    try {
+      const hostname = await getHostname();
+      setNewMachineHostname((prev) => prev || hostname);
+    } catch {
+      // hostname prefill is best-effort
+    }
+  };
+
+  /**
+   * Create a new machine inline and auto-select it (single picker in edit, multiselect in create).
+   */
+  const handleCreateMachine = async () => {
+    const name = newMachineName.trim();
+    const icon = newMachineIcon.trim();
+    const hostname = newMachineHostname.trim();
+    if (!name) return onError(t('machineIdentity.nameRequired'));
+    if (!icon) return onError(t('machineIdentity.iconRequired'));
+    if (!hostname) return onError(t('machineIdentity.hostnameRequired'));
+    if (creatingMachine) return;
+    setCreatingMachine(true);
+    try {
+      const created = await createMachine({ name, icon, hostname });
+      setLocalMachines((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      if (isEdit) {
+        setMachineId(created.id);
+      } else {
+        setMachineIds((prev) => [...prev, created.id]);
+      }
+      setShowNewMachine(false);
+      setNewMachineName('');
+      setNewMachineIcon('');
+      setNewMachineHostname('');
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreatingMachine(false);
+    }
+  };
+
+  const submitLabel =
+    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
+
+  return (
+    <div className="space-y-5">
+      <FormField label={t('form.machine')} hint={t('form.machineHint')}>
+        {isEdit ? (
+          <div className="space-y-2">
+            <Picker
+              value={machineId}
+              onChange={setMachineId}
+              options={machineOptions}
+              placeholder={t('form.noMachine')}
+              testId="workspace-binding-machine-select"
+            />
+            {showNewMachine ? (
+              <div className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3 space-y-3">
+                <MachineProfileEditor
+                  nameDraft={newMachineName}
+                  iconDraft={newMachineIcon}
+                  hostnameDraft={newMachineHostname}
+                  onNameDraftChange={setNewMachineName}
+                  onIconDraftChange={setNewMachineIcon}
+                  onHostnameDraftChange={setNewMachineHostname}
+                  onSave={() => void handleCreateMachine()}
+                  isSaving={creatingMachine}
+                  saveDisabled={
+                    !newMachineName.trim() || !newMachineIcon.trim() || !newMachineHostname.trim()
+                  }
+                  nameLabel={t('machineIdentity.nameLabel')}
+                  iconLabel={t('machineIdentity.iconLabel')}
+                  hostnameLabel={t('machineIdentity.hostnameLabel')}
+                  saveLabel={t('sheet.continue')}
+                  testIdPrefix="inline-machine-edit"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowNewMachine(false);
+                    setNewMachineName('');
+                    setNewMachineIcon('');
+                    setNewMachineHostname('');
+                  }}
+                >
+                  {t('common:actions.cancel')}
+                </Button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleShowNewMachine()}
+                className="text-left text-xs text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] px-0.5 transition-colors"
+              >
+                + {t('sheet.newMachine')}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div
+            className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))]"
+            data-testid="workspace-binding-machine-select"
+          >
+            {localMachines.length === 0 && !showNewMachine ? (
+              <p className="text-xs text-[rgb(var(--muted))] italic px-3 py-2">
+                {t('form.noMachine')}
+              </p>
+            ) : (
+              <div className="max-h-56 overflow-y-auto p-1.5 space-y-1">
+                {localMachines.map((m) => {
+                  const isSelected = machineIds.includes(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => toggleMachine(m.id)}
+                      className={[
+                        'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-sm transition-colors',
+                        isSelected
+                          ? 'bg-primary-500/10 hover:bg-primary-500/15'
+                          : 'hover:bg-[rgb(var(--surface-hover))]',
+                      ].join(' ')}
+                      data-testid={`workspace-binding-machine-toggle-${m.id}`}
+                    >
+                      <div
+                        className={[
+                          'h-4 w-4 rounded border flex items-center justify-center flex-shrink-0',
+                          isSelected
+                            ? 'bg-primary-500 border-primary-500'
+                            : 'border-[rgb(var(--border-strong))] bg-[rgb(var(--surface))]',
+                        ].join(' ')}
+                      >
+                        {isSelected ? (
+                          <Check className="h-3 w-3 text-white" strokeWidth={3} />
+                        ) : null}
+                      </div>
+                      {m.icon && (
+                        <span className="text-base leading-none flex-shrink-0">{m.icon}</span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{m.name}</p>
+                        {m.hostname && (
+                          <p className="text-[11px] text-[rgb(var(--muted))] truncate">
+                            {m.hostname}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {showNewMachine ? (
+              <div className="border-t border-[rgb(var(--border))] p-3 space-y-3">
+                <MachineProfileEditor
+                  nameDraft={newMachineName}
+                  iconDraft={newMachineIcon}
+                  hostnameDraft={newMachineHostname}
+                  onNameDraftChange={setNewMachineName}
+                  onIconDraftChange={setNewMachineIcon}
+                  onHostnameDraftChange={setNewMachineHostname}
+                  onSave={() => void handleCreateMachine()}
+                  isSaving={creatingMachine}
+                  saveDisabled={
+                    !newMachineName.trim() || !newMachineIcon.trim() || !newMachineHostname.trim()
+                  }
+                  nameLabel={t('machineIdentity.nameLabel')}
+                  iconLabel={t('machineIdentity.iconLabel')}
+                  hostnameLabel={t('machineIdentity.hostnameLabel')}
+                  saveLabel={t('sheet.continue')}
+                  testIdPrefix="inline-machine-create"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowNewMachine(false);
+                    setNewMachineName('');
+                    setNewMachineIcon('');
+                    setNewMachineHostname('');
+                  }}
+                >
+                  {t('common:actions.cancel')}
+                </Button>
+              </div>
+            ) : (
+              <div className="border-t border-[rgb(var(--border))] px-2 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => void handleShowNewMachine()}
+                  className="w-full text-left text-xs text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] px-1.5 py-1 rounded transition-colors"
+                >
+                  + {t('sheet.newMachine')}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </FormField>
+
+      <FormField label={t('form.workspaceRoot')}>
+        <div className="flex gap-2">
+          <input
+            ref={rootRef}
+            type="text"
+            value={root}
+            onChange={(e) => setRoot(e.target.value)}
+            readOnly={!rootEditable}
+            placeholder={t('form.rootPlaceholder')}
+            className={[
+              'flex-1 min-w-0 px-3 py-2 rounded-lg text-sm font-mono focus:outline-none focus:ring-2',
+              !rootEditable
+                ? 'bg-[rgb(var(--background))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--muted))] cursor-not-allowed focus:ring-primary-500'
+                : rootValidation.state === 'error'
+                  ? 'bg-[rgb(var(--background))] border border-red-500/60 focus:ring-red-500 focus:border-red-500'
+                  : 'bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:ring-primary-500 focus:border-primary-500',
+            ].join(' ')}
+            data-testid="workspace-binding-root-input"
+          />
+          {rootEditable && isTauri() && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const picked = await pickPath({
+                    directory: true,
+                    multiple: false,
+                    title: t('form.pickFolderTitle'),
+                  });
+                  if (typeof picked === 'string' && picked.length > 0) {
+                    setRoot(picked);
+                  }
+                } catch (e) {
+                  onError(e instanceof Error ? e.message : String(e));
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] hover:bg-[rgb(var(--surface-hover))] text-sm font-medium text-[rgb(var(--foreground))] transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 flex-shrink-0"
+              title={t('form.pickFolder')}
+              data-testid="workspace-binding-browse"
+            >
+              <FolderSearch className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('form.browse')}</span>
+            </button>
+          )}
+        </div>
+        <RootValidationHint state={rootValidation} editable={rootEditable} originalValue={root} t={t} />
       </FormField>
 
       {!isEdit && (
