@@ -143,6 +143,7 @@ impl McpMuxGatewayHandler {
                     resolved.source,
                     crate::services::ResolutionSource::Deny
                         | crate::services::ResolutionSource::SpaceDefault
+                        | crate::services::ResolutionSource::Unbound
                 );
                 if let (true, Some(sid), Some(space_id), Some(root)) = (
                     should_prompt,
@@ -605,7 +606,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                     // normalized them on insert. Passing `Some(root)`
                     // lets log_and_notify_resolution emit
                     // `WorkspaceNeedsBinding` if the resolver ended
-                    // up at `source = Deny` (i.e. no binding yet).
+                    // up at `source = Deny | Unbound` (i.e. no binding yet).
                     let root_for_prompt =
                         session_roots.get(&session_id_for_task).and_then(|roots| {
                             roots

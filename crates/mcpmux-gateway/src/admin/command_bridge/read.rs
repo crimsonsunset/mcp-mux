@@ -418,23 +418,12 @@ pub async fn get_workspace_effective_features(
             binding.space_id,
             binding.feature_set_ids,
         ),
-        None => {
-            let sets = ctx
-                .services
-                .permission()
-                .list_feature_sets_for_space(&default_space.id.to_string())
-                .await?;
-            let fallback = sets
-                .into_iter()
-                .find(|set| set.feature_set_type.as_str() == "starter")
-                .ok_or_else(|| anyhow!("Default Space has no Starter FeatureSet"))?;
-            (
-                "unbound".to_string(),
-                None,
-                default_space.id,
-                vec![fallback.id],
-            )
-        }
+        None => (
+            "unbound".to_string(),
+            None,
+            default_space.id,
+            vec![],
+        ),
     };
 
     let space = ctx
