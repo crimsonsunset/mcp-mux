@@ -1,7 +1,7 @@
 # Workspace Binding Panel — Identity Header Refactor
 
 **Last Updated:** Jun 28, 2026
-**Status:** Complete (including restoration pass)
+**Status:** Complete (including restoration pass + auto-close fix)
 **Branch:** `feat/workspace-machine-binding`
 **Depends on:** None — builds on current panel in `main`
 **Unblocks:** Cleaner routing UX for multi-machine users; removes identity clutter from the Mapping form
@@ -100,7 +100,7 @@ WorkspaceBindingPanel
 
 | File | Change |
 | ---- | ------ |
-| [`workspace-binding-panel.component.tsx`](../../apps/desktop/src/features/workspaces/workspace-binding-panel.component.tsx) | Lifted state, header, Routing/Scope sections, sticky create footer, duplicate root check, machine badge resolver, routing subtitle for create-from-live |
+| [`workspace-binding-panel.component.tsx`](../../apps/desktop/src/features/workspaces/workspace-binding-panel.component.tsx) | Lifted state, header, Routing/Scope sections, sticky create footer, duplicate root check, machine badge resolver, routing subtitle for create-from-live; removed erroneous `workspace-binding-changed` auto-close listener |
 | [`workspace-binding-form.component.tsx`](../../apps/desktop/src/features/workspaces/workspace-binding-form.component.tsx) | `RoutingFields`, `ScopeFields`, icon upload in Scope, `bindingScopeConflicts`, duplicate error testid |
 | [`bindingPanelStore.ts`](../../apps/desktop/src/stores/bindingPanelStore.ts) | `spaceLocked`, `appearanceIcon` on payload |
 | [`WorkspacesPage.tsx`](../../apps/desktop/src/features/workspaces/WorkspacesPage.tsx) | Pass `appearanceIcon` when opening create-from-live from cards |
@@ -117,7 +117,8 @@ WorkspaceBindingPanel
 | 1 — Lift form state to panel | Done | `da725d6` |
 | 2 — Panel header identity + machine badge | Done | `a06c7ab` |
 | 3 — Routing + Scope sections, badge wiring | Done | `ef6763f` |
-| 4 — Restoration pass | Done | uncommitted |
+| 4 — Restoration pass | Done | `c68bc55` |
+| 5 — Auto-close on edit save fix | Done | uncommitted |
 
 ---
 
@@ -135,6 +136,22 @@ Regressions found after Phase 3 and fixed:
 | Duplicate root error missing in UI | Client-side pre-check + `workspace-binding-duplicate-error` testid |
 | Unmapped card icon not seeded | `appearanceIcon` on store payload from `WorkspacesPage` |
 | Stale tests | Retargeted `WorkspaceBindingPrompt` to panel; fixed App/Workspaces mocks |
+
+---
+
+## Post-ship fixes (Jun 28, 2026)
+
+### Edit panel closed on Clear / autosave
+
+**Symptom:** Clicking icon **Clear** or changing machine scope to **No machine** while editing a binding dismissed the entire panel. The save often succeeded, but the UX looked broken.
+
+**Cause:** A `workspace-binding-changed` listener in `WorkspaceBindingPanel` called `close()` whenever the event's `workspace_root` matched the open binding. Every in-panel edit save (icon persist, machine change, 1.5s autosave) emits that event — contradicting the autosave invariant ("no behavior change").
+
+**Fix:** Removed the auto-close listener. Panel now closes only via explicit paths: backdrop / X / Escape, create submit success, delete, disable-prompt link, create footer Cancel.
+
+**Tests:** `WorkspaceBindingPrompt.test.tsx` — edit mode stays open after `workspace-binding-changed` and after icon Clear persist.
+
+**Tradeoff:** If a binding is deleted or mutated externally while the edit panel is open, stale data may show until the user closes manually. Acceptable; matches pre-refactor edit behavior.
 
 ---
 
