@@ -308,7 +308,6 @@ export function WorkspaceBindingPanel() {
         clientId: eventPayload.client_id,
         spaceId: eventPayload.space_id,
         spaceLocked: eventPayload.space_locked ?? false,
-        collisionClientId: eventPayload.collision_client_id ?? undefined,
       });
     });
   }, [subscribe, open]);
@@ -812,9 +811,7 @@ export function WorkspaceBindingPanel() {
     mode === 'create'
       ? t('panel.routingSubtitleCreate')
       : mode === 'create-from-live'
-        ? payload.collisionClientId
-          ? t('sheet.descCollision')
-          : t('sheet.descNew')
+        ? t('sheet.descNew')
         : isEdit
           ? t('panel.routingSubtitleRoutes', {
               featureSets:
@@ -854,14 +851,14 @@ export function WorkspaceBindingPanel() {
               badges={
                 <>
                   {mode === 'create-from-live' && (
-                    <Pill tone={payload.collisionClientId ? 'amber' : 'primary'}>
+                    <Pill tone="primary">
                       <span className="inline-flex items-center gap-1">
                         <Sparkles className="h-2.5 w-2.5" />
-                        {payload.collisionClientId ? t('sheet.badgeCollision') : t('sheet.badgeNew')}
+                        {t('sheet.badgeNew')}
                       </span>
                     </Pill>
                   )}
-                  {mode === 'create-from-live' && !payload.collisionClientId && (
+                  {mode === 'create-from-live' && (
                     <Pill tone="amber">{t('card.badgeLiveUnbound')}</Pill>
                   )}
                   {mode === 'edit' && binding && <Pill tone="neutral">{t('card.offline')}</Pill>}
@@ -887,7 +884,7 @@ export function WorkspaceBindingPanel() {
             </div>
           ) : (
             <>
-              {mode === 'create-from-live' && !payload.collisionClientId && (
+              {mode === 'create-from-live' && (
                 <div
                   className="rounded-xl border border-amber-200/80 dark:border-amber-800/50 bg-amber-50/80 dark:bg-amber-900/15 p-4"
                   data-testid="workspace-binding-no-tools-banner"
