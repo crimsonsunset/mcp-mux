@@ -187,7 +187,7 @@ export interface EffectiveFeatureSetSummary {
 
 export interface WorkspaceEffectiveFeatures {
   workspace_root: string;
-  /** `binding` when a saved WorkspaceBinding matched; `unbound` when no binding matched — an unbound folder falls back to the default Space's Starter FS, so `feature_sets` is what a live session here actually sees until the user attaches a binding. */
+  /** `binding` when a saved WorkspaceBinding matched; `unbound` when no binding matched — caller has zero backend tools by default. Bind to enable access. */
   source: 'binding' | 'unbound';
   binding_id: string | null;
   space_id: string;
