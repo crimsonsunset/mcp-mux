@@ -51,7 +51,7 @@ vi.mock('@/features/settings', () => ({
 }));
 vi.mock('@/features/workspaces', () => ({
   WorkspacesPage: () => <div data-testid="workspaces-page" />,
-  WorkspaceBindingSheet: () => null,
+  WorkspaceBindingPanel: () => null,
 }));
 
 // Mock non-essential components

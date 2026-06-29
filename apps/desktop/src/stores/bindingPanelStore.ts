@@ -18,6 +18,10 @@ export interface BindingPanelPayload {
   spaceId?: string;
   /** When set, header shows collision copy instead of new-connection badge. */
   collisionClientId?: string;
+  /** When true, the Space picker is locked to `spaceId` (base-dir scoped folder). */
+  spaceLocked?: boolean;
+  /** Unmapped appearance icon from the card grid, seeds create-from-live icon state. */
+  appearanceIcon?: string | null;
 }
 
 interface BindingPanelStore {
