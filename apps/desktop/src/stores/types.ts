@@ -22,13 +22,6 @@ export interface AppState {
    */
   viewSpaceId: string | null;
 
-  // Navigation
-  activeNav: NavItem;
-  /** Client ID to auto-select when navigating to Clients page */
-  pendingClientId: string | null;
-  /** Status filter to pre-apply when navigating to My Servers */
-  pendingServersFilter: string | null;
-
   // UI state
   sidebarCollapsed: boolean;
   theme: 'light' | 'dark' | 'system';
@@ -48,11 +41,6 @@ export interface AppActions {
   addSpace: (space: Space) => void;
   removeSpace: (id: string) => void;
   updateSpace: (id: string, updates: Partial<Space>) => void;
-
-  // Navigation
-  navigateTo: (nav: NavItem) => void;
-  setPendingClientId: (id: string | null) => void;
-  setPendingServersFilter: (filter: string | null) => void;
 
   // UI
   toggleSidebar: () => void;

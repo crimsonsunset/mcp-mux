@@ -6,9 +6,6 @@ import { AppStore, AppState } from './types';
 const initialState: AppState = {
   spaces: [],
   viewSpaceId: null,
-  activeNav: 'dashboard',
-  pendingClientId: null,
-  pendingServersFilter: null,
   sidebarCollapsed: false,
   theme: 'system',
   analyticsEnabled: true,
@@ -66,22 +63,6 @@ export const useAppStore = create<AppStore>()(
           if (index !== -1) {
             state.spaces[index] = { ...state.spaces[index], ...updates };
           }
-        }),
-
-      // Navigation
-      navigateTo: (nav) =>
-        set((state) => {
-          state.activeNav = nav;
-        }),
-
-      setPendingClientId: (id) =>
-        set((state) => {
-          state.pendingClientId = id;
-        }),
-
-      setPendingServersFilter: (filter) =>
-        set((state) => {
-          state.pendingServersFilter = filter;
         }),
 
       // UI
