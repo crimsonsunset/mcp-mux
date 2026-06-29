@@ -18,6 +18,7 @@ import {
   createWorkspaceBinding,
   deleteWorkspaceBinding,
   updateWorkspaceBinding,
+  validateWorkspaceRoot,
   type WorkspaceBinding,
   type WorkspaceBindingInput,
 } from '@/lib/api/workspaceBindings';
@@ -36,6 +37,11 @@ import { useBindingPanelStore } from '@/stores/bindingPanelStore';
 import {
   BindingForm,
   SaveStatusPill,
+  bindingMachineId,
+  buildBindingPayload,
+  normalizeIcon,
+  sameBindingInput,
+  type RootValidationState,
   type SaveStatus,
 } from './workspace-binding-form.component';
 import {
@@ -127,6 +133,22 @@ export function WorkspaceBindingPanel() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: 'idle' });
   const [effectiveTotal, setEffectiveTotal] = useState<number | null>(null);
   const [resolvedIcon, setResolvedIcon] = useState<string | null>(null);
+  const [label, setLabel] = useState('');
+  const [icon, setIcon] = useState('');
+  const [spaceId, setSpaceId] = useState('');
+  const [fsIds, setFsIds] = useState<string[]>([]);
+  const [machineId, setMachineId] = useState('');
+  const [root, setRoot] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [rootValidation, setRootValidation] = useState<RootValidationState>({ state: 'idle' });
+
+  const validationSeq = useRef(0);
+  const saveSeqRef = useRef(0);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef<WorkspaceBindingInput | null>(null);
+  const pendingPayloadRef = useRef<WorkspaceBindingInput | null>(null);
+  const onSubmitRef = useRef<(input: WorkspaceBindingInput) => Promise<void>>(async () => undefined);
+  const onSaveStatusChangeRef = useRef(setSaveStatus);
 
   const panelOpenRef = useRef(isOpen);
   panelOpenRef.current = isOpen;
@@ -229,11 +251,65 @@ export function WorkspaceBindingPanel() {
     [payload, spaces],
   );
 
+  const defaultSpaceId = useMemo(
+    () => spaces.find((s) => s.is_default)?.id ?? spaces[0]?.id ?? '',
+    [spaces],
+  );
+
   const effectiveMachineId = clientMachineId ?? localMachineId;
   const workspaceRoot =
     payload?.binding?.workspace_root ?? payload?.workspaceRoot ?? formInitial?.workspace_root;
   const mode = payload?.mode ?? 'create';
   const isEdit = mode === 'edit';
+  const rootEditable = mode !== 'create-from-live';
+  const panelKey = `${mode}:${payload?.binding?.id ?? workspaceRoot ?? 'new'}:${spaces.length}`;
+
+  useEffect(() => {
+    if (!isOpen || !payload || loadingData) return;
+    const initial = formInitial;
+    setRoot(initial?.workspace_root ?? payload.workspaceRoot ?? '');
+    setLabel(initial?.label ?? '');
+    setIcon(initial?.icon ?? '');
+    setSpaceId(initial?.space_id ?? defaultSpaceId);
+    setFsIds(initial?.feature_set_ids ?? []);
+    setMachineId(initial?.machine_id ?? '');
+    setRootValidation({ state: 'idle' });
+    setSubmitting(false);
+    lastSavedRef.current = null;
+    pendingPayloadRef.current = null;
+  }, [panelKey, loadingData, isOpen, payload, formInitial, defaultSpaceId]);
+
+  useEffect(() => {
+    if (!rootEditable) {
+      setRootValidation({ state: 'ok', normalized: root });
+      return;
+    }
+    if (!root.trim()) {
+      setRootValidation({ state: 'idle' });
+      return;
+    }
+    const seq = ++validationSeq.current;
+    setRootValidation({ state: 'checking' });
+    const handle = setTimeout(() => {
+      void validateWorkspaceRoot(root)
+        .then((normalized) => {
+          if (validationSeq.current !== seq) return;
+          setRootValidation({ state: 'ok', normalized });
+        })
+        .catch((e: unknown) => {
+          if (validationSeq.current !== seq) return;
+          const reason = typeof e === 'string' ? e : String(e);
+          setRootValidation(reason === '' ? { state: 'idle' } : { state: 'error', reason });
+        });
+    }, 180);
+    return () => clearTimeout(handle);
+  }, [root, rootEditable]);
+
+  const canSubmit =
+    !submitting &&
+    !!spaceId &&
+    fsIds.length > 0 &&
+    (rootValidation.state === 'ok' || !rootEditable);
 
   const handleSubmit = useCallback(
     async (input: WorkspaceBindingInput) => {
@@ -255,6 +331,216 @@ export function WorkspaceBindingPanel() {
     },
     [payload, isEdit, clientMachineId, close],
   );
+
+  const handleFormSubmit = useCallback(
+    async (machineTargets: (string | null)[]) => {
+      if (!root.trim()) {
+        showError(t('toast.couldNotSave'), t('form.errors.rootRequired'));
+        return;
+      }
+      if (rootValidation.state === 'error') {
+        showError(t('toast.couldNotSave'), rootValidation.reason);
+        return;
+      }
+      if (!spaceId) {
+        showError(t('toast.couldNotSave'), t('form.errors.pickSpace'));
+        return;
+      }
+      if (fsIds.length === 0) {
+        showError(t('toast.couldNotSave'), t('form.errors.pickFeatureSet'));
+        return;
+      }
+      setSubmitting(true);
+      try {
+        if (isEdit) {
+          await handleSubmit(
+            buildBindingPayload({
+              root,
+              label,
+              icon,
+              spaceId,
+              fsIds,
+              machineId,
+              clientId: payload?.clientId,
+              resolvedMachineId: bindingMachineId(machineId),
+            }),
+          );
+          return;
+        }
+        for (const mId of machineTargets) {
+          await handleSubmit(
+            buildBindingPayload({
+              root,
+              label,
+              icon,
+              spaceId,
+              fsIds,
+              machineId,
+              clientId: payload?.clientId,
+              resolvedMachineId: mId,
+            }),
+          );
+        }
+      } catch (e) {
+        showError(t('toast.couldNotSave'), e instanceof Error ? e.message : String(e));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [
+      root,
+      rootValidation,
+      spaceId,
+      fsIds,
+      isEdit,
+      handleSubmit,
+      label,
+      icon,
+      machineId,
+      payload?.clientId,
+      showError,
+      t,
+    ],
+  );
+
+  const handlePersistIcon = useCallback(
+    async (nextIcon: string) => {
+      if (!formInitial || !canSubmit) return;
+      const payloadInput = buildBindingPayload({
+        root,
+        label,
+        icon,
+        spaceId,
+        fsIds,
+        machineId,
+        clientId: payload?.clientId,
+        resolvedMachineId: bindingMachineId(machineId),
+      });
+      payloadInput.icon = normalizeIcon(nextIcon);
+      lastSavedRef.current = payloadInput;
+      pendingPayloadRef.current = null;
+      await handleSubmit(payloadInput);
+    },
+    [
+      formInitial,
+      canSubmit,
+      root,
+      label,
+      icon,
+      spaceId,
+      fsIds,
+      machineId,
+      payload?.clientId,
+      handleSubmit,
+    ],
+  );
+
+  useEffect(() => {
+    onSubmitRef.current = handleSubmit;
+    onSaveStatusChangeRef.current = setSaveStatus;
+  }, [handleSubmit]);
+
+  /** Flush a debounced autosave immediately (panel close or binding switch). */
+  const flushPendingSave = useCallback(() => {
+    const pending = pendingPayloadRef.current;
+    if (!pending) return;
+    saveSeqRef.current += 1;
+    onSaveStatusChangeRef.current({ kind: 'saving' });
+    onSubmitRef
+      .current(pending)
+      .then(() => {
+        onSaveStatusChangeRef.current({ kind: 'saved' });
+      })
+      .catch((e) => {
+        console.warn(
+          '[workspace-binding] flush-on-close save failed:',
+          e instanceof Error ? e.message : String(e),
+        );
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || !isEdit || !formInitial) return;
+    if (!canSubmit) return;
+
+    const candidate = buildBindingPayload({
+      root,
+      label,
+      icon,
+      spaceId,
+      fsIds,
+      machineId,
+      clientId: payload?.clientId,
+      resolvedMachineId: bindingMachineId(machineId),
+    });
+
+    const baseline = lastSavedRef.current ?? {
+      workspace_root: formInitial.workspace_root,
+      label: formInitial.label,
+      icon: formInitial.icon,
+      space_id: formInitial.space_id,
+      feature_set_ids: formInitial.feature_set_ids,
+      machine_id: formInitial.machine_id,
+    };
+    if (sameBindingInput(candidate, baseline)) {
+      pendingPayloadRef.current = null;
+      return;
+    }
+
+    pendingPayloadRef.current = candidate;
+    const seq = ++saveSeqRef.current;
+    setSaveStatus({ kind: 'idle' });
+    const handle = setTimeout(async () => {
+      if (saveSeqRef.current !== seq) return;
+      setSaveStatus({ kind: 'saving' });
+      setSubmitting(true);
+      try {
+        await handleSubmit(candidate);
+        if (saveSeqRef.current !== seq) return;
+        lastSavedRef.current = candidate;
+        pendingPayloadRef.current = null;
+        setSaveStatus({ kind: 'saved' });
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = setTimeout(() => {
+          setSaveStatus({ kind: 'idle' });
+        }, 1800);
+      } catch (e) {
+        if (saveSeqRef.current !== seq) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setSaveStatus({ kind: 'error', message: msg });
+        showError(t('toast.couldNotSave'), msg);
+      } finally {
+        setSubmitting(false);
+      }
+    }, 1500);
+    return () => clearTimeout(handle);
+  }, [
+    isOpen,
+    isEdit,
+    formInitial,
+    root,
+    label,
+    icon,
+    spaceId,
+    fsIds,
+    machineId,
+    payload?.clientId,
+    canSubmit,
+    handleSubmit,
+    showError,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    flushPendingSave();
+  }, [isOpen, flushPendingSave]);
+
+  useEffect(() => {
+    return () => {
+      flushPendingSave();
+    };
+  }, [panelKey, flushPendingSave]);
 
   const handleDelete = useCallback(async () => {
     if (!payload?.binding) return;
@@ -350,8 +636,6 @@ export function WorkspaceBindingPanel() {
               space: spaces.find((s) => s.id === binding.space_id)?.name ?? '—',
             })
           : t('panel.mappingSubtitleAutosave');
-
-  const panelKey = `${mode}:${binding?.id ?? workspaceRoot ?? 'new'}:${spaces.length}`;
 
   return (
     <>
@@ -542,12 +826,25 @@ export function WorkspaceBindingPanel() {
                   machines={machines}
                   localMachineId={effectiveMachineId}
                   initial={formInitial}
-                  prefillRoot={payload.workspaceRoot}
-                  clientId={payload.clientId}
+                  label={label}
+                  setLabel={setLabel}
+                  icon={icon}
+                  setIcon={setIcon}
+                  spaceId={spaceId}
+                  setSpaceId={setSpaceId}
+                  fsIds={fsIds}
+                  setFsIds={setFsIds}
+                  machineId={machineId}
+                  setMachineId={setMachineId}
+                  root={root}
+                  setRoot={setRoot}
+                  rootValidation={rootValidation}
+                  canSubmit={canSubmit}
+                  submitting={submitting}
+                  onFormSubmit={handleFormSubmit}
                   onCancel={close}
-                  onSubmit={handleSubmit}
                   onError={(msg) => showError(t('toast.couldNotSave'), msg)}
-                  onSaveStatusChange={setSaveStatus}
+                  onPersistIcon={handlePersistIcon}
                   onIconChange={setResolvedIcon}
                   t={t}
                 />

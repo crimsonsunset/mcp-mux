@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import {
-  validateWorkspaceRoot,
   type WorkspaceBinding,
   type WorkspaceBindingInput,
 } from '@/lib/api/workspaceBindings';
@@ -89,17 +88,50 @@ export function SaveStatusPill({
  * uses this to skip writes when the user re-toggled their way back to
  * the last-saved state.
  */
-function normalizeLabel(label: string | null | undefined): string | null {
+export function normalizeLabel(label: string | null | undefined): string | null {
   const trimmed = label?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeIcon(icon: string | null | undefined): string | null {
+export function normalizeIcon(icon: string | null | undefined): string | null {
   const trimmed = icon?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function sameBindingInput(
+export type RootValidationState =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'ok'; normalized: string }
+  | { state: 'error'; reason: string };
+
+/** Map empty machine picker value to null for API payloads. */
+export function bindingMachineId(value: string): string | null {
+  return value.trim() ? value : null;
+}
+
+/** Build a workspace binding input from lifted form field values. */
+export function buildBindingPayload(params: {
+  root: string;
+  label: string;
+  icon: string;
+  spaceId: string;
+  fsIds: string[];
+  machineId: string;
+  clientId?: string;
+  resolvedMachineId: string | null;
+}): WorkspaceBindingInput {
+  return {
+    workspace_root: params.root.trim(),
+    label: params.label.trim() || null,
+    icon: params.icon.trim() || null,
+    space_id: params.spaceId,
+    feature_set_ids: params.fsIds,
+    machine_id: params.resolvedMachineId,
+    client_id: params.resolvedMachineId ? null : params.clientId,
+  };
+}
+
+export function sameBindingInput(
   a: WorkspaceBindingInput,
   b: {
     workspace_root: string;
@@ -130,13 +162,26 @@ export function BindingForm({
   machines,
   localMachineId,
   initial,
-  prefillRoot,
   initialUnmappedIcon,
-  clientId,
+  label,
+  setLabel,
+  icon,
+  setIcon,
+  spaceId,
+  setSpaceId,
+  fsIds,
+  setFsIds,
+  machineId,
+  setMachineId,
+  root,
+  setRoot,
+  rootValidation,
+  canSubmit,
+  submitting,
+  onFormSubmit,
   onCancel,
-  onSubmit,
   onError,
-  onSaveStatusChange,
+  onPersistIcon,
   onIconChange,
   t,
 }: {
@@ -146,35 +191,35 @@ export function BindingForm({
   machines: Machine[];
   localMachineId: string | null;
   initial?: WorkspaceBinding | null;
-  prefillRoot?: string;
   initialUnmappedIcon?: string | null;
-  /** OAuth client id for new-connection bindings (panel passes payload.client_id). */
-  clientId?: string;
+  label: string;
+  setLabel: (value: string) => void;
+  icon: string;
+  setIcon: (value: string) => void;
+  spaceId: string;
+  setSpaceId: (value: string) => void;
+  fsIds: string[];
+  setFsIds: (value: string[] | ((prev: string[]) => string[])) => void;
+  machineId: string;
+  setMachineId: (value: string) => void;
+  root: string;
+  setRoot: (value: string) => void;
+  rootValidation: RootValidationState;
+  canSubmit: boolean;
+  submitting: boolean;
+  onFormSubmit: (machineTargets: (string | null)[]) => Promise<void>;
   onCancel: () => void;
-  onSubmit: (input: WorkspaceBindingInput) => Promise<void>;
   onError: (message: string) => void;
-  onSaveStatusChange?: (status: SaveStatus) => void;
+  onPersistIcon?: (nextIcon: string) => Promise<void>;
   onIconChange?: (icon: string | null) => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
-  const defaultSpaceId = useMemo(
-    () => spaces.find((s) => s.is_default)?.id ?? spaces[0]?.id ?? '',
-    [spaces]
-  );
-
   const rootRef = useRef<HTMLInputElement | null>(null);
-  const [root, setRoot] = useState(initial?.workspace_root ?? prefillRoot ?? '');
-  const [label, setLabel] = useState(initial?.label ?? '');
-  const [icon, setIcon] = useState(initial?.icon ?? initialUnmappedIcon ?? '');
-  const [spaceId, setSpaceId] = useState<string>(initial?.space_id ?? defaultSpaceId);
-  const [fsIds, setFsIds] = useState<string[]>(initial?.feature_set_ids ?? []);
-  const [machineId, setMachineId] = useState<string>(initial?.machine_id ?? '');
   const [machineIds, setMachineIds] = useState<string[]>(() =>
     mode === 'edit' ? [] : localMachineId ? [localMachineId] : []
   );
   const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
   const [fsSearch, setFsSearch] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [showNewMachine, setShowNewMachine] = useState(false);
   const [newMachineName, setNewMachineName] = useState('');
   const [newMachineIcon, setNewMachineIcon] = useState('');
@@ -183,41 +228,7 @@ export function BindingForm({
   const [iconFilePath, setIconFilePath] = useState('');
   const isEdit = mode === 'edit';
 
-  const [rootValidation, setRootValidation] = useState<
-    | { state: 'idle' }
-    | { state: 'checking' }
-    | { state: 'ok'; normalized: string }
-    | { state: 'error'; reason: string }
-  >({ state: 'idle' });
-  const validationSeq = useRef(0);
-
   const rootEditable = mode !== 'create-from-live';
-
-  useEffect(() => {
-    if (!rootEditable) {
-      setRootValidation({ state: 'ok', normalized: root });
-      return;
-    }
-    if (!root.trim()) {
-      setRootValidation({ state: 'idle' });
-      return;
-    }
-    const seq = ++validationSeq.current;
-    setRootValidation({ state: 'checking' });
-    const handle = setTimeout(() => {
-      void validateWorkspaceRoot(root)
-        .then((normalized) => {
-          if (validationSeq.current !== seq) return;
-          setRootValidation({ state: 'ok', normalized });
-        })
-        .catch((e: unknown) => {
-          if (validationSeq.current !== seq) return;
-          const reason = typeof e === 'string' ? e : String(e);
-          setRootValidation(reason === '' ? { state: 'idle' } : { state: 'error', reason });
-        });
-    }, 180);
-    return () => clearTimeout(handle);
-  }, [root, rootEditable]);
 
   useEffect(() => {
     if (mode === 'create') rootRef.current?.focus();
@@ -261,12 +272,6 @@ export function BindingForm({
   const toggleMachine = (id: string) => {
     setMachineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
-
-  const canSubmit =
-    !submitting &&
-    !!spaceId &&
-    fsIds.length > 0 &&
-    (rootValidation.state === 'ok' || !rootEditable);
 
   const machineOptions = useMemo(
     () => localMachines.map((m) => ({ value: m.id, label: m.name, icon: m.icon ?? undefined })),
@@ -317,159 +322,6 @@ export function BindingForm({
     }
   };
 
-  const bindingMachineId = (value: string): string | null => (value.trim() ? value : null);
-
-  const buildPayload = (resolvedMachineId: string | null): WorkspaceBindingInput => ({
-    workspace_root: root.trim(),
-    label: label.trim() || null,
-    icon: icon.trim() || null,
-    space_id: spaceId,
-    feature_set_ids: fsIds,
-    machine_id: resolvedMachineId,
-    // When a machine scope is set, client_id is redundant — the resolver
-    // matches on machine + optional client. Setting both simultaneously
-    // conflicts with find_exact_for_machine's canonical (client_id IS NULL) path.
-    client_id: resolvedMachineId ? null : clientId,
-  });
-
-  const handleSubmit = async () => {
-    if (!root.trim()) {
-      onError(t('form.errors.rootRequired'));
-      return;
-    }
-    if (rootValidation.state === 'error') {
-      onError(rootValidation.reason);
-      return;
-    }
-    if (!spaceId) {
-      onError(t('form.errors.pickSpace'));
-      return;
-    }
-    if (fsIds.length === 0) {
-      onError(t('form.errors.pickFeatureSet'));
-      return;
-    }
-    setSubmitting(true);
-    try {
-      if (isEdit) {
-        await onSubmit(buildPayload(bindingMachineId(machineId)));
-        return;
-      }
-      const targets = machineIds.length > 0 ? machineIds : [null as string | null];
-      for (const mId of targets) {
-        await onSubmit(buildPayload(mId));
-      }
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const saveSeqRef = useRef(0);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedRef = useRef<WorkspaceBindingInput | null>(null);
-  const pendingPayloadRef = useRef<WorkspaceBindingInput | null>(null);
-  const onSubmitRef = useRef(onSubmit);
-  const onSaveStatusChangeRef = useRef(onSaveStatusChange);
-  useEffect(() => {
-    onSubmitRef.current = onSubmit;
-    onSaveStatusChangeRef.current = onSaveStatusChange;
-  }, [onSubmit, onSaveStatusChange]);
-
-  useEffect(() => {
-    if (!isEdit || !initial) return;
-    if (!canSubmit) return;
-
-    const candidate: WorkspaceBindingInput = {
-      workspace_root: root.trim(),
-      label: label.trim() || null,
-      icon: icon.trim() || null,
-      space_id: spaceId,
-      feature_set_ids: fsIds,
-      machine_id: bindingMachineId(machineId),
-      client_id: machineId.trim() ? null : clientId,
-    };
-
-    const baseline = lastSavedRef.current ?? {
-      workspace_root: initial.workspace_root,
-      label: initial.label,
-      icon: initial.icon,
-      space_id: initial.space_id,
-      feature_set_ids: initial.feature_set_ids,
-      machine_id: initial.machine_id,
-    };
-    if (sameBindingInput(candidate, baseline)) {
-      pendingPayloadRef.current = null;
-      return;
-    }
-
-    pendingPayloadRef.current = candidate;
-    const seq = ++saveSeqRef.current;
-    onSaveStatusChange?.({ kind: 'idle' });
-    const handle = setTimeout(async () => {
-      if (saveSeqRef.current !== seq) return;
-      onSaveStatusChange?.({ kind: 'saving' });
-      setSubmitting(true);
-      try {
-        await onSubmit(candidate);
-        if (saveSeqRef.current !== seq) return;
-        lastSavedRef.current = candidate;
-        pendingPayloadRef.current = null;
-        onSaveStatusChange?.({ kind: 'saved' });
-        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-        savedTimerRef.current = setTimeout(() => {
-          onSaveStatusChange?.({ kind: 'idle' });
-        }, 1800);
-      } catch (e) {
-        if (saveSeqRef.current !== seq) return;
-        const msg = e instanceof Error ? e.message : String(e);
-        onSaveStatusChange?.({ kind: 'error', message: msg });
-        onError(msg);
-      } finally {
-        setSubmitting(false);
-      }
-    }, 1500);
-    return () => clearTimeout(handle);
-  }, [
-    isEdit,
-    initial,
-    root,
-    label,
-    icon,
-    spaceId,
-    fsIds,
-    machineId,
-    clientId,
-    canSubmit,
-    onSubmit,
-    onError,
-    onSaveStatusChange,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      const pending = pendingPayloadRef.current;
-      if (!pending) return;
-      saveSeqRef.current += 1;
-      onSaveStatusChangeRef.current?.({ kind: 'saving' });
-      onSubmitRef
-        .current(pending)
-        .then(() => {
-          onSaveStatusChangeRef.current?.({ kind: 'saved' });
-        })
-        .catch((e) => {
-          console.warn(
-            '[workspace-binding] flush-on-close save failed:',
-            e instanceof Error ? e.message : String(e)
-          );
-        });
-    };
-  }, []);
-
-  const submitLabel =
-    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
-
   const lastSavedAppearanceRef = useRef<string | null>(
     mode === 'create-from-live' ? normalizeIcon(initialUnmappedIcon) : null
   );
@@ -478,18 +330,14 @@ export function BindingForm({
   const persistIconNow = async (nextIcon: string) => {
     const workspaceRoot = root.trim();
     if (!workspaceRoot) return;
-    const normalizedIcon = normalizeIcon(nextIcon);
 
-    if (mode === 'edit' && initial && canSubmit) {
-      const payload = buildPayload(bindingMachineId(machineId));
-      payload.icon = normalizedIcon;
-      lastSavedRef.current = payload;
-      pendingPayloadRef.current = null;
-      await onSubmit(payload);
+    if (mode === 'edit' && initial && canSubmit && onPersistIcon) {
+      await onPersistIcon(nextIcon);
       return;
     }
 
     if (mode === 'create-from-live') {
+      const normalizedIcon = normalizeIcon(nextIcon);
       if (normalizedIcon) {
         await upsertWorkspaceAppearance({
           workspace_root: workspaceRoot,
@@ -502,6 +350,9 @@ export function BindingForm({
       }
     }
   };
+
+  const submitLabel =
+    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
 
   useEffect(() => {
     if (mode !== 'create-from-live') return;
@@ -988,7 +839,10 @@ export function BindingForm({
           <Button
             variant="primary"
             size="md"
-            onClick={handleSubmit}
+            onClick={() => {
+              const targets = machineIds.length > 0 ? machineIds : [null as string | null];
+              void onFormSubmit(targets);
+            }}
             disabled={!canSubmit}
             className="flex-1"
             data-testid="workspace-binding-submit"
