@@ -92,7 +92,8 @@
     "removeBinding": "Remove binding",
     "identityPlaceholder": "Add a label…",
     "machineGlobal": "Global",
-    "machineCount": "{{count}} machines"
+    "machineCount": "{{count}} machines",
+    "machineQuickSwitch": "Switch machine scope"
   },
   "saveStatus": {
     "saving": "Saving",

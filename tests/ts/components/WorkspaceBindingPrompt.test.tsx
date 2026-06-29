@@ -14,6 +14,7 @@ const { workspaceHandlers } = vi.hoisted(() => ({
 
 vi.mock('@/lib/api/workspaceBindings', () => ({
   createWorkspaceBinding: vi.fn(),
+  updateWorkspaceBinding: vi.fn().mockResolvedValue(undefined),
   listWorkspaceBindings: vi.fn().mockResolvedValue([]),
   validateWorkspaceRoot: vi.fn().mockResolvedValue('/home/u/proj'),
   getWorkspaceEffectiveFeatures: vi.fn().mockResolvedValue({
@@ -44,7 +45,16 @@ vi.mock('@/lib/api/featureSets', () => ({
 }));
 
 vi.mock('@/lib/api/machines', () => ({
-  listMachines: vi.fn().mockResolvedValue([]),
+  listMachines: vi.fn().mockResolvedValue([
+    {
+      id: 'm1',
+      name: 'Rohan',
+      icon: '⚔️',
+      hostname: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+  ]),
   getLocalMachineId: vi.fn().mockResolvedValue(null),
   getClientMachineId: vi.fn().mockResolvedValue(null),
 }));
@@ -62,8 +72,22 @@ vi.mock('@/lib/backend/events', () => ({
 
 import { WorkspaceBindingPanel } from '@/features/workspaces/workspace-binding-panel.component';
 import { useBindingPanelStore } from '@/stores/bindingPanelStore';
+import { updateWorkspaceBinding, validateWorkspaceRoot } from '@/lib/api/workspaceBindings';
+import type { WorkspaceBinding } from '@/lib/api/workspaceBindings';
 
 const PROMPT_COPY = /You just opened this folder in a connected app/i;
+
+const EDIT_BINDING: WorkspaceBinding = {
+  id: 'b1',
+  workspace_root: '/home/u/proj',
+  machine_id: 'm1',
+  label: 'My Project',
+  icon: '🫠',
+  space_id: 's1',
+  feature_set_ids: ['fs1'],
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
 
 /** Invoke the captured `workspace-needs-binding` listener with a payload. */
 async function fireNeedsBinding(overrides: Record<string, unknown> = {}) {
@@ -76,6 +100,29 @@ async function fireNeedsBinding(overrides: Record<string, unknown> = {}) {
     workspace_root: '/home/u/proj',
     ...overrides,
   });
+}
+
+/** Simulate backend `workspace-binding-changed` after a binding write. */
+function fireBindingChanged(overrides: Record<string, unknown> = {}) {
+  const cb = workspaceHandlers.get('workspace-binding-changed');
+  if (cb) {
+    cb({
+      workspace_root: '/home/u/proj',
+      ...overrides,
+    });
+  }
+}
+
+/** Open the panel in edit mode and wait for async data load. */
+async function openEditPanel() {
+  useBindingPanelStore.getState().open({
+    mode: 'edit',
+    binding: EDIT_BINDING,
+  });
+  await screen.findByTestId('workspace-binding-panel');
+  await screen.findByTestId('workspace-binding-icon-clear');
+  await waitFor(() => expect(validateWorkspaceRoot).toHaveBeenCalled());
+  await screen.findByText(/Ready to save/i);
 }
 
 function mockPromptEnabled(enabled: boolean) {
@@ -142,5 +189,37 @@ describe('WorkspaceBindingPanel – mapping prompt toggle', () => {
 
     const picker = screen.getByTestId('workspace-binding-space-picker') as HTMLSelectElement;
     expect(picker.disabled).toBe(false);
+  });
+});
+
+describe('WorkspaceBindingPanel – edit mode stays open on save', () => {
+  beforeEach(() => {
+    workspaceHandlers.clear();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(updateWorkspaceBinding).mockClear();
+    vi.mocked(validateWorkspaceRoot).mockClear();
+    useBindingPanelStore.getState().close();
+  });
+
+  it('does not close when workspace-binding-changed fires for the open binding', async () => {
+    renderWithI18n(<WorkspaceBindingPanel />);
+    await openEditPanel();
+
+    fireBindingChanged();
+
+    expect(screen.getByTestId('workspace-binding-panel')).toBeTruthy();
+  });
+
+  it('keeps the panel open after icon Clear persists in edit mode', async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<WorkspaceBindingPanel />);
+    await openEditPanel();
+
+    await user.click(screen.getByTestId('workspace-binding-icon-clear'));
+
+    await waitFor(() => expect(updateWorkspaceBinding).toHaveBeenCalled());
+    fireBindingChanged();
+
+    expect(screen.getByTestId('workspace-binding-panel')).toBeTruthy();
   });
 });
