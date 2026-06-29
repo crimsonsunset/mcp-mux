@@ -101,6 +101,10 @@ const DEFAULT_PENDING_ROOTS_GRACE: Duration = Duration::from_secs(5);
 /// Why the resolver picked the FS(es) it picked (or didn't pick any).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+// SpaceDefault is retained for serde compat; it is no longer produced but may appear
+// in deserialized data from older gateway versions. The unused-variant pattern is
+// intentional, not an oversight.
+#[allow(clippy::manual_non_exhaustive)]
 pub enum ResolutionSource {
     /// A [`WorkspaceBinding`](mcpmux_core::WorkspaceBinding) matched one of
     /// the session's reported MCP roots.
@@ -164,8 +168,9 @@ pub struct FeatureSetResolverService {
     /// Reads `client_grants` for the rootless Tier-2 fallback. Stored as a
     /// concrete repo (storage owns this type and there's only ever one).
     client_repo: Arc<InboundClientRepository>,
-    /// Looks up each Space's Starter FeatureSet for the default fallback
-    /// (Tier 1b / Tier 1c-after-grace / Tier 3).
+    /// Retained in the constructor signature for API stability; was used by the
+    /// now-removed `default_fallback()` helper. Remove once all call sites are updated.
+    #[allow(dead_code)]
     feature_set_repo: Arc<dyn FeatureSetRepository>,
     /// Scopes an unmapped reported root to a Space by base directory — an
     /// unmapped folder under a Space's base dir falls back to that Space's
