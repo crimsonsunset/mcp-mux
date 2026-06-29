@@ -9,14 +9,14 @@ import { MachineProfileEditor } from '@/components/machine-profile-editor';
 import { ServerIcon } from '@/components/ServerIcon';
 import { useViewerIdentity } from '@/hooks/use-viewer-identity.hook';
 import { NAV_SETTINGS } from '@/lib/navigation';
-import { useNavigateTo } from '@/stores';
+import { useNavigate } from '@/hooks/use-navigate.hook';
 
 /**
  * Blocking modal for first-time viewer device naming.
  */
 export function ViewerIdentityModal() {
   const { t } = useTranslation(['common', 'settings']);
-  const navigateTo = useNavigateTo();
+  const navigate = useNavigate();
   const {
     name,
     hints,
@@ -51,7 +51,7 @@ export function ViewerIdentityModal() {
     if (name) {
       closePrompt();
     }
-    navigateTo(NAV_SETTINGS.key);
+    navigate(NAV_SETTINGS.key);
   };
 
   const errorMessage =

@@ -115,7 +115,7 @@ export function SettingsPage() {
   // Deep-link: when another surface routes here for a specific section, scroll
   // it into view and briefly flash it so the user lands on the right control.
   // Generic over section keys — any surface can target a section by calling
-  // `setPendingSettingsSection('<key>')` before `navigateTo('settings')`. A
+  // `setPendingSettingsSection('<key>')` before `navigate('settings')`. A
   // section becomes targetable by wrapping its card with `registerSection` +
   // `sectionFlashClass` (see `<SECTION_KEYS>` below).
   const pendingSection = usePendingSettingsSection();
