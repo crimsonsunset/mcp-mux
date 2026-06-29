@@ -196,7 +196,7 @@
     "badgeCollision": "Client binding required",
     "badgeNew": "New workspace detected",
     "titleCollision": "Create a binding for this client",
-    "titleNew": "This folder is using your Starter set",
+    "titleNew": "Bind this folder to enable tools",
     "descCollision": "This path is already bound for another MCP client. Save a client-scoped binding so this machine gets its own tool set.",
     "descNew": "No backend tools are active on this session. Creating a binding enables tool access.",
     "noToolsBanner": "No backend tools are active on this session. Creating a binding enables tool access.",

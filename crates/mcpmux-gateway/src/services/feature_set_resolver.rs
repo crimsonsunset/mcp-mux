@@ -150,9 +150,6 @@ pub struct ResolvedFeatureSet {
     /// Resolved Space id. Used by the routing layer when filtering features.
     pub space_id: Option<Uuid>,
     pub source: ResolutionSource,
-    /// When `source == Deny` because a global binding was blocked by another
-    /// client's scoped binding on the same path, holds that client's id.
-    pub collision_client_id: Option<String>,
 }
 
 impl ResolvedFeatureSet {
@@ -306,7 +303,6 @@ impl FeatureSetResolverService {
             feature_set_ids: vec![],
             space_id: Some(space_id),
             source: ResolutionSource::Unbound,
-            collision_client_id: None,
         }
     }
 
@@ -336,7 +332,6 @@ impl FeatureSetResolverService {
                     feature_set_ids: vec![],
                     space_id: None,
                     source: ResolutionSource::Deny,
-                    collision_client_id: None,
                 });
             }
         };
@@ -389,7 +384,6 @@ impl FeatureSetResolverService {
                         feature_set_ids: binding.feature_set_ids,
                         space_id: Some(binding.space_id),
                         source: ResolutionSource::WorkspaceBinding,
-                        collision_client_id: None,
                     });
                 }
                 // Tier 1b: had roots, no binding. The folder is unmapped —
@@ -439,7 +433,6 @@ impl FeatureSetResolverService {
                         feature_set_ids: vec![],
                         space_id: Some(default_space_id),
                         source: ResolutionSource::PendingRoots,
-                        collision_client_id: None,
                     });
                 }
                 // Grace lapsed with no root in sight — deny by default. Go
@@ -480,7 +473,6 @@ impl FeatureSetResolverService {
                     feature_set_ids: grants,
                     space_id: Some(default_space_id),
                     source: ResolutionSource::ClientGrant,
-                    collision_client_id: None,
                 });
             }
         }
