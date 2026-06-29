@@ -158,6 +158,7 @@ export function WorkspacesPage() {
   const { toasts, success, error: showError, dismiss } = useToast();
   const { confirm, ConfirmDialogElement } = useConfirm();
   const openBindingPanel = useBindingPanelStore((state) => state.open);
+  const isPanelOpen = useBindingPanelStore((state) => state.isOpen);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'live' | 'mapped' | 'unmapped'>('all');
@@ -383,6 +384,21 @@ export function WorkspacesPage() {
       null,
     [appearancesByRoot]
   );
+
+  // Auto-open binding panel for the first unmapped-live entry on page load.
+  // Catches `workspace-needs-binding` events that fired before the listener was
+  // registered (e.g. Cursor was already connected when this page first rendered).
+  useEffect(() => {
+    if (isLoading || isPanelOpen) return;
+    const firstUnmapped = entries.find((e) => e.kind === 'unmapped-live');
+    if (!firstUnmapped) return;
+    openBindingPanel({
+      mode: 'create-from-live',
+      workspaceRoot: firstUnmapped.root,
+      appearanceIcon: resolveEntryIcon(firstUnmapped) ?? undefined,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
 
   const handleRegisterMachine = async (input: {
     name: string;
@@ -755,43 +771,39 @@ interface EntryCardRoutingRow {
   clickable: boolean;
 }
 
+const ROUTING_GRID_COLS =
+  'grid grid-cols-[minmax(0,5.5rem)_minmax(0,1fr)_minmax(0,3.5rem)] gap-x-2';
+
 /**
- * Compact routing table for EntryCard footer — machine, feature set, space.
- * Uses semantic HTML table (no Table primitive in @mcpmux/ui). Feature set
- * names wrap to additional lines when needed.
+ * Routing footer for EntryCard — fixed 3-column headers with each binding row
+ * rendered as an aligned chip pill (solid for real bindings, dashed for ghosts).
  */
 function EntryCardRoutingTable({
   rows,
-  showMachineColumn,
   onRowClick,
   onCreateForCurrentMachine,
   t,
 }: {
   rows: EntryCardRoutingRow[];
-  showMachineColumn: boolean;
   onRowClick?: (bindingId: string) => void;
   onCreateForCurrentMachine?: () => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
   const headCls =
-    'pb-1 pr-2 text-left text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--muted))] last:pr-0';
-  const cellCls = 'py-0.5 pr-2 align-top text-[11px] text-[rgb(var(--foreground))] last:pr-0';
+    'text-left text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--muted))]';
+  const cellCls = 'min-w-0 text-[11px] text-[rgb(var(--foreground))]';
 
   return (
-    <table className="w-full border-collapse text-xs">
-      <colgroup>
-        {showMachineColumn ? <col className="w-px" /> : null}
-        <col />
-        <col className="w-px" />
-      </colgroup>
-      <thead>
-        <tr className="border-b border-[rgb(var(--border-subtle))]">
-          {showMachineColumn ? <th className={headCls}>{t('card.machine')}</th> : null}
-          <th className={headCls}>{t('card.routesTo')}</th>
-          <th className={`${headCls} whitespace-nowrap`}>{t('card.in')}</th>
-        </tr>
-      </thead>
-      <tbody>
+    <div className="text-xs">
+      <div
+        className={`${ROUTING_GRID_COLS} border-b border-[rgb(var(--border-subtle))] pb-1`}
+        aria-hidden
+      >
+        <span className={headCls}>{t('card.machine')}</span>
+        <span className={headCls}>{t('card.routesTo')}</span>
+        <span className={`${headCls} whitespace-nowrap`}>{t('card.in')}</span>
+      </div>
+      <div className="mt-1.5 flex flex-col gap-1">
         {rows.map((row) => {
           const fsDisplay = row.fsName || '—';
           const spaceDisplay = row.spaceName ?? '—';
@@ -804,18 +816,14 @@ function EntryCardRoutingTable({
             ? {
                 role: 'button' as const,
                 tabIndex: 0,
-                className: [
-                  'cursor-pointer transition-colors hover:bg-[rgb(var(--surface-hover,var(--background)))]',
-                  row.ghost ? 'opacity-70' : '',
-                ].join(' '),
                 'aria-label': row.createForCurrentMachine
                   ? t('card.addBindingForMachine', { machine: row.machineLabel })
                   : t('card.machineRow', { machine: row.machineLabel }),
-                onClick: (event: ReactMouseEvent<HTMLTableRowElement>) => {
+                onClick: (event: ReactMouseEvent<HTMLDivElement>) => {
                   event.stopPropagation();
                   rowAction();
                 },
-                onKeyDown: (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
+                onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     event.stopPropagation();
@@ -826,37 +834,48 @@ function EntryCardRoutingTable({
             : {};
 
           return (
-            <tr key={row.key} {...rowProps}>
-              {showMachineColumn ? (
-                <td className={`${cellCls} whitespace-nowrap`} title={row.machineLabel}>
-                  <span className="inline-flex max-w-[7rem] items-center gap-1">
-                    {row.machine?.icon ? (
-                      <span className="shrink-0 text-[11px] leading-none">{row.machine.icon}</span>
-                    ) : null}
-                    <span className="truncate">{row.machineLabel}</span>
-                  </span>
-                </td>
-              ) : null}
-              <td className={cellCls}>
-                <span
-                  className={[
-                    'block break-words font-medium leading-snug',
-                    row.ghost
-                      ? 'italic text-[rgb(var(--muted))]'
-                      : 'text-primary-700 dark:text-primary-300',
-                  ].join(' ')}
-                >
-                  {fsDisplay}
+            <div
+              key={row.key}
+              className={[
+                ROUTING_GRID_COLS,
+                'items-center rounded-md border px-1.5 py-1',
+                row.ghost
+                  ? 'border-dashed border-[rgb(var(--border-subtle))] opacity-70'
+                  : 'border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))]',
+                row.clickable && rowAction
+                  ? 'cursor-pointer transition-colors hover:bg-[rgb(var(--surface-hover,var(--background)))]'
+                  : '',
+              ].join(' ')}
+              {...rowProps}
+            >
+              <span className={`${cellCls} truncate whitespace-nowrap`} title={row.machineLabel}>
+                <span className="inline-flex max-w-full items-center gap-1">
+                  {row.machine?.icon ? (
+                    <span className="shrink-0 text-[11px] leading-none">{row.machine.icon}</span>
+                  ) : null}
+                  <span className="truncate">{row.machineLabel}</span>
                 </span>
-              </td>
-              <td className={`${cellCls} whitespace-nowrap`} title={spaceDisplay}>
+              </span>
+              <span
+                className={[
+                  cellCls,
+                  'truncate font-medium',
+                  row.ghost
+                    ? 'italic text-[rgb(var(--muted))]'
+                    : 'text-primary-700 dark:text-primary-300',
+                ].join(' ')}
+                title={fsDisplay}
+              >
+                {fsDisplay}
+              </span>
+              <span className={`${cellCls} truncate whitespace-nowrap`} title={spaceDisplay}>
                 {spaceDisplay}
-              </td>
-            </tr>
+              </span>
+            </div>
           );
         })}
-      </tbody>
-    </table>
+      </div>
+    </div>
   );
 }
 
@@ -906,6 +925,22 @@ function buildEntryRoutingRows(
       machine: currentMachine,
       machineLabel: currentMachine?.name ?? currentMachineId,
       fsName: t('card.notConfigured'),
+      spaceName: undefined,
+      clickable: true,
+    });
+  }
+
+  if (entry.kind === 'unmapped-live' && bindings.length === 0) {
+    const currentMachine = currentMachineId
+      ? machinesById.get(currentMachineId)
+      : undefined;
+    rows.push({
+      key: 'ghost:unmapped',
+      createForCurrentMachine: true,
+      ghost: true,
+      machine: currentMachine,
+      machineLabel: currentMachine?.name ?? t('card.addBinding'),
+      fsName: '—',
       spaceName: undefined,
       clickable: true,
     });
@@ -965,11 +1000,6 @@ function EntryCard({
     fsById,
     t,
   );
-  const showMachineColumn =
-    bindings.some((b) => b.machine_id != null) ||
-    routingRows.some((row) => row.ghost) ||
-    bindings.length > 1;
-
   return (
     <Card
       className="group relative h-full cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01]"
@@ -1054,19 +1084,10 @@ function EntryCard({
         <div className="mt-auto -mx-6 -mb-6 rounded-b-xl bg-[rgb(var(--surface))] px-5 py-3 text-xs text-[rgb(var(--muted))]">
           <EntryCardRoutingTable
             rows={routingRows}
-            showMachineColumn={showMachineColumn}
             onRowClick={onMachineRowClick}
             onCreateForCurrentMachine={onCreateForCurrentMachine}
             t={t}
           />
-          {!binding && (
-            <span
-              className="mt-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60"
-              title={t('card.unboundTooltip')}
-            >
-              {t('card.unbound')}
-            </span>
-          )}
         </div>
       </CardContent>
     </Card>

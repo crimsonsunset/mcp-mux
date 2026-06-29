@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { Button, useConfirm, useToast, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@mcpmux/ui';
+import { Button, useConfirm, useToast } from '@mcpmux/ui';
 import { useWorkspaceEvents } from '@/lib/backend/events';
 import { apiCall } from '@/lib/api/transport';
 import {
@@ -41,7 +41,6 @@ import {
 import { listFeatureSets, type FeatureSet } from '@/lib/api/featureSets';
 import { listSpaces, type Space } from '@/lib/api/spaces';
 import { ServerIcon } from '@/components/ServerIcon';
-import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
 import { useBindingPanelStore } from '@/stores/bindingPanelStore';
 import {
   RoutingFields,
@@ -58,6 +57,7 @@ import {
 import {
   CollapsibleSection,
   EffectiveFeaturesContent,
+  type CollapsibleSectionRef,
 } from './WorkspacesPage';
 
 /**
@@ -137,213 +137,79 @@ function Pill({
 }
 
 /**
- * Compact machine quick-switch dropdown in the panel header (mirrors Scope machine picker).
- */
-function HeaderMachineDropdown({
-  mode,
-  machines,
-  machineId,
-  setMachineId,
-  machineIds,
-  setMachineIds,
-  machineBadgeLabel,
-  machineBadgeIcon,
-  t,
-}: {
-  mode: 'create' | 'edit' | 'create-from-live';
-  machines: Machine[];
-  machineId: string;
-  setMachineId: (value: string) => void;
-  machineIds: string[];
-  setMachineIds: (value: string[]) => void;
-  machineBadgeLabel: string;
-  machineBadgeIcon: string | null;
-  t: TFunction<['workspaces', 'common']>;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const usesSingleMachine = mode === 'edit';
-
-  /** Apply a machine selection from the header dropdown. */
-  const handleSelect = (nextId: string) => {
-    if (usesSingleMachine) {
-      setMachineId(nextId);
-    } else {
-      setMachineIds(nextId ? [nextId] : []);
-    }
-    setMenuOpen(false);
-  };
-
-  /** Whether the dropdown row matches the current machine scope. */
-  const isSelected = (candidateId: string | null): boolean => {
-    if (usesSingleMachine) {
-      if (!candidateId) return !machineId;
-      return machineId === candidateId;
-    }
-    if (!candidateId) return machineIds.length === 0;
-    return machineIds.length === 1 && machineIds[0] === candidateId;
-  };
-
-  return (
-    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-      <DropdownMenuTrigger
-        className="flex-shrink-0 rounded-md transition-colors hover:bg-[rgb(var(--surface-hover))] focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
-        data-testid="workspace-binding-header-machine-badge"
-        title={t('panel.machineQuickSwitch')}
-      >
-        <Pill tone="neutral">
-          <span className="inline-flex items-center gap-1 normal-case tracking-normal">
-            {machineBadgeIcon ? (
-              <span className="text-xs leading-none">{machineBadgeIcon}</span>
-            ) : null}
-            {machineBadgeLabel}
-            <ChevronDown className="h-3 w-3 opacity-70" />
-          </span>
-        </Pill>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-52 py-1 px-1 bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg shadow-lg"
-        data-testid="workspace-binding-header-machine-menu"
-      >
-        <HeaderMachineOption
-          label={t('panel.machineGlobal')}
-          selected={isSelected(null)}
-          onSelect={() => handleSelect('')}
-          testId="workspace-binding-header-machine-global"
-        />
-        {machines.map((machine) => (
-          <HeaderMachineOption
-            key={machine.id}
-            label={machine.name}
-            icon={machine.icon}
-            selected={isSelected(machine.id)}
-            onSelect={() => handleSelect(machine.id)}
-            testId={`workspace-binding-header-machine-${machine.id}`}
-          />
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/**
- * Single row in the header machine quick-switch menu.
- */
-function HeaderMachineOption({
-  label,
-  icon,
-  selected,
-  onSelect,
-  testId,
-}: {
-  label: string;
-  icon?: string | null;
-  selected: boolean;
-  onSelect: () => void;
-  testId?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onSelect}
-      className={[
-        'w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-left text-sm transition-colors',
-        selected
-          ? 'bg-primary-500/10 text-primary-700 dark:text-primary-300'
-          : 'hover:bg-[rgb(var(--surface-hover))] text-[rgb(var(--foreground))]',
-      ].join(' ')}
-      data-testid={testId}
-    >
-      {icon ? <span className="text-sm leading-none flex-shrink-0">{icon}</span> : null}
-      <span className="flex-1 min-w-0 truncate">{label}</span>
-      {selected ? <Check className="h-4 w-4 flex-shrink-0 text-primary-600" /> : null}
-    </button>
-  );
-}
-
-/**
- * Inline-editable workspace identity in the panel header: icon, label, and machine badge.
+ * Workspace identity in the panel header: display icon, title, path, and machine badge.
  */
 function PanelIdentityHeader({
   mode,
   label,
-  setLabel,
   icon,
-  setIcon,
   workspaceRoot,
-  machines,
-  machineId,
-  setMachineId,
-  machineIds,
-  setMachineIds,
   machineBadgeLabel,
   machineBadgeIcon,
-  onIconClear,
+  onMachineBadgeClick,
   badges,
   footer,
   t,
 }: {
   mode: 'create' | 'edit' | 'create-from-live';
   label: string;
-  setLabel: (value: string) => void;
   icon: string;
-  setIcon: (value: string) => void;
   workspaceRoot?: string;
-  machines: Machine[];
-  machineId: string;
-  setMachineId: (value: string) => void;
-  machineIds: string[];
-  setMachineIds: (value: string[]) => void;
   machineBadgeLabel: string;
   machineBadgeIcon: string | null;
-  onIconClear: () => void;
+  onMachineBadgeClick: () => void;
   badges?: ReactNode;
   footer?: ReactNode;
   t: TFunction<['workspaces', 'common']>;
 }) {
-  const labelPlaceholder = workspaceRoot?.trim() || t('panel.identityPlaceholder');
   const trimmedIcon = icon.trim();
+  const displayTitle =
+    label.trim() ||
+    (workspaceRoot
+      ? (workspaceRoot.split(/[/\\]/).filter(Boolean).pop() ?? workspaceRoot)
+      : mode === 'create'
+        ? t('panel.identityPlaceholder')
+        : '');
 
   return (
     <div className="flex items-start gap-3 flex-1 min-w-0">
-      <div className="flex flex-col items-center gap-1 flex-shrink-0">
-        <div className="w-11 h-11 flex items-center justify-center bg-[rgb(var(--background))] rounded-lg border border-[rgb(var(--border-subtle))]">
-          {trimmedIcon ? (
-            <ServerIcon icon={trimmedIcon} className="h-6 w-6 object-contain" fallback="📁" />
-          ) : (
-            <FolderOpen className="h-5 w-5 text-[rgb(var(--muted))]" />
-          )}
-        </div>
-        <div className="flex items-center gap-0.5">
-          <EmojiPickerButton
-            value={trimmedIcon.length <= 2 ? trimmedIcon : ''}
-            onChange={(emoji) => setIcon(emoji)}
-            testId="workspace-binding-header-emoji"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-1.5 text-[10px]"
-            onClick={onIconClear}
-            disabled={!trimmedIcon}
-            data-testid="workspace-binding-header-icon-clear"
-          >
-            {t('form.clear')}
-          </Button>
-        </div>
+      <div
+        className="w-11 h-11 flex-shrink-0 flex items-center justify-center bg-[rgb(var(--background))] rounded-lg border border-[rgb(var(--border-subtle))]"
+        data-testid="workspace-binding-header-icon"
+      >
+        {trimmedIcon ? (
+          <ServerIcon icon={trimmedIcon} className="h-6 w-6 object-contain" fallback="📁" />
+        ) : (
+          <FolderOpen className="h-5 w-5 text-[rgb(var(--muted))]" />
+        )}
       </div>
 
       <div className="flex-1 min-w-0">
-        {badges ? <div className="flex items-center gap-2 mb-1 flex-wrap">{badges}</div> : null}
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={labelPlaceholder}
-          className="w-full bg-transparent border-0 p-0 text-lg font-bold text-[rgb(var(--foreground))] placeholder:text-[rgb(var(--muted))] focus:outline-none focus:ring-0 break-words"
-          data-testid="workspace-binding-header-label"
-        />
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <button
+            type="button"
+            className="flex-shrink-0 rounded-md transition-colors hover:bg-[rgb(var(--surface-hover))] focus:outline-none focus:ring-2 focus:ring-primary-500"
+            data-testid="workspace-binding-header-machine-badge"
+            title={t('panel.machineQuickSwitch')}
+            onClick={onMachineBadgeClick}
+          >
+            <Pill tone="neutral">
+              <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+                {machineBadgeIcon ? (
+                  <span className="text-xs leading-none">{machineBadgeIcon}</span>
+                ) : null}
+                {machineBadgeLabel}
+              </span>
+            </Pill>
+          </button>
+          {badges}
+        </div>
+        <p
+          className="w-full text-lg font-bold text-[rgb(var(--foreground))] break-words"
+          data-testid="workspace-binding-header-title"
+        >
+          {displayTitle}
+        </p>
         {workspaceRoot ? (
           <p className="text-xs text-[rgb(var(--muted))] break-all font-mono mt-0.5">{workspaceRoot}</p>
         ) : mode === 'create' ? (
@@ -351,18 +217,6 @@ function PanelIdentityHeader({
         ) : null}
         {footer}
       </div>
-
-      <HeaderMachineDropdown
-        mode={mode}
-        machines={machines}
-        machineId={machineId}
-        setMachineId={setMachineId}
-        machineIds={machineIds}
-        setMachineIds={setMachineIds}
-        machineBadgeLabel={machineBadgeLabel}
-        machineBadgeIcon={machineBadgeIcon}
-        t={t}
-      />
     </div>
   );
 }
@@ -435,6 +289,7 @@ export function WorkspaceBindingPanel() {
   const onSaveStatusChangeRef = useRef(setSaveStatus);
 
   const panelOpenRef = useRef(isOpen);
+  const scopeSectionRef = useRef<CollapsibleSectionRef>(null);
   panelOpenRef.current = isOpen;
 
   useEffect(() => {
@@ -947,15 +802,6 @@ export function WorkspaceBindingPanel() {
   const createSubmitLabel =
     mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
 
-  const handleHeaderIconClear = useCallback(() => {
-    setIcon('');
-    if (isEdit && formInitial && canSubmit) {
-      void handlePersistIcon('').catch((e) =>
-        showError(t('toast.couldNotSave'), e instanceof Error ? e.message : String(e)),
-      );
-    }
-  }, [isEdit, formInitial, canSubmit, handlePersistIcon, showError, t]);
-
   if (!isOpen || !payload) return null;
 
   const binding = payload.binding ?? null;
@@ -1000,18 +846,11 @@ export function WorkspaceBindingPanel() {
             <PanelIdentityHeader
               mode={mode}
               label={label}
-              setLabel={setLabel}
               icon={icon}
-              setIcon={setIcon}
               workspaceRoot={workspaceRoot}
-              machines={machines}
-              machineId={machineId}
-              setMachineId={setMachineId}
-              machineIds={machineIds}
-              setMachineIds={setMachineIds}
               machineBadgeLabel={machineBadgeLabel}
               machineBadgeIcon={machineBadgeIcon}
-              onIconClear={handleHeaderIconClear}
+              onMachineBadgeClick={() => scopeSectionRef.current?.expand()}
               badges={
                 <>
                   {mode === 'create-from-live' && (
@@ -1146,6 +985,7 @@ export function WorkspaceBindingPanel() {
               )}
 
               <CollapsibleSection
+                ref={scopeSectionRef}
                 icon={<Monitor className="h-5 w-5" />}
                 tone="primary"
                 title={t('panel.scope')}
@@ -1156,6 +996,8 @@ export function WorkspaceBindingPanel() {
                 <ScopeFields
                   key={`scope-${panelKey}`}
                   mode={mode}
+                  label={label}
+                  setLabel={setLabel}
                   machines={machines}
                   machineId={machineId}
                   setMachineId={setMachineId}
