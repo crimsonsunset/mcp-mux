@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
+  Check,
   FolderOpen,
   Layers,
   Loader2,
@@ -19,6 +20,7 @@ import { apiCall } from '@/lib/api/transport';
 import {
   createWorkspaceBinding,
   deleteWorkspaceBinding,
+  listWorkspaceBindings,
   updateWorkspaceBinding,
   validateWorkspaceRoot,
   type WorkspaceBinding,
@@ -46,6 +48,7 @@ import {
   SaveStatusPill,
   ScopeFields,
   bindingMachineId,
+  bindingScopeConflicts,
   buildBindingPayload,
   normalizeIcon,
   sameBindingInput,
@@ -63,6 +66,47 @@ import {
  */
 function formatFsList(names: string[]): string {
   return names.filter((n) => n && n.length > 0).join(' + ');
+}
+
+/**
+ * Resolve machine badge label for header and Scope subtitle.
+ */
+function resolveMachineBadgeLabel(
+  mode: 'create' | 'edit' | 'create-from-live',
+  machineId: string,
+  machineIds: string[],
+  machinesById: Map<string, Machine>,
+  t: TFunction<['workspaces', 'common']>,
+): string {
+  if (mode === 'edit') {
+    return machineId && machinesById.has(machineId)
+      ? machinesById.get(machineId)!.name
+      : t('panel.machineGlobal');
+  }
+  if (machineIds.length === 0) return t('panel.machineGlobal');
+  if (machineIds.length === 1) {
+    const machine = machinesById.get(machineIds[0]);
+    return machine?.name ?? t('panel.machineGlobal');
+  }
+  return t('panel.machineCount', { count: machineIds.length });
+}
+
+/**
+ * Resolve machine badge icon for the header pill.
+ */
+function resolveMachineBadgeIcon(
+  mode: 'create' | 'edit' | 'create-from-live',
+  machineId: string,
+  machineIds: string[],
+  machinesById: Map<string, Machine>,
+): string | null {
+  if (mode === 'edit') {
+    return machineId ? (machinesById.get(machineId)?.icon ?? null) : null;
+  }
+  if (machineIds.length === 1) {
+    return machinesById.get(machineIds[0])?.icon ?? null;
+  }
+  return null;
 }
 
 /** Compact status pill matching WorkspacesPage card badges. */
@@ -213,7 +257,7 @@ function buildFormInitial(
     feature_set_ids: [],
     machine_id: null,
     label: null,
-    icon: null,
+    icon: payload.appearanceIcon ?? null,
     client_id: payload.clientId ?? null,
     created_at: '',
     updated_at: '',
@@ -248,6 +292,7 @@ export function WorkspaceBindingPanel() {
   const [spaceId, setSpaceId] = useState('');
   const [fsIds, setFsIds] = useState<string[]>([]);
   const [machineId, setMachineId] = useState('');
+  const [machineIds, setMachineIds] = useState<string[]>([]);
   const [root, setRoot] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [rootValidation, setRootValidation] = useState<RootValidationState>({ state: 'idle' });
@@ -280,6 +325,7 @@ export function WorkspaceBindingPanel() {
         workspaceRoot: eventPayload.workspace_root,
         clientId: eventPayload.client_id,
         spaceId: eventPayload.space_id,
+        spaceLocked: eventPayload.space_locked ?? false,
         collisionClientId: eventPayload.collision_client_id ?? undefined,
       });
     });
@@ -367,12 +413,12 @@ export function WorkspaceBindingPanel() {
     [spaces],
   );
 
-  const effectiveMachineId = clientMachineId ?? localMachineId;
   const workspaceRoot =
     payload?.binding?.workspace_root ?? payload?.workspaceRoot ?? formInitial?.workspace_root;
   const mode = payload?.mode ?? 'create';
   const isEdit = mode === 'edit';
   const rootEditable = mode !== 'create-from-live';
+  const spaceLocked = payload?.spaceLocked ?? false;
   const panelKey = `${mode}:${payload?.binding?.id ?? workspaceRoot ?? 'new'}:${spaces.length}`;
 
   useEffect(() => {
@@ -380,17 +426,20 @@ export function WorkspaceBindingPanel() {
     const initial = formInitial;
     setRoot(initial?.workspace_root ?? payload.workspaceRoot ?? '');
     setLabel(initial?.label ?? '');
-    setIcon(initial?.icon ?? '');
+    setIcon(initial?.icon ?? payload.appearanceIcon ?? '');
     setSpaceId(initial?.space_id ?? defaultSpaceId);
     setFsIds(initial?.feature_set_ids ?? []);
     setMachineId(initial?.machine_id ?? '');
+    setMachineIds(
+      mode === 'edit' ? [] : localMachineId ? [localMachineId] : [],
+    );
     setRootValidation({ state: 'idle' });
     setSubmitting(false);
     lastSavedRef.current = null;
     pendingPayloadRef.current = null;
     lastSavedAppearanceRef.current =
       mode === 'create-from-live' ? normalizeIcon(initial?.icon) : null;
-  }, [panelKey, loadingData, isOpen, payload, formInitial, defaultSpaceId, mode]);
+  }, [panelKey, loadingData, isOpen, payload, formInitial, defaultSpaceId, mode, localMachineId]);
 
   useEffect(() => {
     if (!rootEditable) {
@@ -405,7 +454,31 @@ export function WorkspaceBindingPanel() {
     setRootValidation({ state: 'checking' });
     const handle = setTimeout(() => {
       void validateWorkspaceRoot(root)
-        .then((normalized) => {
+        .then(async (normalized) => {
+          if (validationSeq.current !== seq) return;
+          if (!isEdit) {
+            const targets = machineIds.length > 0 ? machineIds : [null as string | null];
+            try {
+              const existing = await listWorkspaceBindings();
+              if (validationSeq.current !== seq) return;
+              const hasDuplicate = targets.some((mId) => {
+                const resolvedClient = mId ? null : (payload?.clientId ?? null);
+                return existing.some((b) =>
+                  bindingScopeConflicts(b, normalized, mId, resolvedClient),
+                );
+              });
+              if (hasDuplicate) {
+                setRootValidation({
+                  state: 'error',
+                  reason: t('form.duplicateRoot', { path: normalized }),
+                  duplicate: true,
+                });
+                return;
+              }
+            } catch {
+              /* duplicate pre-check is best-effort */
+            }
+          }
           if (validationSeq.current !== seq) return;
           setRootValidation({ state: 'ok', normalized });
         })
@@ -416,7 +489,7 @@ export function WorkspaceBindingPanel() {
         });
     }, 180);
     return () => clearTimeout(handle);
-  }, [root, rootEditable]);
+  }, [root, rootEditable, isEdit, machineIds, payload?.clientId, t]);
 
   useEffect(() => {
     if (mode !== 'create-from-live') return;
@@ -747,12 +820,18 @@ export function WorkspaceBindingPanel() {
 
   const machinesById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
 
-  const machineBadgeLabel =
-    machineId && machinesById.has(machineId)
-      ? machinesById.get(machineId)!.name
-      : t('panel.machineGlobal');
+  const machineBadgeLabel = resolveMachineBadgeLabel(
+    mode,
+    machineId,
+    machineIds,
+    machinesById,
+    t,
+  );
 
-  const machineBadgeIcon = machineId ? (machinesById.get(machineId)?.icon ?? null) : null;
+  const machineBadgeIcon = resolveMachineBadgeIcon(mode, machineId, machineIds, machinesById);
+
+  const createSubmitLabel =
+    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
 
   const handleHeaderIconClear = useCallback(() => {
     setIcon('');
@@ -777,7 +856,9 @@ export function WorkspaceBindingPanel() {
     mode === 'create'
       ? t('panel.routingSubtitleCreate')
       : mode === 'create-from-live'
-        ? t('panel.routingSubtitleLive')
+        ? payload.collisionClientId
+          ? t('sheet.descCollision')
+          : t('sheet.descNew')
         : isEdit
           ? t('panel.routingSubtitleRoutes', {
               featureSets:
@@ -832,13 +913,6 @@ export function WorkspaceBindingPanel() {
                   )}
                   {mode === 'edit' && binding && <Pill tone="neutral">{t('card.offline')}</Pill>}
                 </>
-              }
-              footer={
-                mode === 'create-from-live' ? (
-                  <p className="text-xs text-[rgb(var(--muted))] mt-1">
-                    {payload.collisionClientId ? t('sheet.descCollision') : t('sheet.descNew')}
-                  </p>
-                ) : undefined
               }
               t={t}
             />
@@ -958,6 +1032,35 @@ export function WorkspaceBindingPanel() {
               )}
 
               <CollapsibleSection
+                ref={scopeSectionRef}
+                icon={<Monitor className="h-5 w-5" />}
+                tone="primary"
+                title={t('panel.scope')}
+                subtitle={scopeSubtitle}
+                defaultOpen
+                testId="workspace-scope-section"
+              >
+                <ScopeFields
+                  key={`scope-${panelKey}`}
+                  mode={mode}
+                  machines={machines}
+                  machineId={machineId}
+                  setMachineId={setMachineId}
+                  machineIds={machineIds}
+                  setMachineIds={setMachineIds}
+                  icon={icon}
+                  setIcon={setIcon}
+                  onPersistIcon={isEdit ? handlePersistIcon : undefined}
+                  root={root}
+                  setRoot={setRoot}
+                  rootValidation={rootValidation}
+                  rootEditable={rootEditable}
+                  onError={(msg) => showError(t('toast.couldNotSave'), msg)}
+                  t={t}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection
                 icon={<Route className="h-5 w-5" />}
                 tone="primary"
                 title={t('panel.routing')}
@@ -974,35 +1077,7 @@ export function WorkspaceBindingPanel() {
                   setSpaceId={setSpaceId}
                   fsIds={fsIds}
                   setFsIds={setFsIds}
-                  t={t}
-                />
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                ref={scopeSectionRef}
-                icon={<Monitor className="h-5 w-5" />}
-                tone="primary"
-                title={t('panel.scope')}
-                subtitle={scopeSubtitle}
-                defaultOpen={false}
-                testId="workspace-scope-section"
-              >
-                <ScopeFields
-                  key={`scope-${panelKey}`}
-                  mode={mode}
-                  machines={machines}
-                  localMachineId={effectiveMachineId}
-                  machineId={machineId}
-                  setMachineId={setMachineId}
-                  root={root}
-                  setRoot={setRoot}
-                  rootValidation={rootValidation}
-                  rootEditable={rootEditable}
-                  canSubmit={canSubmit}
-                  submitting={submitting}
-                  onFormSubmit={handleFormSubmit}
-                  onCancel={close}
-                  onError={(msg) => showError(t('toast.couldNotSave'), msg)}
+                  spacePickerDisabled={spaceLocked}
                   t={t}
                 />
               </CollapsibleSection>
@@ -1041,6 +1116,34 @@ export function WorkspaceBindingPanel() {
             </>
           )}
         </div>
+
+        {!isEdit && !loadingData && (
+          <div className="flex-shrink-0 p-4 border-t border-[rgb(var(--border))] bg-[rgb(var(--surface-elevated))]">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => {
+                  const targets = machineIds.length > 0 ? machineIds : [null as string | null];
+                  void handleFormSubmit(targets);
+                }}
+                disabled={!canSubmit}
+                className="flex-1"
+                data-testid="workspace-binding-submit"
+              >
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                ) : (
+                  <Check className="h-4 w-4 mr-1.5" />
+                )}
+                {createSubmitLabel}
+              </Button>
+              <Button variant="secondary" size="md" onClick={close} disabled={submitting}>
+                {t('common:actions.cancel')}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {isEdit && binding && (
           <div className="flex-shrink-0 p-4 border-t border-[rgb(var(--border))] bg-[rgb(var(--surface-elevated))]">

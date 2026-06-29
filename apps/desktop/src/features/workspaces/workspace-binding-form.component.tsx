@@ -12,13 +12,17 @@ import {
   AlertCircle,
   Check,
   ChevronDown,
+  FolderOpen,
   FolderSearch,
   Loader2,
 } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
 import {
+  type WorkspaceBinding,
   type WorkspaceBindingInput,
 } from '@/lib/api/workspaceBindings';
+import { uploadWorkspaceIcon } from '@/lib/api/workspaceAppearances';
+import { ServerIcon } from '@/components/ServerIcon';
 import { isStarterFeatureSet, type FeatureSet } from '@/lib/api/featureSets';
 import { createMachine, getHostname, type Machine } from '@/lib/api/machines';
 import type { Space } from '@/lib/api/spaces';
@@ -93,7 +97,21 @@ export type RootValidationState =
   | { state: 'idle' }
   | { state: 'checking' }
   | { state: 'ok'; normalized: string }
-  | { state: 'error'; reason: string };
+  | { state: 'error'; reason: string; duplicate?: boolean };
+
+/** True when two bindings would collide on the partial unique indexes. */
+export function bindingScopeConflicts(
+  existing: WorkspaceBinding,
+  root: string,
+  machineId: string | null,
+  clientId: string | null | undefined,
+): boolean {
+  if (existing.workspace_root !== root) return false;
+  return (
+    (existing.machine_id ?? null) === machineId &&
+    (existing.client_id ?? null) === (clientId ?? null)
+  );
+}
 
 /** Map empty machine picker value to null for API payloads. */
 export function bindingMachineId(value: string): string | null {
@@ -152,6 +170,7 @@ export function RoutingFields({
   setSpaceId,
   fsIds,
   setFsIds,
+  spacePickerDisabled = false,
   t,
 }: {
   spaces: Space[];
@@ -160,6 +179,7 @@ export function RoutingFields({
   setSpaceId: (value: string) => void;
   fsIds: string[];
   setFsIds: (value: string[] | ((prev: string[]) => string[])) => void;
+  spacePickerDisabled?: boolean;
   t: TFunction<['workspaces', 'common']>;
 }) {
   const [fsSearch, setFsSearch] = useState('');
@@ -201,17 +221,21 @@ export function RoutingFields({
 
   return (
     <div className="space-y-5">
-      <FormField label={t('form.space')} hint={t('form.spaceHint')}>
+      <FormField
+        label={t('form.space')}
+        hint={spacePickerDisabled ? t('form.spaceLockedHint') : t('form.spaceHint')}
+      >
         <Picker
           value={spaceId}
           onChange={setSpaceId}
           placeholder={t('form.pickSpace')}
+          disabled={spacePickerDisabled}
           options={spaces.map((s) => ({
             value: s.id,
             label: s.is_default ? `${s.name}${t('form.defaultSuffix')}` : s.name,
             icon: s.icon ?? undefined,
           }))}
-          testId="workspace-binding-space"
+          testId="workspace-binding-space-picker"
         />
       </FormField>
 
@@ -327,45 +351,43 @@ export function RoutingFields({
 }
 
 /**
- * Machine scope and workspace root fields for workspace bindings.
+ * Machine scope, workspace root, and advanced icon fields for workspace bindings.
  */
 export function ScopeFields({
   mode,
   machines,
-  localMachineId,
   machineId,
   setMachineId,
+  machineIds,
+  setMachineIds,
+  icon,
+  setIcon,
+  onPersistIcon,
   root,
   setRoot,
   rootValidation,
   rootEditable,
-  canSubmit,
-  submitting,
-  onFormSubmit,
-  onCancel,
   onError,
   t,
 }: {
   mode: 'create' | 'edit' | 'create-from-live';
   machines: Machine[];
-  localMachineId: string | null;
   machineId: string;
   setMachineId: (value: string) => void;
+  machineIds: string[];
+  setMachineIds: (value: string[] | ((prev: string[]) => string[])) => void;
+  icon: string;
+  setIcon: (value: string) => void;
+  onPersistIcon?: (nextIcon: string) => Promise<void>;
   root: string;
   setRoot: (value: string) => void;
   rootValidation: RootValidationState;
   rootEditable: boolean;
-  canSubmit: boolean;
-  submitting: boolean;
-  onFormSubmit: (machineTargets: (string | null)[]) => Promise<void>;
-  onCancel: () => void;
   onError: (message: string) => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
   const rootRef = useRef<HTMLInputElement | null>(null);
-  const [machineIds, setMachineIds] = useState<string[]>(() =>
-    mode === 'edit' ? [] : localMachineId ? [localMachineId] : [],
-  );
+  const [iconFilePath, setIconFilePath] = useState('');
   const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
   const [showNewMachine, setShowNewMachine] = useState(false);
   const [newMachineName, setNewMachineName] = useState('');
@@ -373,6 +395,7 @@ export function ScopeFields({
   const [newMachineHostname, setNewMachineHostname] = useState('');
   const [creatingMachine, setCreatingMachine] = useState(false);
   const isEdit = mode === 'edit';
+  const trimmedIcon = icon.trim();
 
   useEffect(() => {
     setLocalMachines(machines);
@@ -384,6 +407,15 @@ export function ScopeFields({
 
   const toggleMachine = (id: string) => {
     setMachineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  /**
+   * Persist icon immediately after upload so the card updates without waiting for autosave.
+   */
+  const persistIconNow = async (nextIcon: string) => {
+    if (onPersistIcon) {
+      await onPersistIcon(nextIcon);
+    }
   };
 
   const machineOptions = useMemo(
@@ -435,11 +467,112 @@ export function ScopeFields({
     }
   };
 
-  const submitLabel =
-    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
-
   return (
     <div className="space-y-5">
+      <FormField label={t('form.icon')} hint={t('form.iconHint')}>
+        <div className="space-y-2.5">
+          <div className="flex items-start gap-3">
+            <div className="w-14 h-14 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))] flex items-center justify-center flex-shrink-0">
+              {trimmedIcon ? (
+                <ServerIcon icon={trimmedIcon} className="h-9 w-9 object-contain" fallback="📁" />
+              ) : (
+                <FolderOpen className="h-6 w-6 text-[rgb(var(--muted))]" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0 space-y-2">
+              <input
+                type="text"
+                value={icon}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setIcon(next);
+                }}
+                placeholder={t('form.iconPlaceholder')}
+                className="w-full h-10 px-3 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
+                data-testid="workspace-binding-icon-input"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                {isTauri() ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const picked = await pickPath({
+                          directory: false,
+                          multiple: false,
+                          title: t('form.pickIconTitle'),
+                          filters: [
+                            {
+                              name: t('form.imagesFilter'),
+                              extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
+                            },
+                          ],
+                        });
+                        if (typeof picked !== 'string' || picked.length === 0) return;
+                        const localRef = await uploadWorkspaceIcon(picked);
+                        setIcon(localRef);
+                        await persistIconNow(localRef);
+                      } catch (e) {
+                        onError(e instanceof Error ? e.message : String(e));
+                      }
+                    }}
+                    data-testid="workspace-binding-icon-upload"
+                  >
+                    {t('form.upload')}
+                  </Button>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={iconFilePath}
+                      onChange={(e) => setIconFilePath(e.target.value)}
+                      placeholder="Enter absolute path"
+                      className="min-w-0 flex-1 px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      data-testid="workspace-binding-icon-path-input"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={!iconFilePath.trim()}
+                      onClick={async () => {
+                        const picked = iconFilePath.trim();
+                        if (!picked) return;
+                        try {
+                          const localRef = await uploadWorkspaceIcon(picked);
+                          setIcon(localRef);
+                          await persistIconNow(localRef);
+                          setIconFilePath('');
+                        } catch (e) {
+                          onError(e instanceof Error ? e.message : String(e));
+                        }
+                      }}
+                      data-testid="workspace-binding-icon-upload"
+                    >
+                      {t('form.upload')}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setIcon('');
+                    void persistIconNow('').catch((e) =>
+                      onError(e instanceof Error ? e.message : String(e)),
+                    );
+                  }}
+                  disabled={!trimmedIcon}
+                  data-testid="workspace-binding-icon-clear"
+                >
+                  {t('form.clear')}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </FormField>
+
       <FormField label={t('form.machine')} hint={t('form.machineHint')}>
         {isEdit ? (
           <div className="space-y-2">
@@ -643,32 +776,6 @@ export function ScopeFields({
         </div>
         <RootValidationHint state={rootValidation} editable={rootEditable} originalValue={root} t={t} />
       </FormField>
-
-      {!isEdit && (
-        <div className="flex items-center gap-2 pt-1">
-          <Button
-            variant="primary"
-            size="md"
-            onClick={() => {
-              const targets = machineIds.length > 0 ? machineIds : [null as string | null];
-              void onFormSubmit(targets);
-            }}
-            disabled={!canSubmit}
-            className="flex-1"
-            data-testid="workspace-binding-submit"
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-            ) : (
-              <Check className="h-4 w-4 mr-1.5" />
-            )}
-            {submitLabel}
-          </Button>
-          <Button variant="secondary" size="md" onClick={onCancel} disabled={submitting}>
-            {t('common:actions.cancel')}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
@@ -680,11 +787,7 @@ function RootValidationHint({
   originalValue,
   t,
 }: {
-  state:
-    | { state: 'idle' }
-    | { state: 'checking' }
-    | { state: 'ok'; normalized: string }
-    | { state: 'error'; reason: string };
+  state: RootValidationState;
   editable: boolean;
   originalValue: string;
   t: TFunction<['workspaces', 'common']>;
@@ -711,7 +814,12 @@ function RootValidationHint({
   }
   if (state.state === 'error') {
     return (
-      <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">{state.reason}</p>
+      <p
+        className="mt-1.5 text-[11px] text-red-600 dark:text-red-400"
+        data-testid={state.duplicate ? 'workspace-binding-duplicate-error' : undefined}
+      >
+        {state.reason}
+      </p>
     );
   }
   const changed = state.normalized !== originalValue.trim();

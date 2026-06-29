@@ -91,7 +91,8 @@
     "effectiveFeaturesSubtitle": "Tools, prompts, and resources this folder currently sees",
     "removeBinding": "Remove binding",
     "identityPlaceholder": "Add a label…",
-    "machineGlobal": "Global"
+    "machineGlobal": "Global",
+    "machineCount": "{{count}} machines"
   },
   "saveStatus": {
     "saving": "Saving",
@@ -147,6 +148,7 @@
     "pickFolder": "Pick a folder",
     "space": "Space",
     "spaceHint": "Which Space this folder belongs to.",
+    "spaceLockedHint": "This folder is scoped to a Space base directory — the Space cannot be changed.",
     "pickSpace": "Pick a Space",
     "defaultSuffix": " · default",
     "featureSet": "Feature set",
@@ -163,6 +165,7 @@
     "renderOrderTooltip": "Render order — first FS rendered first; resolver merges all into one set.",
     "saveBinding": "Save binding",
     "createBinding": "Create binding",
+    "duplicateRoot": "A mapping already exists for {{path}}. Edit the existing mapping instead of adding a second one.",
     "errors": {
       "rootRequired": "Workspace root is required.",
       "pickSpace": "Pick a Space.",

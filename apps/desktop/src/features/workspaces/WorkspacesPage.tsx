@@ -607,6 +607,7 @@ export function WorkspacesPage() {
                       openBindingPanel({
                         mode: 'create-from-live',
                         workspaceRoot: entry.root,
+                        appearanceIcon: resolveEntryIcon(entry) ?? undefined,
                       });
                     }}
                     onMachineRowClick={(bindingId) => {
@@ -619,6 +620,7 @@ export function WorkspacesPage() {
                       openBindingPanel({
                         mode: 'create-from-live',
                         workspaceRoot: entry.root,
+                        appearanceIcon: resolveEntryIcon(entry) ?? undefined,
                       });
                     }}
                     onForget={
