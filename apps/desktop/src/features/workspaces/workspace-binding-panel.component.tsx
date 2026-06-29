@@ -862,7 +862,7 @@ export function WorkspaceBindingPanel() {
                     </Pill>
                   )}
                   {mode === 'create-from-live' && !payload.collisionClientId && (
-                    <Pill tone="amber">{t('card.unmapped')}</Pill>
+                    <Pill tone="amber">{t('card.badgeLiveUnbound')}</Pill>
                   )}
                   {mode === 'edit' && binding && <Pill tone="neutral">{t('card.offline')}</Pill>}
                 </>
@@ -887,6 +887,14 @@ export function WorkspaceBindingPanel() {
             </div>
           ) : (
             <>
+              {mode === 'create-from-live' && !payload.collisionClientId && (
+                <div
+                  className="rounded-xl border border-amber-200/80 dark:border-amber-800/50 bg-amber-50/80 dark:bg-amber-900/15 p-4"
+                  data-testid="workspace-binding-no-tools-banner"
+                >
+                  <p className="text-sm text-amber-900 dark:text-amber-100">{t('sheet.noToolsBanner')}</p>
+                </div>
+              )}
               {mode === 'create-from-live' && payload.clientId && showMachineCallout && (
                 <div
                   className="rounded-xl border-2 border-amber-300/80 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-900/15 p-4 space-y-3"

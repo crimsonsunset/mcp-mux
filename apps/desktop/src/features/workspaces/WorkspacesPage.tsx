@@ -1034,7 +1034,11 @@ function EntryCard({
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-1.5 flex min-h-[1.375rem] flex-wrap items-center gap-2">
-              {entry.kind === 'unmapped-live' && <Pill tone="amber">{t('card.unmapped')}</Pill>}
+              {entry.kind === 'unmapped-live' && (
+                <Pill tone="amber" title={t('card.deniedTooltip')}>
+                  {t('card.badgeLiveUnbound')}
+                </Pill>
+              )}
               {entry.kind === 'live-elsewhere' && (
                 <Pill tone="info">{t('card.badgeBoundElsewhere')}</Pill>
               )}
@@ -1063,6 +1067,21 @@ function EntryCard({
             >
               {hasLabel ? entry.root : '\u00A0'}
             </p>
+            {entry.kind === 'unmapped-live' && (
+              <Button
+                variant="primary"
+                size="sm"
+                className="mt-3 w-full"
+                title={t('card.deniedTooltip')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClick();
+                }}
+                data-testid="workspace-entry-bind-cta"
+              >
+                {t('card.deniedCta')}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1427,6 +1446,15 @@ export function EffectiveFeaturesContent({
     );
   }
   if (!data) return null;
+
+  if (data.source === 'unbound') {
+    return (
+      <div className="text-center py-8 text-[rgb(var(--muted))]">
+        <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">{t('effective.unboundEmpty')}</p>
+      </div>
+    );
+  }
 
   const allAvailable = totalCount > 0 && availableCount === totalCount;
   const partialAvailable = availableCount > 0 && availableCount < totalCount;

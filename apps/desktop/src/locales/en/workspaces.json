@@ -1,6 +1,6 @@
 {
   "title": "Projects",
-  "subtitle": "Each binding tells mcpmux which Space and feature set a folder routes into. Folders without a binding fall back to the default Space.",
+  "subtitle": "Each binding tells mcpmux which Space and feature set a folder routes into. Folders without a binding have no backend tools until you bind them.",
   "searchPlaceholder": "Search by path, space, or feature set…",
   "filter": {
     "all": "All",
@@ -35,7 +35,7 @@
   },
   "confirm": {
     "removeTitle": "Remove binding",
-    "removeMessage": "Sessions matching \"{{path}}\" will fall back to the default Space. You can recreate the binding anytime.",
+    "removeMessage": "Sessions matching \"{{path}}\" will have no backend tools until you create a new binding.",
     "removeLabel": "Remove"
   },
   "card": {
@@ -44,6 +44,8 @@
     "offline": "Offline",
     "live": "Live",
     "badgeLiveUnbound": "UNBOUND",
+    "deniedCta": "Bind to enable tools",
+    "deniedTooltip": "This folder has no tools until you bind it to a workspace",
     "badgeBoundElsewhere": "BOUND ELSEWHERE",
     "notConfigured": "Not configured",
     "addBinding": "Add binding",
@@ -107,7 +109,8 @@
     "sourceBinding": "binding",
     "sourceUnbound": "unbound",
     "sourceBindingTooltip": "A workspace binding matched this folder — live sessions reporting it route here.",
-    "sourceUnboundTooltip": "No binding matches this folder. A live roots-capable session would be denied; the FeatureSet shown is a preview of what binding here would expose.",
+    "sourceUnboundTooltip": "No backend tools are active — this folder has no binding yet",
+    "unboundEmpty": "No tools on this session yet. Bind this folder to enable access.",
     "availableOf": "{{available}} of {{total}} available",
     "allReady": "All ready",
     "partial": "Partial",
@@ -195,7 +198,8 @@
     "titleCollision": "Create a binding for this client",
     "titleNew": "This folder is using your Starter set",
     "descCollision": "This path is already bound for another MCP client. Save a client-scoped binding so this machine gets its own tool set.",
-    "descNew": "You just opened this folder in a connected app. It's already configured with your default Starter tools. Pick a different Space or feature set below to change what it gets, or close to keep the Starter.",
+    "descNew": "No backend tools are active on this session. Creating a binding enables tool access.",
+    "noToolsBanner": "No backend tools are active on this session. Creating a binding enables tool access.",
     "space": "Space",
     "toolSet": "Tool set",
     "noFeatureSets": "No feature sets in this space yet.",
