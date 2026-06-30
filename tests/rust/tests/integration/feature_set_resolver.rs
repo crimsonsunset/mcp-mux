@@ -20,13 +20,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mcpmux_core::{
-    normalize_workspace_root, FeatureSet, FeatureSetRepository, Space, SpaceBaseDirRepository,
-    SpaceRepository, WorkspaceBinding, WorkspaceBindingRepository,
+    normalize_workspace_root, FeatureSet, FeatureSetRepository, Machine, MachineRepository, Space,
+    SpaceBaseDirRepository, SpaceRepository, WorkspaceBinding, WorkspaceBindingRepository,
 };
 use mcpmux_gateway::services::{FeatureSetResolverService, ResolutionSource, SessionRootsRegistry};
 use mcpmux_storage::{
     Database, InboundClient, InboundClientRepository, RegistrationType, SqliteFeatureSetRepository,
-    SqliteSpaceBaseDirRepository, SqliteSpaceRepository, SqliteWorkspaceBindingRepository,
+    SqliteMachineRepository, SqliteSpaceBaseDirRepository, SqliteSpaceRepository,
+    SqliteWorkspaceBindingRepository,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -38,6 +39,7 @@ struct Fixture {
     binding_repo: Arc<dyn WorkspaceBindingRepository>,
     fs_repo: Arc<dyn FeatureSetRepository>,
     client_repo: Arc<InboundClientRepository>,
+    machine_repo: SqliteMachineRepository,
     base_dir_repo: Arc<dyn SpaceBaseDirRepository>,
     space_id: Uuid,
     /// The default Space's auto-seeded Starter FS — used by tests that need a
@@ -56,6 +58,7 @@ impl Fixture {
         let binding_repo: Arc<dyn WorkspaceBindingRepository> =
             Arc::new(SqliteWorkspaceBindingRepository::new(db.clone()));
         let client_repo = Arc::new(InboundClientRepository::new(db.clone()));
+        let machine_repo = SqliteMachineRepository::new(db.clone());
         let base_dir_repo: Arc<dyn SpaceBaseDirRepository> =
             Arc::new(SqliteSpaceBaseDirRepository::new(db.clone()));
 
@@ -99,6 +102,7 @@ impl Fixture {
             binding_repo,
             fs_repo,
             client_repo,
+            machine_repo,
             base_dir_repo,
             space_id,
             starter_fs_id,
@@ -121,6 +125,27 @@ impl Fixture {
             None,
         )
         .with_pending_grace(grace)
+    }
+
+    /// Build a resolver with this install's `local_machine_id` set.
+    fn resolver_with_local_machine(&self, local_machine_id: Uuid) -> FeatureSetResolverService {
+        FeatureSetResolverService::new(
+            self.space_repo.clone(),
+            self.binding_repo.clone(),
+            self.session_roots.clone(),
+            self.client_repo.clone(),
+            self.fs_repo.clone(),
+            self.base_dir_repo.clone(),
+            Some(local_machine_id),
+        )
+    }
+
+    /// Insert a machine catalog row and return its id.
+    async fn make_machine(&self, name: &str) -> Uuid {
+        let machine = Machine::new(name);
+        let id = machine.id;
+        self.machine_repo.create(&machine).await.unwrap();
+        id
     }
 
     /// Create a second Space with its own Starter and a base directory, so
@@ -191,7 +216,7 @@ fn test_root() -> &'static str {
 #[tokio::test]
 async fn default_when_no_session_id_and_no_grants() {
     let f = Fixture::new().await;
-    let r = f.resolver.resolve(None, None).await.unwrap();
+    let r = f.resolver.resolve(None, None, None).await.unwrap();
     // No session, no grants → Unbound (deny by default).
     assert_eq!(r.source, ResolutionSource::Unbound);
     assert!(r.feature_set_ids.is_empty());
@@ -208,7 +233,7 @@ async fn pending_when_session_has_no_roots_and_capability_unknown() {
     // on_initialized resolved to "no roots + no grants — deny" and the
     // user saw only meta tools until reconnect.
     let f = Fixture::new().await;
-    let r = f.resolver.resolve(Some("orphan"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("orphan"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::PendingRoots);
     assert!(r.feature_set_ids.is_empty());
 }
@@ -220,7 +245,7 @@ async fn default_when_session_explicitly_rootless_and_no_grants() {
     // so settle straight on Unbound (no grace wait needed).
     let f = Fixture::new().await;
     f.session_roots.set_roots_capable("rootless", false);
-    let r = f.resolver.resolve(Some("rootless"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("rootless"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     assert!(r.feature_set_ids.is_empty());
 }
@@ -230,7 +255,7 @@ async fn default_when_roots_reported_but_no_binding_matches() {
     let f = Fixture::new().await;
     let other = if cfg!(windows) { "d:\\tmp" } else { "/tmp" };
     f.session_roots.set("sess", [other]);
-    let r = f.resolver.resolve(Some("sess"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("sess"), None, None).await.unwrap();
     // Roots present but no binding → the folder is unmapped, so Unbound
     // (deny by default). Upstream still emits WorkspaceNeedsBinding so the
     // user can attach an explicit binding.
@@ -253,7 +278,7 @@ async fn pending_when_capable_but_roots_havent_arrived() {
     let f = Fixture::new().await;
     f.session_roots.set_roots_capable("sess", true);
     // No roots set in the registry yet.
-    let r = f.resolver.resolve(Some("sess"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("sess"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::PendingRoots);
     assert!(r.feature_set_ids.is_empty());
 }
@@ -274,7 +299,7 @@ async fn binding_routes_to_its_target_space_and_fs() {
     f.session_roots.set("s", [test_root()]);
     f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(r.space_id, Some(f.space_id));
     assert_eq!(r.feature_set_ids, vec![f.fs_a_id]);
@@ -303,7 +328,7 @@ async fn deleting_a_bound_feature_set_drops_it_and_resolution_survives() {
     // ...and the resolver routes via the binding to just the survivor.
     f.session_roots.set("s", [test_root()]);
     f.session_roots.set_roots_capable("s", true);
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(r.feature_set_ids, vec![f.fs_b_id.clone()]);
 }
@@ -333,7 +358,7 @@ async fn no_inheritance_child_of_bound_parent_falls_back_to_default() {
     // inheritance of the parent's FS A).
     f.session_roots.set("child", [child]);
     f.session_roots.set_roots_capable("child", true);
-    let r = f.resolver.resolve(Some("child"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("child"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     assert!(r.feature_set_ids.is_empty());
     assert_ne!(r.feature_set_ids, vec![f.fs_a_id.clone()]);
@@ -341,7 +366,7 @@ async fn no_inheritance_child_of_bound_parent_falls_back_to_default() {
     // The parent's own exact root still resolves to its binding.
     f.session_roots.set("parent", [parent]);
     f.session_roots.set_roots_capable("parent", true);
-    let rp = f.resolver.resolve(Some("parent"), None).await.unwrap();
+    let rp = f.resolver.resolve(Some("parent"), None, None).await.unwrap();
     assert_eq!(rp.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(rp.feature_set_ids, vec![f.fs_a_id]);
 }
@@ -364,7 +389,7 @@ async fn unmapped_root_under_base_dir_scopes_to_that_space() {
     f.session_roots.set("s", [root]);
     f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     // Scoped to the Work space — NOT the global default space.
     assert_eq!(r.space_id, Some(work_space));
@@ -386,7 +411,7 @@ async fn unmapped_root_outside_base_dirs_uses_default_space() {
     f.session_roots.set("s", [other]);
     f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     // No base dir claims it → global default space.
     assert_eq!(r.space_id, Some(f.space_id));
@@ -407,7 +432,7 @@ async fn nested_base_dir_most_specific_space_wins() {
     f.session_roots.set("s", [root]);
     f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(
         r.space_id,
         Some(client_space),
@@ -440,7 +465,7 @@ async fn exact_binding_overrides_base_dir_scope() {
     f.session_roots.set("s", [root]);
     f.session_roots.set_roots_capable("s", true);
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(r.space_id, Some(f.space_id));
     assert_eq!(r.feature_set_ids, vec![f.fs_a_id.clone()]);
@@ -502,7 +527,7 @@ async fn rootless_client_uses_grants() {
     f.session_roots.set_roots_capable("s", false);
     let r = f
         .resolver
-        .resolve(Some("s"), Some(client_id))
+        .resolve(Some("s"), Some(client_id), None)
         .await
         .unwrap();
     assert_eq!(r.source, ResolutionSource::ClientGrant);
@@ -517,7 +542,7 @@ async fn rootless_client_without_grants_falls_back_to_default() {
     f.session_roots.set_roots_capable("s", false);
     let r = f
         .resolver
-        .resolve(Some("s"), Some(client_id))
+        .resolve(Some("s"), Some(client_id), None)
         .await
         .unwrap();
     // Rootless + no grants → Unbound (deny by default).
@@ -545,7 +570,7 @@ async fn roots_arrived_empty_falls_through_to_grants() {
     f.session_roots.set("s", Vec::<String>::new()); // roots ARRIVED, but empty
     let r = f
         .resolver
-        .resolve(Some("s"), Some(client_id))
+        .resolve(Some("s"), Some(client_id), None)
         .await
         .unwrap();
     assert_eq!(r.source, ResolutionSource::ClientGrant);
@@ -560,7 +585,7 @@ async fn roots_arrived_empty_without_grants_falls_back_to_default() {
     let f = Fixture::new().await;
     f.session_roots.set_roots_capable("s", true);
     f.session_roots.set("s", Vec::<String>::new());
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     assert!(r.feature_set_ids.is_empty());
 }
@@ -581,7 +606,7 @@ async fn capable_session_does_not_fall_through_to_grants() {
     f.session_roots.set_roots_capable("s", true);
     let r = f
         .resolver
-        .resolve(Some("s"), Some(client_id))
+        .resolve(Some("s"), Some(client_id), None)
         .await
         .unwrap();
     assert_eq!(r.source, ResolutionSource::PendingRoots);
@@ -606,7 +631,7 @@ async fn pending_roots_grace_lapse_falls_back_to_space_default_not_grants() {
         .unwrap();
 
     f.session_roots.set_roots_capable("s", true); // capable, but no roots ever arrive
-    let r = resolver.resolve(Some("s"), Some(client_id)).await.unwrap();
+    let r = resolver.resolve(Some("s"), Some(client_id), None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     assert!(r.feature_set_ids.is_empty());
 }
@@ -649,8 +674,8 @@ async fn two_sessions_on_different_roots_resolve_independently() {
     f.session_roots.set("sess-b", [root_b]);
     f.session_roots.set_roots_capable("sess-b", true);
 
-    let ra = f.resolver.resolve(Some("sess-a"), None).await.unwrap();
-    let rb = f.resolver.resolve(Some("sess-b"), None).await.unwrap();
+    let ra = f.resolver.resolve(Some("sess-a"), None, None).await.unwrap();
+    let rb = f.resolver.resolve(Some("sess-b"), None, None).await.unwrap();
     assert_eq!(ra.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(rb.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(ra.feature_set_ids, vec![f.fs_a_id.clone()]);
@@ -677,8 +702,8 @@ async fn two_sessions_on_same_root_resolve_to_the_same_binding() {
         f.session_roots.set_roots_capable(s, true);
     }
 
-    let r1 = f.resolver.resolve(Some("sess-1"), None).await.unwrap();
-    let r2 = f.resolver.resolve(Some("sess-2"), None).await.unwrap();
+    let r1 = f.resolver.resolve(Some("sess-1"), None, None).await.unwrap();
+    let r2 = f.resolver.resolve(Some("sess-2"), None, None).await.unwrap();
     assert_eq!(r1.feature_set_ids, vec![f.fs_a_id.clone()]);
     assert_eq!(r2.feature_set_ids, vec![f.fs_a_id.clone()]);
     assert_eq!(r1.space_id, r2.space_id);
@@ -708,7 +733,7 @@ async fn pinned_header_root_routes_to_binding_without_any_reported_roots() {
     f.session_roots.set_roots_capable("s", false); // client says it has no roots
     f.session_roots.set_pinned("s", test_root()); // ...but the header pins one
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(r.space_id, Some(f.space_id));
     assert_eq!(r.feature_set_ids, vec![f.fs_a_id]);
@@ -746,7 +771,7 @@ async fn pinned_header_root_overrides_a_conflicting_reported_root() {
     f.session_roots.set_roots_capable("s", true);
     f.session_roots.set_pinned("s", pinned);
 
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
     // Resolved to the PINNED root's FS (B), not the reported root's FS (A).
     assert_eq!(r.feature_set_ids, vec![f.fs_b_id]);
@@ -785,13 +810,13 @@ async fn header_takes_priority_but_reported_roots_still_map_without_one() {
     // No header pinned → the reported root drives resolution (FS A).
     f.session_roots.set("s", [root_a]);
     f.session_roots.set_roots_capable("s", true);
-    let reported = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let reported = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(reported.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(reported.feature_set_ids, vec![f.fs_a_id.clone()]);
 
     // Pin a header root for a different folder → it takes priority (FS B).
     f.session_roots.set_pinned("s", root_b);
-    let pinned = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let pinned = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(pinned.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(pinned.feature_set_ids, vec![f.fs_b_id.clone()]);
 }
@@ -803,8 +828,77 @@ async fn pinned_header_root_without_binding_falls_back_to_space_default() {
     // attach an explicit mapping).
     let f = Fixture::new().await;
     f.session_roots.set_pinned("s", test_root());
-    let r = f.resolver.resolve(Some("s"), None).await.unwrap();
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::SpaceDefault);
     assert_eq!(r.feature_set_ids, vec![f.starter_fs_id.clone()]);
     assert_eq!(r.space_id, Some(f.space_id));
+}
+
+// ---------------------------------------------------------------------------
+// Request machine header — per-device identity over shared tunnel
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn request_machine_header_outranks_client_and_local_machine() {
+    let f = Fixture::new().await;
+    let gondor_id = f.make_machine("Gondor").await;
+    let rohan_id = f.make_machine("Rohan").await;
+    let root = normalize_workspace_root(test_root());
+    let client_id = "cursor.example/shared";
+
+    let mut gondor_binding = WorkspaceBinding::new(root.clone(), f.space_id, f.fs_a_id.clone());
+    gondor_binding.machine_id = Some(gondor_id);
+    f.binding_repo.create(&gondor_binding).await.unwrap();
+
+    let mut rohan_binding = WorkspaceBinding::new(root.clone(), f.space_id, f.fs_b_id.clone());
+    rohan_binding.machine_id = Some(rohan_id);
+    f.binding_repo.create(&rohan_binding).await.unwrap();
+
+    f.make_client(client_id).await;
+    f.client_repo
+        .set_machine_id(client_id, Some(gondor_id))
+        .await
+        .unwrap();
+
+    f.session_roots.set("s", [root.as_str()]);
+    f.session_roots.set_roots_capable("s", true);
+
+    let resolver = f.resolver_with_local_machine(gondor_id);
+
+    let without_header = resolver
+        .resolve(Some("s"), Some(client_id), None)
+        .await
+        .unwrap();
+    assert_eq!(without_header.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(without_header.feature_set_ids, vec![f.fs_a_id]);
+
+    let with_rohan_header = resolver
+        .resolve(Some("s"), Some(client_id), Some(rohan_id))
+        .await
+        .unwrap();
+    assert_eq!(with_rohan_header.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(with_rohan_header.feature_set_ids, vec![f.fs_b_id]);
+}
+
+#[tokio::test]
+async fn request_machine_header_enables_deny_when_only_other_machine_bound() {
+    let f = Fixture::new().await;
+    let gondor_id = f.make_machine("Gondor").await;
+    let rohan_id = f.make_machine("Rohan").await;
+    let root = normalize_workspace_root(test_root());
+
+    let mut gondor_binding = WorkspaceBinding::new(root.clone(), f.space_id, f.fs_a_id.clone());
+    gondor_binding.machine_id = Some(gondor_id);
+    f.binding_repo.create(&gondor_binding).await.unwrap();
+
+    f.session_roots.set("s", [root.as_str()]);
+    f.session_roots.set_roots_capable("s", true);
+
+    let resolver = f.resolver_with_local_machine(gondor_id);
+    let r = resolver
+        .resolve(Some("s"), None, Some(rohan_id))
+        .await
+        .unwrap();
+    assert_eq!(r.source, ResolutionSource::Unbound);
+    assert!(r.feature_set_ids.is_empty());
 }

@@ -58,7 +58,7 @@ pub(crate) async fn caller_space_id(call: &MetaToolCall<'_>) -> Result<Uuid, Met
     let resolved = call
         .ctx
         .resolver
-        .resolve(call.session_id, Some(call.client_id))
+        .resolve(call.session_id, Some(call.client_id), None)
         .await?;
     if let Some(space_id) = resolved.space_id {
         return Ok(space_id);
@@ -76,7 +76,7 @@ pub(crate) async fn caller_resolution(
 ) -> Result<ResolvedFeatureSet, MetaToolError> {
     call.ctx
         .resolver
-        .resolve(call.session_id, Some(call.client_id))
+        .resolve(call.session_id, Some(call.client_id), None)
         .await
         .map_err(|e| MetaToolError::Internal(e.to_string()))
 }

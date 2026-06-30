@@ -1868,7 +1868,7 @@ async fn bind_current_workspace_second_session_inherits_binding() {
         .registry
         .context()
         .resolver
-        .resolve(Some(new_session), Some(&f.client_id))
+        .resolve(Some(new_session), Some(&f.client_id), None)
         .await
         .unwrap();
     assert!(
