@@ -708,6 +708,7 @@ fn enrich_feature(
 #[tauri::command]
 pub async fn get_workspace_effective_features(
     workspace_root: String,
+    machine_id: Option<String>,
     state: State<'_, AppState>,
     sm_state: State<'_, Arc<RwLock<ServerManagerState>>>,
 ) -> Result<WorkspaceEffectiveFeaturesDto, String> {
@@ -718,6 +719,8 @@ pub async fn get_workspace_effective_features(
         WorkspaceRootValidation::Invalid { reason } => return Err(reason),
     };
 
+    let parsed_machine_id = parse_optional_machine_id(machine_id.as_deref())?;
+
     // 2. Default Space — the routing fallback.
     let default_space = state
         .space_service
@@ -726,12 +729,28 @@ pub async fn get_workspace_effective_features(
         .map_err(|e| e.to_string())?
         .ok_or("No default Space configured")?;
 
-    // 3. Tier 1: longest-prefix workspace binding match.
-    let binding = state
-        .workspace_binding_repository
-        .find_exact_for_roots(std::slice::from_ref(&normalized))
-        .await
-        .map_err(|e| e.to_string())?;
+    // 3. Binding lookup: machine-scoped when machine_id is set, else legacy exact match.
+    let binding = if let Some(mid) = parsed_machine_id {
+        match state
+            .workspace_binding_repository
+            .find_exact_for_machine(&mid, &normalized, None)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            Some(b) => Some(b),
+            None => state
+                .workspace_binding_repository
+                .find_exact_global(&normalized)
+                .await
+                .map_err(|e| e.to_string())?,
+        }
+    } else {
+        state
+            .workspace_binding_repository
+            .find_exact_for_roots(std::slice::from_ref(&normalized))
+            .await
+            .map_err(|e| e.to_string())?
+    };
 
     let (source, binding_id, space_id, fs_ids) = match binding {
         Some(b) => (

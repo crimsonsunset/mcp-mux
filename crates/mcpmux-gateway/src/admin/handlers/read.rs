@@ -34,6 +34,7 @@ pub struct ValidateRootQuery {
 #[serde(rename_all = "camelCase")]
 pub struct EffectiveFeaturesQuery {
     pub workspace_root: String,
+    pub machine_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -404,10 +405,14 @@ pub async fn get_workspace_effective_features(
     State(state): State<AdminState>,
     Query(query): Query<EffectiveFeaturesQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_workspace_effective_features(&state.bridge, query.workspace_root)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
+    bridge::get_workspace_effective_features(
+        &state.bridge,
+        query.workspace_root,
+        query.machine_id,
+    )
+    .await
+    .map(ok)
+    .map_err(ApiError::from_bridge)
 }
 
 pub async fn list_workspace_appearances(

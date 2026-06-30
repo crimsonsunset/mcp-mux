@@ -42,6 +42,7 @@ import { listFeatureSets, type FeatureSet } from '@/lib/api/featureSets';
 import { listSpaces, type Space } from '@/lib/api/spaces';
 import { ServerIcon } from '@/components/ServerIcon';
 import { useBindingPanelStore } from '@/stores/bindingPanelStore';
+import { useViewerIdentity } from '@/hooks/use-viewer-identity.hook';
 import {
   RoutingFields,
   SaveStatusPill,
@@ -49,6 +50,7 @@ import {
   bindingMachineId,
   bindingScopeConflicts,
   buildBindingPayload,
+  folderName,
   normalizeIcon,
   sameBindingInput,
   type RootValidationState,
@@ -252,6 +254,7 @@ function buildFormInitial(
 export function WorkspaceBindingPanel() {
   const { t } = useTranslation(['workspaces', 'common']);
   const { isOpen, payload, open, close } = useBindingPanelStore();
+  const { machineId: viewerMachineId } = useViewerIdentity();
   const { subscribe } = useWorkspaceEvents();
   const { confirm, ConfirmDialogElement } = useConfirm();
   const { error: showError } = useToast();
@@ -259,9 +262,11 @@ export function WorkspaceBindingPanel() {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [allBindings, setAllBindings] = useState<WorkspaceBinding[]>([]);
   const [localMachineId, setLocalMachineId] = useState<string | null>(null);
   const [clientMachineId, setClientMachineIdState] = useState<string | null>(null);
   const [showMachineCallout, setShowMachineCallout] = useState(false);
+  const [adoptDismissed, setAdoptDismissed] = useState(false);
   const [assignMachineId, setAssignMachineId] = useState('');
   const [creatingMachine, setCreatingMachine] = useState(false);
   const [newMachineName, setNewMachineName] = useState('');
@@ -320,19 +325,23 @@ export function WorkspaceBindingPanel() {
     setEffectiveTotal(null);
     setCreatingMachine(false);
     setNewMachineName('');
+    setAdoptDismissed(false);
 
     void (async () => {
       try {
-        const [loadedSpaces, loadedFs, loadedMachines, loadedLocalId] = await Promise.all([
+        const [loadedSpaces, loadedFs, loadedMachines, loadedBindings, loadedLocalId] =
+          await Promise.all([
           listSpaces(),
           listFeatureSets(),
           listMachines().catch(() => [] as Machine[]),
+          listWorkspaceBindings().catch(() => [] as WorkspaceBinding[]),
           getLocalMachineId().catch(() => null),
         ]);
         if (cancelled) return;
         setSpaces(loadedSpaces);
         setFeatureSets(loadedFs);
         setMachines(loadedMachines);
+        setAllBindings(loadedBindings);
         setLocalMachineId(loadedLocalId);
 
         if (payload.mode === 'create-from-live' && payload.clientId) {
@@ -389,6 +398,23 @@ export function WorkspaceBindingPanel() {
   const spaceLocked = payload?.spaceLocked ?? false;
   const panelKey = `${mode}:${payload?.binding?.id ?? workspaceRoot ?? 'new'}:${spaces.length}`;
 
+  const defaultTargetMachineId =
+    clientMachineId ?? viewerMachineId ?? localMachineId ?? null;
+
+  const siblingBindings = useMemo(() => {
+    if (mode !== 'create-from-live' || !workspaceRoot) return [];
+    const currentFolder = folderName(workspaceRoot).toLowerCase();
+    return allBindings.filter(
+      (b) =>
+        b.workspace_root.toLowerCase() !== workspaceRoot.toLowerCase() &&
+        folderName(b.workspace_root).toLowerCase() === currentFolder,
+    );
+  }, [mode, workspaceRoot, allBindings]);
+
+  const effectiveMachineId = isEdit
+    ? bindingMachineId(machineId)
+    : machineIds[0] ?? null;
+
   useEffect(() => {
     if (!isOpen || !payload || loadingData) return;
     const initial = formInitial;
@@ -399,7 +425,7 @@ export function WorkspaceBindingPanel() {
     setFsIds(initial?.feature_set_ids ?? []);
     setMachineId(initial?.machine_id ?? '');
     setMachineIds(
-      mode === 'edit' ? [] : localMachineId ? [localMachineId] : [],
+      mode === 'edit' ? [] : defaultTargetMachineId ? [defaultTargetMachineId] : [],
     );
     setRootValidation({ state: 'idle' });
     setSubmitting(false);
@@ -407,7 +433,16 @@ export function WorkspaceBindingPanel() {
     pendingPayloadRef.current = null;
     lastSavedAppearanceRef.current =
       mode === 'create-from-live' ? normalizeIcon(initial?.icon) : null;
-  }, [panelKey, loadingData, isOpen, payload, formInitial, defaultSpaceId, mode, localMachineId]);
+  }, [
+    panelKey,
+    loadingData,
+    isOpen,
+    payload,
+    formInitial,
+    defaultSpaceId,
+    mode,
+    defaultTargetMachineId,
+  ]);
 
   useEffect(() => {
     if (!rootEditable) {
@@ -727,9 +762,17 @@ export function WorkspaceBindingPanel() {
   const handleDelete = useCallback(async () => {
     if (!payload?.binding) return;
     const binding = payload.binding;
+    const displayName = binding.label?.trim() || folderName(binding.workspace_root);
+    const machineName = binding.machine_id
+      ? machines.find((m) => m.id === binding.machine_id)?.name
+      : null;
+    const message =
+      machineName != null
+        ? t('confirm.removeMessageMachine', { machine: machineName, name: displayName })
+        : t('confirm.removeMessageGlobal', { name: displayName });
     const ok = await confirm({
       title: t('confirm.removeTitle'),
-      message: t('confirm.removeMessage', { path: binding.workspace_root }),
+      message,
       confirmLabel: t('confirm.removeLabel'),
       cancelLabel: t('common:actions.cancel'),
       variant: 'danger',
@@ -741,7 +784,7 @@ export function WorkspaceBindingPanel() {
     } catch (e) {
       showError(t('toast.failedToRemove'), e instanceof Error ? e.message : String(e));
     }
-  }, [payload, confirm, close, showError, t]);
+  }, [payload, machines, confirm, close, showError, t]);
 
   const handleAssignMachine = async () => {
     if (!payload?.clientId || !assignMachineId || assigningMachine) return;
@@ -863,6 +906,13 @@ export function WorkspaceBindingPanel() {
                   )}
                   {mode === 'edit' && binding && <Pill tone="neutral">{t('card.offline')}</Pill>}
                 </>
+              }
+              footer={
+                mode === 'create-from-live' ? (
+                  <p className="text-xs text-[rgb(var(--muted))] mt-1">
+                    {t('panel.targeting', { machine: machineBadgeLabel })}
+                  </p>
+                ) : null
               }
               t={t}
             />
@@ -989,6 +1039,100 @@ export function WorkspaceBindingPanel() {
                 </div>
               )}
 
+              {mode === 'create-from-live' && siblingBindings.length > 0 && !adoptDismissed && (
+                <div
+                  className="rounded-xl border border-primary-200/80 dark:border-primary-800/50 bg-primary-50/50 dark:bg-primary-900/10 p-4 space-y-3"
+                  data-testid="workspace-binding-adopt-card"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-[rgb(var(--foreground))]">
+                      {t('panel.adoptTitle')}
+                    </p>
+                    <p className="text-xs text-[rgb(var(--muted))] mt-1">{t('panel.adoptDesc')}</p>
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-[rgb(var(--border-subtle))]">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))]">
+                          <th className="px-2 py-1.5 text-left font-semibold text-[rgb(var(--muted))]">
+                            {t('panel.adoptColMachine')}
+                          </th>
+                          <th className="px-2 py-1.5 text-left font-semibold text-[rgb(var(--muted))]">
+                            {t('panel.adoptColPath')}
+                          </th>
+                          <th className="px-2 py-1.5 text-left font-semibold text-[rgb(var(--muted))]">
+                            {t('panel.adoptColSpace')}
+                          </th>
+                          <th className="px-2 py-1.5 text-left font-semibold text-[rgb(var(--muted))]">
+                            {t('panel.adoptColToolSet')}
+                          </th>
+                          <th className="px-2 py-1.5" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {siblingBindings.map((sibling) => {
+                          const machine = sibling.machine_id
+                            ? machinesById.get(sibling.machine_id)
+                            : null;
+                          const machineLabel = machine?.name ?? t('panel.machineGlobal');
+                          const spaceName =
+                            spaces.find((s) => s.id === sibling.space_id)?.name ?? '—';
+                          const fsNames = formatFsList(
+                            sibling.feature_set_ids.map(
+                              (id) => featureSets.find((f) => f.id === id)?.name ?? id,
+                            ),
+                          );
+                          return (
+                            <tr
+                              key={sibling.id}
+                              className="border-b border-[rgb(var(--border-subtle))] last:border-0"
+                            >
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <span className="inline-flex items-center gap-1">
+                                  {machine?.icon ? (
+                                    <span className="text-sm leading-none">{machine.icon}</span>
+                                  ) : null}
+                                  {machineLabel}
+                                </span>
+                              </td>
+                              <td className="px-2 py-2 font-mono text-[10px] break-all max-w-[120px]">
+                                {sibling.workspace_root}
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">{spaceName}</td>
+                              <td className="px-2 py-2">{fsNames || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSpaceId(sibling.space_id);
+                                    setFsIds(sibling.feature_set_ids);
+                                    if (sibling.label) setLabel(sibling.label);
+                                    if (sibling.icon) setIcon(sibling.icon);
+                                    setAdoptDismissed(true);
+                                  }}
+                                  data-testid={`workspace-binding-adopt-use-${sibling.id}`}
+                                >
+                                  {t('panel.adoptUseThis')}
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAdoptDismissed(true)}
+                    className="text-xs text-[rgb(var(--muted))] underline-offset-2 hover:text-[rgb(var(--foreground))] hover:underline"
+                    data-testid="workspace-binding-adopt-start-fresh"
+                  >
+                    {t('panel.adoptStartFresh')}
+                  </button>
+                </div>
+              )}
+
               <CollapsibleSection
                 ref={scopeSectionRef}
                 icon={<Monitor className="h-5 w-5" />}
@@ -1054,6 +1198,7 @@ export function WorkspaceBindingPanel() {
                 >
                   <EffectiveFeaturesContent
                     root={workspaceRoot}
+                    machineId={effectiveMachineId}
                     onTotalChange={setEffectiveTotal}
                     t={t}
                   />
