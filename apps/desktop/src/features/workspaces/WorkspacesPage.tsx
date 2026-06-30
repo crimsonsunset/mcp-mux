@@ -838,7 +838,7 @@ function EntryCardRoutingTable({
               key={row.key}
               className={[
                 ROUTING_GRID_COLS,
-                'items-center rounded-md border px-1.5 py-1',
+                'items-start rounded-md border px-1.5 py-1',
                 row.ghost
                   ? 'border-dashed border-[rgb(var(--border-subtle))] opacity-70'
                   : 'border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))]',
@@ -859,12 +859,11 @@ function EntryCardRoutingTable({
               <span
                 className={[
                   cellCls,
-                  'truncate font-medium',
+                  'break-words font-medium leading-snug',
                   row.ghost
                     ? 'italic text-[rgb(var(--muted))]'
                     : 'text-primary-700 dark:text-primary-300',
                 ].join(' ')}
-                title={fsDisplay}
               >
                 {fsDisplay}
               </span>
