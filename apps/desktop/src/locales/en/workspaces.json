@@ -35,7 +35,8 @@
   },
   "confirm": {
     "removeTitle": "Remove binding",
-    "removeMessage": "Sessions matching \"{{path}}\" will have no backend tools until you create a new binding.",
+    "removeMessageGlobal": "Remove the binding for \"{{name}}\"? Backend tools stop working in this folder until you bind it again.",
+    "removeMessageMachine": "Remove {{machine}}'s binding for \"{{name}}\"? Only that machine is affected — bind again before backend tools work there.",
     "removeLabel": "Remove"
   },
   "card": {
@@ -96,7 +97,16 @@
     "identityPlaceholder": "Add a label…",
     "machineGlobal": "Global",
     "machineCount": "{{count}} machines",
-    "machineQuickSwitch": "Change machine in Scope section"
+    "machineQuickSwitch": "Change machine in Scope section",
+    "targeting": "Targeting: {{machine}}",
+    "adoptTitle": "Use existing config?",
+    "adoptDesc": "This folder name is already bound on another machine. Copy its Space and tool sets, or start fresh.",
+    "adoptColMachine": "Machine",
+    "adoptColPath": "Path",
+    "adoptColSpace": "Space",
+    "adoptColToolSet": "Tool set",
+    "adoptUseThis": "Use this",
+    "adoptStartFresh": "Start fresh"
   },
   "saveStatus": {
     "saving": "Saving",

@@ -207,7 +207,11 @@ export interface WorkspaceEffectiveFeatures {
  * availability — same view the gateway resolver builds for live sessions.
  */
 export async function getWorkspaceEffectiveFeatures(
-  workspaceRoot: string
+  workspaceRoot: string,
+  machineId?: string | null,
 ): Promise<WorkspaceEffectiveFeatures> {
-  return apiCall('get_workspace_effective_features', { workspaceRoot });
+  return apiCall('get_workspace_effective_features', {
+    workspaceRoot,
+    ...(machineId ? { machineId } : {}),
+  });
 }

@@ -393,6 +393,7 @@ pub async fn validate_workspace_root(path: String) -> Result<Value> {
 pub async fn get_workspace_effective_features(
     ctx: &AdminBridgeCtx,
     workspace_root: String,
+    machine_id: Option<String>,
 ) -> Result<Value> {
     let normalized = match validate_workspace_root_path(&workspace_root) {
         WorkspaceRootValidation::Empty => return Err(anyhow!("workspace_root cannot be empty")),
@@ -406,10 +407,25 @@ pub async fn get_workspace_effective_features(
         .await?
         .ok_or_else(|| anyhow!("No default Space configured"))?;
 
-    let binding = ctx
-        .workspace_binding_repository
-        .find_longest_prefix_match(&default_space.id, None, std::slice::from_ref(&normalized))
-        .await?;
+    let binding = if let Some(ref raw) = machine_id {
+        let id = Uuid::parse_str(raw)?;
+        match ctx
+            .workspace_binding_repository
+            .find_exact_for_machine(&id, &normalized, None)
+            .await?
+        {
+            Some(b) => Some(b),
+            None => {
+                ctx.workspace_binding_repository
+                    .find_exact_global(&normalized)
+                    .await?
+            }
+        }
+    } else {
+        ctx.workspace_binding_repository
+            .find_exact_for_roots(std::slice::from_ref(&normalized))
+            .await?
+    };
 
     let (source, binding_id, space_id, feature_set_ids) = match binding {
         Some(binding) => (

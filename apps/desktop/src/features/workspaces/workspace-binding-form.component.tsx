@@ -94,6 +94,14 @@ export function normalizeIcon(icon: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Last path segment of a workspace root, normalized for cross-platform matching.
+ */
+export function folderName(root: string): string {
+  const segments = root.replace(/\\/g, '/').replace(/\/$/, '').split('/');
+  return segments[segments.length - 1] ?? root;
+}
+
 /** True when the icon value is an uploaded file ref or URL, not a plain emoji. */
 function isWorkspaceFileIcon(icon: string): boolean {
   const trimmed = icon.trim();

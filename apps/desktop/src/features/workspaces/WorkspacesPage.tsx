@@ -1348,10 +1348,12 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
  */
 export function EffectiveFeaturesContent({
   root,
+  machineId,
   onTotalChange,
   t,
 }: {
   root: string;
+  machineId?: string | null;
   onTotalChange?: (total: number | null) => void;
   t: TFunction<['workspaces', 'common']>;
 }) {
@@ -1370,7 +1372,7 @@ export function EffectiveFeaturesContent({
     setError(null);
     onTotalChange?.(null);
     /* eslint-enable react-hooks/set-state-in-effect */
-    void getWorkspaceEffectiveFeatures(root)
+    void getWorkspaceEffectiveFeatures(root, machineId)
       .then((d) => {
         if (cancelled) return;
         setData(d);
@@ -1390,10 +1392,10 @@ export function EffectiveFeaturesContent({
     return () => {
       cancelled = true;
     };
-  }, [root, onTotalChange]);
+  }, [root, machineId, onTotalChange]);
 
   const reloadEffectiveFeatures = useCallback(() => {
-    void getWorkspaceEffectiveFeatures(root)
+    void getWorkspaceEffectiveFeatures(root, machineId)
       .then((d) => {
         setData(d);
         onTotalChange?.(d.tools.length + d.prompts.length + d.resources.length);
@@ -1401,7 +1403,7 @@ export function EffectiveFeaturesContent({
       .catch(() => {
         /* ignore — initial load already surfaced any error */
       });
-  }, [root, onTotalChange]);
+  }, [root, machineId, onTotalChange]);
 
   // Re-fetch on binding / server-status changes so the panel stays honest
   // without the user reopening it.

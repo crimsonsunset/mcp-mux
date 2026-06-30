@@ -27,7 +27,10 @@ export const workspacesRoutes: Record<string, RouteHandler> = {
   }),
   get_workspace_effective_features: (args) => ({
     method: 'GET',
-    path: `/api/v1/workspaces/effective-features${buildQuery({ workspaceRoot: args.workspaceRoot })}`,
+    path: `/api/v1/workspaces/effective-features${buildQuery({
+      workspaceRoot: args.workspaceRoot,
+      machineId: args.machineId,
+    })}`,
   }),
   list_workspace_appearances: () => ({ method: 'GET', path: '/api/v1/workspaces/appearances' }),
   resolve_workspace_icon_path: (args) => ({
