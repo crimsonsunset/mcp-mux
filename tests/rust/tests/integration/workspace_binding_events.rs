@@ -95,7 +95,7 @@ async fn creating_binding_flips_next_resolution_source() {
     ctx.session_roots.set("sess-1", [raw]);
     ctx.session_roots.set_roots_capable("sess-1", true);
 
-    let before = ctx.resolver.resolve(Some("sess-1"), None).await.unwrap();
+    let before = ctx.resolver.resolve(Some("sess-1"), None, None).await.unwrap();
     assert_eq!(before.source, ResolutionSource::Unbound);
     // Unmapped folder gets empty ids; binding flips to a non-empty FS below —
     // that change is exactly what fires the per-peer `list_changed`.
@@ -104,7 +104,7 @@ async fn creating_binding_flips_next_resolution_source() {
     let binding = WorkspaceBinding::new(root, ctx.space_id, ctx.fs_custom_id.clone());
     ctx.binding_repo.create(&binding).await.unwrap();
 
-    let after = ctx.resolver.resolve(Some("sess-1"), None).await.unwrap();
+    let after = ctx.resolver.resolve(Some("sess-1"), None, None).await.unwrap();
     assert_eq!(after.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(after.feature_set_ids, vec![ctx.fs_custom_id.clone()]);
 }
@@ -121,7 +121,7 @@ async fn rootless_session_without_grants_defaults_silently() {
     ctx.session_roots.set_roots_capable("rootless", false);
     let resolved = ctx
         .resolver
-        .resolve(Some("rootless"), Some("unknown-client"))
+        .resolve(Some("rootless"), Some("unknown-client"), None)
         .await
         .unwrap();
     assert_eq!(resolved.source, ResolutionSource::Unbound);
@@ -175,7 +175,7 @@ async fn binding_to_non_default_space_reroutes_session() {
     // Before binding: roots reported, no binding → Unbound scoped to the
     // default space (the resolver still reports a space_id so the upstream
     // prompt knows where to scope the binding sheet).
-    let before = resolver.resolve(Some("sess-X"), None).await.unwrap();
+    let before = resolver.resolve(Some("sess-X"), None, None).await.unwrap();
     assert_eq!(before.source, ResolutionSource::Unbound);
     assert_eq!(before.space_id, Some(default_space.id));
     assert!(before.feature_set_ids.is_empty());
@@ -184,7 +184,7 @@ async fn binding_to_non_default_space_reroutes_session() {
     let b = WorkspaceBinding::new(root, other_id, other_fs.id.clone());
     binding_repo.create(&b).await.unwrap();
 
-    let after = resolver.resolve(Some("sess-X"), None).await.unwrap();
+    let after = resolver.resolve(Some("sess-X"), None, None).await.unwrap();
     assert_eq!(after.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(after.space_id, Some(other_id));
     assert_eq!(after.feature_set_ids, vec![other_fs.id]);

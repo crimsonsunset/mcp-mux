@@ -30,8 +30,11 @@
 //!     return (default_space, [], Unbound)
 //! ```
 //!
-//! Signal 3 (machine) scopes binding lookup: client machine → local machine
-//! → global. A path bound only on another machine does not match here.
+//! Signal 3 (machine) scopes binding lookup. When the client sends
+//! `X-Mcpmux-Machine-Id`, only that machine and global bindings are
+//! considered — gateway `local_machine_id` and `inbound_clients.machine_id`
+//! are skipped so a tunneled caller is not mistaken for the gateway host.
+//! Without the header: client machine → local machine → global.
 //!
 //! ## Deny by default
 //!
@@ -212,13 +215,28 @@ impl FeatureSetResolverService {
         *self.local_machine_id.write().await = id;
     }
 
-    /// Tier 1 exact binding lookup: client machine, then local machine, then global.
+    /// Tier 1 exact binding lookup: request machine header, then client machine,
+    /// then local machine, then global.
     async fn find_binding_for_roots(
         &self,
         roots: &[String],
         client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
     ) -> Result<Option<mcpmux_core::WorkspaceBinding>> {
         for root in roots {
+            if let Some(header_machine) = request_machine_id {
+                if let Some(binding) = self
+                    .binding_repo
+                    .find_exact_for_machine(&header_machine, root, client_id)
+                    .await?
+                {
+                    return Ok(Some(binding));
+                }
+                if let Some(binding) = self.binding_repo.find_exact_global(root).await? {
+                    return Ok(Some(binding));
+                }
+                continue;
+            }
             if let Some(cid) = client_id {
                 if let Some(client_machine) = self.client_repo.get_machine_id(cid).await? {
                     if let Some(binding) = self
@@ -311,10 +329,13 @@ impl FeatureSetResolverService {
     /// the caller is stateless — e.g. desktop UI HTTP path).
     /// `client_id`: the OAuth client identity. Used only for the Tier-2
     /// `client_grants` lookup; ignored for binding-based routing.
+    /// `request_machine_id`: optional per-device identity from
+    /// `X-Mcpmux-Machine-Id`; highest-priority machine signal for Tier 1.
     pub async fn resolve(
         &self,
         session_id: Option<&str>,
         client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
     ) -> Result<ResolvedFeatureSet> {
         let default_space_id = match self.space_repo.get_default().await? {
             Some(s) => s.id,
@@ -363,7 +384,7 @@ impl FeatureSetResolverService {
             if has_roots {
                 let reported_roots = roots.expect("has_roots implies Some");
                 if let Some(binding) = self
-                    .find_binding_for_roots(&reported_roots, client_id)
+                    .find_binding_for_roots(&reported_roots, client_id, request_machine_id)
                     .await?
                 {
                     debug!(
