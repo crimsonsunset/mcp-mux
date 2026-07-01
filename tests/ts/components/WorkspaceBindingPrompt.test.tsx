@@ -70,12 +70,15 @@ vi.mock('@/lib/backend/events', () => ({
   useWorkspaceEventListener: vi.fn(),
 }));
 
+vi.mock('@/hooks/use-viewer-identity.hook', () => ({
+  useViewerIdentity: () => ({ machineId: null, isLoading: false }),
+  ViewerIdentityProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 import { WorkspaceBindingPanel } from '@/features/workspaces/workspace-binding-panel.component';
 import { useBindingPanelStore } from '@/stores/bindingPanelStore';
 import { updateWorkspaceBinding, validateWorkspaceRoot } from '@/lib/api/workspaceBindings';
 import type { WorkspaceBinding } from '@/lib/api/workspaceBindings';
-
-const PROMPT_COPY = /You just opened this folder in a connected app/i;
 
 const EDIT_BINDING: WorkspaceBinding = {
   id: 'b1',
@@ -144,7 +147,7 @@ describe('WorkspaceBindingPanel – mapping prompt toggle', () => {
     renderWithI18n(<WorkspaceBindingPanel />);
     await fireNeedsBinding();
     expect(await screen.findByTestId('workspace-binding-panel')).toBeTruthy();
-    expect(await screen.findByText(PROMPT_COPY)).toBeTruthy();
+    expect(await screen.findByTestId('workspace-binding-no-tools-banner')).toBeTruthy();
   });
 
   it('does NOT show the panel when the prompt setting is disabled', async () => {

@@ -748,7 +748,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 34);
+        assert_eq!(version, 35);
 
         let v16_name: String = db
             .conn
@@ -801,7 +801,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 34);
+        assert_eq!(version, 35);
 
         let v16_name: String = db
             .conn

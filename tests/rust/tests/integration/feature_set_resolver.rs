@@ -822,15 +822,14 @@ async fn header_takes_priority_but_reported_roots_still_map_without_one() {
 }
 
 #[tokio::test]
-async fn pinned_header_root_without_binding_falls_back_to_space_default() {
-    // A header root for an as-yet-unmapped folder still works out of the box on
-    // the Space default (upstream emits WorkspaceNeedsBinding so the user can
-    // attach an explicit mapping).
+async fn pinned_header_root_without_binding_is_unbound() {
+    // A pinned header root with no binding is Tier 1b — deny by default.
+    // Upstream emits WorkspaceNeedsBinding so the user can attach a mapping.
     let f = Fixture::new().await;
     f.session_roots.set_pinned("s", test_root());
     let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
-    assert_eq!(r.source, ResolutionSource::SpaceDefault);
-    assert_eq!(r.feature_set_ids, vec![f.starter_fs_id.clone()]);
+    assert_eq!(r.source, ResolutionSource::Unbound);
+    assert!(r.feature_set_ids.is_empty());
     assert_eq!(r.space_id, Some(f.space_id));
 }
 

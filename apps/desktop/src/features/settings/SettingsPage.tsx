@@ -210,9 +210,7 @@ export function SettingsPage() {
       const s = await getGatewayPortSettings();
       setPortSettings(s);
       setPortDraft(String(s.configuredPort ?? s.defaultPort));
-      setPublicUrlDraft(s.publicUrl ?? '');
       setPortError(null);
-      setPublicUrlError(null);
     } catch (err) {
       console.error('Failed to load gateway port settings:', err);
     }
