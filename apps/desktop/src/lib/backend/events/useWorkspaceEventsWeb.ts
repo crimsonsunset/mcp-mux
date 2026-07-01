@@ -2,8 +2,7 @@
  * SSE workspace event channels for web admin mode.
  *
  * Uses the shared admin-sse-hub connection instead of opening a second
- * EventSource, avoiding HTTP/1.1 connection starvation and ensuring workspace
- * events are gated behind enableAdminSse() like all other domain channels.
+ * EventSource, avoiding HTTP/1.1 connection starvation.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
