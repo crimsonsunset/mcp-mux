@@ -1,10 +1,35 @@
 # Web Admin Completion
 
-**Last Updated:** Jun 26, 2026
-**Status:** Phase 1 complete & verified — Phases 2–5 pending implementation
-**Branch:** `dev-rebased` (HEAD: `17d71ad`)
+**Last Updated:** Jun 30, 2026
+**Status:** Phase 1 complete & verified — Phase 3 backend SSE fan-out implemented; Phase 3 frontend hub consolidation done (Jun 30). Phases 2, 4–5 pending.
+**Branch:** `feat/workspace-machine-binding`
 **Depends on:** Phase 2 lib/api migration complete (`dev-rebased-post-port-completion.md`), admin SSE hub live
 **Unblocks:** Web admin at `mux.joe-hassio.com` fully functional with no `transformCallback` errors, config export, live consent flow, and working HMR dev path
+
+---
+
+## Update — Jun 30, 2026 (OAuth consent on tunneled web admin)
+
+**Symptom:** Cursor OAuth from Rohan → Gondor tunneled gateway showed consent modal on desktop (Gondor Tauri) but not in the web admin tab on `mux.joe-hassio.com` — OAuth redirect tab flashed and closed.
+
+**Root cause:** Post-`b4d02db`, the `/oauth/authorize` response is a minimal `mcpmux://` launcher (consent is out-of-band). Web admin relied on **standalone** `EventSource` connections per feature (OAuth consent, OAuth client-changed, meta-tool, etc.), hitting HTTP/1.1's ~6 connection cap through the CF tunnel and starving consent SSE delivery.
+
+**Fix (frontend):** Consolidated all non-domain SSE channels onto the shared hub in [`admin-sse-hub.ts`](../../apps/desktop/src/lib/backend/events/admin-sse-hub.ts):
+
+| Channel | File migrated |
+| ------- | ------------- |
+| `oauth-consent-request` | `lib/backend/shell/index.ts` (`subscribeOAuthConsentEvents`) |
+| `oauth-client-changed` | `lib/backend/events/useOAuthClientEventsWeb.ts` |
+| `meta-tool-invoked` | `stores/metaToolActivityStore.ts`, `useMetaToolEventsWeb.ts` |
+| arbitrary (approval, install) | `use-backend-event-subscription.ts` |
+
+Also: `enableAdminSse()` now runs at **start** of `useDataSync` (not after `listSpaces`) so consent events are not missed on fresh tab load. Fixed duplicate raw-channel listeners in `subscribeAdminSseRaw`.
+
+**Backend (already landed):** `wire_consent_ui_notifications` → `emit_ui_channel` fans consent to Tauri + admin SSE bus.
+
+**OAuth redirect tab behaviour:** Intentionally empty — launcher fires `mcpmux://authorize` and closes. Consent UI lives in desktop modal or web admin SSE (`OAuthConsentModal`).
+
+**Deploy note:** `:45819` and CF tunnel serve `apps/desktop/dist/` — run `pnpm build:web:admin` on Gondor and hard-refresh Rohan's admin tab after pulling this fix.
 
 ---
 
@@ -35,7 +60,7 @@ Three phases of `invoke` → `apiCall` migration landed cleanly. The web admin l
 
 **2. Config export has zero Rust routes.** Five commands in `lib/api/configExport.ts` (`preview_config_export`, `get_config_paths`, `check_config_exists`, `backup_existing_config`, `export_config_to_file`) are mapped in `fetch-api.routes/` but have no handlers in `router.rs` or `command_bridge/`. All five throw 404 in web admin.
 
-**3. OAuth consent popup is dead on web.** `oauth-consent-request` and `oauth-client-changed` are emitted via `app.emit()` (Tauri IPC only) in `oauth.rs`. The admin SSE hub never receives them, so the consent modal and client-changed events are silently dropped in the browser.
+**3. OAuth consent popup is dead on web.** _(Backend RESOLVED — `emit_ui_channel` + `wire_consent_ui_notifications`. Frontend RESOLVED Jun 30, 2026 — OAuth/meta-tool channels consolidated onto shared `admin-sse-hub` to fix HTTP/1.1 connection starvation on tunneled admin.)_ Original issue: `oauth-consent-request` reached Tauri IPC only; standalone per-feature `EventSource` instances also starved delivery through CF tunnel.
 
 **4. Native file pickers crash on web.** `SpaceBaseDirsModal.tsx` calls `@tauri-apps/plugin-dialog` `openDialog()` with no `isTauri()` guard. `pickPath()` in `shell/index.ts` (used by ServersPage, WorkspacesPage) returns `undefined` in browser context but the callers never expect that.
 
@@ -111,9 +136,13 @@ New handlers land in `crates/mcpmux-gateway/src/admin/command_bridge/read.rs` al
 | 1 | `apps/desktop/vite.config.ts` | Add `/api` proxy block when `VITE_ADMIN_WEB` |
 | 2 | `crates/mcpmux-gateway/src/admin/command_bridge/read.rs` | Add 5 config-export handlers |
 | 2 | `crates/mcpmux-gateway/src/admin/router.rs` | Mount `/api/v1/config-export/*` routes |
-| 3 | `apps/desktop/src-tauri/src/services/oauth.rs` | `app.emit` → `emit_ui_channel` for consent + client-changed |
-| 3 | `apps/desktop/src-tauri/src/services/ui_events.rs` | Verify `OAuthConsentRequest` / `OAuthClientChanged` variants exist; add if missing |
-| 3 | `apps/desktop/src-tauri/src/services/ui_events.rs` | Align `builtin-server-config-changed` channel: emit under same name in both Tauri bridge and SSE |
+| 3 | `apps/desktop/src/lib/backend/shell/index.ts` | OAuth consent → shared `admin-sse-hub` (Jun 30) |
+| 3 | `apps/desktop/src/lib/backend/events/useOAuthClientEventsWeb.ts` | OAuth client-changed → shared hub (Jun 30) |
+| 3 | `apps/desktop/src/stores/metaToolActivityStore.ts` | meta-tool-invoked → shared hub (Jun 30) |
+| 3 | `apps/desktop/src/lib/backend/events/useMetaToolEventsWeb.ts` | meta-tool-invoked → shared hub (Jun 30) |
+| 3 | `apps/desktop/src/lib/backend/events/use-backend-event-subscription.ts` | arbitrary channels → shared hub (Jun 30) |
+| 3 | `apps/desktop/src/hooks/useDataSync.ts` | `enableAdminSse()` at sync start (Jun 30) |
+| 3 | `apps/desktop/src-tauri/src/commands/gateway.rs` | `wire_consent_ui_notifications` — `emit_ui_channel` fan-out |
 | 4 | `apps/desktop/src/features/spaces/SpaceBaseDirsModal.tsx` | Guard `openDialog()` with `isTauri()`; replace with `<input type="text">` on web |
 | 4 | `apps/desktop/src/features/servers/ServersPage.tsx` | Guard `pickPath()` — show text input on web |
 | 4 | `apps/desktop/src/features/workspaces/WorkspacesPage.tsx` | Guard `pickPath()` for icon upload — show text input on web |
@@ -156,9 +185,10 @@ Mount all five in `router.rs` under `/api/v1/config-export/`. Follow the existin
 
 ---
 
-### Phase 3 — OAuth SSE fan-out + builtin channel alignment (~half day)
+### Phase 3 — OAuth SSE fan-out + builtin channel alignment (~half day) — BACKEND DONE; FRONTEND HUB CONSOLIDATION DONE (Jun 30, 2026)
 
-- In `apps/desktop/src-tauri/src/services/oauth.rs`, replace `app.emit("oauth-consent-request", ...)` and `app.emit("oauth-client-changed", ...)` with `emit_ui_channel(...)` calls so events reach both Tauri IPC and the admin SSE hub
+- ~~In `apps/desktop/src-tauri/src/services/oauth.rs`, replace `app.emit(...)` with `emit_ui_channel(...)`~~ — done via `wire_consent_ui_notifications` in `commands/gateway.rs`
+- ~~Frontend: migrate OAuth consent/client-changed/meta-tool SSE to shared `admin-sse-hub`~~ — done Jun 30 (see update note above)
 - Verify `ui_events.rs` has matching enum variants for `OAuthConsentRequest` and `OAuthClientChanged`; add if missing
 - Fix `builtin-server-config-changed` channel name: `ui_events.rs` currently emits this as `server-changed` (via `map_domain_event_to_ui`); change the SSE mapping to emit `builtin-server-config-changed` so `BuiltinServersPage` live-refreshes without a page reload
 

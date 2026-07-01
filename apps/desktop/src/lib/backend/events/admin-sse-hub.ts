@@ -37,6 +37,8 @@ const allHandlers = new Set<AllEventsCallback>();
 const lastEventListeners = new Set<(event: { channel: DomainEventChannel; payload: DomainEventPayload }) => void>();
 /** Handlers for non-domain channels (workspace, meta-tool, etc.) sharing the same SSE connection. */
 const rawChannelHandlers = new Map<string, Set<RawChannelHandler>>();
+/** Raw channels that already have a single dispatcher on `sharedSource`. */
+const rawChannelsAttached = new Set<string>();
 
 /**
  * Dispatch an SSE frame to all registered handlers.
@@ -70,16 +72,27 @@ function ensureSharedSource(): void {
     });
   }
 
-  for (const [channel, handlers] of rawChannelHandlers) {
-    source.addEventListener(channel, (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as unknown;
-        handlers.forEach((handler) => handler(payload));
-      } catch {
-        // ignore malformed frames
-      }
-    });
+  for (const channel of rawChannelHandlers.keys()) {
+    attachRawChannelListener(channel);
   }
+}
+
+/**
+ * Attach one SSE listener per raw channel; dispatches to all handlers in the set.
+ */
+function attachRawChannelListener(channel: string): void {
+  if (!sharedSource || rawChannelsAttached.has(channel)) {
+    return;
+  }
+  rawChannelsAttached.add(channel);
+  sharedSource.addEventListener(channel, (event: MessageEvent<string>) => {
+    try {
+      const payload = JSON.parse(event.data) as unknown;
+      rawChannelHandlers.get(channel)?.forEach((handler) => handler(payload));
+    } catch {
+      // ignore malformed frames
+    }
+  });
 }
 
 /**
@@ -91,10 +104,11 @@ function releaseSharedSource(): void {
   }
   sharedSource.close();
   sharedSource = null;
+  rawChannelsAttached.clear();
 }
 
 /**
- * Open the shared SSE connection after startup sync (listSpaces) has finished.
+ * Open the shared SSE connection once web admin startup sync begins.
  */
 export function enableAdminSse(): void {
   if (isTauri()) {
@@ -178,16 +192,7 @@ export function subscribeAdminSseRaw(channel: string, handler: RawChannelHandler
     rawChannelHandlers.set(channel, new Set());
   }
   rawChannelHandlers.get(channel)!.add(handler);
-
-  if (sharedSource) {
-    sharedSource.addEventListener(channel, (event: MessageEvent<string>) => {
-      try {
-        handler(JSON.parse(event.data) as unknown);
-      } catch {
-        // ignore malformed frames
-      }
-    });
-  }
+  attachRawChannelListener(channel);
 
   return () => {
     rawChannelHandlers.get(channel)?.delete(handler);
