@@ -18,8 +18,7 @@ use crate::commands::oauth::{
 };
 use crate::commands::server_manager::{
     cancel_auth_v2, disable_server_v2, enable_server_v2, logout_server, retry_connection,
-    update_server_package,
-    start_auth_v2,
+    start_auth_v2, update_server_package,
 };
 
 /// Delegates admin write operations to existing Tauri command handlers.

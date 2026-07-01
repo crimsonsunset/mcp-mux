@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderWithI18n } from '../render-with-i18n.helpers';
 
 // ---------- Hoisted mock functions (available before vi.mock factories run) ----------
 
@@ -182,7 +183,7 @@ describe('App – dynamic version display', () => {
   it('should display version from get_version command', async () => {
     setupInvoke({ get_version: '1.2.3' });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId('statusbar-version')).toHaveTextContent('v1.2.3');
@@ -193,7 +194,7 @@ describe('App – dynamic version display', () => {
     // invoke never resolves
     mockInvoke.mockImplementation(() => new Promise(() => {}));
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     // The span only renders once `appVersion` has a value.
     expect(screen.queryByTestId('statusbar-version')).toBeNull();
@@ -202,7 +203,7 @@ describe('App – dynamic version display', () => {
   it('should not crash and should omit the version when fetch fails', async () => {
     setupInvoke({ get_version: new Error('command failed') });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     // App still renders (sidebar is present) even if version lookup errored.
     await waitFor(() => {
@@ -221,7 +222,7 @@ describe('App – dynamic gateway URL display', () => {
   it('should show "Gateway stopped" as default gateway state', async () => {
     setupGateway({ running: false, url: null });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId('statusbar-gateway')).toHaveTextContent(
@@ -233,7 +234,7 @@ describe('App – dynamic gateway URL display', () => {
   it('should show "Gateway stopped" when gateway is running but url is null', async () => {
     setupGateway({ running: true, url: null });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId('statusbar-gateway')).toHaveTextContent(
@@ -245,7 +246,7 @@ describe('App – dynamic gateway URL display', () => {
   it('should flip to running state when gateway-started event fires', async () => {
     setupGateway({ running: false, url: null });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId('statusbar-gateway')).toHaveTextContent(
@@ -269,7 +270,7 @@ describe('App – dynamic gateway URL display', () => {
   it('should flip back to stopped when gateway-stopped event fires', async () => {
     setupGateway({ running: false, url: null });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId('statusbar-gateway')).toHaveTextContent(
@@ -318,7 +319,7 @@ describe('App – update banner', () => {
   it('should show update banner when update is available', async () => {
     mockCheck.mockResolvedValue({ version: '2.0.0', body: 'New features' });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     // Banner should not be visible before the 5s delay
     expect(screen.queryByTestId('update-banner')).not.toBeInTheDocument();
@@ -338,7 +339,7 @@ describe('App – update banner', () => {
   it('should not show banner when no update is available', async () => {
     mockCheck.mockResolvedValue(null);
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     vi.advanceTimersByTime(5000);
     vi.useRealTimers();
@@ -353,7 +354,7 @@ describe('App – update banner', () => {
   it('should not show banner when update check fails', async () => {
     mockCheck.mockRejectedValue(new Error('network error'));
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     vi.advanceTimersByTime(5000);
     vi.useRealTimers();
@@ -370,7 +371,7 @@ describe('App – update banner', () => {
 
     mockCheck.mockResolvedValue({ version: '2.0.0', body: '' });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     // Wait for the 5s setTimeout + async check to complete
     await waitFor(
@@ -394,7 +395,7 @@ describe('App – update banner', () => {
 
     mockCheck.mockResolvedValue({ version: '2.0.0', body: '' });
 
-    render(<App />);
+    renderWithI18n(<App />);
 
     await waitFor(
       () => {

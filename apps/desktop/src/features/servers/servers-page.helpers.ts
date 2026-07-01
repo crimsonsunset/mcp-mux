@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import type { ServerFeature } from '@/lib/api/serverFeatures';
 import type { ServerViewModel } from '../../types/registry';
 
@@ -18,18 +19,52 @@ export type TransportFilter = 'all' | 'stdio' | 'http';
 /** Status bucket for Beeper-style multi-select filters. */
 export type StatusFilterKey = 'connected' | 'disabled' | 'error' | 'needs_setup';
 
-export const TRANSPORT_FILTERS: { id: TransportFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'stdio', label: 'stdio' },
-  { id: 'http', label: 'http' },
+export const TRANSPORT_FILTER_IDS: TransportFilter[] = ['all', 'stdio', 'http'];
+
+export const STATUS_FILTER_IDS: StatusFilterKey[] = [
+  'connected',
+  'disabled',
+  'error',
+  'needs_setup',
 ];
 
-export const STATUS_FILTERS: { id: StatusFilterKey; label: string }[] = [
-  { id: 'connected', label: 'Connected' },
-  { id: 'disabled', label: 'Disabled' },
-  { id: 'error', label: 'Error' },
-  { id: 'needs_setup', label: 'Needs setup' },
-];
+/**
+ * Resolve the display label for a transport filter chip.
+ */
+export function getTransportFilterLabel(t: TFunction<'servers'>, id: TransportFilter): string {
+  switch (id) {
+    case 'all':
+      return t('filters.transportAll');
+    case 'stdio':
+      return t('filters.transportStdio');
+    case 'http':
+      return t('filters.transportHttp');
+    default: {
+      const _exhaustive: never = id;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Resolve the display label for a status filter chip.
+ */
+export function getStatusFilterLabel(t: TFunction<'servers'>, id: StatusFilterKey): string {
+  switch (id) {
+    case 'connected':
+      return t('filters.statusConnected');
+    case 'disabled':
+      return t('filters.statusDisabled');
+    case 'error':
+      return t('filters.statusError');
+    case 'needs_setup':
+      return t('filters.statusNeedsSetup');
+    default: {
+      const _exhaustive: never = id;
+      return _exhaustive;
+    }
+  }
+}
 
 /** Group discovered features by installed server id. */
 export function groupFeaturesByServerId(features: ServerFeature[]): Record<string, ServerFeature[]> {
@@ -141,9 +176,6 @@ export function countActiveServerFilters(
   return count;
 }
 
-/**
- * Human-readable lines describing the currently applied server list filters.
- */
 /** Per-status counts for the My Servers header summary. */
 export type ServerCountSummary = {
   installed: number;
@@ -188,49 +220,60 @@ export function computeServerCountSummary(
   return summary;
 }
 
-/** Compact inline summary next to the My Servers title. */
-export function formatServerCountSummary(summary: ServerCountSummary): string {
-  return [
-    `${summary.installed} installed`,
-    `${summary.connected} connected`,
-    `${summary.disabled} disabled`,
-    `${summary.error} error`,
-  ].join(', ');
+/**
+ * Compact inline summary next to the My Servers title.
+ */
+export function formatServerCountSummary(
+  t: TFunction<'servers'>,
+  summary: ServerCountSummary
+): string {
+  return t('countSummary.inline', summary);
 }
 
-/** Tooltip lines for the server count hover panel. */
-export function describeServerCountSummary(summary: ServerCountSummary): string[] {
+/**
+ * Tooltip lines for the server count hover panel.
+ */
+export function describeServerCountSummary(
+  t: TFunction<'servers'>,
+  summary: ServerCountSummary
+): string[] {
   const lines = [
-    `${summary.installed} installed`,
-    `${summary.connected} connected`,
-    `${summary.disabled} disabled`,
-    `${summary.error} error`,
+    t('countSummary.installed', { count: summary.installed }),
+    t('countSummary.connected', { count: summary.connected }),
+    t('countSummary.disabled', { count: summary.disabled }),
+    t('countSummary.error', { count: summary.error }),
   ];
 
   if (summary.needsSetup > 0) {
-    lines.push(`${summary.needsSetup} needs setup`);
+    lines.push(t('countSummary.needsSetup', { count: summary.needsSetup }));
   }
 
   return lines;
 }
 
+/**
+ * Human-readable lines describing the currently applied server list filters.
+ */
 export function describeAppliedServerFilters(
+  t: TFunction<'servers'>,
   transportFilter: TransportFilter,
   activeStatusFilters: ReadonlySet<StatusFilterKey>
 ): string[] {
-  const transportLabel =
-    TRANSPORT_FILTERS.find((filter) => filter.id === transportFilter)?.label ?? transportFilter;
+  const transportLabel = getTransportFilterLabel(t, transportFilter);
 
   const statusLabel =
     activeStatusFilters.size === 0
-      ? 'All'
-      : STATUS_FILTERS.filter((filter) => activeStatusFilters.has(filter.id))
-          .map((filter) => filter.label)
+      ? t('filters.all')
+      : STATUS_FILTER_IDS.filter((filterId) => activeStatusFilters.has(filterId))
+          .map((filterId) => getStatusFilterLabel(t, filterId))
           .join(', ');
 
   if (countActiveServerFilters(transportFilter, activeStatusFilters) === 0) {
-    return ['No filters applied', 'Showing all servers'];
+    return [t('filters.noFiltersApplied'), t('filters.showingAll')];
   }
 
-  return [`Transport: ${transportLabel}`, `Status: ${statusLabel}`];
+  return [
+    t('filters.transportLine', { label: transportLabel }),
+    t('filters.statusLine', { label: statusLabel }),
+  ];
 }

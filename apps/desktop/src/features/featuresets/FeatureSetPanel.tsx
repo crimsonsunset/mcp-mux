@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   X,
   Loader2,
@@ -45,6 +46,7 @@ interface ServerGroup {
 }
 
 export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpdate }: FeatureSetPanelProps) {
+  const { t } = useTranslation(['featuresets', 'common']);
   const [allFeatures, setAllFeatures] = useState<ServerFeature[]>([]);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<Set<string>>(new Set());
   const [surfacedFeatureIds, setSurfacedFeatureIds] = useState<Set<string>>(new Set());
@@ -237,7 +239,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
   const handleSaveGeneral = async () => {
     const trimmedName = editName.trim();
     if (!trimmedName) {
-      setError('Name is required.');
+      setError(t('panel.nameRequired'));
       return;
     }
 
@@ -253,12 +255,12 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
       setEditName(updated.name);
       setEditDescription(updated.description ?? '');
       setEditIcon(updated.icon ?? '');
-      success('Feature set updated', `"${updated.name}" has been saved`);
+      success(t('toast.updated'), t('toast.updatedBody', { name: updated.name }));
       onUpdate?.();
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       setError(errorMsg);
-      showError('Failed to save feature set', errorMsg);
+      showError(t('toast.saveFailed'), errorMsg);
     } finally {
       setIsSavingGeneral(false);
     }
@@ -283,12 +285,15 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
       
       await setFeatureSetMembers(featureSet.id, members);
 
-      success('Changes saved', `"${featureSet.name}" has been updated with ${members.length} feature${members.length !== 1 ? 's' : ''}`);
+      success(
+        t('toast.changesSaved'),
+        t('toast.changesSavedBody', { name: featureSet.name, count: members.length })
+      );
       onUpdate?.();
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       setError(errorMsg);
-      showError('Failed to save changes', errorMsg);
+      showError(t('toast.saveChangesFailed'), errorMsg);
     } finally {
       setIsSaving(false);
     }
@@ -358,11 +363,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
               </h2>
               <div className="flex items-center gap-2 mt-0.5">
                 <span
-                  title={
-                    isStarter
-                      ? 'Auto-created with this Space. Edit, rename, or delete freely — no special routing role.'
-                      : undefined
-                  }
+                  title={isStarter ? t('panel.starterTitle') : undefined}
                   className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${
                     isStarter
                       ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800'
@@ -371,7 +372,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                         : 'bg-gray-50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-800'
                   }`}
                 >
-                  {isStarter ? 'STARTER' : featureSet.feature_set_type.toUpperCase()}
+                  {isStarter ? t('panel.starter') : featureSet.feature_set_type.toUpperCase()}
                 </span>
                 <span className="text-xs text-[rgb(var(--muted))] truncate">
                   ID: {featureSet.id}
@@ -417,7 +418,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                 }`}>
                   <Settings className="h-5 w-5" />
                 </div>
-                <span className="font-semibold text-base">General Information</span>
+                <span className="font-semibold text-base">{t('panel.generalInfo')}</span>
               </div>
               {expandedSections.settings ? (
                 <ChevronDown className="h-5 w-5 text-[rgb(var(--muted))]" />
@@ -430,7 +431,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
               <div className="p-4 space-y-4 border-t-2 border-[rgb(var(--border))] bg-white dark:bg-[rgb(var(--background))]">
                 <div>
                   <label className="block text-xs font-medium mb-1.5 text-[rgb(var(--muted))]">
-                    Name *
+                    {t('panel.nameLabel')}
                   </label>
                   <input
                     type="text"
@@ -444,13 +445,13 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                 
                 <div>
                   <label className="block text-xs font-medium mb-1.5 text-[rgb(var(--muted))]">
-                    Description
+                    {t('panel.descriptionLabel')}
                   </label>
                   <input
                     type="text"
                     value={editDescription}
                     onChange={(e) => setEditDescription(e.target.value)}
-                    placeholder="What this feature set allows..."
+                    placeholder={t('panel.descriptionPlaceholder')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                     data-testid="featureset-panel-description"
                   />
@@ -458,13 +459,13 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
 
                 <div>
                   <label className="block text-xs font-medium mb-1.5 text-[rgb(var(--muted))]">
-                    Icon (emoji)
+                    {t('panel.iconLabel')}
                   </label>
                   <input
                     type="text"
                     value={editIcon}
                     onChange={(e) => setEditIcon(e.target.value)}
-                    placeholder="🔧"
+                    placeholder={t('panel.iconPlaceholder')}
                     maxLength={2}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                     data-testid="featureset-panel-icon"
@@ -483,7 +484,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                   ) : (
                     <Save className="h-4 w-4 mr-2" />
                   )}
-                  Save
+                  {t('common:actions.save')}
                 </Button>
 
                 {isStarter && (
@@ -491,7 +492,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                     <div className="flex gap-2">
                       <Star className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
                       <div className="text-xs text-yellow-800 dark:text-yellow-200">
-                        <strong>Starter FeatureSet:</strong> auto-created with this Space. It&apos;s an ordinary FeatureSet — edit, rename, or delete it freely. <em>No special routing role:</em> Workspace bindings and per-client grants pick FeatureSets explicitly.
+                        <strong>{t('panel.starterNote')}</strong> {t('panel.starterNoteBody')}
                       </div>
                     </div>
                   </div>
@@ -520,7 +521,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-base">Included Features</span>
+                    <span className="font-semibold text-base">{t('panel.includedFeatures')}</span>
                     {/* Show count badge only for configurable feature sets */}
                     {isConfigurable && (
                       <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
@@ -528,7 +529,10 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                           ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
                           : 'bg-gray-100 dark:bg-gray-900/30 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-700'
                       }`}>
-                        {getActualMemberCount()} / {allFeatures.length} selected
+                        {t('panel.selectedCount', {
+                          selected: getActualMemberCount(),
+                          total: allFeatures.length,
+                        })}
                       </span>
                     )}
                   </div>
@@ -564,7 +568,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search features..."
+                      placeholder={t('panel.searchPlaceholder')}
                       className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
@@ -576,7 +580,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                         onClick={toggleAllFeatures}
                         data-testid="featureset-select-all"
                       >
-                        {areAllFeaturesSelected ? 'Deselect All' : 'Select All'}
+                        {areAllFeaturesSelected ? t('panel.deselectAll') : t('panel.selectAll')}
                       </Button>
                     </div>
                   )}
@@ -590,7 +594,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                   ) : filteredGroups.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-[rgb(var(--muted))] p-4 text-center">
                       <Package className="h-8 w-8 mb-2 opacity-50" />
-                      <p className="text-sm">No features found matching your search</p>
+                      <p className="text-sm">{t('panel.noFeaturesMatch')}</p>
                     </div>
                   ) : (
                     <div className="divide-y divide-[rgb(var(--border))]">
@@ -657,7 +661,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                                     toggleAllInServer(group.serverId);
                                   }}
                                   className={`p-1.5 rounded-md transition-colors hover:bg-[rgb(var(--background))] flex-shrink-0`}
-                                  title={allSelected ? "Disable All" : "Enable All"}
+                                  title={allSelected ? t('panel.disableAll') : t('panel.enableAll')}
                                 >
                                   {allSelected ? (
                                     <ToggleRight className="h-5 w-5 text-primary-500" />
@@ -684,10 +688,10 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
 
                                       const surfaceTitle =
                                         feature.feature_type === 'tool'
-                                          ? 'Promote this included tool into the client tools/list for direct one-hop calls. The checkbox only grants invoke access via search + mcpmux_invoke_tool—it does not add the tool to tools/list.'
+                                          ? t('panel.surfaceToolTitle')
                                           : feature.feature_type === 'resource'
-                                            ? 'Promote this included resource into the client resources/list for direct one-hop reads. The checkbox only grants read access via search + mcpmux_read_resource—it does not add the resource to resources/list.'
-                                            : 'Promote this included prompt into the client prompts/list for direct one-hop fetches. The checkbox only grants fetch access via search + mcpmux_fetch_prompt—it does not add the prompt to prompts/list.';
+                                            ? t('panel.surfaceResourceTitle')
+                                            : t('panel.surfacePromptTitle');
 
                                       return (
                                     <div
@@ -740,7 +744,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
                                           data-testid={`surface-toggle-${feature.id}`}
                                         >
                                           <Monitor className="h-3.5 w-3.5" />
-                                          Surface
+                                          {t('panel.surface')}
                                         </button>
                                       )}
                                     </div>
@@ -768,18 +772,20 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
             size="sm"
             onClick={async () => {
               if (await confirm({
-                title: 'Delete feature set',
-                message: `Delete "${featureSet.name}"? This cannot be undone.`,
-                confirmLabel: 'Delete',
+                title: t('confirm.deleteTitle'),
+                message: t('confirm.deleteMessage', { name: featureSet.name }),
+                confirmLabel: t('confirm.deleteLabel'),
+                cancelLabel: t('common:actions.cancel'),
                 variant: 'danger',
               })) {
                 onDelete(featureSet.id);
               }
             }}
             className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 mr-auto"
+            data-testid="featureset-panel-delete"
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Delete
+            {t('common:actions.delete')}
           </Button>
         )}
         
@@ -788,11 +794,12 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
             onClick={handleSave}
             disabled={isSaving}
             className="w-full flex-1"
+            data-testid="featureset-panel-save-changes"
           >
             {isSaving ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {t('panel.saving')}</>
             ) : (
-              <><Save className="h-4 w-4 mr-2" /> Save Changes</>
+              <><Save className="h-4 w-4 mr-2" /> {t('panel.saveChanges')}</>
             )}
           </Button>
         )}

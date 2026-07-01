@@ -496,9 +496,7 @@ fn run_uv_tool_upgrade(command: &str, args: &[String]) {
 
     let spec = package_at_latest.clone();
     match run_subprocess_blocking(move || {
-        Command::new("uv")
-            .args(["tool", "install", &spec])
-            .output()
+        Command::new("uv").args(["tool", "install", &spec]).output()
     }) {
         Ok(output) if output.status.success() => {
             tracing::debug!(
@@ -712,7 +710,12 @@ mod tests {
 
         let installed = make_installed(HashMap::new()); // No user values
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -739,7 +742,12 @@ mod tests {
             "debug".to_string(),
         )]));
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -763,7 +771,12 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { args, .. } => {
@@ -787,7 +800,12 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { command, .. } => {
@@ -809,7 +827,12 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Http { url, .. } => {
@@ -831,7 +854,12 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Http { headers, .. } => {
@@ -866,7 +894,12 @@ mod tests {
             ("API_KEY".to_string(), "secret123".to_string()),
         ]));
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -894,7 +927,12 @@ mod tests {
 
         let installed = make_installed(HashMap::new());
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { env, .. } => {
@@ -940,7 +978,12 @@ mod tests {
             .with_update_policy(UpdatePolicy::Pinned)
             .with_pinned_version(Some("13.0.0"));
 
-        let resolved = build_transport_config(&transport, &installed, None, TransportResolutionOptions::default());
+        let resolved = build_transport_config(
+            &transport,
+            &installed,
+            None,
+            TransportResolutionOptions::default(),
+        );
 
         match resolved {
             ResolvedTransport::Stdio { args, .. } => {
@@ -959,8 +1002,8 @@ mod tests {
             metadata: TransportMetadata { inputs: vec![] },
         };
 
-        let installed = InstalledServer::new("space", "inngest")
-            .with_update_policy(UpdatePolicy::Notify);
+        let installed =
+            InstalledServer::new("space", "inngest").with_update_policy(UpdatePolicy::Notify);
 
         let resolved = build_transport_config(
             &transport,
@@ -983,16 +1026,13 @@ mod tests {
     fn test_explicit_update_injects_probed_semver_for_notify_policy() {
         let transport = RegistryConfig::Stdio {
             command: "npx".to_string(),
-            args: vec![
-                "-y".to_string(),
-                "@upstash/context7-mcp@latest".to_string(),
-            ],
+            args: vec!["-y".to_string(), "@upstash/context7-mcp@latest".to_string()],
             env: HashMap::new(),
             metadata: TransportMetadata { inputs: vec![] },
         };
 
-        let mut installed = InstalledServer::new("space", "context7")
-            .with_update_policy(UpdatePolicy::Notify);
+        let mut installed =
+            InstalledServer::new("space", "context7").with_update_policy(UpdatePolicy::Notify);
         installed.latest_available_version = Some("3.2.1".to_string());
 
         let resolved = build_transport_config(

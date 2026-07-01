@@ -1175,17 +1175,24 @@ async fn get_tool_schema_accepts_bare_name() {
     f.grant_github_connected().await;
 
     let result = f
-        .call(
-            "mcpmux_get_tool_schema",
-            json!({ "tools": "list_issues" }),
-        )
+        .call("mcpmux_get_tool_schema", json!({ "tools": "list_issues" }))
         .await;
     let body = Fixture::result_json(&result);
     let schemas = body.get("schemas").unwrap().as_array().unwrap();
-    assert_eq!(schemas.len(), 1, "bare name should resolve via feature_name: {body}");
-    assert_eq!(schemas[0].get("qualified_name"), Some(&json!("github_list_issues")));
+    assert_eq!(
+        schemas.len(),
+        1,
+        "bare name should resolve via feature_name: {body}"
+    );
+    assert_eq!(
+        schemas[0].get("qualified_name"),
+        Some(&json!("github_list_issues"))
+    );
     assert_eq!(schemas[0].get("feature_name"), Some(&json!("list_issues")));
-    assert!(body.get("missing").is_none(), "bare name must not appear in missing: {body}");
+    assert!(
+        body.get("missing").is_none(),
+        "bare name must not appear in missing: {body}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

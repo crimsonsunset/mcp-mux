@@ -258,11 +258,9 @@ impl MetaTool for InvokeToolTool {
         }
 
         let effective_args = match installed {
-            Some(server) => merge_default_params(
-                args,
-                &server.default_params,
-                server.default_params_strategy,
-            ),
+            Some(server) => {
+                merge_default_params(args, &server.default_params, server.default_params_strategy)
+            }
             None => args,
         };
 

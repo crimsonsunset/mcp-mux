@@ -11,8 +11,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     DefaultParamsStrategy, DomainEvent, InstallationSource, InstalledServer, ServerDefinition,
-    UpdatePolicy,
-    UserServerEntry,
+    UpdatePolicy, UserServerEntry,
 };
 use crate::event_bus::EventSender;
 use crate::repository::{CredentialRepository, InstalledServerRepository, ServerFeatureRepository};

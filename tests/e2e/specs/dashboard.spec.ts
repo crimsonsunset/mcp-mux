@@ -6,7 +6,6 @@ test.describe('Dashboard', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    // Gateway status should be visible
     await expect(dashboard.gatewayStatus).toBeVisible();
     await expect(dashboard.gatewayToggleButton).toBeVisible();
   });
@@ -15,7 +14,6 @@ test.describe('Dashboard', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    // All stat cards should be visible
     await expect(dashboard.serverCountCard).toBeVisible();
     await expect(dashboard.featureSetsCard).toBeVisible();
     await expect(dashboard.clientsCard).toBeVisible();
@@ -27,12 +25,11 @@ test.describe('Dashboard', () => {
     await dashboard.navigate();
 
     await expect(page.getByTestId('gateway-status-card')).toBeVisible();
-    await expect(page.getByText('Connect a client')).toBeVisible();
-    await expect(page.getByTestId('client-grid')).toBeVisible();
+    await expect(dashboard.connectClientHeading).toBeVisible();
+    await expect(dashboard.clientGrid).toBeVisible();
   });
 
   test('should copy config via JSON button', async ({ page, context, browserName }) => {
-    // Clipboard permissions only work on Chromium
     test.skip(browserName !== 'chromium', 'Clipboard permissions not supported');
 
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -40,12 +37,11 @@ test.describe('Dashboard', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    await expect(page.getByTestId('client-grid')).toBeVisible();
+    await expect(dashboard.clientGrid).toBeVisible();
     await page.getByTestId('client-icon-copy-config').first().scrollIntoViewIfNeeded();
     await page.getByTestId('client-icon-copy-config').first().click();
-    // Click copy button in popover
-    await page.locator('[data-testid="copy-config-btn"]').click();
+    await page.getByTestId('copy-config-btn').click();
 
-    await expect(page.getByText(/Copied/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('copy-config-copied')).toBeVisible({ timeout: 5000 });
   });
 });

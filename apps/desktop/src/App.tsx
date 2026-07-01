@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Home,
-  Server,
   Globe,
-  Wrench,
   Monitor,
   Settings,
   Sun,
@@ -11,6 +10,8 @@ import {
   FolderOpen,
   Download,
   X,
+  Search,
+  ShoppingBasket,
 } from 'lucide-react';
 import {
   AppShell,
@@ -86,7 +87,28 @@ function McpMuxGlyph({ className }: { className?: string }) {
   );
 }
 
+/** MCP protocol icon for the My Servers nav item */
+function McpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="3" cy="3" r="1.5" fill="currentColor" />
+      <circle cx="13" cy="3" r="1.5" fill="currentColor" />
+      <circle cx="3" cy="13" r="1.5" fill="currentColor" />
+      <circle cx="13" cy="13" r="1.5" fill="currentColor" />
+      <circle cx="8" cy="8" r="2" fill="currentColor" />
+      <line x1="3" y1="3" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="13" y1="3" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="3" y1="13" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="13" y1="13" x2="8" y2="8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function AppContent() {
+  const { t } = useTranslation('nav');
+  const { t: tDashboard } = useTranslation('dashboard');
+  const { t: tCommon } = useTranslation('common');
+
   // Sync data from backend on mount
   useDataSync();
 
@@ -215,55 +237,56 @@ function AppContent() {
       <SidebarSection>
         <SidebarItem
           icon={<Home className="h-4 w-4" />}
-          label="Dashboard"
+          label={t('dashboard')}
           active={activeNav === 'home'}
           onClick={() => navigateTo('home')}
           data-testid="nav-dashboard"
         />
         <SidebarItem
-          icon={<Server className="h-4 w-4" />}
-          label="My Servers"
+          icon={<McpIcon className="h-4 w-4" />}
+          label={t('myServers')}
           active={activeNav === 'servers'}
           onClick={() => navigateTo('servers')}
           data-testid="nav-my-servers"
         />
         <SidebarItem
-          icon={<Server className="h-4 w-4" />}
-          label="Discover"
+          icon={<Search className="h-4 w-4" />}
+          label={t('search')}
           active={activeNav === 'registry'}
           onClick={() => navigateTo('registry')}
           data-testid="nav-discover"
         />
       </SidebarSection>
 
-      <SidebarSection title="Workspaces">
+      <SidebarSection title={t('sectionWorkspaces')}>
         <SidebarItem
           icon={<Globe className="h-4 w-4" />}
-          label="Spaces"
+          label={t('spaces')}
           active={activeNav === 'spaces'}
           onClick={() => navigateTo('spaces')}
           data-testid="nav-spaces"
         />
         <SidebarItem
-          icon={<Wrench className="h-4 w-4" />}
-          label="FeatureSets"
+          icon={<ShoppingBasket className="h-4 w-4" />}
+          label={t('bundles')}
+          title={t('bundlesTooltip')}
           active={activeNav === 'featuresets'}
           onClick={() => navigateTo('featuresets')}
           data-testid="nav-featuresets"
         />
       </SidebarSection>
 
-      <SidebarSection title="Connections">
+      <SidebarSection title={t('sectionConnections')}>
         <SidebarItem
           icon={<FolderOpen className="h-4 w-4" />}
-          label="Workspaces"
+          label={t('projects')}
           active={activeNav === 'workspaces'}
           onClick={() => navigateTo('workspaces')}
           data-testid="nav-workspaces"
         />
         <SidebarItem
           icon={<Monitor className="h-4 w-4" />}
-          label="Clients"
+          label={t('clients')}
           active={activeNav === 'clients'}
           onClick={() => navigateTo('clients')}
           data-testid="nav-clients"
@@ -273,7 +296,7 @@ function AppContent() {
       <SidebarSection>
         <SidebarItem
           icon={<Settings className="h-4 w-4" />}
-          label="Settings"
+          label={t('settings')}
           active={activeNav === 'settings'}
           onClick={() => navigateTo('settings')}
           data-testid="nav-settings"
@@ -290,7 +313,7 @@ function AppContent() {
           onClick={() => navigateTo('home')}
           className="flex items-center gap-1.5 hover:text-[rgb(var(--foreground))] transition-colors"
           data-testid="statusbar-gateway"
-          title="View connection details on the dashboard"
+          title={tDashboard('statusbar.gatewayTitle')}
         >
           <span
             className={`h-2 w-2 rounded-full ${
@@ -298,10 +321,16 @@ function AppContent() {
             }`}
           />
           {gatewayRunning
-            ? `Gateway${gatewayPort ? ` · :${gatewayPort}` : ''}`
-            : 'Gateway stopped'}
+            ? `${tDashboard('statusbar.gatewayRunning')}${
+                gatewayPort ? tDashboard('statusbar.gatewayPortSuffix', { port: gatewayPort }) : ''
+              }`
+            : tDashboard('statusbar.gatewayStopped')}
         </button>
-        <span>Space: {viewSpace?.name || 'None'}</span>
+        <span>
+          {tDashboard('statusbar.spaceLabel', {
+            name: viewSpace?.name || tCommon('none'),
+          })}
+        </span>
       </div>
       {appVersion && (
         <span className="opacity-70" data-testid="statusbar-version">
@@ -328,7 +357,7 @@ function AppContent() {
         type="button"
         onClick={toggleDarkMode}
         className="no-drag rounded-md p-1 transition-colors hover:bg-[rgb(var(--surface-hover))]"
-        title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        title={theme === 'dark' ? tDashboard('theme.lightMode') : tDashboard('theme.darkMode')}
       >
         {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-[rgb(var(--muted))]" /> : <Moon className="h-3.5 w-3.5 text-[rgb(var(--muted))]" />}
       </button>
@@ -359,7 +388,9 @@ function AppContent() {
             <div className="flex items-center gap-2">
               <Download className="h-4 w-4 text-blue-500 flex-shrink-0" />
               <span>
-                McpMux <strong>v{availableUpdate.version}</strong> is available.
+                {tDashboard('updateBanner.brand')}{' '}
+                <strong>v{availableUpdate.version}</strong>{' '}
+                {tDashboard('updateBanner.isAvailable')}
               </span>
               <button
                 onClick={() => {
@@ -368,13 +399,13 @@ function AppContent() {
                 }}
                 className="text-blue-500 hover:text-blue-400 font-medium underline underline-offset-2"
               >
-                Update now
+                {tDashboard('updateBanner.updateNow')}
               </button>
             </div>
             <button
               onClick={() => setAvailableUpdate(null)}
               className="text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))] transition-colors flex-shrink-0"
-              aria-label="Dismiss update notification"
+              aria-label={tDashboard('updateBanner.dismissAria')}
               data-testid="dismiss-update-banner"
             >
               <X className="h-4 w-4" />

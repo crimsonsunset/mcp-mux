@@ -10,6 +10,6 @@ test.describe('Admin workspaces page', () => {
 
     await page.getByTestId('nav-workspaces').click();
     await expect(page.getByTestId('workspace-binding-create-toggle')).toBeVisible();
-    await expect(page.locator('body')).toContainText(/Workspaces/i);
+    await expect(page.getByTestId('workspaces-title')).toBeVisible();
   });
 });

@@ -1012,7 +1012,10 @@ pub async fn retry_connection(ctx: &AdminBridgeCtx, body: ServerConnectionBody) 
         .await
 }
 
-pub async fn update_server_package(ctx: &AdminBridgeCtx, body: ServerConnectionBody) -> Result<Value> {
+pub async fn update_server_package(
+    ctx: &AdminBridgeCtx,
+    body: ServerConnectionBody,
+) -> Result<Value> {
     ctx.gateway_writes
         .update_server_package(body.space_id, body.server_id)
         .await

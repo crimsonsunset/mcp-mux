@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useBackendEventSubscription } from '@/lib/backend/events';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
@@ -37,6 +38,7 @@ type Decision = 'allow_once' | 'always_for_this_session_and_client' | 'deny';
  * approval at the same time, the user sees them in order.
  */
 export function MetaToolApprovalDialog() {
+  const { t } = useTranslation('metatools');
   const [queue, setQueue] = useState<ApprovalRequest[]>([]);
   const current = queue[0];
 
@@ -101,15 +103,13 @@ export function MetaToolApprovalDialog() {
       <Card className="w-full max-w-xl shadow-2xl">
         <CardHeader className="flex flex-row items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
-          <CardTitle className="text-base">
-            An MCP client wants to change your tools
-          </CardTitle>
+          <CardTitle className="text-base">{t('approval.title')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-sm">
             <p className="font-medium">{current.payload.summary}</p>
             <p className="text-xs text-[rgb(var(--muted))] mt-1 font-mono">
-              tool:&nbsp;{current.payload.tool_name}
+              {t('approval.toolLabel')}&nbsp;{current.payload.tool_name}
             </p>
           </div>
 
@@ -120,9 +120,9 @@ export function MetaToolApprovalDialog() {
             >
               <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <span>
-                This change affects every connection in this Space — not just
-                the one requesting it. Other connected clients will see a new
-                toolset on their next <code>tools/list</code>.
+                {t('approval.crossClientWarning.before')}
+                <code>tools/list</code>
+                {t('approval.crossClientWarning.after')}
               </span>
             </div>
           )}
@@ -130,30 +130,33 @@ export function MetaToolApprovalDialog() {
           {diff && (
             <div className="border border-[rgb(var(--border-subtle))] rounded text-xs">
               <div className="grid grid-cols-3 divide-x divide-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))]">
-                <Stat label="Before" value={diff.before.length} />
+                <Stat label={t('approval.diff.before')} value={diff.before.length} />
                 <Stat
-                  label="After"
+                  label={t('approval.diff.after')}
                   value={toolCount ?? 0}
                   emphasis
                 />
-                <Stat label="Delta" value={deltaLabel ?? '—'} />
+                <Stat
+                  label={t('approval.diff.delta')}
+                  value={deltaLabel ?? t('approval.diff.emptyDelta')}
+                />
               </div>
               {(diff.added.length > 0 || diff.removed.length > 0) && (
                 <div className="max-h-40 overflow-y-auto p-2 space-y-0.5 font-mono">
-                  {diff.added.map((t) => (
+                  {diff.added.map((tool) => (
                     <div
-                      key={`+${t}`}
+                      key={`+${tool}`}
                       className="text-green-600 dark:text-green-400"
                     >
-                      + {t}
+                      + {tool}
                     </div>
                   ))}
-                  {diff.removed.map((t) => (
+                  {diff.removed.map((tool) => (
                     <div
-                      key={`-${t}`}
+                      key={`-${tool}`}
                       className="text-red-600 dark:text-red-400"
                     >
-                      − {t}
+                      − {tool}
                     </div>
                   ))}
                 </div>
@@ -168,16 +171,16 @@ export function MetaToolApprovalDialog() {
               onClick={() => respond('deny')}
               data-testid="meta-tool-approval-deny"
             >
-              <XCircle className="h-4 w-4 mr-1" /> Deny
+              <XCircle className="h-4 w-4 mr-1" /> {t('approval.deny')}
             </Button>
             <Button
               variant="secondary"
               size="sm"
               onClick={() => respond('always_for_this_session_and_client')}
-              title="Allow this (client, tool) pair without prompting again until the gateway restarts"
+              title={t('approval.alwaysForSessionTitle')}
               data-testid="meta-tool-approval-always"
             >
-              Always for this session
+              {t('approval.alwaysForSession')}
             </Button>
             <Button
               variant="primary"
@@ -185,13 +188,13 @@ export function MetaToolApprovalDialog() {
               onClick={() => respond('allow_once')}
               data-testid="meta-tool-approval-allow-once"
             >
-              <CheckCircle2 className="h-4 w-4 mr-1" /> Allow once
+              <CheckCircle2 className="h-4 w-4 mr-1" /> {t('approval.allowOnce')}
             </Button>
           </div>
 
           {queue.length > 1 && (
             <p className="text-[11px] text-[rgb(var(--muted))] text-right pt-1">
-              {queue.length - 1} more pending…
+              {t('approval.morePending', { count: queue.length - 1 })}
             </p>
           )}
         </CardContent>
@@ -200,6 +203,9 @@ export function MetaToolApprovalDialog() {
   );
 }
 
+/**
+ * Single cell in the approval diff summary grid.
+ */
 function Stat({
   label,
   value,

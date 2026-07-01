@@ -9,8 +9,8 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::meta_tool_common::{
-    build_installed_server_meta_maps, build_server_readiness_map, caller_resolution, is_query_empty,
-    text_result,
+    build_installed_server_meta_maps, build_server_readiness_map, caller_resolution,
+    is_query_empty, text_result,
 };
 use super::registry::{feature_set_ids_fingerprint, MetaTool, MetaToolCall, MetaToolError};
 use super::search_tools_index::{

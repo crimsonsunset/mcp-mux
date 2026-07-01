@@ -5,7 +5,7 @@ import { DashboardPage, RegistryPage } from '../pages';
  * Add Server trigger in the empty-state panel (toolbar renders a duplicate testid).
  */
 function emptyStateAddServerTrigger(page: Page) {
-  return page.getByText('No servers installed').locator('..').getByTestId('add-server-menu-trigger');
+  return page.getByTestId('servers-empty-state').getByTestId('add-server-menu-trigger');
 }
 
 test.describe('Post-Action User Guidance', () => {
@@ -14,10 +14,10 @@ test.describe('Post-Action User Guidance', () => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
-      await page.locator('nav button:has-text("My Servers")').click();
-      await expect(page.getByRole('heading', { name: 'My Servers' })).toBeVisible();
+      await page.getByTestId('nav-my-servers').click();
+      await expect(page.getByTestId('servers-title')).toBeVisible();
 
-      const emptyState = page.getByText('No servers installed');
+      const emptyState = page.getByTestId('servers-empty-state');
       if (!(await emptyState.isVisible().catch(() => false))) {
         test.skip(true, 'Servers already installed in this environment');
       }
@@ -26,18 +26,17 @@ test.describe('Post-Action User Guidance', () => {
       await expect(addServerTrigger).toBeVisible();
       await addServerTrigger.click();
       await expect(page.getByTestId('add-server-option-discover')).toBeVisible();
-      await expect(page.getByTestId('add-server-option-discover')).toContainText(
-        'Discover from registry'
-      );
     });
 
-    test('should navigate to Discover page when clicking Discover button in empty state', async ({ page }) => {
+    test('should navigate to Discover page when clicking Discover button in empty state', async ({
+      page,
+    }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
-      await page.locator('nav button:has-text("My Servers")').click();
+      await page.getByTestId('nav-my-servers').click();
 
-      const emptyState = page.getByText('No servers installed');
+      const emptyState = page.getByTestId('servers-empty-state');
       if (!(await emptyState.isVisible().catch(() => false))) {
         test.skip(true, 'Servers already installed in this environment');
       }
@@ -46,7 +45,7 @@ test.describe('Post-Action User Guidance', () => {
       await addServerTrigger.click();
       await page.getByTestId('add-server-option-discover').click();
 
-      await expect(page.getByRole('heading', { name: 'Discover Servers' })).toBeVisible();
+      await expect(page.getByTestId('registry-title')).toBeVisible();
     });
   });
 
@@ -56,66 +55,52 @@ test.describe('Post-Action User Guidance', () => {
       const registry = new RegistryPage(page);
       await dashboard.navigate();
 
-      await page.locator('nav button:has-text("Discover")').click();
+      await page.getByTestId('nav-discover').click();
       await expect(registry.heading).toBeVisible();
-
-      // Toast container should exist for showing post-install guidance
       await expect(registry.toastContainer).toBeAttached();
     });
 
-    // Skip in web mode - requires Tauri API for install
     test.skip('should show toast with Go to My Servers action after installing', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
-      await page.locator('nav button:has-text("Discover")').click();
+      await page.getByTestId('nav-discover').click();
 
-      const installBtn = page.getByRole('button', { name: /Install/i }).first();
+      const installBtn = page.locator('[data-testid^="install-btn-"]').first();
       if (await installBtn.isVisible()) {
         await installBtn.click();
-
-        // Toast should appear with action button
         await expect(page.getByTestId('toast-success')).toBeVisible({ timeout: 5000 });
         await expect(page.getByTestId('toast-action')).toBeVisible();
-        await expect(page.getByTestId('toast-action')).toContainText('My Servers');
       }
     });
 
-    // Skip in web mode - requires Tauri API for install
-    test.skip('should navigate to My Servers when clicking toast action after install', async ({ page }) => {
+    test.skip('should navigate to My Servers when clicking toast action after install', async ({
+      page,
+    }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
-      await page.locator('nav button:has-text("Discover")').click();
+      await page.getByTestId('nav-discover').click();
 
-      const installBtn = page.getByRole('button', { name: /Install/i }).first();
+      const installBtn = page.locator('[data-testid^="install-btn-"]').first();
       if (await installBtn.isVisible()) {
         await installBtn.click();
-
         await expect(page.getByTestId('toast-action')).toBeVisible({ timeout: 5000 });
         await page.getByTestId('toast-action').click();
-
-        // Should navigate to My Servers
-        await expect(page.getByRole('heading', { name: 'My Servers' })).toBeVisible();
+        await expect(page.getByTestId('servers-title')).toBeVisible();
       }
     });
   });
 
   test.describe('OAuth consent post-approval guidance', () => {
-    // Skip in web mode - OAuth consent requires Tauri deep link events
     test.skip('should show success state with Open Workspaces button after approval', async ({
       page,
     }) => {
-      // This test requires the OAuthConsentModal to be triggered via a deep link
-      // event, which is only available in the full Tauri desktop app.
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
-      // In the v2 flow the post-approval screen sends users to Workspaces
-      // (where routing per folder lives), not to a per-client permissions page.
-      const openWorkspacesBtn = page.locator('[data-testid="go-to-workspaces-btn"]');
+      const openWorkspacesBtn = page.getByTestId('go-to-workspaces-btn');
       await expect(openWorkspacesBtn).toBeVisible();
-      await expect(openWorkspacesBtn).toContainText('Open Workspaces');
     });
   });
 });

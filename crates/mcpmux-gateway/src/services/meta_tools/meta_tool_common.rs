@@ -188,10 +188,7 @@ pub(crate) async fn build_installed_server_meta_maps(
     let mut display_names = HashMap::new();
     let mut prefilled_params = HashMap::new();
     for server in installed {
-        display_names.insert(
-            server.server_id.clone(),
-            server.display_name().to_string(),
-        );
+        display_names.insert(server.server_id.clone(), server.display_name().to_string());
         if !server.default_params.is_empty() {
             let mut keys: Vec<String> = server.default_params.keys().cloned().collect();
             keys.sort();

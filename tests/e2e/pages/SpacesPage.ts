@@ -7,39 +7,27 @@ import { BasePage } from './BasePage';
 export class SpacesPage extends BasePage {
   readonly heading: Locator;
   readonly createSpaceButton: Locator;
-  readonly spaceList: Locator;
   readonly spaceCards: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.heading = page.getByRole('heading', { name: 'Workspaces' });
+    this.heading = page.getByTestId('spaces-title');
     this.createSpaceButton = page.getByTestId('create-space-btn');
-    this.spaceList = page.locator('[data-testid="space-list"]');
-    this.spaceCards = page.locator('[data-testid="space-card"]');
+    this.spaceCards = page.locator('[data-testid^="space-card-"]');
   }
 
   async getSpaceCount(): Promise<number> {
-    // Count space cards or list items
-    const cards = this.page.locator('.space-card, [data-testid="space-card"]');
-    return await cards.count();
-  }
-
-  async getSpaceByName(name: string): Locator {
-    return this.page.locator(`text="${name}"`).first();
+    return await this.spaceCards.count();
   }
 
   async createSpace(name: string) {
     await this.createSpaceButton.click();
-    // Fill in the space name in the modal/form
-    const nameInput = this.page.getByPlaceholder(/name/i);
-    await nameInput.fill(name);
-    await this.page.getByRole('button', { name: /Create|Save/i }).click();
+    await this.page.getByTestId('create-space-name-input').fill(name);
+    await this.page.getByTestId('create-space-submit-btn').click();
   }
 
-  async deleteSpace(name: string) {
-    const spaceRow = this.page.locator(`text="${name}"`).first().locator('..');
-    await spaceRow.getByRole('button', { name: /Delete/i }).click();
-    // Confirm deletion
-    await this.page.getByRole('button', { name: /Confirm|Yes/i }).click();
+  async deleteSpace(spaceId: string) {
+    await this.page.getByTestId(`delete-space-${spaceId}`).click();
+    await this.page.getByTestId('confirm-dialog-confirm').click();
   }
 }

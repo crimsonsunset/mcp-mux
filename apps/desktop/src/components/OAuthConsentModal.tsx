@@ -7,6 +7,8 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import {
   Button,
@@ -82,22 +84,26 @@ async function openRedirectUrl(url: string): Promise<void> {
   await openUrl(url);
 }
 
-function getErrorMessage(error: ConsentError): string {
+/**
+ * Map gateway consent errors to user-facing copy.
+ */
+function getErrorMessage(t: TFunction<'clients'>, error: ConsentError): string {
   switch (error.code) {
     case 'NOT_FOUND':
-      return 'This authorization request was not found. It may have expired or been processed already.';
+      return t('oauthConsent.errors.notFound');
     case 'EXPIRED':
-      return 'This authorization request has expired. Please try again from your application.';
+      return t('oauthConsent.errors.expired');
     case 'ALREADY_PROCESSED':
-      return 'This authorization request has already been processed.';
+      return t('oauthConsent.errors.alreadyProcessed');
     case 'GATEWAY_UNAVAILABLE':
-      return 'The gateway service is not running. Please check that MCPMux is fully started.';
+      return t('oauthConsent.errors.gatewayUnavailable');
     default:
       return error.message;
   }
 }
 
 export function OAuthConsentModal() {
+  const { t } = useTranslation('clients');
   const [modalState, setModalState] = useState<ModalState>({ type: 'hidden' });
   const [isProcessing, setIsProcessing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
@@ -146,7 +152,7 @@ export function OAuthConsentModal() {
         }
         setModalState({ type: 'hidden' });
       } else {
-        setProcessError(response.error || 'Failed to approve connection');
+        setProcessError(response.error || t('oauthConsent.approveFailed'));
       }
     } catch (err) {
       console.error('[OAuth] Failed to approve consent:', err);
@@ -181,7 +187,7 @@ export function OAuthConsentModal() {
         }
         setModalState({ type: 'hidden' });
       } else {
-        setProcessError(response.error || 'Failed to deny connection');
+        setProcessError(response.error || t('oauthConsent.denyFailed'));
       }
     } catch (err) {
       console.error('[OAuth] Failed to deny consent:', err);
@@ -205,7 +211,7 @@ export function OAuthConsentModal() {
           <CardContent className="flex flex-col items-center gap-4 py-8">
             <Loader2 className="text-primary-500 h-8 w-8 animate-spin" />
             <p className="text-[rgb(var(--muted))]">
-              Validating authorization request…
+              {t('oauthConsent.validating')}
             </p>
           </CardContent>
         </Card>
@@ -215,7 +221,10 @@ export function OAuthConsentModal() {
 
   if (modalState.type === 'error') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        data-testid="oauth-consent-error-modal"
+      >
         <Card className="animate-in fade-in zoom-in mx-4 w-full max-w-md shadow-xl duration-200">
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -223,19 +232,19 @@ export function OAuthConsentModal() {
                 <AlertCircle className="h-6 w-6 text-red-500" />
               </div>
               <div>
-                <CardTitle>Authorization Failed</CardTitle>
+                <CardTitle data-testid="oauth-consent-error-title">{t('oauthConsent.errorTitle')}</CardTitle>
                 <CardDescription>
-                  Could not process the authorization request
+                  {t('oauthConsent.errorDesc')}
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-[rgb(var(--muted))]">
-              {getErrorMessage(modalState.error)}
+            <p className="text-sm text-[rgb(var(--muted))]" data-testid="oauth-consent-error-message">
+              {getErrorMessage(t, modalState.error)}
             </p>
             <Button onClick={handleDismiss} className="w-full">
-              Close
+              {t('oauthConsent.close')}
             </Button>
           </CardContent>
         </Card>
@@ -264,10 +273,10 @@ export function OAuthConsentModal() {
 
           <div className="space-y-1.5">
             <h2 className="text-lg font-semibold text-[rgb(var(--foreground))]">
-              Allow {details.clientName} to connect?
+              {t('oauthConsent.allowTitle', { clientName: details.clientName })}
             </h2>
             <p className="text-sm text-[rgb(var(--muted))]">
-              It will be able to call tools you enable for this folder.
+              {t('oauthConsent.allowDesc')}
             </p>
           </div>
 
@@ -290,7 +299,7 @@ export function OAuthConsentModal() {
               ) : (
                 <Check className="mr-2 h-4 w-4" />
               )}
-              {approveReady ? 'Allow' : 'Allow (wait…)'}
+              {approveReady ? t('oauthConsent.allow') : t('oauthConsent.allowWait')}
             </Button>
             <Button
               variant="secondary"
@@ -299,7 +308,7 @@ export function OAuthConsentModal() {
               disabled={isProcessing}
             >
               <X className="mr-2 h-4 w-4" />
-              Deny
+              {t('oauthConsent.deny')}
             </Button>
           </div>
         </CardContent>

@@ -1,4 +1,4 @@
-import { Page, Locator, expect } from '@playwright/test';
+import { Page, Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
@@ -12,33 +12,32 @@ export class RegistryPage extends BasePage {
   readonly noResultsMessage: Locator;
   readonly loadingSpinner: Locator;
   readonly serverCount: Locator;
-  readonly installedCount: Locator;
   readonly clearFiltersButton: Locator;
   readonly offlineBadge: Locator;
+  readonly sortSelect: Locator;
   readonly paginationPrev: Locator;
   readonly paginationNext: Locator;
   readonly paginationInfo: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.heading = page.getByRole('heading', { name: 'Discover Servers' });
-    this.searchInput = page.getByPlaceholder('Search servers...');
-    this.serverGrid = page.locator('.grid');
-    this.serverCards = page.locator('[class*="ServerCard"], .rounded-xl.border');
-    this.noResultsMessage = page.locator('text=No servers found');
+    this.heading = page.getByTestId('registry-title');
+    this.searchInput = page.getByTestId('search-input');
+    this.serverGrid = page.getByTestId('registry-server-grid');
+    this.serverCards = page.locator('[data-testid^="server-card-"]');
+    this.noResultsMessage = page.getByTestId('registry-empty-state');
     this.loadingSpinner = page.locator('.animate-spin');
-    this.serverCount = page.locator('text=/\\d+ servers? found/');
-    this.installedCount = page.locator('text=/\\d+ installed/');
-    this.clearFiltersButton = page.getByRole('button', { name: 'Clear filters' });
-    this.offlineBadge = page.locator('text=Offline');
-    this.paginationPrev = page.locator('button:has(path[d="M15 18l-6-6 6-6"])');
-    this.paginationNext = page.locator('button:has(path[d="M9 18l6-6-6-6"])');
-    this.paginationInfo = page.locator('text=/\\d+ \\/ \\d+/');
+    this.serverCount = page.getByTestId('server-count');
+    this.clearFiltersButton = page.getByTestId('registry-clear-filters');
+    this.offlineBadge = page.getByTestId('registry-offline-badge');
+    this.sortSelect = page.getByTestId('registry-sort-select');
+    this.paginationPrev = page.getByTestId('registry-pagination-prev');
+    this.paginationNext = page.getByTestId('registry-pagination-next');
+    this.paginationInfo = page.getByTestId('registry-pagination-info');
   }
 
   async search(query: string) {
     await this.searchInput.fill(query);
-    // Wait for debounced search
     await this.page.waitForTimeout(400);
   }
 
@@ -53,45 +52,16 @@ export class RegistryPage extends BasePage {
     return match ? parseInt(match[1], 10) : 0;
   }
 
-  async getInstalledCount(): Promise<number> {
-    const text = await this.installedCount.textContent();
-    const match = text?.match(/(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
+  async installServer(serverId: string) {
+    await this.page.getByTestId(`install-btn-${serverId}`).click();
   }
 
-  async selectFilter(filterName: string, optionLabel: string) {
-    // Find the filter dropdown by nearby label or first select
-    const filterSelects = this.page.locator('select');
-    const count = await filterSelects.count();
-    
-    for (let i = 0; i < count; i++) {
-      const select = filterSelects.nth(i);
-      const options = await select.locator('option').allTextContents();
-      if (options.some(o => o.includes(optionLabel))) {
-        await select.selectOption({ label: optionLabel });
-        return;
-      }
-    }
+  async uninstallServer(serverId: string) {
+    await this.page.getByTestId(`uninstall-btn-${serverId}`).click();
   }
 
-  async selectSort(sortLabel: string) {
-    const sortSelect = this.page.locator('select').last();
-    await sortSelect.selectOption({ label: sortLabel });
-  }
-
-  async installServer(serverName: string) {
-    const serverCard = this.page.locator(`text="${serverName}"`).first().locator('xpath=ancestor::div[contains(@class, "rounded")]');
-    await serverCard.getByRole('button', { name: /Install/i }).click();
-  }
-
-  async uninstallServer(serverName: string) {
-    const serverCard = this.page.locator(`text="${serverName}"`).first().locator('xpath=ancestor::div[contains(@class, "rounded")]');
-    await serverCard.getByRole('button', { name: /Uninstall|Remove/i }).click();
-  }
-
-  async openServerDetails(serverName: string) {
-    const serverCard = this.page.locator(`text="${serverName}"`).first().locator('xpath=ancestor::div[contains(@class, "rounded")]');
-    await serverCard.click();
+  async openServerDetails(serverId: string) {
+    await this.page.getByTestId(`server-card-${serverId}`).click();
   }
 
   async closeServerDetails() {

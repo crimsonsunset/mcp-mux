@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { checkAppUpdate, relaunchApp, type Update } from '@/lib/backend/shell';
 import { getBundleVersion, getVersion } from '@/lib/backend';
 import {
@@ -20,7 +21,11 @@ interface DownloadEvent {
   };
 }
 
+/**
+ * Desktop settings card for checking and installing application updates.
+ */
 export function UpdateChecker() {
+  const { t } = useTranslation('settings');
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
@@ -29,14 +34,12 @@ export function UpdateChecker() {
   const [currentVersion, setCurrentVersion] = useState<string>('');
   const [bundleVersionMismatch, setBundleVersionMismatch] = useState<string | null>(null);
 
-  // Load current version on mount
   useEffect(() => {
     getVersion()
       .then(setCurrentVersion)
       .catch((err) => console.error('Failed to get version:', err));
   }, []);
 
-  // Check if the on-disk bundle version differs from the running version (Homebrew Cask upgrades)
   useEffect(() => {
     if (!currentVersion) return;
     getBundleVersion()
@@ -53,6 +56,9 @@ export function UpdateChecker() {
       });
   }, [currentVersion]);
 
+  /**
+   * Query the updater plugin for a newer release.
+   */
   const checkForUpdates = async () => {
     setChecking(true);
     setMessage(null);
@@ -69,26 +75,29 @@ export function UpdateChecker() {
         setUpdateInfo(update);
         setMessage({
           type: 'success',
-          text: `Version ${update.version} is available!`,
+          text: t('updates.versionAvailable', { version: update.version }),
         });
       } else {
         console.log('[Updater] No updates available');
         setMessage({
           type: 'success',
-          text: "You're running the latest version!",
+          text: t('updates.latestVersion'),
         });
       }
     } catch (error) {
       console.error('[Updater] Check failed:', error);
       setMessage({
         type: 'error',
-        text: `Failed to check for updates: ${error}`,
+        text: t('updates.checkFailed', { error: String(error) }),
       });
     } finally {
       setChecking(false);
     }
   };
 
+  /**
+   * Download and install the available update, then relaunch the app.
+   */
   const installUpdate = async () => {
     if (!updateInfo) return;
 
@@ -121,18 +130,20 @@ export function UpdateChecker() {
       });
 
       console.log('[Updater] Update installed successfully, relaunching app...');
-      // Note: On Windows, the app will exit automatically before this point
       await relaunchApp();
     } catch (error) {
       console.error('[Updater] Installation failed:', error);
       setMessage({
         type: 'error',
-        text: `Failed to install update: ${error}`,
+        text: t('updates.installFailed', { error: String(error) }),
       });
       setDownloading(false);
     }
   };
 
+  /**
+   * Format byte counts for the download progress bar.
+   */
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -151,34 +162,32 @@ export function UpdateChecker() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <RefreshCw className="h-5 w-5" />
-          Software Updates
+          {t('updates.title')}
         </CardTitle>
-        <CardDescription>
-          Keep your application up to date with the latest features and fixes.
-        </CardDescription>
+        <CardDescription>{t('updates.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* Current Version */}
           <div>
-            <label className="text-sm font-medium">Current Version</label>
+            <label className="text-sm font-medium">{t('updates.currentVersion')}</label>
             <p className="text-sm text-[rgb(var(--muted))] mt-1" data-testid="current-version">
               v{currentVersion || '0.0.5'}
             </p>
             <BuildStampPanel context="desktop" />
           </div>
 
-          {/* Bundle version mismatch (e.g., after brew upgrade) */}
           {bundleVersionMismatch && (
             <div
               className="border rounded-lg p-4 space-y-3 bg-surface-secondary"
               data-testid="restart-required"
             >
               <div>
-                <p className="font-medium text-lg">Restart Required</p>
+                <p className="font-medium text-lg">{t('updates.restartRequired')}</p>
                 <p className="text-sm text-[rgb(var(--muted))] mt-1">
-                  Version v{bundleVersionMismatch} has been installed on disk, but you are still
-                  running v{currentVersion}. Restart to apply the update.
+                  {t('updates.restartDescription', {
+                    bundleVersion: bundleVersionMismatch,
+                    currentVersion,
+                  })}
                 </p>
               </div>
               <Button
@@ -187,12 +196,11 @@ export function UpdateChecker() {
                 data-testid="restart-now-btn"
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
-                Restart Now
+                {t('updates.restartNow')}
               </Button>
             </div>
           )}
 
-          {/* Check Button */}
           {!updateInfo && !bundleVersionMismatch && (
             <Button
               onClick={checkForUpdates}
@@ -203,18 +211,17 @@ export function UpdateChecker() {
               {checking ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Checking for Updates...
+                  {t('updates.checking')}
                 </>
               ) : (
                 <>
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  Check for Updates
+                  {t('updates.checkForUpdates')}
                 </>
               )}
             </Button>
           )}
 
-          {/* Status Message */}
           {message && !updateInfo && (
             <div
               className={`flex items-start gap-2 p-3 rounded-lg text-sm ${
@@ -233,35 +240,34 @@ export function UpdateChecker() {
             </div>
           )}
 
-          {/* Update Available Card */}
           {updateInfo && (
             <div className="border rounded-lg p-4 space-y-3 bg-surface-secondary" data-testid="update-available">
               <div>
                 <p className="font-medium text-lg">
-                  Update Available: v{updateInfo.version}
+                  {t('updates.updateAvailableTitle', { version: updateInfo.version })}
                 </p>
                 {updateInfo.date && (
                   <p className="text-xs text-[rgb(var(--muted))]">
-                    Released: {new Date(updateInfo.date).toLocaleDateString()}
+                    {t('updates.released', {
+                      date: new Date(updateInfo.date).toLocaleDateString(),
+                    })}
                   </p>
                 )}
               </div>
 
-              {/* Release Notes */}
               {updateInfo.body && (
                 <div className="text-sm">
-                  <p className="font-medium mb-1">What's New:</p>
+                  <p className="font-medium mb-1">{t('updates.whatsNew')}</p>
                   <div className="text-[rgb(var(--muted))] whitespace-pre-wrap max-h-32 overflow-y-auto">
                     {updateInfo.body}
                   </div>
                 </div>
               )}
 
-              {/* Download Progress */}
               {downloading && downloadProgress.total > 0 && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs text-[rgb(var(--muted))]">
-                    <span>Downloading...</span>
+                    <span>{t('updates.downloading')}</span>
                     <span>
                       {formatBytes(downloadProgress.downloaded)} / {formatBytes(downloadProgress.total)} ({progressPercent}%)
                     </span>
@@ -275,7 +281,6 @@ export function UpdateChecker() {
                 </div>
               )}
 
-              {/* Install Button */}
               <div className="flex gap-2">
                 <Button
                   onClick={installUpdate}
@@ -286,12 +291,12 @@ export function UpdateChecker() {
                   {downloading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      {downloadProgress.total > 0 ? 'Downloading...' : 'Installing...'}
+                      {downloadProgress.total > 0 ? t('updates.downloading') : t('updates.installing')}
                     </>
                   ) : (
                     <>
                       <Download className="h-4 w-4 mr-2" />
-                      Download and Install
+                      {t('updates.downloadAndInstall')}
                     </>
                   )}
                 </Button>
@@ -304,20 +309,17 @@ export function UpdateChecker() {
                     variant="secondary"
                     data-testid="dismiss-update-btn"
                   >
-                    Remind Me Later
+                    {t('updates.remindLater')}
                   </Button>
                 )}
               </div>
 
               {downloading && (
-                <p className="text-xs text-[rgb(var(--muted))]">
-                  <strong>Note:</strong> On Windows, the app will close automatically to install the update.
-                </p>
+                <p className="text-xs text-[rgb(var(--muted))]">{t('updates.windowsNote')}</p>
               )}
             </div>
           )}
 
-          {/* Error Message for Update Available State */}
           {message && updateInfo && message.type === 'error' && (
             <div
               className="flex items-start gap-2 p-3 rounded-lg text-sm bg-red-500/10 text-red-600 dark:text-red-400"

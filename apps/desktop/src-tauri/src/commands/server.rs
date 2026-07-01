@@ -174,8 +174,7 @@ pub async fn save_server_inputs(
             args_append,
             extra_headers,
             default_params,
-            default_params_strategy
-                .map(|s| DefaultParamsStrategy::from_db_str(&s)),
+            default_params_strategy.map(|s| DefaultParamsStrategy::from_db_str(&s)),
             display_name_override,
             update_policy.map(|policy| UpdatePolicy::from_db_str(&policy)),
             pinned_version,

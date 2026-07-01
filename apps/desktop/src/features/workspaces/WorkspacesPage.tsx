@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   useServerStatusEvents,
   useWorkspaceEventListener,
@@ -97,6 +99,7 @@ const WORKSPACE_TABLE_REFRESH_CHANNELS: WorkspaceEventChannel[] = [
 const EFFECTIVE_FEATURES_REFRESH_CHANNELS: WorkspaceEventChannel[] = ['workspace-binding-changed'];
 
 export function WorkspacesPage() {
+  const { t } = useTranslation(['workspaces', 'common']);
   const spaces = useSpaces();
   const [bindings, setBindings] = useState<WorkspaceBinding[]>([]);
   const [appearances, setAppearances] = useState<WorkspaceAppearance[]>([]);
@@ -297,7 +300,7 @@ export function WorkspacesPage() {
     setBindings((prev) =>
       [...prev, created].sort((a, b) => a.workspace_root.localeCompare(b.workspace_root))
     );
-    success('Binding saved', created.workspace_root);
+    success(t('toast.bindingSaved'), created.workspace_root);
     return created;
   };
 
@@ -308,14 +311,15 @@ export function WorkspacesPage() {
         .map((b) => (b.id === id ? updated : b))
         .sort((a, b) => a.workspace_root.localeCompare(b.workspace_root))
     );
-    success('Binding updated', updated.workspace_root);
+    success(t('toast.bindingUpdated'), updated.workspace_root);
   };
 
   const handleDelete = async (binding: WorkspaceBinding) => {
     const ok = await confirm({
-      title: 'Remove binding',
-      message: `Sessions matching "${binding.workspace_root}" will fall back to the default Space. You can recreate the binding anytime.`,
-      confirmLabel: 'Remove',
+      title: t('confirm.removeTitle'),
+      message: t('confirm.removeMessage', { path: binding.workspace_root }),
+      confirmLabel: t('confirm.removeLabel'),
+      cancelLabel: t('common:actions.cancel'),
       variant: 'danger',
     });
     if (!ok) return;
@@ -323,9 +327,9 @@ export function WorkspacesPage() {
       await deleteWorkspaceBinding(binding.id);
       setBindings((prev) => prev.filter((b) => b.id !== binding.id));
       setSelected(null);
-      success('Binding removed', binding.workspace_root);
+      success(t('toast.bindingRemoved'), binding.workspace_root);
     } catch (e) {
-      showError('Failed to remove binding', e instanceof Error ? e.message : String(e));
+      showError(t('toast.failedToRemove'), e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -336,11 +340,10 @@ export function WorkspacesPage() {
           <div className="flex items-start justify-between gap-6 mb-6">
             <div className="min-w-0 flex-1">
               <h1 className="text-3xl font-bold" data-testid="workspaces-title">
-                Workspaces
+                {t('title')}
               </h1>
               <p className="text-base text-[rgb(var(--muted))] mt-2 max-w-2xl">
-                Each binding tells mcpmux which Space and feature set a folder routes into.
-                Folders without a binding fall back to the default Space.
+                {t('subtitle')}
               </p>
             </div>
             <div className="flex-shrink-0 flex items-center gap-2">
@@ -352,7 +355,7 @@ export function WorkspacesPage() {
                 className="whitespace-nowrap"
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Refresh
+                {t('common:actions.refresh')}
               </Button>
               <Button
                 variant="primary"
@@ -362,7 +365,7 @@ export function WorkspacesPage() {
                 className="whitespace-nowrap"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                New binding
+                {t('actions.newBinding')}
               </Button>
             </div>
           </div>
@@ -372,7 +375,7 @@ export function WorkspacesPage() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[rgb(var(--muted))]" />
               <input
                 type="text"
-                placeholder="Search by path, space, or feature set…"
+                placeholder={t('searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-12 pr-4 py-3 text-base bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
@@ -383,9 +386,9 @@ export function WorkspacesPage() {
               value={filter}
               onChange={setFilter}
               options={[
-                { value: 'all', label: 'All', count: counts.all },
-                { value: 'live', label: 'Live', count: counts.live },
-                { value: 'unmapped', label: 'Unmapped', count: counts.unmapped },
+                { value: 'all', label: t('filter.all'), count: counts.all },
+                { value: 'live', label: t('filter.live'), count: counts.live },
+                { value: 'unmapped', label: t('filter.unmapped'), count: counts.unmapped },
               ]}
             />
           </div>
@@ -411,6 +414,7 @@ export function WorkspacesPage() {
               hasAny={entries.length > 0}
               hasFilter={searchQuery.length > 0 || filter !== 'all'}
               onCreate={() => setSelected({ mode: 'new' })}
+              t={t}
             />
           ) : (
             <div className="grid gap-5 auto-fill-cards">
@@ -439,6 +443,7 @@ export function WorkspacesPage() {
                     fsName={resolvedFsName}
                     selected={isSelected}
                     onClick={() => setSelected({ mode: 'entry', id: entry.id })}
+                    t={t}
                   />
                 );
               })}
@@ -472,7 +477,7 @@ export function WorkspacesPage() {
               if (selectedEntry?.binding) await handleDelete(selectedEntry.binding);
             }}
             resolvedIcon={selectedEntry ? resolveEntryIcon(selectedEntry) : null}
-            onError={(msg) => showError('Could not save', msg)}
+            onError={(msg) => showError(t('toast.couldNotSave'), msg)}
             onIconChange={(icon) => {
               if (!selectedEntry) return;
               setLiveEntryIcons((prev) => {
@@ -485,6 +490,7 @@ export function WorkspacesPage() {
                 return next;
               });
             }}
+            t={t}
           />
         </>
       )}
@@ -616,6 +622,7 @@ function EntryCard({
   fsName,
   selected,
   onClick,
+  t,
 }: {
   entry: Entry;
   icon: string | null;
@@ -623,6 +630,7 @@ function EntryCard({
   fsName: string | undefined;
   selected: boolean;
   onClick: () => void;
+  t: TFunction<['workspaces', 'common']>;
 }) {
   const tone =
     entry.kind === 'unmapped-live'
@@ -661,15 +669,15 @@ function EntryCard({
             {entry.isLive && (
               <span
                 className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-[rgb(var(--background))]"
-                title="A client is currently active in this folder"
+                title={t('card.liveTooltip')}
               />
             )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              {entry.kind === 'unmapped-live' && <Pill tone="amber">Unmapped</Pill>}
-              {entry.kind === 'mapped-offline' && <Pill tone="neutral">Offline</Pill>}
-              {entry.kind === 'mapped-live' && <Pill tone="emerald">Live</Pill>}
+              {entry.kind === 'unmapped-live' && <Pill tone="amber">{t('card.unmapped')}</Pill>}
+              {entry.kind === 'mapped-offline' && <Pill tone="neutral">{t('card.offline')}</Pill>}
+              {entry.kind === 'mapped-live' && <Pill tone="emerald">{t('card.live')}</Pill>}
               {entry.binding?.client_id && (
                 <Pill tone="neutral" title={entry.binding.client_id}>
                   {shortClientId(entry.binding.client_id)}
@@ -694,16 +702,16 @@ function EntryCard({
 
         <div className="pt-4 border-t border-[rgb(var(--border-subtle))] text-xs text-[rgb(var(--muted))]">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span>Routes to</span>
+            <span>{t('card.routesTo')}</span>
             <Chip tone="primary">{fsName ?? '—'}</Chip>
-            <span>in</span>
+            <span>{t('card.in')}</span>
             <Chip tone="neutral">{spaceName ?? '—'}</Chip>
             {!entry.binding && (
               <span
                 className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60"
-                title="No binding matches this folder yet — a live session would be denied. Click to bind it to a FeatureSet."
+                title={t('card.unboundTooltip')}
               >
-                unbound
+                {t('card.unbound')}
               </span>
             )}
           </div>
@@ -823,7 +831,7 @@ function CollapsibleSection({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const t = SECTION_TONES[tone] ?? SECTION_TONES.primary;
+  const toneSpec = SECTION_TONES[tone] ?? SECTION_TONES.primary;
 
   return (
     <div
@@ -836,7 +844,7 @@ function CollapsibleSection({
         className={[
           'w-full flex items-center justify-between p-4 transition-all',
           open
-            ? t.gradientOpen
+            ? toneSpec.gradientOpen
             : 'bg-[rgb(var(--surface))] hover:bg-[rgb(var(--surface-hover))]',
         ].join(' ')}
         aria-expanded={open}
@@ -845,7 +853,7 @@ function CollapsibleSection({
           <div
             className={[
               'p-2 rounded-lg flex-shrink-0 transition-colors duration-200',
-              open ? t.iconActive : t.iconQuiet,
+              open ? toneSpec.iconActive : toneSpec.iconQuiet,
             ].join(' ')}
           >
             {icon}
@@ -860,7 +868,7 @@ function CollapsibleSection({
                   className={[
                     'text-xs px-2 py-0.5 rounded-full font-bold tabular-nums',
                     open
-                      ? t.badgeOpen
+                      ? toneSpec.badgeOpen
                       : 'bg-[rgb(var(--surface-dim))] text-[rgb(var(--muted))] border border-[rgb(var(--border-subtle))]',
                   ].join(' ')}
                 >
@@ -913,6 +921,7 @@ function InspectorPanel({
   onDelete,
   onError,
   onIconChange,
+  t,
 }: {
   entry: Entry | null;
   isNew: boolean;
@@ -925,6 +934,7 @@ function InspectorPanel({
   onError: (msg: string) => void;
   /** Live icon edits from the binding form (before autosave lands in entry state). */
   onIconChange?: (icon: string | null) => void;
+  t: TFunction<['workspaces', 'common']>;
 }) {
   const [editedIcon, setEditedIcon] = useState<string | null | undefined>(undefined);
   const [prevResolvedIcon, setPrevResolvedIcon] = useState(resolvedIcon);
@@ -957,10 +967,14 @@ function InspectorPanel({
     : isMapped
       ? 'edit'
       : 'create-from-live';
-  const title = isNew ? 'New binding' : isMapped ? 'Binding' : 'Configure workspace';
+  const title = isNew
+    ? t('panel.newBinding')
+    : isMapped
+      ? t('panel.binding')
+      : t('panel.configureWorkspace');
   const displayTitle = entry ? entryDisplayTitle(entry) : '';
   const subtitle = isNew
-    ? 'Tell mcpmux how a folder should route.'
+    ? t('panel.newSubtitle')
     : displayTitle !== entry?.root
       ? entry?.root ?? ''
       : displayTitle;
@@ -986,9 +1000,9 @@ function InspectorPanel({
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                {!isNew && entry?.isLive && <Pill tone="emerald">Live</Pill>}
-                {!isNew && entry && !isMapped && <Pill tone="amber">Unmapped</Pill>}
-                {!isNew && entry && isMapped && !entry.isLive && <Pill tone="neutral">Offline</Pill>}
+                {!isNew && entry?.isLive && <Pill tone="emerald">{t('card.live')}</Pill>}
+                {!isNew && entry && !isMapped && <Pill tone="amber">{t('card.unmapped')}</Pill>}
+                {!isNew && entry && isMapped && !entry.isLive && <Pill tone="neutral">{t('card.offline')}</Pill>}
               </div>
               <h2 className="text-lg font-bold truncate" title={displayTitle || title}>
                 {!isNew && entry ? displayTitle : title}
@@ -1009,7 +1023,7 @@ function InspectorPanel({
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-[rgb(var(--surface-hover))] transition-colors flex-shrink-0"
-            aria-label="Close panel"
+            aria-label={t('panel.closeAria')}
           >
             <X className="h-5 w-5" />
           </button>
@@ -1020,26 +1034,27 @@ function InspectorPanel({
         <CollapsibleSection
           icon={<FolderOpen className="h-5 w-5" />}
           tone="primary"
-          title="Mapping"
+          title={t('panel.mapping')}
           subtitle={
             mode === 'create'
-              ? 'Pick the FeatureSet this folder routes through.'
+              ? t('panel.mappingSubtitleCreate')
               : mode === 'create-from-live'
-                ? 'Configure routing for this live workspace.'
+                ? t('panel.mappingSubtitleLive')
                 : isMapped && entry?.binding
-                  ? `Routes to ${
-                      formatFsList(
-                        entry.binding!.feature_set_ids.map(
-                          (id) => featureSets.find((f) => f.id === id)?.name ?? id
-                        )
-                      ) || '—'
-                    } in ${
-                      spaces.find((s) => s.id === entry.binding!.space_id)?.name ?? '—'
-                    }`
-                  : 'Changes save automatically.'
+                  ? t('panel.mappingSubtitleRoutes', {
+                      featureSets:
+                        formatFsList(
+                          entry.binding!.feature_set_ids.map(
+                            (id) => featureSets.find((f) => f.id === id)?.name ?? id
+                          )
+                        ) || '—',
+                      space:
+                        spaces.find((s) => s.id === entry.binding!.space_id)?.name ?? '—',
+                    })
+                  : t('panel.mappingSubtitleAutosave')
           }
           defaultOpen={isNew || !isMapped}
-          headerExtra={mode === 'edit' ? <SaveStatusPill status={saveStatus} /> : null}
+          headerExtra={mode === 'edit' ? <SaveStatusPill status={saveStatus} t={t} /> : null}
           testId="workspace-mapping-section"
         >
           <BindingForm
@@ -1054,6 +1069,7 @@ function InspectorPanel({
             onError={onError}
             onSaveStatusChange={setSaveStatus}
             onIconChange={handleIconChange}
+            t={t}
           />
         </CollapsibleSection>
 
@@ -1061,8 +1077,8 @@ function InspectorPanel({
           <CollapsibleSection
             icon={<Layers className="h-5 w-5" />}
             tone="purple"
-            title="Effective Features"
-            subtitle="Tools, prompts, and resources this folder currently sees"
+            title={t('panel.effectiveFeatures')}
+            subtitle={t('panel.effectiveFeaturesSubtitle')}
             defaultOpen={true}
             badge={effectiveTotal ?? undefined}
             testId="workspace-effective-features-section"
@@ -1070,6 +1086,7 @@ function InspectorPanel({
             <EffectiveFeaturesContent
               root={entry.root}
               onTotalChange={setEffectiveTotal}
+              t={t}
             />
           </CollapsibleSection>
         )}
@@ -1086,7 +1103,7 @@ function InspectorPanel({
             data-testid={`workspace-binding-delete-${entry.binding.id}`}
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Remove binding
+            {t('actions.removeBinding')}
           </Button>
         </div>
       )}
@@ -1094,7 +1111,13 @@ function InspectorPanel({
   );
 }
 
-function SaveStatusPill({ status }: { status: SaveStatus }) {
+function SaveStatusPill({
+  status,
+  t,
+}: {
+  status: SaveStatus;
+  t: TFunction<['workspaces', 'common']>;
+}) {
   if (status.kind === 'idle') return null;
   const base =
     'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border';
@@ -1104,7 +1127,7 @@ function SaveStatusPill({ status }: { status: SaveStatus }) {
         className={`${base} bg-[rgb(var(--surface-dim))] text-[rgb(var(--muted))] border-[rgb(var(--border))]`}
       >
         <Loader2 className="h-2.5 w-2.5 animate-spin" />
-        Saving
+        {t('saveStatus.saving')}
       </span>
     );
   }
@@ -1114,7 +1137,7 @@ function SaveStatusPill({ status }: { status: SaveStatus }) {
         className={`${base} bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300/70 dark:border-green-700/70 animate-in fade-in duration-200`}
       >
         <Check className="h-2.5 w-2.5" strokeWidth={2.5} />
-        Saved
+        {t('saveStatus.saved')}
       </span>
     );
   }
@@ -1124,7 +1147,7 @@ function SaveStatusPill({ status }: { status: SaveStatus }) {
       title={status.message}
     >
       <AlertCircle className="h-2.5 w-2.5" />
-      Error
+      {t('saveStatus.error')}
     </span>
   );
 }
@@ -1204,9 +1227,11 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
 function EffectiveFeaturesContent({
   root,
   onTotalChange,
+  t,
 }: {
   root: string;
   onTotalChange?: (total: number | null) => void;
+  t: TFunction<['workspaces', 'common']>;
 }) {
   const [data, setData] = useState<WorkspaceEffectiveFeatures | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1310,20 +1335,20 @@ function EffectiveFeaturesContent({
       <div className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3 space-y-2.5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[rgb(var(--muted))]">
-            Resolves to
+            {t('effective.resolvesTo')}
           </span>
           <span className="text-sm font-semibold text-[rgb(var(--foreground))] truncate">
             {formatFsList(data.feature_sets.map((fs) => fs.name)) || '—'}
           </span>
-          <span className="text-xs text-[rgb(var(--muted))]">in</span>
+          <span className="text-xs text-[rgb(var(--muted))]">{t('effective.in')}</span>
           <span className="text-sm font-medium text-[rgb(var(--foreground))]">
             {data.space_name}
           </span>
           <span
             title={
               data.source === 'binding'
-                ? 'A workspace binding matched this folder — live sessions reporting it route here.'
-                : 'No binding matches this folder. A live roots-capable session would be denied; the FeatureSet shown is a preview of what binding here would expose.'
+                ? t('effective.sourceBindingTooltip')
+                : t('effective.sourceUnboundTooltip')
             }
             className={[
               'ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border',
@@ -1332,7 +1357,7 @@ function EffectiveFeaturesContent({
                 : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-300/70 dark:border-amber-700/70',
             ].join(' ')}
           >
-            {data.source === 'binding' ? 'binding' : 'unbound'}
+            {data.source === 'binding' ? t('effective.sourceBinding') : t('effective.sourceUnbound')}
           </span>
         </div>
 
@@ -1341,10 +1366,7 @@ function EffectiveFeaturesContent({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
             <span className="text-[rgb(var(--muted))] tabular-nums">
-              <span className="font-semibold text-[rgb(var(--foreground))]">{availableCount}</span>
-              <span> of </span>
-              <span className="font-semibold text-[rgb(var(--foreground))]">{totalCount}</span>
-              <span> available</span>
+              <span>{t('effective.availableOf', { available: availableCount, total: totalCount })}</span>
             </span>
             {totalCount > 0 && (
               <span
@@ -1357,7 +1379,7 @@ function EffectiveFeaturesContent({
                       : 'text-[rgb(var(--muted))]',
                 ].join(' ')}
               >
-                {allAvailable ? 'All ready' : partialAvailable ? 'Partial' : 'Offline'}
+                {allAvailable ? t('effective.allReady') : partialAvailable ? t('effective.partial') : t('effective.offline')}
               </span>
             )}
           </div>
@@ -1385,7 +1407,7 @@ function EffectiveFeaturesContent({
       {groups.length === 0 ? (
         <div className="text-center py-8 text-[rgb(var(--muted))]">
           <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No features configured in this feature set yet.</p>
+          <p className="text-sm">{t('effective.noFeatures')}</p>
         </div>
       ) : (
         <div className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
@@ -1396,6 +1418,7 @@ function EffectiveFeaturesContent({
                 group={g}
                 open={openServers.has(g.server_id)}
                 onToggle={() => toggleServer(g.server_id)}
+                t={t}
               />
             ))}
           </div>
@@ -1409,12 +1432,14 @@ function ServerGroupRow({
   group,
   open,
   onToggle,
+  t,
 }: {
   group: ServerGroup;
   open: boolean;
   onToggle: () => void;
+  t: TFunction<['workspaces', 'common']>;
 }) {
-  const issue = serverStatusIssue(group.server_status);
+  const issue = serverStatusIssue(group.server_status, t);
   const availableCount = group.mapped - group.unavailable_mapped;
   // Badge denominator is the server's *total* feature count in the Space,
   // not the mapped count — the user wants to see "3 of 10 cloudflare-docs
@@ -1513,9 +1538,9 @@ function ServerGroupRow({
 
       {open && (
         <div className="bg-[rgb(var(--background))] border-t border-[rgb(var(--border))]">
-          <FeatureSubGroup label="tool" items={group.tools} />
-          <FeatureSubGroup label="prompt" items={group.prompts} />
-          <FeatureSubGroup label="resource" items={group.resources} />
+          <FeatureSubGroup label="tool" items={group.tools} t={t} />
+          <FeatureSubGroup label="prompt" items={group.prompts} t={t} />
+          <FeatureSubGroup label="resource" items={group.resources} t={t} />
         </div>
       )}
     </div>
@@ -1530,9 +1555,11 @@ function ServerGroupRow({
 function FeatureSubGroup({
   label,
   items,
+  t,
 }: {
   label: 'tool' | 'prompt' | 'resource';
   items: EffectiveFeature[];
+  t: TFunction<['workspaces', 'common']>;
 }) {
   if (items.length === 0) return null;
   return (
@@ -1558,11 +1585,11 @@ function FeatureSubGroup({
                   getFeatureTypeColor(label),
                 ].join(' ')}
               >
-                {label}
+                {t(`effective.featureType.${label}`)}
               </span>
               {!item.available && (
                 <span className="text-[9px] uppercase tracking-wider font-bold text-[rgb(var(--muted))]">
-                  unavailable
+                  {t('effective.unavailable')}
                 </span>
               )}
             </div>
@@ -1606,26 +1633,27 @@ function getFeatureTypeColor(type: 'tool' | 'prompt' | 'resource'): string {
  * null so the row stays quiet.
  */
 function serverStatusIssue(
-  status: EffectiveFeature['server_status']
+  status: EffectiveFeature['server_status'],
+  t: TFunction<['workspaces', 'common']>
 ): { label: string; tone: 'red' | 'amber' | 'muted' } | null {
   switch (status) {
     case 'connected':
       return null;
     case 'connecting':
-      return { label: 'Connecting', tone: 'amber' };
+      return { label: t('serverStatus.connecting'), tone: 'amber' };
     case 'authenticating':
-      return { label: 'Authenticating', tone: 'amber' };
+      return { label: t('serverStatus.authenticating'), tone: 'amber' };
     case 'refreshing':
-      return { label: 'Refreshing', tone: 'amber' };
+      return { label: t('serverStatus.refreshing'), tone: 'amber' };
     case 'auth_required':
-      return { label: 'Auth needed', tone: 'amber' };
+      return { label: t('serverStatus.authNeeded'), tone: 'amber' };
     case 'error':
-      return { label: 'Error', tone: 'red' };
+      return { label: t('serverStatus.error'), tone: 'red' };
     case 'disconnected':
-      return { label: 'Disconnected', tone: 'muted' };
+      return { label: t('serverStatus.disconnected'), tone: 'muted' };
     case 'unknown':
     default:
-      return { label: 'Offline', tone: 'muted' };
+      return { label: t('serverStatus.offline'), tone: 'muted' };
   }
 }
 
@@ -1645,6 +1673,7 @@ function BindingForm({
   onError,
   onSaveStatusChange,
   onIconChange,
+  t,
 }: {
   mode: 'create' | 'edit' | 'create-from-live';
   spaces: Space[];
@@ -1659,6 +1688,7 @@ function BindingForm({
   onSaveStatusChange?: (status: SaveStatus) => void;
   /** Propagate icon edits to the inspector header and card list. */
   onIconChange?: (icon: string | null) => void;
+  t: TFunction<['workspaces', 'common']>;
 }) {
   const defaultSpaceId = useMemo(
     () => spaces.find((s) => s.is_default)?.id ?? spaces[0]?.id ?? '',
@@ -1778,7 +1808,7 @@ function BindingForm({
 
   const handleSubmit = async () => {
     if (!root.trim()) {
-      onError('Workspace root is required.');
+      onError(t('form.errors.rootRequired'));
       return;
     }
     if (rootValidation.state === 'error') {
@@ -1786,11 +1816,11 @@ function BindingForm({
       return;
     }
     if (!spaceId) {
-      onError('Pick a Space.');
+      onError(t('form.errors.pickSpace'));
       return;
     }
     if (fsIds.length === 0) {
-      onError('Pick at least one feature set.');
+      onError(t('form.errors.pickFeatureSet'));
       return;
     }
     setSubmitting(true);
@@ -1942,7 +1972,7 @@ function BindingForm({
   }, []);
 
   const submitLabel =
-    mode === 'create-from-live' ? 'Save binding' : 'Create binding';
+    mode === 'create-from-live' ? t('form.saveBinding') : t('form.createBinding');
 
   const lastSavedAppearanceRef = useRef<string | null>(
     mode === 'create-from-live' ? normalizeIcon(initialUnmappedIcon) : null
@@ -2015,24 +2045,18 @@ function BindingForm({
 
   return (
     <div className="space-y-5">
-      <FormField
-        label="Label"
-        hint="Friendly name shown instead of the folder path (optional)."
-      >
+      <FormField label={t('form.label')} hint={t('form.labelHint')}>
         <input
           type="text"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="e.g., Frontend project"
+          placeholder={t('form.labelPlaceholder')}
           className="w-full px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
           data-testid="workspace-binding-label-input"
         />
       </FormField>
 
-      <FormField
-        label="Icon"
-        hint="Set an emoji, or upload an image. Applies immediately for unmapped workspaces."
-      >
+      <FormField label={t('form.icon')} hint={t('form.iconHint')}>
         <div className="space-y-2.5">
           <div className="flex items-start gap-3">
             <div className="w-14 h-14 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--background))] flex items-center justify-center flex-shrink-0">
@@ -2051,7 +2075,7 @@ function BindingForm({
                   setIcon(next);
                   onIconChange?.(normalizeIcon(next));
                 }}
-                placeholder="Emoji, URL, or local: ref"
+                placeholder={t('form.iconPlaceholder')}
                 className="w-full px-3 py-2 rounded-lg text-sm bg-[rgb(var(--background))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                 data-testid="workspace-binding-icon-input"
               />
@@ -2064,10 +2088,10 @@ function BindingForm({
                       const picked = await pickPath({
                         directory: false,
                         multiple: false,
-                        title: 'Pick an icon image',
+                        title: t('form.pickIconTitle'),
                         filters: [
                           {
-                            name: 'Images',
+                            name: t('form.imagesFilter'),
                             extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
                           },
                         ],
@@ -2083,7 +2107,7 @@ function BindingForm({
                   }}
                   data-testid="workspace-binding-icon-upload"
                 >
-                  Upload
+                  {t('form.upload')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -2098,7 +2122,7 @@ function BindingForm({
                   disabled={!icon.trim()}
                   data-testid="workspace-binding-icon-clear"
                 >
-                  Clear
+                  {t('form.clear')}
                 </Button>
               </div>
             </div>
@@ -2106,7 +2130,7 @@ function BindingForm({
         </div>
       </FormField>
 
-      <FormField label="Workspace root">
+      <FormField label={t('form.workspaceRoot')}>
         <div className="flex gap-2">
           <input
             ref={rootRef}
@@ -2114,7 +2138,7 @@ function BindingForm({
             value={root}
             onChange={(e) => setRoot(e.target.value)}
             readOnly={!rootEditable}
-            placeholder="Pick a folder, or paste an absolute path"
+            placeholder={t('form.rootPlaceholder')}
             className={[
               'flex-1 min-w-0 px-3 py-2 rounded-lg text-sm font-mono focus:outline-none focus:ring-2',
               !rootEditable
@@ -2137,7 +2161,7 @@ function BindingForm({
                   const picked = await pickPath({
                     directory: true,
                     multiple: false,
-                    title: 'Pick a workspace folder',
+                    title: t('form.pickFolderTitle'),
                   });
                   if (typeof picked === 'string' && picked.length > 0) {
                     setRoot(picked);
@@ -2147,25 +2171,25 @@ function BindingForm({
                 }
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] hover:bg-[rgb(var(--surface-hover))] text-sm font-medium text-[rgb(var(--foreground))] transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 flex-shrink-0"
-              title="Pick a folder"
+              title={t('form.pickFolder')}
               data-testid="workspace-binding-browse"
             >
               <FolderSearch className="h-4 w-4" />
-              <span className="hidden sm:inline">Browse</span>
+              <span className="hidden sm:inline">{t('form.browse')}</span>
             </button>
           )}
         </div>
-        <RootValidationHint state={rootValidation} editable={rootEditable} originalValue={root} />
+        <RootValidationHint state={rootValidation} editable={rootEditable} originalValue={root} t={t} />
       </FormField>
 
-      <FormField label="Space" hint="Which Space this folder belongs to.">
+      <FormField label={t('form.space')} hint={t('form.spaceHint')}>
         <Picker
           value={spaceId}
           onChange={setSpaceId}
-          placeholder="Pick a Space"
+          placeholder={t('form.pickSpace')}
           options={spaces.map((s) => ({
             value: s.id,
-            label: s.is_default ? `${s.name} · default` : s.name,
+            label: s.is_default ? `${s.name}${t('form.defaultSuffix')}` : s.name,
             icon: s.icon ?? undefined,
           }))}
           testId="workspace-binding-space"
@@ -2175,18 +2199,18 @@ function BindingForm({
       <FormField
         label={
           fsIds.length > 1
-            ? `Feature sets (${fsIds.length} selected)`
-            : 'Feature set'
+            ? t('form.featureSetsSelected', { count: fsIds.length })
+            : t('form.featureSet')
         }
-        hint="Which tools this folder sees. Pick one or compose several — selected sets union into a single allow list."
+        hint={t('form.featureSetHint')}
       >
         {!spaceId ? (
           <p className="text-xs text-[rgb(var(--muted))] italic px-3 py-2">
-            Pick a Space first.
+            {t('form.pickSpaceFirst')}
           </p>
         ) : availableFs.length === 0 ? (
           <p className="text-xs text-[rgb(var(--muted))] italic px-3 py-2">
-            No feature sets in that Space yet.
+            {t('form.noFeatureSets')}
           </p>
         ) : (
           <div
@@ -2198,7 +2222,7 @@ function BindingForm({
                 type="text"
                 value={fsSearch}
                 onChange={(e) => setFsSearch(e.target.value)}
-                placeholder={`Search ${availableFs.length} feature set${availableFs.length === 1 ? '' : 's'}…`}
+                placeholder={t('form.searchFeatureSets', { count: availableFs.length })}
                 className="w-full px-2.5 py-1.5 text-xs bg-[rgb(var(--surface))] border border-[rgb(var(--border-subtle))] rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
                 data-testid="workspace-binding-fs-search"
               />
@@ -2206,7 +2230,7 @@ function BindingForm({
             <div className="max-h-56 overflow-y-auto p-1.5 space-y-1">
               {filteredFs.length === 0 ? (
                 <p className="text-xs text-[rgb(var(--muted))] italic px-2 py-3 text-center">
-                  No feature sets match &ldquo;{fsSearch}&rdquo;.
+                  {t('form.noMatch', { query: fsSearch })}
                 </p>
               ) : (
                 filteredFs.map((f) => {
@@ -2251,9 +2275,9 @@ function BindingForm({
                           {isStarterFeatureSet(f) && (
                             <span
                               className="text-[9px] uppercase tracking-wide text-[rgb(var(--muted))] bg-[rgb(var(--surface))] px-1 py-0.5 rounded flex-shrink-0"
-                              title="Auto-seeded with this Space."
+                              title={t('form.starterTooltip')}
                             >
-                              starter
+                              {t('form.starter')}
                             </span>
                           )}
                         </div>
@@ -2266,7 +2290,7 @@ function BindingForm({
                       {order !== null && fsIds.length > 1 && (
                         <span
                           className="text-[10px] font-bold text-primary-600 dark:text-primary-300 bg-primary-500/15 rounded-full h-5 w-5 flex items-center justify-center flex-shrink-0"
-                          title="Render order — first FS rendered first; resolver merges all into one set."
+                          title={t('form.renderOrderTooltip')}
                         >
                           {order}
                         </span>
@@ -2278,7 +2302,7 @@ function BindingForm({
             </div>
             {fsSearch && filteredFs.length > 0 && filteredFs.length < availableFs.length && (
               <div className="px-3 py-1.5 text-[11px] text-[rgb(var(--muted))] border-t border-[rgb(var(--border-subtle))]">
-                {filteredFs.length} of {availableFs.length} shown
+                {t('form.shownCount', { shown: filteredFs.length, total: availableFs.length })}
               </div>
             )}
           </div>
@@ -2303,7 +2327,7 @@ function BindingForm({
             {submitLabel}
           </Button>
           <Button variant="secondary" size="md" onClick={onCancel} disabled={submitting}>
-            Cancel
+            {t('common:actions.cancel')}
           </Button>
         </div>
       )}
@@ -2325,6 +2349,7 @@ function RootValidationHint({
   state,
   editable,
   originalValue,
+  t,
 }: {
   state:
     | { state: 'idle' }
@@ -2333,19 +2358,19 @@ function RootValidationHint({
     | { state: 'error'; reason: string };
   editable: boolean;
   originalValue: string;
+  t: TFunction<['workspaces', 'common']>;
 }) {
   if (!editable) {
     return (
       <p className="mt-1.5 text-[11px] text-[rgb(var(--muted))]">
-        Reported by the connected client — the path isn&apos;t editable.
+        {t('form.rootHint.reportedByClient')}
       </p>
     );
   }
   if (state.state === 'idle') {
     return (
       <p className="mt-1.5 text-[11px] text-[rgb(var(--muted))]">
-        Click <strong>Browse</strong> to pick a folder, or paste an absolute path. Accepts{' '}
-        <code>/unix</code>, <code>C:\windows</code>, and <code>file://</code> forms.
+        {t('form.rootHint.idle')}
       </p>
     );
   }
@@ -2353,7 +2378,7 @@ function RootValidationHint({
     return (
       <p className="mt-1.5 text-[11px] text-[rgb(var(--muted))] inline-flex items-center gap-1.5">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Checking…
+        {t('form.rootHint.checking')}
       </p>
     );
   }
@@ -2364,22 +2389,17 @@ function RootValidationHint({
       </p>
     );
   }
-  // ok
   const changed = state.normalized !== originalValue.trim();
   if (!changed) {
     return (
       <p className="mt-1.5 text-[11px] text-[rgb(var(--muted))]">
-        Ready to save.
+        {t('form.rootHint.ready')}
       </p>
     );
   }
   return (
     <p className="mt-1.5 text-[11px] text-[rgb(var(--muted))]">
-      Will be saved as{' '}
-      <code className="font-mono text-[rgb(var(--foreground))]">
-        {state.normalized}
-      </code>
-      .
+      {t('form.rootHint.willSaveAs', { path: state.normalized })}
     </p>
   );
 }
@@ -2449,19 +2469,21 @@ function EmptyState({
   hasAny,
   hasFilter,
   onCreate,
+  t,
 }: {
   hasAny: boolean;
   hasFilter: boolean;
   onCreate: () => void;
+  t: TFunction<['workspaces', 'common']>;
 }) {
   if (hasFilter && hasAny) {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardContent className="flex flex-col items-center justify-center py-16">
           <Search className="h-16 w-16 text-[rgb(var(--muted))] mb-4" />
-          <h3 className="text-lg font-medium mb-2">No workspaces match</h3>
+          <h3 className="text-lg font-medium mb-2">{t('empty.noMatchTitle')}</h3>
           <p className="text-sm text-[rgb(var(--muted))] text-center max-w-md">
-            Try adjusting the search or filter.
+            {t('empty.noMatchSubtitle')}
           </p>
         </CardContent>
       </Card>
@@ -2473,14 +2495,13 @@ function EmptyState({
         <div className="h-16 w-16 rounded-full bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center mb-4">
           <Radio className="h-8 w-8 text-primary-500" />
         </div>
-        <h3 className="text-lg font-medium mb-2">Nothing to show yet</h3>
+        <h3 className="text-lg font-medium mb-2">{t('empty.nothingTitle')}</h3>
         <p className="text-sm text-[rgb(var(--muted))] text-center max-w-md mb-6">
-          When a connected MCP client reports a workspace root, it will appear here live.
-          You can also add a binding ahead of time for a folder you care about.
+          {t('empty.nothingSubtitle')}
         </p>
         <Button variant="primary" onClick={onCreate}>
           <Plus className="h-4 w-4 mr-2" />
-          Add a binding
+          {t('empty.addBinding')}
         </Button>
       </CardContent>
     </Card>

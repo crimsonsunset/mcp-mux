@@ -19,7 +19,7 @@ test.describe('Admin gateway SSE smoke', () => {
 
     const chip = page.getByTestId('gateway-status-chip');
     await expect(chip).toBeVisible();
-    await expect(chip).toContainText(/Gateway (Running|Stopped)/);
+    await expect(chip).toHaveAttribute('data-state', /running|stopped/);
 
     await page.evaluate(() => {
       (window as unknown as { __gatewayEvents: string[] }).__gatewayEvents = [];
@@ -49,7 +49,7 @@ test.describe('Admin gateway SSE smoke', () => {
       )
       .toBeGreaterThan(0);
 
-    await expect(chip).toContainText('Gateway Running');
+    await expect(chip).toHaveAttribute('data-state', 'running');
 
     await request.post('/api/v1/test/events/publish', {
       data: {
@@ -58,7 +58,7 @@ test.describe('Admin gateway SSE smoke', () => {
       },
     });
 
-    await expect(chip).toContainText('Gateway Stopped');
+    await expect(chip).toHaveAttribute('data-state', 'stopped');
 
     await page.evaluate(() => {
       const source = (window as unknown as { __gatewaySse?: EventSource }).__gatewaySse;

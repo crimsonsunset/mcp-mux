@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './i18n';
 import { logWebAdminBuildInfo } from '@/lib/build-info.helpers';
 import { initTauriTestApi } from '@/lib/backend/shell';
 import '@/lib/monaco-setup';

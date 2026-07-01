@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { useToast, ToastContainer } from '@mcpmux/ui';
 import { useRegistryStore } from '../../stores/registryStore';
@@ -15,6 +16,7 @@ import { capture } from '@/lib/analytics';
 import { RequestServerCTA, ContributeMenu } from '@/components/Contribute';
 
 export function RegistryPage() {
+  const { t } = useTranslation('registry');
   const {
     servers,
     displayServers,
@@ -104,32 +106,32 @@ export function RegistryPage() {
 
   const handleInstall = async (id: string) => {
     const server = servers.find(s => s.id === id);
-    const serverName = server?.name || 'Server';
+    const serverName = server?.name || t('toast.fallbackServerName');
     try {
       await installServer(id, viewSpace?.id);
-      success('Server installed', `"${serverName}" has been installed`, {
+      success(t('toast.installed'), t('toast.installedBody', { name: serverName }), {
         duration: 6000,
         action: {
-          label: 'Go to My Servers to enable →',
+          label: t('toast.goToServers'),
           onClick: () => navigateTo('servers'),
         },
       });
     } catch {
-      showToastError('Install failed', `Failed to install "${serverName}"`);
+      showToastError(t('toast.installFailed'), t('toast.installFailedBody', { name: serverName }));
     }
   };
 
   const handleUninstall = async (id: string) => {
     const server = servers.find(s => s.id === id);
-    const serverName = server?.name || 'Server';
+    const serverName = server?.name || t('toast.fallbackServerName');
     try {
       await uninstallServer(id);
       if (selectedServer?.id === id) {
         selectServer(null);
       }
-      success('Server uninstalled', `"${serverName}" has been uninstalled`);
+      success(t('toast.uninstalled'), t('toast.uninstalledBody', { name: serverName }));
     } catch {
-      showToastError('Uninstall failed', `Failed to uninstall "${serverName}"`);
+      showToastError(t('toast.uninstallFailed'), t('toast.uninstallFailedBody', { name: serverName }));
     }
   };
 
@@ -143,10 +145,13 @@ export function RegistryPage() {
       <div className="p-6 border-b border-[rgb(var(--border-subtle))]">
         <div className="flex items-center justify-between gap-3 mb-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold" data-testid="registry-title">Discover Servers</h1>
+            <h1 className="text-2xl font-bold" data-testid="registry-title">{t('title')}</h1>
             {isOffline && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-full">
-                Offline
+              <span
+                className="px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-full"
+                data-testid="registry-offline-badge"
+              >
+                {t('offline')}
               </span>
             )}
           </div>
@@ -155,10 +160,7 @@ export function RegistryPage() {
           <ContributeMenu variant="ghost" size="sm" />
         </div>
         <p className="text-sm text-[rgb(var(--muted))]">
-          {isOffline 
-            ? 'Showing cached servers (no internet connection)'
-            : 'Browse and install MCP servers from the registry'
-          }
+          {isOffline ? t('subtitleOffline') : t('subtitleOnline')}
         </p>
       </div>
 
@@ -181,7 +183,7 @@ export function RegistryPage() {
           </svg>
           <input
             type="text"
-            placeholder="Search servers..."
+            placeholder={t('searchPlaceholder')}
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             className="input w-full pl-10"
@@ -204,11 +206,12 @@ export function RegistryPage() {
           {/* Sort Dropdown */}
           {uiConfig && uiConfig.sort_options.length > 0 && (
             <div className="ml-auto flex items-center gap-2">
-              <span className="text-sm text-[rgb(var(--muted))]">Sort:</span>
+              <span className="text-sm text-[rgb(var(--muted))]">{t('sort')}</span>
               <select
                 value={activeSort}
                 onChange={(e) => setSort(e.target.value)}
                 className="bg-[rgb(var(--surface-hover))] border border-[rgb(var(--border-subtle))] rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--primary))]/50"
+                data-testid="registry-sort-select"
               >
                 {uiConfig.sort_options.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -224,8 +227,9 @@ export function RegistryPage() {
             <button
               onClick={clearFilters}
               className="text-sm text-[rgb(var(--primary))] hover:underline"
+              data-testid="registry-clear-filters"
             >
-              Clear filters
+              {t('clearFilters')}
             </button>
           )}
         </div>
@@ -248,7 +252,10 @@ export function RegistryPage() {
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-[rgb(var(--primary))] border-t-transparent" />
           </div>
         ) : displayServers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[rgb(var(--muted))] px-8">
+          <div
+            className="flex flex-col items-center justify-center h-full text-[rgb(var(--muted))] px-8"
+            data-testid="registry-empty-state"
+          >
             <svg className="w-16 h-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
@@ -257,8 +264,8 @@ export function RegistryPage() {
                 d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <p className="text-lg">No servers found</p>
-            <p className="text-sm mb-6">Try adjusting your search or filters</p>
+            <p className="text-lg">{t('empty.title')}</p>
+            <p className="text-sm mb-6">{t('empty.desc')}</p>
             {/* Empty-search CTA — push the user toward requesting or
                 contributing the missing server rather than just giving up. */}
             <div className="w-full max-w-xl">
@@ -266,7 +273,7 @@ export function RegistryPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="registry-server-grid">
             {paginatedServers.map((server) => (
               <ServerCard
                 key={server.id}
@@ -284,10 +291,10 @@ export function RegistryPage() {
       {/* Footer: Stats & Pagination */}
       <div className="p-4 border-t border-[rgb(var(--border-subtle))] flex items-center justify-between bg-[rgb(var(--surface))]">
         <div className="text-sm text-[rgb(var(--muted))]" data-testid="server-count">
-          {displayServers.length} server{displayServers.length !== 1 ? 's' : ''} found
+          {t('footer.found', { count: displayServers.length })}
           {servers.filter((s) => s.is_installed).length > 0 && (
             <span className="ml-2 border-l border-[rgb(var(--border-subtle))] pl-2">
-              {servers.filter((s) => s.is_installed).length} installed
+              {t('footer.installed', { count: servers.filter((s) => s.is_installed).length })}
             </span>
           )}
         </div>
@@ -298,18 +305,23 @@ export function RegistryPage() {
               onClick={() => handlePageChange(activePage - 1)}
               disabled={activePage === 1}
               className="p-1.5 rounded-lg hover:bg-[rgb(var(--surface-hover))] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              data-testid="registry-pagination-prev"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
-            <span className="text-sm font-medium min-w-[3rem] text-center">
+            <span
+              className="text-sm font-medium min-w-[3rem] text-center"
+              data-testid="registry-pagination-info"
+            >
               {activePage} / {totalPages}
             </span>
             <button
               onClick={() => handlePageChange(activePage + 1)}
               disabled={activePage === totalPages}
               className="p-1.5 rounded-lg hover:bg-[rgb(var(--surface-hover))] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              data-testid="registry-pagination-next"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 18l6-6-6-6" />

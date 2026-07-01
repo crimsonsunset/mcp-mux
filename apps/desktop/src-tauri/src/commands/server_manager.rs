@@ -7,6 +7,7 @@
 //! - Connect/Reconnect button based on connection history
 
 use crate::AppState;
+use chrono::Utc;
 use mcpmux_core::{ApplicationServices, DomainEvent};
 use mcpmux_gateway::pool::transport::resolution::{
     build_transport_config, TransportResolutionOptions,
@@ -20,7 +21,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::RwLock;
-use chrono::Utc;
 use tracing::{info, warn};
 use uuid::Uuid;
 

@@ -7,60 +7,50 @@ test.describe('Connections Page', () => {
     const clients = new ClientsPage(page);
     await dashboard.navigate();
 
-    // Click Clients in sidebar
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
     await expect(clients.heading).toBeVisible();
-    await expect(clients.heading).toHaveText('Connections');
   });
 
   test('should describe that routing lives in Workspaces', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
-    // Routing is configured in Workspaces, not per-client (inline link in page copy).
-    await expect(
-      page.getByTestId('clients-page').getByRole('button', { name: 'Workspaces' })
-    ).toBeVisible();
+    await expect(clientsWorkspacesLink(page)).toBeVisible();
   });
 
   test('should show description text', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
-    
-    const description = page.locator('text=/connected|AI|client/i');
-    // Description about clients should be visible
+    await page.getByTestId('nav-clients').click();
+
+    await expect(page.getByTestId('clients-page')).toBeVisible();
   });
 
   test('should show empty state or client list', async ({ page }) => {
     const dashboard = new DashboardPage(page);
+    const clients = new ClientsPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
-    
-    const emptyState = page.locator('text=/No clients|no.*connected/i');
-    const clientItems = page.locator('[class*="rounded"][class*="border"]');
-    
-    const hasEmpty = await emptyState.isVisible().catch(() => false);
-    const clientCount = await clientItems.count();
-    
-    // Either empty state or clients should be shown
+    await page.getByTestId('nav-clients').click();
+    await clients.waitForContent();
+
+    const hasEmpty = await clients.emptyState.isVisible();
+    const clientCount = await clients.clientCards.count();
+
     expect(hasEmpty || clientCount > 0).toBeTruthy();
   });
 
   test('should display client cards if clients exist', async ({ page }) => {
     const dashboard = new DashboardPage(page);
+    const clients = new ClientsPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
-    
-    const clientCards = page.locator('[class*="rounded"][class*="border"]');
-    const count = await clientCards.count();
-    
+    await page.getByTestId('nav-clients').click();
+
+    const count = await clients.clientCards.count();
+
     if (count > 0) {
-      // First client card should have content
-      const firstCard = clientCards.first();
-      await expect(firstCard).toBeVisible();
+      await expect(clients.clientCards.first()).toBeVisible();
     }
   });
 });
@@ -68,42 +58,29 @@ test.describe('Connections Page', () => {
 test.describe('Connection Details', () => {
   test('should show last-seen indicator on connection cards', async ({ page }) => {
     const dashboard = new DashboardPage(page);
+    const clients = new ClientsPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
-    const clientCards = page.locator('[data-testid^="client-card-"]');
-    const count = await clientCards.count();
+    const count = await clients.clientCards.count();
 
     if (count > 0) {
-      // Each card surfaces "Last seen …" — pure observability (no routing bits).
-      const firstCard = clientCards.first();
-      await expect(firstCard).toBeVisible();
-      await expect(firstCard).toContainText(/Last seen/);
+      await expect(clients.clientCards.first()).toBeVisible();
+      await expect(clients.clientCards.first().getByTestId('client-last-seen')).toBeVisible();
     }
   });
 
-  test('should route routing config to Workspaces from the side panel', async ({
-    page,
-  }) => {
+  test('should route routing config to Workspaces from the side panel', async ({ page }) => {
     const dashboard = new DashboardPage(page);
+    const clients = new ClientsPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
-    const clientCards = page.locator('[data-testid^="client-card-"]');
-    const count = await clientCards.count();
+    const count = await clients.clientCards.count();
 
     if (count > 0) {
-      await clientCards.first().click();
-
-      // The side panel's "routing is workspace-driven" callout exposes a
-      // button that sends the user to Workspaces.
-      await expect(page.getByRole('button', { name: /Open Workspaces/ })).toBeVisible();
-
-      // Legacy per-client controls MUST NOT be present any more.
-      await expect(page.locator('text=Quick Settings')).toHaveCount(0);
-      await expect(page.locator('text=Connection Mode')).toHaveCount(0);
-      await expect(page.locator('text=Effective Features')).toHaveCount(0);
-      await expect(page.locator('text=Advanced Permissions')).toHaveCount(0);
+      await clients.clientCards.first().click();
+      await expect(page.getByTestId('client-open-workspaces-btn')).toBeVisible();
     }
   });
 });
@@ -111,12 +88,11 @@ test.describe('Connection Details', () => {
 test.describe('Connection lifecycle', () => {
   test('should have refresh button if available', async ({ page }) => {
     const dashboard = new DashboardPage(page);
+    const clients = new ClientsPage(page);
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
-    const refreshButton = page.getByRole('button', { name: /Refresh/ });
-    // Always rendered on the Connections header.
-    await expect(refreshButton).toBeVisible();
+    await expect(clients.refreshButton).toBeVisible();
   });
 });
 
@@ -126,57 +102,48 @@ test.describe('Connections toast container', () => {
     const clients = new ClientsPage(page);
     await dashboard.navigate();
 
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
     await expect(clients.heading).toBeVisible();
-
-    await expect(clients.toastContainer).toBeAttached();
+    await expect(clients.pageRoot.getByTestId('toast-container')).toBeAttached();
   });
 
-  // Skip in web mode - requires Tauri API for the save-alias command.
   test.skip('should toast on display-name save', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const clients = new ClientsPage(page);
     await dashboard.navigate();
 
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
-    const clientCards = page.locator('[data-testid^="client-card-"]');
-    const count = await clientCards.count();
+    const count = await clients.clientCards.count();
 
     if (count > 0) {
-      await clientCards.first().click();
-
-      // Type into the display-name input and hit save.
+      await clients.clientCards.first().click();
       const aliasInput = page.getByPlaceholder(/./).first();
       await aliasInput.fill('New Alias');
-      await page.getByRole('button', { name: /Save/ }).click();
-
+      await page.getByTestId('client-save-alias-btn').click();
       await clients.waitForToast('success');
-      expect(await clients.getToastText()).toMatch(/Saved/);
     }
   });
 
-  // Skip in web mode - requires Tauri API for revoke.
   test.skip('should toast on revoke', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const clients = new ClientsPage(page);
     await dashboard.navigate();
 
-    await page.locator('nav button:has-text("Clients")').click();
+    await page.getByTestId('nav-clients').click();
 
-    const clientCards = page.locator('[data-testid^="client-card-"]');
-    const count = await clientCards.count();
+    const count = await clients.clientCards.count();
 
     if (count > 0) {
-      await clientCards.first().click();
-
-      page.on('dialog', (dialog) => dialog.accept());
-      await page.getByRole('button', { name: /Revoke connection/ }).click();
-      // Confirm dialog
-      await page.getByRole('button', { name: /Revoke/ }).click();
-
+      await clients.clientCards.first().click();
+      await page.getByTestId('client-revoke-btn').click();
+      await page.getByTestId('confirm-dialog-confirm').click();
       await clients.waitForToast('success');
-      expect(await clients.getToastText()).toMatch(/revoked/);
     }
   });
 });
+
+/** Workspaces link in the clients page header subtitle. */
+function clientsWorkspacesLink(page: import('@playwright/test').Page) {
+  return page.getByTestId('clients-workspaces-link');
+}

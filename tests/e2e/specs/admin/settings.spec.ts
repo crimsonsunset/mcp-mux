@@ -12,9 +12,8 @@ test.describe('Admin settings page', () => {
     await expect(page.getByTestId('settings-startup-section')).toBeVisible();
     await expect(page.getByTestId('settings-gateway-section')).toBeVisible();
     await expect(page.getByTestId('logs-path')).toBeVisible();
-
-    await expect(page.locator('body')).toContainText('Appearance');
-    await expect(page.locator('body')).toContainText('Logs');
+    await expect(page.getByTestId('settings-appearance-section')).toBeVisible();
+    await expect(page.getByTestId('settings-logs-section')).toBeVisible();
 
     const themeButtons = page.getByTestId('theme-buttons');
     await expect(themeButtons).toBeVisible();

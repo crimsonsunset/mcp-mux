@@ -185,8 +185,8 @@ export async function waitForSpacesPage(page: Page): Promise<void> {
       content
         .locator('[data-testid^="space-card-"]')
         .first()
-        .or(content.getByText('No spaces created'))
-        .or(content.getByText('No spaces match your search'))
+        .or(content.getByTestId('spaces-empty-state'))
+        .or(content.getByTestId('spaces-empty-no-match'))
     ).toBeVisible({ timeout: 5_000 });
   } catch (err) {
     await snapshotAdminSelectors(page, 'waitForSpacesPage:failed');

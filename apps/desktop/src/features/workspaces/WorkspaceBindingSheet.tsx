@@ -17,6 +17,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useWorkspaceEvents } from '@/lib/backend/events';
 import { Check, ChevronDown, FolderOpen, Loader2, Sparkles, X } from 'lucide-react';
 import { Button } from '@mcpmux/ui';
@@ -50,6 +52,7 @@ function shortenPath(path: string): string {
 }
 
 export function WorkspaceBindingSheet() {
+  const { t } = useTranslation('workspaces');
   const [payload, setPayload] = useState<WorkspaceNeedsBindingPayload | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string>('');
@@ -135,7 +138,7 @@ export function WorkspaceBindingSheet() {
   const handleSave = async () => {
     if (!payload || saving || !selectedSpaceId) return;
     if (!selectedFsId) {
-      setError('Pick a feature set first');
+      setError(t('sheet.pickFeatureSet'));
       return;
     }
     setSaving(true);
@@ -174,7 +177,7 @@ export function WorkspaceBindingSheet() {
         <button
           className="absolute right-4 top-4 rounded-full p-1.5 text-[rgb(var(--muted))] transition-colors hover:bg-[rgb(var(--surface))] hover:text-[rgb(var(--foreground))]"
           onClick={handleDismiss}
-          aria-label="Close"
+          aria-label={t('sheet.closeAria')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -182,17 +185,13 @@ export function WorkspaceBindingSheet() {
         <div className="px-8 pt-10 pb-6">
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-3 py-1 text-xs font-medium text-[rgb(var(--muted))]">
             <Sparkles className="h-3 w-3 text-[rgb(var(--accent))]" />
-            {payload.collision_client_id ? 'Client binding required' : 'New workspace detected'}
+            {payload.collision_client_id ? t('sheet.badgeCollision') : t('sheet.badgeNew')}
           </div>
           <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-[rgb(var(--foreground))]">
-            {payload.collision_client_id
-              ? 'Create a binding for this client'
-              : 'Which tools should this folder see?'}
+            {payload.collision_client_id ? t('sheet.titleCollision') : t('sheet.titleNew')}
           </h2>
           <p className="mt-2 text-sm text-[rgb(var(--muted))]">
-            {payload.collision_client_id
-              ? 'This path is already bound for another MCP client. Save a client-scoped binding so this machine gets its own tool set.'
-              : 'Pick a Space and its tool set — this binding applies to the connecting client only.'}
+            {payload.collision_client_id ? t('sheet.descCollision') : t('sheet.descNew')}
           </p>
 
           <div className="mt-5 flex items-start gap-3 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-4 py-3">
@@ -211,7 +210,7 @@ export function WorkspaceBindingSheet() {
         <div className="flex-1 overflow-y-auto px-8 pb-6 space-y-6">
           <div>
             <div className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))]">
-              Space
+              {t('sheet.space')}
             </div>
             <div className="relative">
               <select
@@ -224,7 +223,7 @@ export function WorkspaceBindingSheet() {
                   <option key={s.id} value={s.id}>
                     {s.icon ? `${s.icon}  ` : ''}
                     {s.name}
-                    {s.is_default ? ' · default' : ''}
+                    {s.is_default ? t('form.defaultSuffix') : ''}
                   </option>
                 ))}
               </select>
@@ -234,7 +233,7 @@ export function WorkspaceBindingSheet() {
 
           <div>
             <div className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))]">
-              Tool set
+              {t('sheet.toolSet')}
             </div>
             {loadingFs ? (
               <div className="flex items-center justify-center py-8 text-[rgb(var(--muted))]">
@@ -242,7 +241,7 @@ export function WorkspaceBindingSheet() {
               </div>
             ) : featureSets.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[rgb(var(--border))] px-4 py-6 text-center text-xs text-[rgb(var(--muted))]">
-                No feature sets in this space yet.
+                {t('sheet.noFeatureSets')}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -252,8 +251,8 @@ export function WorkspaceBindingSheet() {
                     selected={selectedFsId === fs.id}
                     onSelect={() => setSelectedFsId(fs.id)}
                     title={fs.name}
-                    subtitle={fs.description || describeFs(fs)}
-                    badge={isStarterFeatureSet(fs) ? 'starter' : undefined}
+                    subtitle={fs.description || describeFs(fs, t)}
+                    badge={isStarterFeatureSet(fs) ? t('sheet.starter') : undefined}
                   />
                 ))}
               </div>
@@ -277,7 +276,7 @@ export function WorkspaceBindingSheet() {
               onClick={handleDismiss}
               disabled={saving}
             >
-              Not now
+              {t('sheet.notNow')}
             </Button>
             <Button
               variant="primary"
@@ -290,11 +289,11 @@ export function WorkspaceBindingSheet() {
               ) : (
                 <Check className="mr-1.5 h-4 w-4" />
               )}
-              Remember for this folder
+              {t('sheet.remember')}
             </Button>
           </div>
           <p className="mt-3 text-center text-[11px] text-[rgb(var(--muted))]">
-            You can change this anytime in Workspaces.
+            {t('sheet.footer')}
           </p>
         </div>
       </div>
@@ -363,12 +362,15 @@ function ChoiceRow({
   );
 }
 
-function describeFs(fs: FeatureSet): string {
+/**
+ * Fallback description for a feature set row when no description is set.
+ */
+function describeFs(fs: FeatureSet, t: TFunction<'workspaces'>): string {
   switch (fs.feature_set_type) {
     case 'default':
-      return 'The auto-seeded fallback set for this space';
+      return t('sheet.fsDefault');
     case 'custom':
-      return `${fs.members.length} member${fs.members.length === 1 ? '' : 's'}`;
+      return t('sheet.fsMembers', { count: fs.members.length });
     default:
       return '';
   }

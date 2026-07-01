@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   Plus,
   Loader2,
@@ -49,18 +51,19 @@ const getFeatureSetIcon = (fs: FeatureSet) => {
 // Get display name for feature set type. The 'default' alias is kept on
 // the read path so a stale row from before migration 013 still renders
 // the right pill — migration 013 rewrites stored values to 'starter'.
-const getFeatureSetTypeName = (type: string) => {
+const getFeatureSetTypeName = (type: string, t: TFunction<'featuresets'>) => {
   switch (type) {
     case 'starter':
     case 'default':
-      return 'Starter';
+      return t('type.starter');
     case 'custom':
     default:
-      return 'Custom';
+      return t('type.custom');
   }
 };
 
 export function FeatureSetsPage() {
+  const { t } = useTranslation(['featuresets', 'common']);
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
   const viewSpace = useViewSpace();
   const [isLoading, setIsLoading] = useState(true);
@@ -120,14 +123,14 @@ export function FeatureSetsPage() {
       setCreateIcon('');
       setShowCreateModal(false);
       
-      success('Feature set created', `"${newFs.name}" has been created successfully`);
+      success(t('toast.created'), t('toast.createdBody', { name: newFs.name }));
       
       // Automatically open the new feature set
       handleOpenPanel(newFs);
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       setError(errorMsg);
-      showError('Failed to create feature set', errorMsg);
+      showError(t('toast.createFailed'), errorMsg);
     } finally {
       setIsCreating(false);
     }
@@ -143,11 +146,11 @@ export function FeatureSetsPage() {
         setSelectedFeatureSet(null);
       }
       
-      success('Feature set deleted', `"${deletedSet?.name || 'Feature set'}" has been deleted`);
+      success(t('toast.deleted'), t('toast.deletedBody', { name: deletedSet?.name || t('title') }));
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       setError(errorMsg);
-      showError('Failed to delete feature set', errorMsg);
+      showError(t('toast.deleteFailed'), errorMsg);
     }
   };
 
@@ -208,30 +211,36 @@ export function FeatureSetsPage() {
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">Feature Sets</h1>
+                <h1 className="text-3xl font-bold" data-testid="featuresets-title">
+                  {t('title')}
+                </h1>
                 {viewSpace && (
                   <span className="px-2 py-0.5 rounded-full bg-[rgb(var(--surface-elevated))] text-xs border border-[rgb(var(--border))] whitespace-nowrap">
                     {viewSpace.icon || '📁'} {viewSpace.name}
                   </span>
                 )}
               </div>
-              <p className="text-base text-[rgb(var(--muted))]">
-                Manage reusable collections of features, prompts, and resources
-              </p>
+              <p className="text-base text-[rgb(var(--muted))]">{t('subtitle')}</p>
             </div>
             <div className="flex gap-3 flex-shrink-0">
-              <Button 
-                variant="ghost" 
-                size="md" 
+              <Button
+                variant="ghost"
+                size="md"
                 onClick={() => loadData(viewSpace?.id)}
                 disabled={isLoading}
+                data-testid="featuresets-refresh-btn"
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-                Refresh
+                {t('common:actions.refresh')}
               </Button>
-              <Button variant="primary" size="md" onClick={() => setShowCreateModal(true)}>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setShowCreateModal(true)}
+                data-testid="featuresets-create-btn"
+              >
                 <Plus className="h-4 w-4 mr-2" />
-                Create Feature Set
+                {t('create')}
               </Button>
             </div>
           </div>
@@ -241,7 +250,7 @@ export function FeatureSetsPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[rgb(var(--muted))]" />
             <input
               type="text"
-              placeholder="Search feature sets..."
+              placeholder={t('searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3 text-base bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
@@ -258,12 +267,11 @@ export function FeatureSetsPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-[rgb(var(--foreground))]">
-              FeatureSets are bound to <span className="text-emerald-600 dark:text-emerald-400">workspace roots</span>
+              {t('explainer.titlePrefix')}{' '}
+              <span className="text-emerald-600 dark:text-emerald-400">{t('explainer.titleHighlight')}</span>
             </p>
             <p className="text-xs text-[rgb(var(--muted))] mt-0.5 leading-relaxed">
-              Each Space gets one auto-created Default set. Routing is decided per
-              reported folder via <span className="font-medium">Workspaces</span> — sessions
-              whose root isn&apos;t bound fall back to the default Space&apos;s Default set.
+              {t('explainer.body')}
             </p>
           </div>
         </div>
@@ -291,18 +299,15 @@ export function FeatureSetsPage() {
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <Package className="h-16 w-16 text-[rgb(var(--muted))] mb-4" />
                 <h3 className="text-lg font-medium mb-2">
-                  {searchQuery ? 'No feature sets match your search' : 'No feature sets created'}
+                  {searchQuery ? t('empty.noMatchTitle') : t('empty.noCreatedTitle')}
                 </h3>
                 <p className="text-sm text-[rgb(var(--muted))] text-center max-w-md mb-6">
-                  {searchQuery 
-                    ? 'Try adjusting your search terms' 
-                    : 'Create a feature set to group tools and resources together for easy access control.'
-                  }
+                  {searchQuery ? t('empty.noMatchDesc') : t('empty.noCreatedDesc')}
                 </p>
                 {!searchQuery && (
                   <Button variant="primary" onClick={() => setShowCreateModal(true)}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Create Feature Set
+                    {t('create')}
                   </Button>
                 )}
               </CardContent>
@@ -330,11 +335,11 @@ export function FeatureSetsPage() {
                     {isStarter && (
                       <div
                         className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-green-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-[0_4px_12px_-2px_rgb(16_185_129/0.5)]"
-                        title="Auto-seeded with this Space. Edit, rename, or delete freely — no special routing role; bindings and per-client grants pick FeatureSets explicitly."
+                        title={t('card.starterBadgeTitle')}
                         data-testid={`featureset-starter-badge-${fs.id}`}
                       >
                         <CheckCircle2 className="h-3 w-3" />
-                        Starter
+                        {t('card.starterBadge')}
                       </div>
                     )}
 
@@ -352,19 +357,19 @@ export function FeatureSetsPage() {
                                 : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                             }`}
                           >
-                            {getFeatureSetTypeName(fs.feature_set_type)}
+                            {getFeatureSetTypeName(fs.feature_set_type, t)}
                           </span>
                         </div>
                       </div>
 
                       <p className="text-sm text-[rgb(var(--muted))] line-clamp-2 mb-4 h-10">
-                        {fs.description || 'No description provided.'}
+                        {fs.description || t('card.noDescription')}
                       </p>
 
                       <div className="flex items-center justify-between gap-3 text-xs text-[rgb(var(--muted))] border-t border-[rgb(var(--border-subtle))] pt-4">
-                        <span>{fs.members?.length || 0} members</span>
+                        <span>{t('card.members', { count: fs.members?.length || 0 })}</span>
                         <span className="hidden md:flex items-center gap-1 hover:text-primary-500 transition-colors flex-shrink-0">
-                          Configure <Settings className="h-3 w-3" />
+                          {t('card.configure')} <Settings className="h-3 w-3" />
                         </span>
                       </div>
                     </CardContent>
@@ -398,13 +403,16 @@ export function FeatureSetsPage() {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          data-testid="featuresets-create-modal"
+        >
           <Card className="w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 mb-2">
                   <Plus className="h-5 w-5" />
-                  Create Feature Set
+                  {t('createModal.title')}
                 </span>
                 <button
                   onClick={() => setShowCreateModal(false)}
@@ -416,35 +424,35 @@ export function FeatureSetsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Name *</label>
+                <label className="block text-sm font-medium mb-1">{t('createModal.nameLabel')}</label>
                 <input
                   type="text"
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="e.g., GitHub Read Only"
+                  placeholder={t('createModal.namePlaceholder')}
                   className="w-full px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                   autoFocus
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
+                <label className="block text-sm font-medium mb-1">{t('createModal.descriptionLabel')}</label>
                 <input
                   type="text"
                   value={createDescription}
                   onChange={(e) => setCreateDescription(e.target.value)}
-                  placeholder="What this feature set allows..."
+                  placeholder={t('createModal.descriptionPlaceholder')}
                   className="w-full px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-1">Icon (emoji)</label>
+                <label className="block text-sm font-medium mb-1">{t('createModal.iconLabel')}</label>
                 <input
                   type="text"
                   value={createIcon}
                   onChange={(e) => setCreateIcon(e.target.value)}
-                  placeholder="🔧"
+                  placeholder={t('createModal.iconPlaceholder')}
                   className="w-full px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] focus:outline-none focus:ring-2 focus:ring-primary-500"
                   maxLength={2}
                 />
@@ -452,14 +460,15 @@ export function FeatureSetsPage() {
               
               <div className="flex gap-3 pt-2">
                 <Button variant="ghost" onClick={() => setShowCreateModal(false)}>
-                  Cancel
+                  {t('common:actions.cancel')}
                 </Button>
                 <Button
                   variant="primary"
                   onClick={handleCreate}
                   disabled={isCreating || !createName.trim()}
+                  data-testid="featuresets-create-submit-btn"
                 >
-                  {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
+                  {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : t('createModal.create')}
                 </Button>
               </div>
             </CardContent>

@@ -223,7 +223,9 @@ async fn live_gateway_port_settings_reflects_active_listen_url() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn live_gateway_update_server_package_uses_live_write_runtime() {
-    use mcpmux_gateway::admin::command_bridge::write::{update_server_package, ServerConnectionBody};
+    use mcpmux_gateway::admin::command_bridge::write::{
+        update_server_package, ServerConnectionBody,
+    };
 
     let fixture = LiveGatewayFixture::start().await;
     let space_id = "11111111-1111-1111-1111-111111111111".to_string();

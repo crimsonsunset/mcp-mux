@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
@@ -6,31 +6,33 @@ import { BasePage } from './BasePage';
  */
 export class ClientsPage extends BasePage {
   readonly heading: Locator;
-  readonly clientList: Locator;
+  readonly pageRoot: Locator;
   readonly clientCards: Locator;
   readonly emptyState: Locator;
   readonly refreshButton: Locator;
+  readonly workspacesLink: Locator;
 
   constructor(page: Page) {
     super(page);
+    this.pageRoot = page.getByTestId('clients-page');
     this.heading = page.getByTestId('clients-title');
-    this.clientList = page.locator('[data-testid="client-list"]');
-    this.clientCards = page.locator('[data-testid="client-card"]');
-    this.emptyState = page.locator('text=No clients connected');
-    this.refreshButton = page.getByRole('button', { name: /Refresh/i });
+    this.clientCards = page.locator('[data-testid^="client-card-"]');
+    this.emptyState = page.getByTestId('clients-empty-connect');
+    this.refreshButton = page.getByTestId('clients-refresh-btn');
+    this.workspacesLink = page.getByTestId('clients-workspaces-link');
+  }
+
+  /** Wait until the client list or empty onboarding is shown (not the loading spinner). */
+  async waitForContent() {
+    await expect(this.clientCards.first().or(this.emptyState)).toBeVisible({ timeout: 15_000 });
   }
 
   async getClientCount(): Promise<number> {
     return await this.clientCards.count();
   }
 
-  async getClientByName(name: string): Promise<Locator> {
-    return this.page.locator(`text="${name}"`).first();
-  }
-
-  async revokeClient(clientName: string) {
-    const card = this.page.locator(`text="${clientName}"`).first().locator('xpath=ancestor::div');
-    await card.getByRole('button', { name: /Revoke|Disconnect/i }).click();
-    await this.page.getByRole('button', { name: /Confirm|Yes/i }).click();
+  async revokeClient() {
+    await this.page.getByTestId('client-revoke-btn').click();
+    await this.page.getByTestId('confirm-dialog-confirm').click();
   }
 }

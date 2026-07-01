@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ServerStatusResponse,
   FeaturesUpdatedEvent,
@@ -104,6 +105,7 @@ export function useServerManager({
   spaceId,
   onFeaturesChange,
 }: UseServerManagerOptions): UseServerManagerResult {
+  const { t } = useTranslation('servers');
   const [statuses, setStatuses] = useState<
     Record<string, ServerStatusResponse>
   >({});
@@ -270,10 +272,10 @@ export function useServerManager({
   const getButtonLabel = useCallback(
     (serverId: string) => {
       const status = statuses[serverId];
-      if (!status) return "Enable";
-      return getConnectButtonLabel(status.status, status.has_connected_before);
+      if (!status) return t('actions.enable');
+      return getConnectButtonLabel(t, status.status, status.has_connected_before);
     },
-    [statuses]
+    [statuses, t]
   );
 
   const getAction = useCallback(

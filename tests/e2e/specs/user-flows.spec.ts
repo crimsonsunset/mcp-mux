@@ -8,77 +8,59 @@ import { DashboardPage, RegistryPage } from '../pages';
 test.describe('Complete User Flows', () => {
   test('should complete first-time setup flow', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    // 1. Load app
+
     await dashboard.navigate();
     await expect(dashboard.heading).toBeVisible();
-    
-    // 2. Verify gateway status is shown
+
     await expect(dashboard.gatewayStatus).toBeVisible();
-    
-    // 3. Navigate to discover servers
-    await page.locator('nav button:has-text("Discover")').click();
-    await expect(page.locator('h1:has-text("Discover Servers")')).toBeVisible();
-    
-    // 4. Navigate to settings to configure theme
-    await page.locator('nav button:has-text("Settings")').click();
-    await expect(page.locator('h1:has-text("Settings")')).toBeVisible();
-    
-    // 5. Return to dashboard
-    await page.locator('nav button:has-text("Dashboard")').click();
+
+    await page.getByTestId('nav-discover').click();
+    await expect(page.getByTestId('registry-title')).toBeVisible();
+
+    await page.getByTestId('nav-settings').click();
+    await expect(page.getByTestId('settings-title')).toBeVisible();
+
+    await page.getByTestId('nav-dashboard').click();
     await expect(dashboard.heading).toBeVisible();
   });
 
   test('should navigate through all main sections', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    
-    // Dashboard
+
     await expect(dashboard.heading).toBeVisible();
-    
-    // My Servers
-    await page.locator('nav button:has-text("My Servers")').click();
-    await expect(page.locator('h1:has-text("My Servers")')).toBeVisible();
-    
-    // Discover
-    await page.locator('nav button:has-text("Discover")').click();
-    await expect(page.locator('h1:has-text("Discover Servers")')).toBeVisible();
-    
-    // Spaces (use last() to avoid space switcher)
-    await page.locator('nav button:has-text("Spaces")').last().click();
-    await expect(page.locator('h1:has-text("Workspaces")')).toBeVisible();
-    
-    // FeatureSets
-    await page.locator('nav button:has-text("FeatureSets")').click();
-    await expect(page.locator('h1:has-text("Feature Sets")')).toBeVisible();
-    
-    // Clients
-    await page.locator('nav button:has-text("Clients")').click();
+
+    await page.getByTestId('nav-my-servers').click();
+    await expect(page.getByTestId('servers-title')).toBeVisible();
+
+    await page.getByTestId('nav-discover').click();
+    await expect(page.getByTestId('registry-title')).toBeVisible();
+
+    await page.getByTestId('nav-spaces').click();
+    await expect(page.getByTestId('spaces-title')).toBeVisible();
+
+    await page.getByTestId('nav-featuresets').click();
+    await expect(page.getByTestId('featuresets-title')).toBeVisible();
+
+    await page.getByTestId('nav-clients').click();
     await expect(page.getByTestId('clients-title')).toBeVisible();
-    
-    // Settings
-    await page.locator('nav button:has-text("Settings")').click();
-    await expect(page.locator('h1:has-text("Settings")')).toBeVisible();
+
+    await page.getByTestId('nav-settings').click();
+    await expect(page.getByTestId('settings-title')).toBeVisible();
   });
 
   test('should persist theme preference', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Settings")').click();
-    
-    // Set dark theme
-    await page.getByRole('button', { name: 'Dark', exact: true }).click();
+    await page.getByTestId('nav-settings').click();
+
+    await page.getByTestId('theme-dark-btn').click();
     await page.waitForTimeout(500);
-    
-    // Verify dark theme is applied
     await expect(page.locator('html')).toHaveClass(/dark/);
-    
-    // Navigate away and back
-    await page.locator('nav button:has-text("Dashboard")').click();
-    await page.locator('nav button:has-text("Settings")').click();
-    
-    // Dark theme should still be active
+
+    await page.getByTestId('nav-dashboard').click();
+    await page.getByTestId('nav-settings').click();
     await expect(page.locator('html')).toHaveClass(/dark/);
   });
 });
@@ -87,23 +69,14 @@ test.describe('Server Discovery Flow', () => {
   test('should search and browse servers', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
-    
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
-    
-    // 1. Initial state - should show servers
+    await page.getByTestId('nav-discover').click();
+
     await expect(registry.serverCount).toBeVisible();
-    
-    // 2. Search for a server
     await registry.search('file');
-    
-    // 3. Results should update
     await expect(registry.serverCount).toBeVisible();
-    
-    // 4. Clear search
     await registry.clearSearch();
-    
-    // 5. Should show full list again
     await expect(registry.serverCount).toBeVisible();
   });
 });
@@ -112,8 +85,7 @@ test.describe('Dashboard Interactions', () => {
   test('should display all stat cards', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    
-    // All main stat cards should be visible
+
     await expect(dashboard.serverCountCard).toBeVisible();
     await expect(dashboard.featureSetsCard).toBeVisible();
     await expect(dashboard.clientsCard).toBeVisible();
@@ -124,45 +96,33 @@ test.describe('Dashboard Interactions', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    // Connect IDEs section should be present
-    await expect(page.getByText('Connect a client')).toBeVisible();
-
-    // Client grid should be present
-    await expect(page.locator('[data-testid="client-grid"]')).toBeVisible();
+    await expect(dashboard.connectClientHeading).toBeVisible();
+    await expect(dashboard.clientGrid).toBeVisible();
   });
 });
 
 test.describe('Responsive Behavior', () => {
   test('should adjust layout for mobile viewport', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    // Set mobile viewport
+
     await page.setViewportSize({ width: 375, height: 667 });
     await dashboard.navigate();
-    
-    // App should still load
     await expect(dashboard.heading).toBeVisible();
   });
 
   test('should adjust layout for tablet viewport', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    // Set tablet viewport
+
     await page.setViewportSize({ width: 768, height: 1024 });
     await dashboard.navigate();
-    
-    // App should still load
     await expect(dashboard.heading).toBeVisible();
   });
 
   test('should work on desktop viewport', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    // Set desktop viewport
+
     await page.setViewportSize({ width: 1920, height: 1080 });
     await dashboard.navigate();
-    
-    // App should display properly
     await expect(dashboard.heading).toBeVisible();
   });
 });
@@ -170,21 +130,16 @@ test.describe('Responsive Behavior', () => {
 test.describe('Error Handling', () => {
   test('should handle network errors gracefully', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    // Load app normally first
+
     await dashboard.navigate();
     await expect(dashboard.heading).toBeVisible();
-    
-    // App should be usable
   });
 
   test('should show loading states', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
-    
-    // Just verify page eventually loads
-    await expect(page.locator('h1:has-text("Discover Servers")')).toBeVisible();
+    await page.getByTestId('nav-discover').click();
+    await expect(page.getByTestId('registry-title')).toBeVisible();
   });
 });

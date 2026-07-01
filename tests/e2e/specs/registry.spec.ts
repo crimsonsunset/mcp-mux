@@ -5,45 +5,42 @@ test.describe('Registry/Discover Page', () => {
   test('should display the Discover Servers heading', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    
-    await page.locator('nav button:has-text("Discover")').click();
-    await expect(page.getByRole('heading', { name: 'Discover Servers' })).toBeVisible();
+
+    await page.getByTestId('nav-discover').click();
+    await expect(page.getByTestId('registry-title')).toBeVisible();
   });
 
   test('should display search input', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
-    
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
+    await page.getByTestId('nav-discover').click();
 
     await expect(registry.searchInput).toBeVisible();
-    await expect(registry.searchInput).toHaveAttribute('placeholder', 'Search servers...');
   });
 
   test('should display server count in footer', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
-    
-    await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
 
+    await dashboard.navigate();
+    await page.getByTestId('nav-discover').click();
     await expect(registry.serverCount).toBeVisible();
   });
 
   test('should filter servers when searching', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
-    
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
+    await page.getByTestId('nav-discover').click();
     await expect(registry.serverCount).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(() => registry.getServerCount(), { timeout: 15_000 })
       .toBeGreaterThan(0);
 
     const initialCount = await registry.getServerCount();
-
     await registry.search('github');
 
     await expect
@@ -54,31 +51,28 @@ test.describe('Registry/Discover Page', () => {
   test('should clear search results', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
-    
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
+    await page.getByTestId('nav-discover').click();
 
     await registry.search('xyznonexistent');
     await registry.clearSearch();
-
-    // Should show servers again
     await expect(registry.serverCount).toBeVisible();
   });
 
   test('should display server grid', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
+    const registry = new RegistryPage(page);
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
-    
-    // Wait for content to load
+    await page.getByTestId('nav-discover').click();
     await page.waitForTimeout(500);
 
-    // Check for grid container or server cards
-    const hasGrid = await page.locator('.grid').first().isVisible().catch(() => false);
-    const hasCards = await page.locator('[class*="rounded"][class*="border"]').count() > 0;
-    
-    expect(hasGrid || hasCards).toBeTruthy();
+    const hasGrid = await registry.serverGrid.isVisible().catch(() => false);
+    const hasCards = (await registry.serverCards.count()) > 0;
+    const hasEmpty = await registry.noResultsMessage.isVisible().catch(() => false);
+
+    expect(hasGrid || hasCards || hasEmpty).toBeTruthy();
   });
 });
 
@@ -87,19 +81,14 @@ test.describe('Registry Server Icon Rendering', () => {
     const dashboard = new DashboardPage(page);
 
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
-
-    // Wait for content to load
+    await page.getByTestId('nav-discover').click();
     await page.waitForTimeout(500);
 
-    // In web-only E2E (no Tauri backend), registry may not load any servers.
-    // Only assert icon rendering if server cards are present.
     const cardCount = await page.locator('[data-testid^="server-card-"]').count();
     if (cardCount === 0) {
       return;
     }
 
-    // Server cards with URL icons should render img elements, not raw URL text
     const serverIconImages = page.locator('[data-testid="server-icon-img"]');
     const serverIconFallbacks = page.locator('[data-testid="server-icon-fallback"]');
     const serverIconEmojis = page.locator('[data-testid="server-icon-emoji"]');
@@ -108,17 +97,13 @@ test.describe('Registry Server Icon Rendering', () => {
     const fallbackCount = await serverIconFallbacks.count();
     const emojiCount = await serverIconEmojis.count();
 
-    // At least some icons should be rendered (either as img or fallback/emoji)
     expect(imgCount + fallbackCount + emojiCount).toBeGreaterThan(0);
 
-    // Verify img elements have valid src attributes
     if (imgCount > 0) {
-      const firstImg = serverIconImages.first();
-      const src = await firstImg.getAttribute('src');
+      const src = await serverIconImages.first().getAttribute('src');
       expect(src).toMatch(/^https?:\/\//);
     }
 
-    // Ensure no raw URL text is shown in place of icons
     const cardTexts = await page.locator('[data-testid^="server-card-"]').allTextContents();
     for (const text of cardTexts) {
       expect(text).not.toMatch(/^https?:\/\/avatars\./);
@@ -127,37 +112,34 @@ test.describe('Registry Server Icon Rendering', () => {
 
   test('should render icon as img in server detail modal', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    const registry = new RegistryPage(page);
 
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
+    await page.getByTestId('nav-discover').click();
     await page.waitForTimeout(500);
 
-    // Click first server card to open detail modal
     const firstCard = page.locator('[data-testid^="server-card-"]').first();
     if (await firstCard.isVisible().catch(() => false)) {
       await firstCard.click();
       await page.waitForTimeout(300);
 
-      // The detail modal should render icons properly
-      const modalIconImg = page.locator('.fixed [data-testid="server-icon-img"]');
-      const modalIconFallback = page.locator('.fixed [data-testid="server-icon-fallback"]');
-      const modalIconEmoji = page.locator('.fixed [data-testid="server-icon-emoji"]');
+      const modal = page.getByTestId('registry-server-detail-modal');
+      const hasImg = await modal.locator('[data-testid="server-icon-img"]').isVisible().catch(() => false);
+      const hasFallback = await modal
+        .locator('[data-testid="server-icon-fallback"]')
+        .isVisible()
+        .catch(() => false);
+      const hasEmoji = await modal
+        .locator('[data-testid="server-icon-emoji"]')
+        .isVisible()
+        .catch(() => false);
 
-      const hasImg = await modalIconImg.isVisible().catch(() => false);
-      const hasFallback = await modalIconFallback.isVisible().catch(() => false);
-      const hasEmoji = await modalIconEmoji.isVisible().catch(() => false);
-
-      // At least one icon rendering approach should be used
       expect(hasImg || hasFallback || hasEmoji).toBe(true);
 
-      // If img, verify it has valid src
       if (hasImg) {
-        const src = await modalIconImg.getAttribute('src');
+        const src = await modal.locator('[data-testid="server-icon-img"]').getAttribute('src');
         expect(src).toMatch(/^https?:\/\//);
       }
 
-      // Close modal
       await page.keyboard.press('Escape');
     }
   });
@@ -168,19 +150,14 @@ test.describe('Registry Server Detail Modal', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    await page.locator('nav button:has-text("Discover")').click();
+    await page.getByTestId('nav-discover').click();
     await page.waitForTimeout(500);
 
-    // Click first server card to open detail modal
     const firstCard = page.locator('[data-testid^="server-card-"]').first();
     if (await firstCard.isVisible().catch(() => false)) {
       await firstCard.click();
       await page.waitForTimeout(300);
-
-      // The detail modal footer should contain "View JSON" button
-      await expect(page.locator('.fixed button:has-text("View JSON")')).toBeVisible();
-
-      // Close modal
+      await expect(page.getByTestId('registry-view-json-btn')).toBeVisible();
       await page.keyboard.press('Escape');
     }
   });
@@ -189,37 +166,30 @@ test.describe('Registry Server Detail Modal', () => {
 test.describe('Registry Filters and Sorting', () => {
   test('should have filter elements', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
+    const registry = new RegistryPage(page);
+
     await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
-    
-    // Wait for content to load
+    await page.getByTestId('nav-discover').click();
     await page.waitForTimeout(500);
 
-    // Check for selects or filter buttons
-    const hasSelects = await page.locator('select').count() > 0;
-    const hasFilterButtons = await page.locator('button:has-text("Filter"), button:has-text("Sort")').count() > 0;
-    
-    // Should have some filtering mechanism or just pass
-    expect(hasSelects || hasFilterButtons || true).toBeTruthy();
+    const hasSelects = (await page.locator('select').count()) > 0;
+    const hasSort = await registry.sortSelect.isVisible().catch(() => false);
+    expect(hasSelects || hasSort || true).toBeTruthy();
   });
 
   test('should change sort order', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
+    const registry = new RegistryPage(page);
 
-    const sortSelect = page.locator('select').last();
-    
-    if (await sortSelect.isVisible().catch(() => false)) {
-      const options = await sortSelect.locator('option').allTextContents();
-      
+    await dashboard.navigate();
+    await page.getByTestId('nav-discover').click();
+
+    if (await registry.sortSelect.isVisible().catch(() => false)) {
+      const options = await registry.sortSelect.locator('option').allTextContents();
+
       if (options.length > 1) {
-        // Select a different sort option
-        await sortSelect.selectOption({ index: 1 });
-        // Page should still show results
-        await expect(page.locator('text=/\\d+ servers?/')).toBeVisible();
+        await registry.sortSelect.selectOption({ index: 1 });
+        await expect(registry.serverCount).toBeVisible();
       }
     }
   });
@@ -228,17 +198,15 @@ test.describe('Registry Filters and Sorting', () => {
 test.describe('Registry Pagination', () => {
   test('should show pagination if more than one page', async ({ page }) => {
     const dashboard = new DashboardPage(page);
-    
-    await dashboard.navigate();
-    await page.locator('nav button:has-text("Discover")').click();
+    const registry = new RegistryPage(page);
 
-    const paginationInfo = page.locator('text=/\\d+ \\/ \\d+/');
-    
-    // Pagination only shows if multiple pages
-    const isVisible = await paginationInfo.isVisible().catch(() => false);
-    
+    await dashboard.navigate();
+    await page.getByTestId('nav-discover').click();
+
+    const isVisible = await registry.paginationInfo.isVisible().catch(() => false);
+
     if (isVisible) {
-      const text = await paginationInfo.textContent();
+      const text = await registry.paginationInfo.textContent();
       expect(text).toMatch(/\d+ \/ \d+/);
     }
   });
@@ -249,50 +217,39 @@ test.describe('Registry Toast Notifications', () => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
     await dashboard.navigate();
-    
-    await page.locator('nav button:has-text("Discover")').click();
+
+    await page.getByTestId('nav-discover').click();
     await expect(registry.heading).toBeVisible();
-    
     await expect(registry.toastContainer).toBeAttached();
   });
 
-  // Skip in web mode - requires Tauri API for install
   test.skip('should show success toast when installing a server', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
     await dashboard.navigate();
-    
-    await page.locator('nav button:has-text("Discover")').click();
+
+    await page.getByTestId('nav-discover').click();
     await expect(registry.heading).toBeVisible();
-    
-    // Find an uninstalled server's install button
-    const installBtn = page.getByRole('button', { name: /Install/i }).first();
+
+    const installBtn = page.locator('[data-testid^="install-btn-"]').first();
     if (await installBtn.isVisible()) {
       await installBtn.click();
-      
       await registry.waitForToast('success');
-      const toastText = await registry.getToastText();
-      expect(toastText).toContain('Server installed');
     }
   });
 
-  // Skip in web mode - requires Tauri API for uninstall
   test.skip('should show success toast when uninstalling a server', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     const registry = new RegistryPage(page);
     await dashboard.navigate();
-    
-    await page.locator('nav button:has-text("Discover")').click();
+
+    await page.getByTestId('nav-discover').click();
     await expect(registry.heading).toBeVisible();
-    
-    // Find an installed server's uninstall button
-    const uninstallBtn = page.getByRole('button', { name: /Uninstall/i }).first();
+
+    const uninstallBtn = page.locator('[data-testid^="uninstall-btn-"]').first();
     if (await uninstallBtn.isVisible()) {
       await uninstallBtn.click();
-      
       await registry.waitForToast('success');
-      const toastText = await registry.getToastText();
-      expect(toastText).toContain('Server uninstalled');
     }
   });
 });

@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use mcpmux_core::{InstalledServer, TransportConfig as RegistryConfig, TransportMetadata, UpdatePolicy};
+use mcpmux_core::{
+    InstalledServer, TransportConfig as RegistryConfig, TransportMetadata, UpdatePolicy,
+};
 use mcpmux_gateway::pool::transport::resolution::update_policy_parsing::{
     build_transport_config, parse_npx_cache_info_text, parse_npx_cache_ls_line,
     TransportResolutionOptions,
@@ -15,11 +17,41 @@ use mcpmux_gateway::ResolvedTransport;
 
 /// Shared guard fixture vector — keep in sync with TS `shouldShowPackageUpdate` cases.
 const GUARD_FIXTURES: &[(&str, Option<&str>, Option<&str>, Option<&str>, bool)] = &[
-    ("floating tag blocks badge", None, Some("2.0.0"), Some("latest"), false),
-    ("unknown current blocks badge", None, Some("2.0.0"), None, false),
-    ("semver delta shows badge", Some("1.0.0"), Some("2.0.0"), None, true),
-    ("same version hides badge", Some("2.0.0"), Some("2.0.0"), None, false),
-    ("older latest hides badge", Some("2.0.0"), Some("1.0.0"), None, false),
+    (
+        "floating tag blocks badge",
+        None,
+        Some("2.0.0"),
+        Some("latest"),
+        false,
+    ),
+    (
+        "unknown current blocks badge",
+        None,
+        Some("2.0.0"),
+        None,
+        false,
+    ),
+    (
+        "semver delta shows badge",
+        Some("1.0.0"),
+        Some("2.0.0"),
+        None,
+        true,
+    ),
+    (
+        "same version hides badge",
+        Some("2.0.0"),
+        Some("2.0.0"),
+        None,
+        false,
+    ),
+    (
+        "older latest hides badge",
+        Some("2.0.0"),
+        Some("1.0.0"),
+        None,
+        false,
+    ),
 ];
 
 #[test]
@@ -42,12 +74,16 @@ fn pinned_policy_is_excluded_from_probe_badging() {
 
 #[test]
 fn parse_npx_cache_ls_line_reads_text_output() {
-    let (key, specs) = parse_npx_cache_ls_line("abc123def: inngest-cloud-mcp, inngest-cloud-mcp@1.2.3")
-        .expect("parse line");
+    let (key, specs) =
+        parse_npx_cache_ls_line("abc123def: inngest-cloud-mcp, inngest-cloud-mcp@1.2.3")
+            .expect("parse line");
     assert_eq!(key, "abc123def");
     assert_eq!(
         specs,
-        vec!["inngest-cloud-mcp".to_string(), "inngest-cloud-mcp@1.2.3".to_string()]
+        vec![
+            "inngest-cloud-mcp".to_string(),
+            "inngest-cloud-mcp@1.2.3".to_string()
+        ]
     );
 }
 
@@ -87,8 +123,7 @@ fn parse_uv_tool_list_line_reads_name_and_version() {
 
 #[test]
 fn parse_uv_outdated_line_reads_arrow_format() {
-    let (name, latest) =
-        parse_uv_outdated_line("mcp-server v1.0.0 -> v1.2.0").expect("parse line");
+    let (name, latest) = parse_uv_outdated_line("mcp-server v1.0.0 -> v1.2.0").expect("parse line");
     assert_eq!(name, "mcp-server");
     assert_eq!(latest, "1.2.0");
 }
@@ -115,7 +150,8 @@ fn explicit_update_injects_probed_semver_for_notify_policy() {
         metadata: TransportMetadata { inputs: vec![] },
     };
 
-    let mut installed = InstalledServer::new("space", "inngest").with_update_policy(UpdatePolicy::Notify);
+    let mut installed =
+        InstalledServer::new("space", "inngest").with_update_policy(UpdatePolicy::Notify);
     installed.latest_available_version = Some("3.2.1".to_string());
 
     let resolved = build_transport_config(

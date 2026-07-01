@@ -6,6 +6,7 @@ import {
   Server,
   Wrench,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   Card,
   CardContent,
@@ -42,6 +43,7 @@ function activateStatCard(
 export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
   const navigateTo = useNavigateTo();
   const viewSpace = useViewSpace();
+  const { t } = useTranslation(['dashboard', 'common']);
 
   return (
     <div
@@ -53,22 +55,22 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-servers"
         role="button"
         tabIndex={0}
-        aria-label="Go to My Servers"
+        aria-label={t('statCards.servers.ariaLabel')}
         onClick={() => navigateTo('servers')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('servers'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Server className="h-5 w-5 text-primary-500" />
-            Servers
+            {t('statCards.servers.title')}
           </CardTitle>
-          <CardDescription>MCP backends installed in this Space</CardDescription>
+          <CardDescription>{t('statCards.servers.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold" data-testid="stat-servers-value">
             {stats.connectedServers}/{stats.installedServers}
           </div>
-          <div className="text-sm text-[rgb(var(--muted))]">Connected / Installed</div>
+          <div className="text-sm text-[rgb(var(--muted))]">{t('statCards.servers.metric')}</div>
         </CardContent>
       </Card>
 
@@ -77,22 +79,22 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-featuresets"
         role="button"
         tabIndex={0}
-        aria-label="Go to FeatureSets"
+        aria-label={t('statCards.featuresets.ariaLabel')}
         onClick={() => navigateTo('featuresets')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('featuresets'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Wrench className="h-5 w-5 text-primary-500" />
-            FeatureSets
+            {t('statCards.featuresets.title')}
           </CardTitle>
-          <CardDescription>Permission bundles scoped to this Space</CardDescription>
+          <CardDescription>{t('statCards.featuresets.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold" data-testid="stat-featuresets-value">
             {stats.featureSets}
           </div>
-          <div className="text-sm text-[rgb(var(--muted))]">Active bundles</div>
+          <div className="text-sm text-[rgb(var(--muted))]">{t('statCards.featuresets.metric')}</div>
         </CardContent>
       </Card>
 
@@ -101,22 +103,22 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-clients"
         role="button"
         tabIndex={0}
-        aria-label="Go to Clients"
+        aria-label={t('statCards.clients.ariaLabel')}
         onClick={() => navigateTo('clients')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('clients'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Monitor className="h-5 w-5 text-primary-500" />
-            Clients
+            {t('statCards.clients.title')}
           </CardTitle>
-          <CardDescription>AI apps authorized to use your gateway</CardDescription>
+          <CardDescription>{t('statCards.clients.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold" data-testid="stat-clients-value">
             {stats.clients}
           </div>
-          <div className="text-sm text-[rgb(var(--muted))]">Registered clients</div>
+          <div className="text-sm text-[rgb(var(--muted))]">{t('statCards.clients.metric')}</div>
         </CardContent>
       </Card>
 
@@ -125,23 +127,23 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-active-space"
         role="button"
         tabIndex={0}
-        aria-label="Go to Spaces"
+        aria-label={t('statCards.space.ariaLabel')}
         onClick={() => navigateTo('spaces')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('spaces'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Globe className="h-5 w-5 text-primary-500" />
-            Space
+            {t('statCards.space.title')}
           </CardTitle>
-          <CardDescription>Isolation boundary for servers and permissions</CardDescription>
+          <CardDescription>{t('statCards.space.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="truncate text-xl font-bold" data-testid="stat-active-space-value">
-            {viewSpace?.icon} {viewSpace?.name || 'None'}
+            {viewSpace?.icon} {viewSpace?.name || t('common:none')}
           </div>
           <div className="text-sm text-[rgb(var(--muted))]">
-            {stats.spaces} Space{stats.spaces === 1 ? '' : 's'} total
+            {t('statCards.space.total', { count: stats.spaces })}
           </div>
         </CardContent>
       </Card>
@@ -151,22 +153,22 @@ export function DashboardStatCards({ stats }: DashboardStatCardsProps) {
         data-testid="stat-workspaces"
         role="button"
         tabIndex={0}
-        aria-label="Go to Workspaces"
+        aria-label={t('statCards.workspaces.ariaLabel')}
         onClick={() => navigateTo('workspaces')}
         onKeyDown={(event) => activateStatCard(event, () => navigateTo('workspaces'))}
       >
         <CardHeader className="mb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <FolderOpen className="h-5 w-5 text-primary-500" />
-            Workspaces
+            {t('statCards.workspaces.title')}
           </CardTitle>
-          <CardDescription>Folder paths mapped to FeatureSets</CardDescription>
+          <CardDescription>{t('statCards.workspaces.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold" data-testid="stat-workspaces-value">
             {stats.workspaceBindings}
           </div>
-          <div className="text-sm text-[rgb(var(--muted))]">Path bindings</div>
+          <div className="text-sm text-[rgb(var(--muted))]">{t('statCards.workspaces.metric')}</div>
         </CardContent>
       </Card>
     </div>
