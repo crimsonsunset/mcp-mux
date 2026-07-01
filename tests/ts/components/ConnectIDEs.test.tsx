@@ -48,7 +48,7 @@ describe('ConnectIDEs', () => {
       writable: true,
       configurable: true,
     });
-    render(<ConnectIDEs gatewayUrl="http://localhost:45818" gatewayRunning={true} />);
+    renderWithI18n(<ConnectIDEs gatewayUrl="http://localhost:45818" gatewayRunning={true} />);
 
     await user.click(screen.getByTestId('client-icon-opencode'));
     await user.click(screen.getByRole('button', { name: /Copy config/i }));
