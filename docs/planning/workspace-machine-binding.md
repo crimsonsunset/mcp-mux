@@ -335,6 +335,7 @@ Clicking "Set up" opens a small modal: name field (required), icon (optional), h
 **Doc hygiene:**
 - [ ] `deny-by-default-bindable-callers.md` still says `Status: Planning — ready to implement` and `Branch: feat/deny-by-default-routing` despite shipping on this branch Jun 29 — update status/branch fields.
 - [ ] `projects-grouped-machine-cards.md` planned a follow-on branch that never happened (landed in-branch Jun 25) — same cleanup.
+- [ ] `workspace-binding-project-adopt.md` still says `Status: Planning — not started` despite Phase 1 + Phase 2 both shipping Jun 26–30 — update status.
 
 **Lower priority / tracked, not urgent:**
 - [ ] `find_exact_for_machine` / `find_exact_global` do an in-memory `list()` scan per lookup per root — fine at homelab scale, revisit if bindings scale past "tens."

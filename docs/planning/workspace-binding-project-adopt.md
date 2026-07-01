@@ -6,6 +6,8 @@
 **Depends on:** `feat/workspace-machine-binding` fully merged (migrations 033–035, machine CRUD, `machine_id` on bindings, resolver 3-tier lookup)
 **Unblocks:** Full multi-box workflow — opening a project on a new machine auto-offers the existing routing config instead of starting from scratch
 
+> ⚠️ **Status stale as of Jul 1, 2026** — says "Planning — not started" but Phase 1 (sibling detection + adopt step) and Phase 2 (LIVE badge fix) both shipped on `feat/workspace-machine-binding` (Jun 26–30 commits). See [`workspace-machine-binding.md`](./workspace-machine-binding.md#future-todos-from-pr-8-review-jul-1-2026) Future TODOs.
+
 ---
 
 ## Problem
