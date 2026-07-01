@@ -1,10 +1,35 @@
 # Workspace Machine Binding
 
-**Last Updated:** Jun 30, 2026
-**Status:** In progress — Phases 1–4 largely landed; per-device header for tunneled multi-device routing landed Jun 30, 2026
+**Last Updated:** Jul 1, 2026
+**Status:** In progress — Phases 1–4 largely landed; per-device header for tunneled multi-device routing landed Jun 30, 2026; PR #8 (this branch) reviewed Jul 1, 2026 — see architecture review below
 **Branch:** `feat/workspace-machine-binding` (off `dev-rebased`)
 **Depends on:** `dev-rebased` label/icon port complete (migration 032 landed)
 **Unblocks:** Per-machine project organization and override routing; homelab multi-box workflow
+
+---
+
+## Update — Jul 1, 2026 (PR #8 architecture review — client_id vs machine_id)
+
+PR #8 review surfaced that `machine_id` didn't replace the pre-existing `client_id` scoping (migration 027) — it stacked on top of it. `WorkspaceBinding` now carries **two independent optional scope fields**, and the resolver reconciles both instead of one:
+
+- `client_id` — OAuth app identity (Cursor, Claude Desktop, …), pre-existing.
+- `machine_id` — physical host identity, this feature.
+
+`find_exact_for_machine` handles all four combinations (client+machine, machine-only canonical, client-only legacy, global), with client+machine taking priority over machine-only:
+
+```322:346:crates/mcpmux-storage/src/repositories/workspace_binding_repository.rs
+async fn find_exact_for_machine(...) -> Result<Option<WorkspaceBinding>> {
+    let bindings = self.list().await?;
+    // Client+machine scoped binding takes priority over machine-only canonical.
+    ...
+}
+```
+
+This directly contradicts two "Out of scope" decisions below (marked ⚠️ **STALE** — see Scope section) that assumed client+machine combined scoping would never be needed. It shipped anyway (`007de1f`, Jun 27) to fix bindings created via the workspace-needs-binding popup that had both `machine_id` and `client_id` set and were invisible to the old machine-only lookup.
+
+**Not a bug** — traced the priority order end-to-end, it's internally consistent and tested (`test_machine_id_round_trip` etc). But it means the OAuth client-identity system and the machine-identity system are two separate trust/scope axes stacked together with a compatibility fallback (`if local_machine_id.is_none() { find_exact_for_roots... }` for installs that haven't adopted machines yet), not one unified caller-identity concept. See **Future TODOs** below.
+
+Full PR review + architecture discussion: [PR #8](https://github.com/crimsonsunset/mcp-mux/pull/8).
 
 ---
 
@@ -93,8 +118,8 @@ Two things break down:
 
 | Item | Reason |
 | ---- | ------ |
-| Per-client + per-machine combined scoping `(client_id, machine_id, workspace_root)` | Three-dimensional uniqueness adds complexity with no current use case. Revisit if per-client routing is ever fully wired. |
-| Machine-aware `client_id` scoped bindings | Client-scoped bindings are not currently used in production routing. Keep machine scope orthogonal for now. |
+| ~~Per-client + per-machine combined scoping `(client_id, machine_id, workspace_root)`~~ | ⚠️ **STALE — shipped anyway.** `find_exact_for_machine` matches client+machine scoped bindings before falling back to machine-only canonical (`007de1f`, Jun 27) — the workspace-needs-binding popup writes both fields and needed a lookup path that could see them. See Jul 1 review update above. |
+| ~~Machine-aware `client_id` scoped bindings~~ | ⚠️ **STALE — shipped anyway.** Client-scoped bindings are the fallback path (`WorkspaceBinding::new_scoped_multi`) when no machine identity is available at bind time (`bind_workspace.rs`). Machine and client scope are not orthogonal in the current resolver. |
 | Cross-machine DB sync / export | Each McpMux install has its own SQLite. Syncing machines across installs is a future cloud/sync feature. |
 | Machine icon upload from web admin | Icon upload requires a file picker; follow the same deferral as base-dirs on web (text/emoji only for now). |
 | Automatic hostname detection | Querying `hostname` at runtime is easy but creates a false sense of automation — the user should consciously name their machines. Pre-fill the hostname field from `gethostname()` as a hint only. |
@@ -293,3 +318,25 @@ Clicking "Set up" opens a small modal: name field (required), icon (optional), h
 
 - [`dev-rebased-post-port-completion.md`](./dev-rebased-post-port-completion.md) — label/icon port this feature builds on (migration 032)
 - [`dev-to-main-port.md`](./dev-to-main-port.md) — broader port history; Phase 7 workspace binding metadata work
+
+---
+
+## Future TODOs (from PR #8 review, Jul 1 2026)
+
+**Identity model:**
+- [ ] Decide whether `client_id` scoping and `machine_id` scoping should be unified into one caller-identity concept, or formally documented as two intentionally-separate axes (client = app, machine = host) with the current four-combination priority as the permanent design. Right now it's implicit — nobody decided it, it accreted across migrations 027 → 033–035 → `007de1f`.
+- [ ] If unified: evaluate whether `WorkspaceBinding.client_id` can be deprecated in favor of always deriving scope through `inbound_clients.machine_id`, now that every OAuth client can be assigned a machine. Blocked on: pre-existing client-scoped bindings in the wild would need a migration.
+
+**File size (deferred twice already — `workspace-binding-project-adopt.md`, `sidesheet-panel-identity-header.md`):**
+- [ ] `WorkspacesPage.tsx` (2014 lines, 9 components in one file) — extract `EntryCard`, `EntryCardRoutingTable`, `EffectiveFeaturesContent`, `MachineRegistrationModal` into their own files.
+- [ ] `SettingsPage.tsx` (2052 lines, one 1436-line `SettingsPage()` function) — extract `MachineIdentitySection` and other settings sections out of the main component.
+- [ ] `workspace-binding-panel.component.tsx` (1296 lines) and `workspace-binding-form.component.tsx` (996 lines) — both born oversized; split by section (identity header / routing fields / scope fields) now while the code is fresh, before the next feature adds to them.
+
+**Doc hygiene:**
+- [ ] `deny-by-default-bindable-callers.md` still says `Status: Planning — ready to implement` and `Branch: feat/deny-by-default-routing` despite shipping on this branch Jun 29 — update status/branch fields.
+- [ ] `projects-grouped-machine-cards.md` planned a follow-on branch that never happened (landed in-branch Jun 25) — same cleanup.
+
+**Lower priority / tracked, not urgent:**
+- [ ] `find_exact_for_machine` / `find_exact_global` do an in-memory `list()` scan per lookup per root — fine at homelab scale, revisit if bindings scale past "tens."
+- [ ] `feature_set_repo` field on `FeatureSetResolverService` is `#[allow(dead_code)]`, kept for constructor API stability — either finish removing it or drop the "temporary" framing in the comment.
+- [ ] No CI ran against this branch (fork, Actions not enabled) — fine for now per solo-project workflow, but the gap grows with PR size like this one.

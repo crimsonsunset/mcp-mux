@@ -6,6 +6,8 @@
 **Depends on:** `feat/workspace-machine-binding` fully merged (migrations 033/034, machine CRUD, `machine_id` on bindings)
 **Unblocks:** Full homelab multi-box workflow — same project path on Gondor and Rohan each routing to a different FeatureSet, both visible at a glance
 
+> ⚠️ **Status/Branch stale as of Jul 1, 2026** — this shipped in-branch on `feat/workspace-machine-binding` (Jun 25 commits), not on a separate `feat/projects-grouped-machine-cards` branch. See [`workspace-machine-binding.md`](./workspace-machine-binding.md#future-todos-from-pr-8-review-jul-1-2026) Future TODOs.
+
 ---
 
 ## Problem

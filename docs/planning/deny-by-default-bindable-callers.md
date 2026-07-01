@@ -6,6 +6,8 @@
 **Depends on:** `projects-grouped-machine-cards.md` + `workspace-binding-project-adopt.md` merged (one-card-per-path `Entry.bindings[]`, `EntryKind`, `machine_id` on bindings, 3-tier resolver)
 **Unblocks:** A folder/client gets **zero** backend tools until it has an explicit representation on the Projects/Clients page — and the whole feature stops depending on the now-deprecated MCP `roots` primitive
 
+> ⚠️ **Status/Branch stale as of Jul 1, 2026** — this shipped on `feat/workspace-machine-binding` (Jun 29 commits), not on a separate `feat/deny-by-default-routing` branch. See [`workspace-machine-binding.md`](./workspace-machine-binding.md#future-todos-from-pr-8-review-jul-1-2026) Future TODOs.
+
 ---
 
 ## Problem
