@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "McpMux",
   "mainBinaryName": "mcpmux",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "identifier": "com.mcpmux.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev:web",
@@ -47,7 +47,10 @@
       },
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPLOCALDATA/**", "$APPLOCALDATA/**/*"]
+        "scope": [
+          "$APPLOCALDATA/**",
+          "$APPLOCALDATA/**/*"
+        ]
       }
     }
   },
