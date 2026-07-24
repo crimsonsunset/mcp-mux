@@ -62,12 +62,19 @@ pub(crate) async fn build_and_cache_active_index(
     Ok(index)
 }
 
+/// Timing + miss count from [`hydrate_active_embeddings`].
+pub(crate) struct HydrateEmbeddingsTiming {
+    pub hydrate_ms: u64,
+    /// Content hashes absent from the in-memory store before this hydrate attempt.
+    pub hydrated_missing_count: usize,
+}
+
 /// Load missing active-tool vectors from persistent storage into the global embedding map.
 pub(crate) async fn hydrate_active_embeddings(
     call: &MetaToolCall<'_>,
     query_id: &str,
     active_index: &[crate::services::ToolIndexEntry],
-) -> Result<u64, MetaToolError> {
+) -> Result<HydrateEmbeddingsTiming, MetaToolError> {
     let hydrate_started = Instant::now();
     let missing_hashes: HashSet<String> = active_index
         .iter()
@@ -91,7 +98,10 @@ pub(crate) async fn hydrate_active_embeddings(
             hydrate_ms,
             "[embed] store hydrate"
         );
-        return Ok(hydrate_ms);
+        return Ok(HydrateEmbeddingsTiming {
+            hydrate_ms,
+            hydrated_missing_count: 0,
+        });
     }
 
     let missing_hashes: Vec<String> = missing_hashes.into_iter().collect();
@@ -124,5 +134,8 @@ pub(crate) async fn hydrate_active_embeddings(
         "[embed] store hydrate"
     );
 
-    Ok(hydrate_ms)
+    Ok(HydrateEmbeddingsTiming {
+        hydrate_ms,
+        hydrated_missing_count: hashes_requested,
+    })
 }

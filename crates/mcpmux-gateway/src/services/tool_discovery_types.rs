@@ -61,6 +61,14 @@ pub struct SearchToolsResult {
     pub ranking: &'static str,
     /// Fused or lexical score of the top-ranked match when a query was provided.
     pub top_fused_score: Option<f64>,
+    /// Lexical filter + TF-IDF sort duration (ms).
+    pub rank_lexical_ms: u64,
+    /// ONNX query embedding duration (ms); zero when hybrid was skipped.
+    pub rank_embed_query_ms: u64,
+    /// Semantic fusion / cosine rescoring duration (ms); zero when hybrid was skipped.
+    pub rank_semantic_ms: u64,
+    /// Embedding model lifecycle at rank time (`absent` | `downloading` | `ready` | `failed`).
+    pub embedding_state: &'static str,
 }
 
 impl AsRef<ToolIndexEntry> for ToolIndexEntry {

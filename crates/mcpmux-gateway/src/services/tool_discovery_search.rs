@@ -10,11 +10,20 @@ use crate::services::discovery_rank::{
     build_corpus_doc_freq, filter_and_rank, filter_and_rank_traced, lexical_score_precomputed,
     prepare_query_tokens, tokenize, RankTraceContext,
 };
-use crate::services::embedding::{EmbeddingService, EmbeddingState};
+use crate::services::embedding::{model_state_label, EmbeddingService, EmbeddingState};
 
 use super::tool_discovery_index::entry_content_hash;
 use super::tool_discovery_types::{DetailLevel, SearchContext, SearchToolsResult, ToolIndexEntry};
 use super::ToolDiscoveryService;
+
+/// Hybrid ranking outcome plus sub-phase timings for outer search instrumentation.
+struct HybridOutcome {
+    ranking: &'static str,
+    top_fused_score: Option<f64>,
+    embed_query_ms: u64,
+    semantic_ms: u64,
+    embedding_state: &'static str,
+}
 
 /// Lexical weight for hybrid score fusion.
 ///
@@ -75,8 +84,13 @@ impl ToolDiscoveryService {
         };
         let lexical_ms = lexical_started.elapsed().as_millis() as u64;
 
+        let fallback_embedding_state = hybrid
+            .as_ref()
+            .map(|ctx| model_state_label(&ctx.embeddings.state()))
+            .unwrap_or("absent");
+
         let hybrid_started = Instant::now();
-        let (ranking, top_fused_score) =
+        let hybrid_outcome =
             if let (Some(query), Some(query_id), Some(ctx)) = (query, query_id, hybrid) {
                 rank_with_hybrid(
                     &mut ranked,
@@ -87,7 +101,13 @@ impl ToolDiscoveryService {
                     top_lexical_score,
                 )
             } else {
-                ("lexical", top_lexical_score)
+                HybridOutcome {
+                    ranking: "lexical",
+                    top_fused_score: top_lexical_score,
+                    embed_query_ms: 0,
+                    semantic_ms: 0,
+                    embedding_state: fallback_embedding_state,
+                }
             };
         let hybrid_ms = hybrid_started.elapsed().as_millis() as u64;
 
@@ -123,8 +143,11 @@ impl ToolDiscoveryService {
                 index_entries = index.len(),
                 ranked_count = total,
                 lexical_ms,
+                rank_embed_query_ms = hybrid_outcome.embed_query_ms,
+                rank_semantic_ms = hybrid_outcome.semantic_ms,
                 hybrid_ms,
                 paginate_ms,
+                embedding_state = hybrid_outcome.embedding_state,
                 rank_total_ms = lexical_ms + hybrid_ms + paginate_ms,
                 "[search] rank phase"
             );
@@ -141,8 +164,12 @@ impl ToolDiscoveryService {
             tools: page,
             next_cursor,
             total,
-            ranking,
-            top_fused_score,
+            ranking: hybrid_outcome.ranking,
+            top_fused_score: hybrid_outcome.top_fused_score,
+            rank_lexical_ms: lexical_ms,
+            rank_embed_query_ms: hybrid_outcome.embed_query_ms,
+            rank_semantic_ms: hybrid_outcome.semantic_ms,
+            embedding_state: hybrid_outcome.embedding_state,
         }
     }
 
@@ -182,12 +209,13 @@ fn rank_with_hybrid<'a, T, FHaystack>(
     ctx: SearchContext<'_>,
     haystack_fn: FHaystack,
     top_lexical_score: Option<f64>,
-) -> (&'static str, Option<f64>)
+) -> HybridOutcome
 where
     T: AsRef<ToolIndexEntry> + 'a,
     FHaystack: Fn(&T) -> String,
 {
     let model_state = ctx.embeddings.state();
+    let embedding_state = model_state_label(&model_state);
     let model_ready = matches!(model_state, EmbeddingState::Ready);
     if !model_ready {
         ctx.embeddings.ensure_init_started();
@@ -208,7 +236,13 @@ where
             ctx.active_index.len(),
             ranked.len(),
         );
-        return ("lexical", top_lexical_score);
+        return HybridOutcome {
+            ranking: "lexical",
+            top_fused_score: top_lexical_score,
+            embed_query_ms: 0,
+            semantic_ms: 0,
+            embedding_state,
+        };
     }
 
     let vectors_started = Instant::now();
@@ -249,20 +283,28 @@ where
 
     let inline_embed_started = Instant::now();
     let Some(query_vector) = ctx.embeddings.embed_query(query, Some(query_id)) else {
+        let embed_query_ms = inline_embed_started.elapsed().as_millis() as u64;
         debug!(
             query_id,
             model_state = ?ctx.embeddings.state(),
-            embed_ms = inline_embed_started.elapsed().as_millis() as u64,
+            embed_ms = embed_query_ms,
             skip_reason = "query_embed_failed",
             "[search] hybrid abort"
         );
-        return ("lexical", top_lexical_score);
+        return HybridOutcome {
+            ranking: "lexical",
+            top_fused_score: top_lexical_score,
+            embed_query_ms,
+            semantic_ms: 0,
+            embedding_state: model_state_label(&ctx.embeddings.state()),
+        };
     };
+    let embed_query_ms = inline_embed_started.elapsed().as_millis() as u64;
     info!(
         target: "embed",
         query_id,
         docs_embedded = 1,
-        embed_ms = inline_embed_started.elapsed().as_millis() as u64,
+        embed_ms = embed_query_ms,
         "[embed] inline query embed"
     );
 
@@ -270,6 +312,7 @@ where
     // `lexical_score` helper rebuilt the corpus doc-frequency map on every
     // call, making this loop O(N^2) in tokenization; building the stats a
     // single time keeps it O(N) (matches the lexical pass in discovery_rank).
+    let semantic_started = Instant::now();
     let corpus_started = Instant::now();
     let haystacks: Vec<String> = ranked.iter().map(|entry| haystack_fn(entry)).collect();
     let (corpus_size, corpus_doc_freq) = build_corpus_doc_freq(&haystacks);
@@ -335,6 +378,7 @@ where
     let top_fused_score = scored.first().map(|(_, score)| *score);
     *ranked = scored.into_iter().map(|(entry, _)| entry).collect();
     let sort_ms = sort_started.elapsed().as_millis() as u64;
+    let semantic_ms = semantic_started.elapsed().as_millis() as u64;
 
     if vectors_present == 0 {
         debug!(
@@ -347,7 +391,13 @@ where
             skip_reason = "vectors_present_zero",
             "[search] hybrid abort"
         );
-        return ("lexical", top_lexical_score);
+        return HybridOutcome {
+            ranking: "lexical",
+            top_fused_score: top_lexical_score,
+            embed_query_ms,
+            semantic_ms,
+            embedding_state,
+        };
     }
 
     debug!(
@@ -364,7 +414,13 @@ where
         "[search] fusion"
     );
 
-    ("hybrid", top_fused_score)
+    HybridOutcome {
+        ranking: "hybrid",
+        top_fused_score,
+        embed_query_ms,
+        semantic_ms,
+        embedding_state,
+    }
 }
 
 fn log_cache_decision(
@@ -376,18 +432,13 @@ fn log_cache_decision(
     active_tools: usize,
     ranked_count: usize,
 ) {
-    let model_state_label = model_state.map(|s| match s {
-        EmbeddingState::NotDownloaded => "not_downloaded",
-        EmbeddingState::Downloading => "downloading",
-        EmbeddingState::Ready => "ready",
-        EmbeddingState::Failed { .. } => "failed",
-    });
+    let state_label = model_state.map(model_state_label);
     debug!(
         query_id,
         index_cache = if index_cache_hit { "hit" } else { "miss" },
         embedding_store,
         skip_reason,
-        model_state = model_state_label,
+        model_state = state_label,
         active_tools,
         ranked_count,
         "[search] cache decision"

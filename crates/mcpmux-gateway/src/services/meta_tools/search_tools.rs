@@ -8,6 +8,8 @@ use std::time::Instant;
 use tracing::{debug, info};
 use uuid::Uuid;
 
+use crate::services::embedding::model_state_label;
+
 use super::meta_tool_common::{
     build_installed_server_meta_maps, build_server_readiness_map, caller_resolution,
     is_query_empty, text_result,
@@ -141,6 +143,7 @@ impl MetaTool for SearchToolsTool {
 
         let fingerprint = feature_set_ids_fingerprint(&resolved.feature_set_ids);
 
+        let server_id_set = server_id_filter.is_some();
         info!(
             query_id = %query_id,
             session_id = ?call.session_id,
@@ -150,15 +153,22 @@ impl MetaTool for SearchToolsTool {
             limit,
             is_browse,
             include_inactive,
+            scope_all,
+            server_id_set,
             "[search] call entry"
         );
         if let Some(query) = effective_query {
             debug!(query_id = %query_id, query, "[search] query text");
         }
 
+        let readiness_started = Instant::now();
         let readiness_map = build_server_readiness_map(&call, &space_id, &resolved).await?;
+        let readiness_ms = readiness_started.elapsed().as_millis() as u64;
+
+        let installed_meta_started = Instant::now();
         let (server_display_names, prefilled_params_by_server) =
             build_installed_server_meta_maps(&call, &space_id).await?;
+        let installed_meta_ms = installed_meta_started.elapsed().as_millis() as u64;
 
         let mut index_cache_hit = false;
         let active_index_started = Instant::now();
@@ -255,10 +265,13 @@ impl MetaTool for SearchToolsTool {
             );
         }
 
-        let hydrate_ms = if effective_query.is_some() {
-            hydrate_active_embeddings(&call, query_id.as_str(), active_index.as_slice()).await?
+        let (hydrate_ms, hydrated_missing_count) = if effective_query.is_some() {
+            let hydrate =
+                hydrate_active_embeddings(&call, query_id.as_str(), active_index.as_slice())
+                    .await?;
+            (hydrate.hydrate_ms, hydrate.hydrated_missing_count)
         } else {
-            0
+            (0, 0)
         };
 
         let hybrid = effective_query.map(|_| crate::services::tool_discovery::SearchContext {
@@ -284,6 +297,8 @@ impl MetaTool for SearchToolsTool {
             is_browse,
         );
         let rank_ms = rank_started.elapsed().as_millis() as u64;
+        // Prefer live model state so browse / lexical-only calls still report readiness.
+        let embedding_state = model_state_label(&call.ctx.embeddings.state());
 
         let top_qualified_name = result
             .tools
@@ -293,6 +308,8 @@ impl MetaTool for SearchToolsTool {
             .unwrap_or("");
 
         let post_started = Instant::now();
+        let mut zero_result_inactive_preview = false;
+        let mut zero_result_catalog_scan = false;
         let mut payload = json!({
             "tools": result.tools,
             "next_cursor": result.next_cursor,
@@ -310,7 +327,7 @@ impl MetaTool for SearchToolsTool {
         }
 
         if !include_inactive && result.total == 0 && effective_query.is_some() {
-            let inactive_started = Instant::now();
+            zero_result_inactive_preview = true;
             let inactive = call
                 .ctx
                 .feature_service
@@ -364,7 +381,6 @@ impl MetaTool for SearchToolsTool {
                      the bindable_feature_set_id shown on each preview entry to activate them."
                 );
             }
-            inactive_widen_ms = inactive_started.elapsed().as_millis() as u64;
             debug!(
                 query_id = %query_id,
                 ready_inactive_preview = payload
@@ -372,10 +388,10 @@ impl MetaTool for SearchToolsTool {
                     .and_then(|v| v.as_array())
                     .map(|a| a.len())
                     .unwrap_or(0),
-                inactive_widen_ms,
                 "[search] zero-result inactive preview"
             );
         } else if include_inactive && result.total == 0 {
+            zero_result_catalog_scan = true;
             let catalog = call
                 .ctx
                 .tool_discovery
@@ -409,6 +425,8 @@ impl MetaTool for SearchToolsTool {
 
         let total_ms = started.elapsed().as_millis() as u64;
         let accounted_ms = resolve_ms
+            + readiness_ms
+            + installed_meta_ms
             + active_index_ms
             + index_clone_ms
             + inactive_widen_ms
@@ -423,21 +441,44 @@ impl MetaTool for SearchToolsTool {
             returned = result.tools.len(),
             top_qualified_name,
             top_fused_score = ?result.top_fused_score,
+            index_cache_hit,
+            include_inactive,
+            scope_all,
+            server_id_set,
+            inactive_tool_count,
+            zero_result_inactive_preview,
+            zero_result_catalog_scan,
+            embedding_state,
+            hydrated_missing_count,
             total_ms,
             "[search] result summary"
         );
         info!(
             query_id = %query_id,
             resolve_ms,
+            readiness_ms,
+            installed_meta_ms,
             active_index_ms,
+            index_cache_hit,
             index_clone_ms,
             inactive_widen_ms,
             hydrate_ms,
+            hydrated_missing_count,
             rank_ms,
+            rank_lexical_ms = result.rank_lexical_ms,
+            rank_embed_query_ms = result.rank_embed_query_ms,
+            rank_semantic_ms = result.rank_semantic_ms,
+            embedding_state,
             post_ms,
             accounted_ms,
             unaccounted_ms = total_ms.saturating_sub(accounted_ms),
             merged_index = index.len(),
+            include_inactive,
+            scope_all,
+            server_id_set,
+            inactive_tool_count,
+            zero_result_inactive_preview,
+            zero_result_catalog_scan,
             "[search] timing breakdown"
         );
 

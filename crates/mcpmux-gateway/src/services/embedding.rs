@@ -329,7 +329,8 @@ fn load_text_embedding(cache_dir: &Path) -> anyhow::Result<TextEmbedding> {
     TextEmbedding::try_new(options)
 }
 
-fn model_state_label(state: &EmbeddingState) -> &'static str {
+/// Wire/log label for embedding lifecycle state (`absent` | `downloading` | `ready` | `failed`).
+pub(crate) fn model_state_label(state: &EmbeddingState) -> &'static str {
     match state {
         EmbeddingState::NotDownloaded => "absent",
         EmbeddingState::Downloading => "downloading",
