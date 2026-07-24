@@ -109,9 +109,14 @@ impl McpMuxGatewayHandler {
             .await
         {
             Ok(resolved) => {
+                let workspace_root = session_id
+                    .and_then(|sid| services.session_roots.get(sid))
+                    .and_then(|roots| roots.into_iter().next())
+                    .unwrap_or_else(|| "<none>".into());
                 info!(
                     %client_id,
                     session_id = session_id.unwrap_or("<none>"),
+                    workspace_root = %workspace_root,
                     feature_set_ids = ?resolved.feature_set_ids,
                     space_id = resolved.space_id.map(|u| u.to_string()).unwrap_or_else(|| "<none>".into()),
                     source = ?resolved.source,

@@ -245,7 +245,7 @@ pub async fn mcp_oauth_middleware(
     // client can claim any binding (see FeatureSetResolver trust model). Keyed
     // by the `mcp-session-id` the client echoes on every post-initialize
     // request (the same key the handler stores reported roots under).
-    let pin = {
+    let (session_id_header, workspace_header) = {
         let headers = request.headers();
         let sid = headers
             .get("mcp-session-id")
@@ -255,10 +255,20 @@ pub async fn mcp_oauth_middleware(
             .get("x-mcpmux-workspace")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        sid.zip(ws)
+        (sid, ws)
     };
-    if let Some((sid, ws)) = pin {
-        services.session_roots.set_pinned(&sid, &ws);
+    match (&session_id_header, &workspace_header) {
+        (Some(sid), Some(ws)) => {
+            services.session_roots.set_pinned(sid, ws);
+        }
+        (None, Some(ws)) => {
+            warn!(
+                trace_id = %trace_id,
+                workspace_header = %ws,
+                "[SessionRoots] X-Mcpmux-Workspace present without mcp-session-id — pin skipped",
+            );
+        }
+        _ => {}
     }
 
     // Extract MCP method from body if POST
@@ -276,6 +286,8 @@ pub async fn mcp_oauth_middleware(
                     trace_id = %trace_id,
                     client = %&client_id[..client_id.len().min(12)],
                     space = %&space_id.to_string()[..8],
+                    session_id = session_id_header.as_deref().unwrap_or("<none>"),
+                    workspace_header = workspace_header.as_deref().unwrap_or("<absent>"),
                     method = method.as_deref().unwrap_or("-"),
                     "→ MCP"
                 );

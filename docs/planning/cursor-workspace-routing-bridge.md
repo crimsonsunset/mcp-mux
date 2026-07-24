@@ -1,7 +1,7 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
-**Last Updated:** Jul 20, 2026
-**Status:** Complete (Phases 1–3 on `dev-rebased`)
+**Last Updated:** Jul 24, 2026
+**Status:** Complete (Phases 1–3) — Agents Window multi-workspace spike **pending** (observability logs shipped)
 **Branch:** `dev-rebased`
 
 ### Phase 1 spike results (Jul 20, 2026)
@@ -10,8 +10,38 @@
 - **Gateway:** `localhost:45818` up (`0.5.0`).
 - **Auth + connect:** `phase1-spike-bridge` client reached gateway; machine-naming dialog appeared and was approved.
 - **Remaining manual QA:** two-window `${workspaceFolder}` routing not yet verified in real Cursor; transport/auth path is confirmed.
+
 **Depends on:** `docs/manual/workspace-header-routing.md` (existing per-repo header fix this supersedes as the recommended path), `upstream-client-mapping-reconciliation.md` Phase 1 (`mcpk_` API-key auth — this feature's auth mechanism)
 **Unblocks:** Zero-maintenance Cursor workspace routing — no per-repo files, no agent cooperation required
+
+### Agents Window multi-workspace spike (Jul 24, 2026)
+
+**Hypothesis:** Cursor Agents Window groups agents by workspace in the UI, but may share one MCP session / mis-resolve `${workspaceFolder}` across workspaces, so mux cannot pin the correct root→FeatureSet binding. Gondor-local + global bridge config is already the intended Editor path; this spike proves what Agents Window actually sends.
+
+**Observability (shipped):** gateway logs now include:
+
+| Signal | Where | Level |
+| ------ | ----- | ----- |
+| `session_id` + `workspace_header` on every MCP POST | `oauth_middleware` `→ MCP` | info |
+| Workspace header without `mcp-session-id` (pin skipped) | `oauth_middleware` | warn |
+| First pin / same-session root clobber | `session_roots.set_pinned` | info / warn |
+| `workspace_root` on resolve | `handler` `[FeatureSetResolver] resolved` | info |
+| `x-mcpmux-workspace` / `x-mcpmux-machine-id` in DEBUG request headers | `logging_middleware` | debug |
+
+**Repro (Gondor):**
+
+1. Rebuild/restart the desktop gateway so the new logs are live.
+2. In Agents Window, start one agent under workspace A and one under workspace B (both already machine-bound on Gondor, e.g. `mcp-mux` vs `sync2hire-platform`).
+3. From each agent, call any `mcpmux_*` tool (e.g. `mcpmux_list_servers` or `mcpmux_search_tools`).
+4. Grep gateway logs: `SessionRoots`, `workspace_header`, `pin clobber`, `→ MCP`, `[FeatureSetResolver] resolved`.
+
+**Pass:** distinct `session_id` values; each `workspace_header` / resolved `workspace_root` matches that agent's workspace; no `pin clobber` warn.
+
+**Fail:** shared `session_id` with `pin clobber` (previous ≠ new), or `workspace_header=<absent>`, or header present without session id.
+
+**Next if fail:** prefer per-repo static `.cursor/mcp.json` header for Agents Window, and/or treat as Cursor Agents Window MCP binding gap (not a new per-agent identity axis).
+
+**Spike results:** _pending manual run_
 
 ---
 
@@ -161,7 +191,9 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 | File | Note |
 | ---- | ---- |
 | [`apps/desktop/src-tauri/src/commands/workspace_install.rs`](../../apps/desktop/src-tauri/src/commands/workspace_install.rs) | The existing per-repo header install this feature supplements, not replaces |
-| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `X-Mcpmux-Workspace` is already authoritative here — no gateway changes needed |
+| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `X-Mcpmux-Workspace` pin is authoritative; Agents Window spike adds pin/clobber info+warn logs |
+| [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; warns when pin skipped |
+| [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Resolver resolved log includes `workspace_root` |
 | [`docs/manual/workspace-header-routing.md`](../manual/workspace-header-routing.md) | Documents the underlying Cursor `roots`-reporting bug this bridge works around |
 | [`docs/planning/upstream-client-mapping-reconciliation.md`](./upstream-client-mapping-reconciliation.md) | Phase 1 — `mcpk_` API-key auth, reused here as the bridge's auth mechanism |
 | [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx) | Existing API-key minting UI this feature's Phase 2 panel is modeled on |

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use mcpmux_core::normalize_workspace_root;
-use tracing::debug;
+use tracing::{info, warn};
 
 use super::tool_discovery::ToolIndex;
 
@@ -216,23 +216,31 @@ impl SessionRootsRegistry {
     /// header falls back to the client's reported roots rather than denying.
     /// Cheap to call on the request hot path: redundant writes (same
     /// normalized value already pinned) are skipped to avoid shard churn.
+    ///
+    /// Logs at info on first pin, warn when the same session is re-pinned to a
+    /// different root (Agents Window / shared-session cross-workspace clobber).
     pub fn set_pinned(&self, session_id: &str, raw_root: &str) {
         let normalized = normalize_workspace_root(raw_root);
         if normalized.is_empty() {
             return;
         }
-        if self
-            .pinned
-            .get(session_id)
-            .is_some_and(|v| *v == normalized)
-        {
-            return;
+        if let Some(previous) = self.pinned.get(session_id) {
+            if *previous == normalized {
+                return;
+            }
+            warn!(
+                %session_id,
+                previous = %previous.as_str(),
+                new = %normalized,
+                "[SessionRoots] X-Mcpmux-Workspace pin clobber — same session, different root",
+            );
+        } else {
+            info!(
+                %session_id,
+                workspace_root = %normalized,
+                "[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header",
+            );
         }
-        debug!(
-            %session_id,
-            workspace_root = %normalized,
-            "[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header",
-        );
         self.pinned.insert(session_id.to_string(), normalized);
     }
 
