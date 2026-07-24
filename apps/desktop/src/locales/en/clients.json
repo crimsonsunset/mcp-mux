@@ -38,7 +38,21 @@
     "version": "Version",
     "registeredVia": "Registered via",
     "lastSeen": "Last seen",
-    "revokeConnection": "Revoke connection"
+    "revokeConnection": "Revoke connection",
+    "machine": {
+      "label": "Machine",
+      "hint": "Optional. Tags this connection so tunneled routing (the X-Mcpmux-Machine-Id header) and this list can identify which device it's connecting from.",
+      "noMachine": "No machine",
+      "newMachine": "New machine"
+    }
+  },
+  "machineIdentity": {
+    "nameLabel": "Name",
+    "iconLabel": "Icon",
+    "hostnameLabel": "Hostname",
+    "nameRequired": "Name is required",
+    "iconRequired": "Icon is required",
+    "hostnameRequired": "Hostname is required"
   },
   "grants": {
     "title": "Default for rootless sessions",
@@ -124,6 +138,7 @@
       "allowBtn": "Allow & Connect",
       "allowWait": "Allow & Connect (wait…)",
       "newMachine": "New machine",
+      "skipBtn": "Skip — assign later",
       "namePlaceholder": "My Laptop",
       "iconLabel": "Icon",
       "iconPlaceholder": "e.g. 🏠",

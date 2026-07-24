@@ -305,6 +305,7 @@ impl GatewayRuntime for DesktopGatewayRuntime {
                     "created_at": client.created_at,
                     "reports_roots": client.reports_roots,
                     "roots_capability_known": client.roots_capability_known,
+                    "machine_id": client.machine_id.map(|id| id.to_string()),
                 })
             })
             .collect::<Vec<_>>();

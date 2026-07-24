@@ -282,12 +282,14 @@ export function OAuthConsentModal() {
 
   /**
    * Create or pick a machine, link it to the client, then approve OAuth consent.
+   * Machine assignment is optional: leaving the picker on "No machine" (and not
+   * mid-way through creating a new one) just approves without tagging a machine.
    */
   const handleNameAndAllow = async () => {
     if (modalState.type !== 'name-machine') return;
     const { details, machines } = modalState;
 
-    let machineId = selectedMachineId;
+    let machineId: string | null = selectedMachineId || null;
     if (creatingMachine) {
       const missingField = getMissingMachineProfileField({
         name: machineName,
@@ -298,10 +300,7 @@ export function OAuthConsentModal() {
         setProcessError(t(`oauthConsent.nameMachine.${missingField}Required`));
         return;
       }
-    } else if (!machineId) {
-      setProcessError(t('oauthConsent.nameMachine.nameRequired'));
-      return;
-    } else {
+    } else if (machineId) {
       const selected = machines.find((machine) => machine.id === machineId);
       if (selected && !isMachineRowComplete(selected)) {
         setProcessError(t('oauthConsent.nameMachine.profileIncomplete'));
@@ -324,10 +323,34 @@ export function OAuthConsentModal() {
         machineId = created.id;
       }
 
-      await setClientMachineId(details.clientId, machineId);
+      if (machineId) {
+        await setClientMachineId(details.clientId, machineId);
+      }
       await finishApproval(details);
     } catch (err) {
       console.error('[OAuth] Failed to name machine and approve:', err);
+      setProcessError(String(err));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * Skip machine assignment entirely and approve, regardless of whatever the
+   * picker/create sub-form currently holds. The one-tap escape hatch for
+   * "I don't care which machine this is" or getting unstuck mid-create.
+   */
+  const handleSkipMachine = async () => {
+    if (modalState.type !== 'name-machine') return;
+    const { details } = modalState;
+
+    setIsProcessing(true);
+    setProcessError(null);
+
+    try {
+      await finishApproval(details);
+    } catch (err) {
+      console.error('[OAuth] Failed to skip machine and approve:', err);
       setProcessError(String(err));
     } finally {
       setIsProcessing(false);
@@ -438,9 +461,13 @@ export function OAuthConsentModal() {
     const { details, machines } = modalState;
     const createDraft = { name: machineName, icon: machineIcon, hostname: machineHostname };
     const selectedMachine = machines.find((machine) => machine.id === selectedMachineId);
+    // Machine assignment is optional — picking nothing is valid (approves
+    // untagged). Only an in-progress "create new machine" sub-form or an
+    // incomplete existing machine profile blocks submission.
     const canSubmit = creatingMachine
       ? isMachineProfileComplete(createDraft)
-      : selectedMachineId.length > 0 && selectedMachine != null && isMachineRowComplete(selectedMachine);
+      : selectedMachineId.length === 0 ||
+        (selectedMachine != null && isMachineRowComplete(selectedMachine));
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -559,6 +586,14 @@ export function OAuthConsentModal() {
                 <X className="mr-2 h-4 w-4" />
                 {t('oauthConsent.deny')}
               </Button>
+              <button
+                type="button"
+                onClick={() => void handleSkipMachine()}
+                disabled={isProcessing || !approveReady}
+                className="text-center text-xs text-[rgb(var(--muted))] transition-colors hover:text-[rgb(var(--foreground))] disabled:opacity-50"
+              >
+                {t('oauthConsent.nameMachine.skipBtn')}
+              </button>
             </div>
           </CardContent>
         </Card>

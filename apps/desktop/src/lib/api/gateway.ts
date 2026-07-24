@@ -203,6 +203,9 @@ export interface OAuthClient {
    * to either "Reports workspace" or "Rootless".
    */
   roots_capability_known: boolean;
+
+  /** Machine this client is tagged with, if any. `null` means untagged/global. */
+  machine_id: string | null;
 }
 
 /**

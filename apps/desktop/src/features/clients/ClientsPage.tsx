@@ -47,7 +47,26 @@ import {
   listFeatureSetsBySpace,
   type FeatureSet,
 } from '@/lib/api/featureSets';
-import { Card, CardContent, Button, useToast, ToastContainer, useConfirm } from '@mcpmux/ui';
+import {
+  createMachine,
+  listMachines,
+  setClientMachineId,
+  type Machine,
+} from '@/lib/api/machines';
+import {
+  getMissingMachineProfileField,
+  toMachineProfilePayload,
+} from '@/lib/machine-profile.helpers';
+import { MachineProfileEditor } from '@/components/machine-profile-editor';
+import {
+  Card,
+  CardContent,
+  Button,
+  useToast,
+  ToastContainer,
+  useConfirm,
+  SearchableSelect,
+} from '@mcpmux/ui';
 import { useDefaultSpace } from '@/stores';
 import { useNavigate } from '@/hooks/use-navigate.hook';
 import { NAV_PATH_MAP } from '@/lib/navigation';
@@ -127,6 +146,7 @@ function formatLastSeen(iso: string | null, t: TFunction<'clients'>): string {
 export default function ClientsPage() {
   const { t } = useTranslation(['clients', 'common', 'nav']);
   const [clients, setClients] = useState<OAuthClient[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +199,9 @@ export default function ClientsPage() {
     void loadClients();
     getGatewayStatus()
       .then(setGatewayStatus)
+      .catch(() => {});
+    listMachines()
+      .then(setMachines)
       .catch(() => {});
   }, []);
 
@@ -235,6 +258,20 @@ export default function ClientsPage() {
       showError(t('toast.saveFailed'), e instanceof Error ? e.message : String(e));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleMachineChange = async (client: OAuthClient, machineId: string | null) => {
+    try {
+      await setClientMachineId(client.client_id, machineId);
+      setClients((prev) =>
+        prev.map((c) => (c.client_id === client.client_id ? { ...c, machine_id: machineId } : c))
+      );
+      setSelected((prev) =>
+        prev && prev.client_id === client.client_id ? { ...prev, machine_id: machineId } : prev
+      );
+    } catch (e) {
+      showError(t('toast.saveFailed'), e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -399,7 +436,7 @@ export default function ClientsPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between text-xs text-[rgb(var(--muted))]">
+                      <div className="mb-2 flex items-center justify-between text-xs text-[rgb(var(--muted))]">
                         <span className="inline-flex items-center gap-1.5" data-testid="client-last-seen">
                           <span
                             className={`h-1.5 w-1.5 rounded-full ${lastSeenDotColor(client.last_seen, renderNow)}`}
@@ -411,6 +448,10 @@ export default function ClientsPage() {
                           rootsCapabilityKnown={client.roots_capability_known}
                         />
                       </div>
+                      <MachineChip
+                        machine={machines.find((m) => m.id === client.machine_id) ?? null}
+                        noMachineLabel={t('panel.machine.noMachine')}
+                      />
                     </CardContent>
                   </Card>
                 );
@@ -428,6 +469,9 @@ export default function ClientsPage() {
           />
           <SidePanel
             client={selected}
+            machines={machines}
+            onMachineChange={(machineId) => handleMachineChange(selected, machineId)}
+            onMachineCreated={(machine) => setMachines((prev) => [...prev, machine])}
             editAlias={editAlias}
             setEditAlias={setEditAlias}
             editIcon={editIcon}
@@ -525,12 +569,40 @@ function CapabilityBadge({
   );
 }
 
+/**
+ * Compact chip showing which machine (if any) a connection is tagged with.
+ * Mirrors `CapabilityBadge` sizing so the two sit flush on a card.
+ */
+function MachineChip({
+  machine,
+  noMachineLabel,
+}: {
+  machine: Machine | null;
+  noMachineLabel: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-[rgb(var(--muted))]">
+      {machine ? (
+        <>
+          {machine.icon && <span className="text-sm leading-none">{machine.icon}</span>}
+          <span className="truncate">{machine.name}</span>
+        </>
+      ) : (
+        <span className="italic">{noMachineLabel}</span>
+      )}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Side panel
 // ---------------------------------------------------------------------------
 
 interface SidePanelProps {
   client: OAuthClient;
+  machines: Machine[];
+  onMachineChange: (machineId: string | null) => void;
+  onMachineCreated: (machine: Machine) => void;
   editAlias: string;
   setEditAlias: (v: string) => void;
   editIcon: string;
@@ -547,6 +619,9 @@ interface SidePanelProps {
 
 function SidePanel({
   client,
+  machines,
+  onMachineChange,
+  onMachineCreated,
   editAlias,
   setEditAlias,
   editIcon,
@@ -639,6 +714,14 @@ function SidePanel({
           </p>
         </section>
 
+        <MachineSection
+          machineId={client.machine_id}
+          machines={machines}
+          onChange={onMachineChange}
+          onMachineCreated={onMachineCreated}
+          onError={onToastError}
+        />
+
         {client.registration_type === 'preregistered' && (
           <ClientApiKeysSection
             clientId={client.client_id}
@@ -723,6 +806,114 @@ function SidePanel({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Machine picker for a single connection — select an existing machine,
+ * clear it, or create a new one inline. Writes immediately via
+ * `onChange`/`onMachineCreated`; there's no separate save step because
+ * this mirrors the alias/icon fields' instant-apply pattern used
+ * elsewhere on this panel.
+ */
+function MachineSection({
+  machineId,
+  machines,
+  onChange,
+  onMachineCreated,
+  onError,
+}: {
+  machineId: string | null;
+  machines: Machine[];
+  onChange: (machineId: string | null) => void;
+  onMachineCreated: (machine: Machine) => void;
+  onError: (title: string, body?: string) => void;
+}) {
+  const { t } = useTranslation(['clients', 'common']);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState('');
+  const [hostname, setHostname] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const options = useMemo(
+    () => machines.map((m) => ({ value: m.id, label: m.name, icon: m.icon ?? undefined })),
+    [machines]
+  );
+
+  const handleCreate = async () => {
+    const missingField = getMissingMachineProfileField({ name, icon, hostname });
+    if (missingField) {
+      onError(t('toast.saveFailed'), t(`oauthConsent.nameMachine.${missingField}Required`));
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const created = await createMachine(toMachineProfilePayload({ name, icon, hostname }));
+      onMachineCreated(created);
+      onChange(created.id);
+      setCreating(false);
+      setName('');
+      setIcon('');
+      setHostname('');
+    } catch (e) {
+      onError(t('toast.saveFailed'), e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[rgb(var(--muted))]">
+        {t('panel.machine.label')}
+      </h3>
+      <SearchableSelect
+        value={creating ? '' : (machineId ?? '')}
+        onChange={(value) => onChange(value || null)}
+        options={options}
+        placeholder={t('panel.machine.noMachine')}
+        onCreateNew={() => {
+          setIcon('💻');
+          setCreating(true);
+        }}
+        testId="client-machine-select"
+      />
+      {creating && (
+        <div className="mt-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--background))] p-3">
+          <MachineProfileEditor
+            nameDraft={name}
+            iconDraft={icon}
+            hostnameDraft={hostname}
+            onNameDraftChange={setName}
+            onIconDraftChange={setIcon}
+            onHostnameDraftChange={setHostname}
+            onSave={() => void handleCreate()}
+            isSaving={isSaving}
+            saveDisabled={!name.trim() || !icon.trim() || !hostname.trim()}
+            nameLabel={t('machineIdentity.nameLabel')}
+            iconLabel={t('machineIdentity.iconLabel')}
+            hostnameLabel={t('machineIdentity.hostnameLabel')}
+            saveLabel={t('panel.machine.newMachine')}
+            testIdPrefix="client-machine-create"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-2"
+            onClick={() => {
+              setCreating(false);
+              setName('');
+              setIcon('');
+              setHostname('');
+            }}
+          >
+            {t('common:actions.cancel')}
+          </Button>
+        </div>
+      )}
+      <p className="mt-1.5 text-xs text-[rgb(var(--muted))]">{t('panel.machine.hint')}</p>
+    </section>
   );
 }
 

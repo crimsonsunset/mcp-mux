@@ -483,6 +483,7 @@ pub async fn get_oauth_clients(
             created_at: client.created_at,
             reports_roots: client.reports_roots,
             roots_capability_known: client.roots_capability_known,
+            machine_id: client.machine_id.map(|id| id.to_string()),
         })
         .collect();
 
@@ -568,6 +569,11 @@ pub struct OAuthClientInfo {
     /// "Reports workspace" (`reports_roots = true`) or "Rootless"
     /// (`reports_roots = false`).
     pub roots_capability_known: bool,
+
+    /// Machine this client is tagged with, if any (see `machines.rs`
+    /// commands for assignment). `None` means untagged/global.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
 }
 
 /// Request to update client settings.
@@ -639,6 +645,7 @@ pub async fn update_oauth_client(
         created_at: updated_client.created_at,
         reports_roots: updated_client.reports_roots,
         roots_capability_known: updated_client.roots_capability_known,
+        machine_id: updated_client.machine_id.map(|id| id.to_string()),
     })
 }
 
