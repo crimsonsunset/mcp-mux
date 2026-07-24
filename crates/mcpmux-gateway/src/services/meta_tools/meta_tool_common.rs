@@ -181,11 +181,32 @@ pub(crate) fn format_invoke_not_ready_action_with_name(
     }
 }
 
-/// Display names and pre-configured default param keys per installed server.
-pub(crate) async fn build_installed_server_meta_maps(
+/// Search-hit enrichment built from one installed-server list + pool statuses.
+///
+/// `binding_server_ids` should be the unique `server_id`s from the caller's
+/// **active** tool index (not a full `resolve_feature_sets` catalog scan).
+pub(crate) struct SearchServerEnrichment {
+    pub readiness_map: HashMap<String, &'static str>,
+    pub display_names: HashMap<String, String>,
+    pub prefilled_params_by_server: HashMap<String, Vec<String>>,
+}
+
+/// Whether the caller omitted or blanked the search query.
+pub(crate) fn is_query_empty(query: Option<&str>) -> bool {
+    query.map(str::trim).is_none_or(str::is_empty)
+}
+
+/// Build readiness + display/prefill maps without re-resolving FeatureSets.
+///
+/// One `list_for_space` for installed servers and one `get_all_statuses` pass.
+/// Extra `server_ids` (e.g. inactive widen) are labeled `bindable` unless they
+/// also appear in `binding_server_ids`.
+pub(crate) async fn build_search_server_enrichment(
     call: &MetaToolCall<'_>,
     space_id: &Uuid,
-) -> Result<(HashMap<String, String>, HashMap<String, Vec<String>>), MetaToolError> {
+    binding_server_ids: &HashSet<String>,
+    extra_server_ids: &HashSet<String>,
+) -> Result<SearchServerEnrichment, MetaToolError> {
     let installed = call
         .ctx
         .installed_server_repo
@@ -194,63 +215,31 @@ pub(crate) async fn build_installed_server_meta_maps(
         .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
     let mut display_names = HashMap::new();
-    let mut prefilled_params = HashMap::new();
+    let mut prefilled_params_by_server = HashMap::new();
+    let mut installed_by_id: HashMap<String, mcpmux_core::InstalledServer> = HashMap::new();
     for server in installed {
         display_names.insert(server.server_id.clone(), server.display_name().to_string());
         if !server.default_params.is_empty() {
             let mut keys: Vec<String> = server.default_params.keys().cloned().collect();
             keys.sort();
-            prefilled_params.insert(server.server_id.clone(), keys);
+            prefilled_params_by_server.insert(server.server_id.clone(), keys);
         }
+        installed_by_id.insert(server.server_id.clone(), server);
     }
-
-    Ok((display_names, prefilled_params))
-}
-
-/// Whether the caller omitted or blanked the search query.
-pub(crate) fn is_query_empty(query: Option<&str>) -> bool {
-    query.map(str::trim).is_none_or(str::is_empty)
-}
-
-/// Point-in-time `readiness` label per server for search hit enrichment.
-pub(crate) async fn build_server_readiness_map(
-    call: &MetaToolCall<'_>,
-    space_id: &Uuid,
-    resolved: &ResolvedFeatureSet,
-) -> Result<HashMap<String, &'static str>, MetaToolError> {
-    let binding_features = call
-        .ctx
-        .feature_service
-        .resolve_feature_sets(&space_id.to_string(), &resolved.feature_set_ids)
-        .await?;
-    let binding_servers: HashSet<String> = binding_features
-        .iter()
-        .map(|f| f.server_id.clone())
-        .collect();
-
-    let installed = call
-        .ctx
-        .installed_server_repo
-        .list_for_space(&space_id.to_string())
-        .await
-        .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-    let installed_by_id: HashMap<String, mcpmux_core::InstalledServer> = installed
-        .into_iter()
-        .map(|s| (s.server_id.clone(), s))
-        .collect();
 
     let pool_statuses = call.ctx.server_manager.get_all_statuses(*space_id).await;
 
-    let server_ids: HashSet<String> = binding_servers
+    let server_ids: HashSet<String> = binding_server_ids
         .iter()
+        .chain(extra_server_ids.iter())
         .chain(installed_by_id.keys())
         .cloned()
         .collect();
 
-    let map = server_ids
+    let readiness_map = server_ids
         .into_iter()
         .map(|server_id| {
-            let in_binding = binding_servers.contains(&server_id);
+            let in_binding = binding_server_ids.contains(&server_id);
             let connection_status = pool_statuses
                 .get(&server_id)
                 .map(|(status, _, _, _)| *status)
@@ -264,7 +253,12 @@ pub(crate) async fn build_server_readiness_map(
             (server_id, readiness)
         })
         .collect();
-    Ok(map)
+
+    Ok(SearchServerEnrichment {
+        readiness_map,
+        display_names,
+        prefilled_params_by_server,
+    })
 }
 
 /// Common path for every write tool: build payload, ask broker, run the

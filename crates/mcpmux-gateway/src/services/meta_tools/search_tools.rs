@@ -1,18 +1,19 @@
 //! `mcpmux_search_tools` — hybrid search and browse over the active tool index.
 
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::Instant;
+
 use async_trait::async_trait;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
-use std::collections::HashSet;
-use std::time::Instant;
 use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::services::embedding::model_state_label;
 
 use super::meta_tool_common::{
-    build_installed_server_meta_maps, build_server_readiness_map, caller_resolution,
-    is_query_empty, text_result,
+    build_search_server_enrichment, caller_resolution, is_query_empty, text_result,
 };
 use super::registry::{feature_set_ids_fingerprint, MetaTool, MetaToolCall, MetaToolError};
 use super::search_tools_index::{
@@ -161,25 +162,28 @@ impl MetaTool for SearchToolsTool {
             debug!(query_id = %query_id, query, "[search] query text");
         }
 
-        let readiness_started = Instant::now();
-        let readiness_map = build_server_readiness_map(&call, &space_id, &resolved).await?;
-        let readiness_ms = readiness_started.elapsed().as_millis() as u64;
-
-        let installed_meta_started = Instant::now();
-        let (server_display_names, prefilled_params_by_server) =
-            build_installed_server_meta_maps(&call, &space_id).await?;
-        let installed_meta_ms = installed_meta_started.elapsed().as_millis() as u64;
-
         let mut index_cache_hit = false;
         let active_index_started = Instant::now();
-        let active_index = if let Some(session_id) = call.session_id {
-            if let Some(entry) = call.ctx.search_cache.get(session_id) {
-                let (cached_fp, cached_index) = entry.value();
-                if *cached_fp == fingerprint {
-                    index_cache_hit = true;
-                    cached_index.clone()
+        let active_index: Arc<crate::services::ToolIndex> =
+            if let Some(session_id) = call.session_id {
+                if let Some(entry) = call.ctx.search_cache.get(session_id) {
+                    let (cached_fp, cached_index) = entry.value();
+                    if *cached_fp == fingerprint {
+                        index_cache_hit = true;
+                        Arc::clone(cached_index)
+                    } else {
+                        drop(entry);
+                        build_and_cache_active_index(
+                            &call,
+                            &space_id,
+                            &resolved,
+                            fingerprint,
+                            session_id,
+                            query_id.as_str(),
+                        )
+                        .await?
+                    }
                 } else {
-                    drop(entry);
                     build_and_cache_active_index(
                         &call,
                         &space_id,
@@ -191,19 +195,8 @@ impl MetaTool for SearchToolsTool {
                     .await?
                 }
             } else {
-                build_and_cache_active_index(
-                    &call,
-                    &space_id,
-                    &resolved,
-                    fingerprint,
-                    session_id,
-                    query_id.as_str(),
-                )
-                .await?
-            }
-        } else {
-            build_active_index(&call, &space_id, &resolved, query_id.as_str()).await?
-        };
+                build_active_index(&call, &space_id, &resolved, query_id.as_str()).await?
+            };
         let active_index_ms = active_index_started.elapsed().as_millis() as u64;
 
         debug!(
@@ -214,13 +207,18 @@ impl MetaTool for SearchToolsTool {
             "[search] active index ready"
         );
 
-        let clone_started = Instant::now();
-        let mut index = active_index.clone();
-        let index_clone_ms = clone_started.elapsed().as_millis() as u64;
+        let binding_server_ids: HashSet<String> = active_index
+            .iter()
+            .map(|entry| entry.server_id.clone())
+            .collect();
 
         let mut inactive_tool_count = 0usize;
         let mut inactive_widen_ms = 0_u64;
+        let mut index_clone_ms = 0_u64;
+        let mut extra_server_ids: HashSet<String> = HashSet::new();
 
+        // Copy-on-write only when inactive widen mutates the haystack.
+        let mut widened_index: Option<crate::services::ToolIndex> = None;
         if include_inactive {
             debug!(
                 query_id = %query_id,
@@ -242,12 +240,16 @@ impl MetaTool for SearchToolsTool {
                 crate::services::tool_discovery::ToolDiscoveryService::build_inactive_index(
                     &inactive,
                 );
+            let clone_started = Instant::now();
+            let mut index = (*active_index).clone();
+            index_clone_ms = clone_started.elapsed().as_millis() as u64;
             let active_keys: HashSet<(String, String)> = index
                 .iter()
                 .map(|e| (e.server_id.clone(), e.feature_name.clone()))
                 .collect();
             let before_merge = index.len();
             for entry in inactive_index {
+                extra_server_ids.insert(entry.server_id.clone());
                 let key = (entry.server_id.clone(), entry.feature_name.clone());
                 if !active_keys.contains(&key) {
                     index.push(entry);
@@ -263,7 +265,28 @@ impl MetaTool for SearchToolsTool {
                 inactive_widen_ms,
                 "[search] inactive widen complete"
             );
+            widened_index = Some(index);
         }
+
+        let index: &[crate::services::ToolIndexEntry] = widened_index
+            .as_deref()
+            .unwrap_or(active_index.as_slice());
+        let merged_index_len = index.len();
+
+        let enrichment_started = Instant::now();
+        let enrichment = build_search_server_enrichment(
+            &call,
+            &space_id,
+            &binding_server_ids,
+            &extra_server_ids,
+        )
+        .await?;
+        let readiness_ms = enrichment_started.elapsed().as_millis() as u64;
+        // installed list is folded into enrichment — keep the timing field for log continuity.
+        let installed_meta_ms = 0_u64;
+        let readiness_map = enrichment.readiness_map;
+        let server_display_names = enrichment.display_names;
+        let prefilled_params_by_server = enrichment.prefilled_params_by_server;
 
         let (hydrate_ms, hydrated_missing_count) = if effective_query.is_some() {
             let hydrate =
@@ -283,7 +306,7 @@ impl MetaTool for SearchToolsTool {
 
         let rank_started = Instant::now();
         let result = crate::services::tool_discovery::ToolDiscoveryService::search(
-            &index,
+            index,
             effective_query,
             server_id_filter,
             detail_level,
@@ -472,7 +495,7 @@ impl MetaTool for SearchToolsTool {
             post_ms,
             accounted_ms,
             unaccounted_ms = total_ms.saturating_sub(accounted_ms),
-            merged_index = index.len(),
+            merged_index = merged_index_len,
             include_inactive,
             scope_all,
             server_id_set,

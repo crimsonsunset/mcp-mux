@@ -1,10 +1,10 @@
 # `mcpmux_search_tools` Performance
 
 **Last Updated:** Jul 24, 2026
-**Status:** Phase 0 implemented — awaiting cold/warm baselines in Notes (reassess before Phase 1+)
-**Branch:** `dev-rebased` (or current working branch)
+**Status:** Phase 1 implemented — re-measure warm `readiness_ms` / `total_ms` before Phase 1.5/2
+**Branch:** `dev-rebased`
 **Depends on:** Existing hybrid search + session index cache (already on mainline)
-**Unblocks:** Data-backed decision on whether quick wins / indexing / hybrid changes are worth doing
+**Unblocks:** Phase 1.5 hybrid memo / Phase 2 indexing only if warm path still ugly after re-measure
 
 ---
 
@@ -30,12 +30,13 @@ Verified in code during dig (not assumed):
 | # | Decision | Choice | Rationale |
 | - | -------- | ------ | --------- |
 | 1 | Surface | **`mcpmux_search_tools` only** (gateway meta-tool) | User confirmed (1a). Discover / My Servers / FeatureSetPanel client-side search are different stacks — out of this doc. |
-| 2 | Cold vs warm | **Unknown — measure** | User (2c): need concrete ground from logs before claiming first-call vs every-call. |
-| 3 | Hybrid vs lexical | **Keep hybrid as default for now; revisit only after Phase 0 numbers** | User wants tradeoff discussion with data, not a vibes flip. Relevance comments in `tool_discovery_search.rs` argue against casual lexical-only. |
-| 4 | Ambition | **Phased: measure → quick wins → indexing if still slow** | User (4c). Later phases are parked in this doc until Phase 0 baselines exist. |
-| 5 | `include_inactive` / `scope=all` | **Unknown — add logging to find out** | User (5c). Already partially logged; Phase 0 makes usage mineable. |
-| 6 | Active work now | **Phase 0 only** | Explicit user call (Jul 24): ship measurement, then reassess. Phases 1 / 1.5 / 2 are **do not do yet**. |
-| 7 | Metrics backend | **Structured tracing only** — no PostHog / SaaS latency pipeline | Enough to grep cold vs warm; keeps Phase 0 small. |
+| 2 | Cold vs warm | **Both matter; warm was readiness-bound** | Phase 0 matrix: cold ~900ms (index build); warm ~346ms almost all `readiness_ms`. |
+| 3 | Hybrid vs lexical | **Keep hybrid as default for now** | Embed cost ~5ms when ready; not the latency problem. |
+| 4 | Ambition | **Phased: measure → quick wins → indexing if still slow** | User (4c). |
+| 5 | `include_inactive` / `scope=all` | **Expensive when used (~700ms–5s widen)** | Logged; ~998 inactive tools on All space. Widen still Phase-2-ish follow-up if needed. |
+| 6 | Active work now | **Phase 1 shipped** | User unlocked after Phase 0 baselines. 1.5 / 2 still parked until re-measure. |
+| 7 | Metrics backend | **Structured tracing only** — no PostHog / SaaS latency pipeline | Enough to grep cold vs warm. |
+| 8 | Readiness source | **Derive binding servers from active index** — no `resolve_feature_sets` on search path | Phase 0 showed readiness doing a full-space feature resolve; that was the warm killer. |
 
 ---
 
@@ -127,28 +128,23 @@ No query text at info level (keep existing debug-only query log).
 
 ## Phases
 
-### Phase 0 — Measurement — **DO NOW** (~half day)
+### Phase 0 — Measurement — **DONE**
 
-- Time `build_server_readiness_map` and `build_installed_server_meta_maps`; include in `accounted_ms`
-- Plumb rank sub-timings from `tool_discovery_search` onto `[search] timing breakdown`
-- Promote / add usage fields: `index_cache_hit`, `include_inactive`, `scope_all`, `server_id_set`, `inactive_tool_count`, zero-result path booleans, `embedding_state`, `hydrated_missing_count`
-- Keep query text off info-level logs
-- Reproduce cold + warm searches; record numbers in Notes
+- Timed enrichment; plumbed rank sub-timings; usage flags on info logs
+- Baselines recorded in Notes (matrix `008242c4`…`f17a555c`)
 
-**Outcome:** For any `mcpmux_search_tools` call, logs answer (1) where wall time went phase-by-phase with little unaccounted remainder, (2) whether the call was cache-hit and hybrid-ready, (3) whether inactive/scope widen or zero-result catalog scan ran. No ranking or cache behavior changes. Ready to reassess Phase 1 with concrete ground.
+**Outcome:** Warm path identified as readiness (`resolve_feature_sets` full-space scan); widen expensive when `include_inactive`; hybrid embed cheap.
 
 ---
 
-### Phase 1 — Quick wins — **DO NOT DO YET** (parked)
+### Phase 1 — Quick wins — **DONE** (Jul 24, 2026)
 
-*Unlock only after Phase 0 baselines are written in Notes and we agree the hot path is enrichment / clone / hydrate / warmer — not "something else."*
+- Replaced readiness/`resolve_feature_sets` with `build_search_server_enrichment` from active-index server ids + one installed list + pool statuses
+- `Arc<ToolIndex>` in session `search_cache`; clone only on inactive widen
+- Embedding warmer batches via single `embed_documents` call
+- Slim feature projection: **skipped** (cold path still secondary to readiness; revisit if re-measure says so)
 
-- Dedupe `resolve_feature_sets` / `list_for_space` between readiness and installed-meta
-- Store `Arc<ToolIndex>` in session `search_cache`; avoid full `Vec` clone every query (copy-on-write only when inactive widen mutates)
-- Batch embedding warmer (today: one doc at a time)
-- Optional slim feature projection for index build (only if Phase 0 shows feature load dominating cold path)
-
-**Outcome (when eventually done):** Same relevance; lower `total_ms` on warm and/or cold paths per the Phase 0 comparison method. Before/after numbers recorded in Notes.
+**Outcome:** Re-run matrix; expect warm `readiness_ms` << 315 and warm `total_ms` well under Phase 0’s 346. Paste after numbers into Notes.
 
 ---
 
@@ -203,19 +199,26 @@ No query text at info level (keep existing debug-only query log).
 
 ## Notes
 
-### Phase 0 baselines (fill after instrumentation ships)
+### Phase 0 baselines (Jul 24, 2026 — matrix session `73ad8447…`, fingerprint `13360098934952102136`)
 
 | Scenario | `query_id` | `total_ms` | Dominant phase(s) | `index_cache_hit` | `include_inactive` / `scope_all` | `embedding_state` |
 | -------- | ---------- | ---------- | ----------------- | ----------------- | -------------------------------- | ----------------- |
-| Cold — first search in session | | | | | | |
-| Warm — repeat same session | | | | | | |
-| Widen — `include_inactive: true` | | | | | | |
-| Widen — `scope: "all"` | | | | | | |
+| Cold — HogQL intent (first in session) | `008242c4` | 900 | `active_index_ms=574`, `readiness_ms=304` | false | false / false | downloading (lexical) |
+| Warm — same HogQL | `4e0d0e5a` | 346 | **`readiness_ms=315`** (rank 25) | true | false / false | ready (hybrid) |
+| Widen — HogQL + `include_inactive` (998 inactive) | `59e0ef81` | 1112 | **`inactive_widen_ms=696`**, readiness 308, rank 99 | true | true / false | ready |
+| Widen — Jira+Confluence intent + inactive | `f17a555c` | 1319 | **`inactive_widen_ms=716`**, readiness 358, rank 235 | true | true / false | ready |
+
+Notes: `unaccounted_ms` ≤ 7 on all four. Warm active-only is almost entirely readiness enrichment. Index cache works (`active_index_ms` 574 → 1). Hybrid embed is cheap (`rank_embed_query_ms` 5–6). Earlier same-day warm spike (`064924da`, readiness 3619) shows readiness is also contention-sensitive under load.
+
+### Phase 1 after (Jul 24 matrix session `6f919fc5…`)
+
+| Scenario | `query_id` | `total_ms` (was) | `readiness_ms` (was) | Notes |
+| -------- | ---------- | ---------------- | -------------------- | ----- |
+| Cold HogQL | `18e2e725` | 631 (900) | **1** (304) | cold still index-bound (`active_index_ms=608`) |
+| Warm HogQL | `fe800d29` | **33** (346) | **2** (315) | ~10× faster; readiness fixed |
+| Widen HogQL + inactive | `4733b05b` | 790 (1112) | **1** (308) | widen still ~691 |
+| Widen Jira/Confluence + inactive | `1e5711b4` | 927 (1319) | **1** (358) | widen still ~686; rank 234 on 1204 |
 
 ### Reassess gate
 
-Do **not** start Phase 1 / 1.5 / 2 until:
-
-1. Phase 0 code is shipped
-2. The table above has real numbers from a fat Space
-3. A short follow-up decides which parked phase (if any) is unlocked
+- Phase 1.5 / 2: unlock only if warm active-only is still unacceptable after Phase 1 after-table is filled.

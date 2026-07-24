@@ -84,7 +84,7 @@ pub struct SessionRootsRegistry {
     /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
     /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext)
     /// so `mcpmux_search_tools` can reuse a session's resolved tool index.
-    search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
+    search_cache: Arc<DashMap<String, (u64, Arc<ToolIndex>)>>,
 }
 
 impl SessionRootsRegistry {
@@ -102,7 +102,7 @@ impl SessionRootsRegistry {
     }
 
     /// Shared per-session `search_tools` active index cache.
-    pub fn search_cache(&self) -> Arc<DashMap<String, (u64, ToolIndex)>> {
+    pub fn search_cache(&self) -> Arc<DashMap<String, (u64, Arc<ToolIndex>)>> {
         self.search_cache.clone()
     }
 

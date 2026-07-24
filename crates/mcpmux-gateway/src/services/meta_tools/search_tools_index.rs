@@ -1,12 +1,13 @@
 //! Active tool index build, session cache, and embedding hydration for `mcpmux_search_tools`.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::debug;
 use uuid::Uuid;
 
 use super::registry::{MetaToolCall, MetaToolError};
-use crate::services::ResolvedFeatureSet;
+use crate::services::{ResolvedFeatureSet, ToolIndex};
 
 /// Build the active tool index from DB grants (no cache write).
 pub(crate) async fn build_active_index(
@@ -14,7 +15,7 @@ pub(crate) async fn build_active_index(
     space_id: &Uuid,
     resolved: &ResolvedFeatureSet,
     query_id: &str,
-) -> Result<Vec<crate::services::ToolIndexEntry>, MetaToolError> {
+) -> Result<Arc<ToolIndex>, MetaToolError> {
     let invokable_started = Instant::now();
     let invokable = call
         .ctx
@@ -43,7 +44,7 @@ pub(crate) async fn build_active_index(
         "[search] active index build"
     );
 
-    Ok(index)
+    Ok(Arc::new(index))
 }
 
 /// Build the active index and store it in the per-session search cache.
@@ -54,11 +55,11 @@ pub(crate) async fn build_and_cache_active_index(
     fingerprint: u64,
     session_id: &str,
     query_id: &str,
-) -> Result<Vec<crate::services::ToolIndexEntry>, MetaToolError> {
+) -> Result<Arc<ToolIndex>, MetaToolError> {
     let index = build_active_index(call, space_id, resolved, query_id).await?;
     call.ctx
         .search_cache
-        .insert(session_id.to_string(), (fingerprint, index.clone()));
+        .insert(session_id.to_string(), (fingerprint, Arc::clone(&index)));
     Ok(index)
 }
 

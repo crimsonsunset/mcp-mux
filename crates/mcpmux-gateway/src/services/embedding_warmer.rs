@@ -181,20 +181,37 @@ impl EmbeddingWarmer {
             return Ok(());
         }
 
-        let mut records = Vec::new();
         let embed_started = Instant::now();
+        let mut ordered_hashes = Vec::with_capacity(missing_hashes.len());
+        let mut ordered_haystacks = Vec::with_capacity(missing_hashes.len());
         for content_hash in missing_hashes {
             let Some(haystack) = haystacks_by_hash.get(&content_hash).cloned() else {
                 continue;
             };
+            ordered_hashes.push(content_hash);
+            ordered_haystacks.push(haystack);
+        }
 
-            let Some(vectors) = self.embeddings.embed_documents(&[haystack], None) else {
-                continue;
-            };
-            let Some(vector) = vectors.into_iter().next() else {
-                continue;
-            };
+        let Some(vectors) = self
+            .embeddings
+            .embed_documents(&ordered_haystacks, None)
+        else {
+            info!(
+                space_id = %space_id,
+                server_id,
+                embedded = 0,
+                skipped_present,
+                missing = ordered_hashes.len(),
+                embed_ms = embed_started.elapsed().as_millis() as u64,
+                model_version = self.embeddings.model_version(),
+                model_state = ?self.embeddings.state(),
+                "[embed] warm batch done"
+            );
+            return Ok(());
+        };
 
+        let mut records = Vec::with_capacity(vectors.len());
+        for (content_hash, vector) in ordered_hashes.into_iter().zip(vectors) {
             records.push(EmbeddingRecord {
                 content_hash: content_hash.clone(),
                 model_version: self.embeddings.model_version().to_string(),

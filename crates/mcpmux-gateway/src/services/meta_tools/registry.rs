@@ -82,7 +82,7 @@ pub struct MetaToolContext {
     /// Per-server log tail reader (`current.log`); same source as the desktop UI.
     pub log_manager: Arc<ServerLogManager>,
     /// Per-session active tool index for `mcpmux_search_tools` (fingerprint-keyed).
-    pub search_cache: Arc<DashMap<String, (u64, ToolIndex)>>,
+    pub search_cache: Arc<DashMap<String, (u64, Arc<ToolIndex>)>>,
     /// Global embedding vectors keyed by content hash.
     pub embedding_store: Arc<DashMap<String, Vec<f32>>>,
     /// Persistent embedding repository backing `embedding_store` hydration.
