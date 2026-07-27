@@ -1,7 +1,7 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
-**Last Updated:** Jul 24, 2026
-**Status:** Complete (Phases 1–3) — Agents Window multi-workspace spike **pending** (observability logs shipped)
+**Last Updated:** Jul 27, 2026
+**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate shipped as server-side safety net
 **Branch:** `dev-rebased`
 
 ### Phase 1 spike results (Jul 20, 2026)
@@ -41,7 +41,7 @@
 
 **Next if fail:** prefer per-repo static `.cursor/mcp.json` header for Agents Window, and/or treat as Cursor Agents Window MCP binding gap (not a new per-agent identity axis).
 
-**Spike results:** _pending manual run_
+**Spike results (Jul 24–27, 2026):** Session isolation works — Agents Window agents in separate workspaces get distinct `session_id`s and (when present) distinct `X-Mcpmux-Workspace` headers; no pin-clobber. Identical tool answers in the repro were overlapping FeatureSets, not shared-session clobber. Real bug found: some sessions arrive with an empty/absent workspace header, so `SessionRootsRegistry::get()` returns the full multi-folder `roots/list` and the resolver used to first-match-wins across that list. **Fix shipped:** resolver returns `PendingRoots` whenever `reported_roots.len() > 1` (no pinned header); escape hatch is `mcpmux_set_workspace_root` / a correct header pin. Complements the bridge's header injection as a server-side safety net.
 
 ---
 
@@ -133,7 +133,7 @@ Cursor resolves `${workspaceFolder}` to the active window's project root *before
 
 ### Interaction with existing resolver tiers
 
-No resolver changes. The bridge is purely a transport-layer trick to get `X-Mcpmux-Workspace` populated correctly — the gateway already treats that header as authoritative and pins it ahead of probed `roots` (`session_roots.rs`, `SessionRootsRegistry`). This feature doesn't touch `feature_set_resolver.rs`, `workspace_binding_repository.rs`, or any migration.
+The bridge is a transport-layer trick to get `X-Mcpmux-Workspace` populated correctly — the gateway already treats that header as authoritative and pins it ahead of probed `roots` (`session_roots.rs`, `SessionRootsRegistry`). When the header is absent and `roots/list` returns multiple folders, `feature_set_resolver.rs` now holds at `PendingRoots` instead of first-match-wins (multi-root ambiguity gate, Jul 27) — the server-side safety net for the empty-header path the Agents Window spike found.
 
 ---
 
@@ -194,6 +194,7 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 | [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `X-Mcpmux-Workspace` pin is authoritative; Agents Window spike adds pin/clobber info+warn logs |
 | [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; warns when pin skipped |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Resolver resolved log includes `workspace_root` |
+| [`crates/mcpmux-gateway/src/services/feature_set_resolver.rs`](../../crates/mcpmux-gateway/src/services/feature_set_resolver.rs) | Multi-root ambiguity → `PendingRoots` when `get()` returns >1 root (no pin) |
 | [`docs/manual/workspace-header-routing.md`](../manual/workspace-header-routing.md) | Documents the underlying Cursor `roots`-reporting bug this bridge works around |
 | [`docs/planning/upstream-client-mapping-reconciliation.md`](./upstream-client-mapping-reconciliation.md) | Phase 1 — `mcpk_` API-key auth, reused here as the bridge's auth mechanism |
 | [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx) | Existing API-key minting UI this feature's Phase 2 panel is modeled on |

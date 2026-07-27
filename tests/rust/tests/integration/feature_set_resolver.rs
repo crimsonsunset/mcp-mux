@@ -715,6 +715,70 @@ async fn roots_capable_unmapped_root_stays_unbound_not_grant() {
 }
 
 #[tokio::test]
+async fn roots_capable_multi_root_session_is_pending_not_first_match() {
+    // Ambiguity gate: a roots-capable session reporting multiple folders
+    // (no pinned X-Mcpmux-Workspace header) must NOT silently bind to the
+    // first matching root — hold at PendingRoots until the client pins one.
+    let f = Fixture::new().await;
+    let (root_a, root_b) = if cfg!(windows) {
+        ("d:\\work\\a", "d:\\work\\b")
+    } else {
+        ("/work/a", "/work/b")
+    };
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(root_a),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
+        .await
+        .unwrap();
+
+    f.session_roots.set("s", [root_a, root_b]);
+    f.session_roots.set_roots_capable("s", true);
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::PendingRoots);
+    assert!(r.feature_set_ids.is_empty());
+    assert_ne!(r.feature_set_ids, vec![f.fs_a_id]);
+}
+
+#[tokio::test]
+async fn roots_capable_multi_root_session_unblocked_by_pinned_header() {
+    // Same multi-root setup as above, but a pinned header collapses get() to
+    // a single root and resolution resumes via WorkspaceBinding.
+    let f = Fixture::new().await;
+    let (root_a, root_b) = if cfg!(windows) {
+        ("d:\\work\\a", "d:\\work\\b")
+    } else {
+        ("/work/a", "/work/b")
+    };
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(root_a),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
+        .await
+        .unwrap();
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(root_b),
+            f.space_id,
+            f.fs_b_id.clone(),
+        ))
+        .await
+        .unwrap();
+
+    f.session_roots.set("s", [root_a, root_b]);
+    f.session_roots.set_roots_capable("s", true);
+    f.session_roots.set_pinned("s", root_b);
+
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(r.feature_set_ids, vec![f.fs_b_id]);
+}
+
+#[tokio::test]
 async fn rootless_client_without_grants_falls_back_to_default() {
     let f = Fixture::new().await;
     let client_id = "rootless.example/no-grants";

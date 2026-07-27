@@ -7,8 +7,11 @@
 //! ```text
 //! resolve(session_id, client_id):
 //!     // Signal 1 — reported root (deprecated MCP primitive, SEP-2577)
-//!     if session reported roots AND a binding matches:
-//!         return (binding.space_id, [binding.feature_set_id], WorkspaceBinding)
+//!     if session reported roots:
+//!         if roots.len() > 1 (no pinned X-Mcpmux-Workspace header):
+//!             return ([], default_space, PendingRoots)   // ambiguous — never guess
+//!         if a binding matches the (single) root:
+//!             return (binding.space_id, [binding.feature_set_id], WorkspaceBinding)
 //!
 //!     // Tier 1b — roots reported, no binding matched
 //!     if session reported roots AND no binding matched:
@@ -66,6 +69,14 @@
 //! does it settle on `Unbound`. A roots-capable session **never** falls
 //! through to another client's grants — after the grace it goes straight to
 //! `Unbound`, preserving per-session isolation.
+//!
+//! Multi-root ambiguity is a separate, non-timed hold: when
+//! [`SessionRootsRegistry::get`](crate::services::session_roots::SessionRootsRegistry::get)
+//! returns more than one root (no pinned `X-Mcpmux-Workspace` header), the
+//! resolver stays at `PendingRoots` indefinitely until the client pins a
+//! single root (header or `mcpmux_set_workspace_root`). Unlike the in-flight
+//! grace window, time alone cannot resolve which open folder the request
+//! belongs to — guessing would silently route to the wrong FeatureSet.
 //!
 //! The caller's client identity is used **only** for the rootless Tier-2 grant
 //! lookup — every roots-capable session routes via its own reported roots,
@@ -135,8 +146,9 @@ pub enum ResolutionSource {
     /// A [`WorkspaceBinding`](mcpmux_core::WorkspaceBinding) matched one of
     /// the session's reported MCP roots.
     WorkspaceBinding,
-    /// No binding matched, but the client is roots-capable so its `roots`
-    /// list is in flight; return empty and re-resolve when they arrive.
+    /// Held empty pending an unambiguous root: roots still in flight (grace
+    /// window), a rootless client awaiting `mcpmux_set_workspace_root`, or a
+    /// multi-root session with no pinned `X-Mcpmux-Workspace` header.
     PendingRoots,
     /// Rootless-by-design client. The space-default's per-client
     /// `client_grants` were applied.
@@ -504,6 +516,27 @@ impl FeatureSetResolverService {
             // (no ancestor inheritance).
             if has_roots {
                 let reported_roots = roots.expect("has_roots implies Some");
+
+                // Ambiguous multi-root session: SessionRootsRegistry::get() only
+                // returns more than one entry when there's no pinned
+                // X-Mcpmux-Workspace header collapsing it to a single root (see
+                // SessionRootsRegistry::get). Never guess which open folder this
+                // request belongs to — hold at PendingRoots (meta tools, incl.
+                // mcpmux_set_workspace_root, remain reachable) until the client
+                // pins one explicitly.
+                if reported_roots.len() > 1 {
+                    debug!(
+                        session_id = %sid,
+                        root_count = reported_roots.len(),
+                        "[FeatureSetResolver] multiple roots reported, no pinned header — PendingRoots",
+                    );
+                    return Ok(ResolvedFeatureSet {
+                        feature_set_ids: vec![],
+                        space_id: Some(deny_space_id),
+                        source: ResolutionSource::PendingRoots,
+                    });
+                }
+
                 if let Some(binding) = self
                     .find_binding_for_roots(&reported_roots, client_id, request_machine_id)
                     .await?

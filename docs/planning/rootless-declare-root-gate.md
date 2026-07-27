@@ -1,7 +1,7 @@
 # Rootless Declare-Before-Grant Gate
 
-**Last Updated:** Jul 23, 2026
-**Status:** Planning — ready to implement
+**Last Updated:** Jul 27, 2026
+**Status:** Complete — Phase 1+2 shipped Jul 23 (`dff476f`, `38f1df1` on `dev-rebased`)
 **Branch:** `dev-rebased` (fork-only for now; no upstream port planned)
 **Depends on:** [`deny-by-default-bindable-callers.md`](./deny-by-default-bindable-callers.md) (Tier 4 `Unbound`, `ClientGrant` Tier 3), [`per-device-machine-header.md`](./per-device-machine-header.md), [`workspace-machine-binding.md`](./workspace-machine-binding.md)
 **Unblocks:** Cloud Agent / rootless clients get scoped-by-repo tools instead of a permanent blanket grant
