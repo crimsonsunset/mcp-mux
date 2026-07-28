@@ -12,6 +12,43 @@ use super::diagnose_server::{
 use super::meta_tool_common::{caller_resolution, derive_server_readiness, text_result};
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
 use crate::pool::ConnectionStatus;
+use crate::services::ResolutionSource;
+
+/// Everything shows `readiness: "bindable"` when the resolver is at
+/// `PendingRoots` — indistinguishable from a genuinely unbound workspace on
+/// the server list alone. Give the agent a direct diagnosis instead of
+/// making it infer the cause from "every server is bindable".
+fn pending_roots_note(call: &MetaToolCall<'_>, source: ResolutionSource) -> Option<String> {
+    if source != ResolutionSource::PendingRoots {
+        return None;
+    }
+    let roots = call
+        .session_id
+        .and_then(|sid| call.ctx.resolver.session_roots().get(sid))
+        .unwrap_or_default();
+    if roots.len() > 1 {
+        let listed = roots
+            .iter()
+            .map(|r| format!("  - {r}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(format!(
+            "{} workspace roots reported and none is pinned, so no binding can be resolved \
+             unambiguously — every server below shows as bindable regardless of any existing \
+             binding. Reported roots:\n{listed}\n\
+             Call mcpmux_set_workspace_root with exactly one of those paths (the workspace this \
+             agent is actually working in) to disambiguate.",
+            roots.len(),
+        ))
+    } else {
+        Some(
+            "No workspace root has arrived for this session yet, so no binding can be resolved \
+             — every server below shows as bindable regardless of any existing binding. If this \
+             persists, call mcpmux_set_workspace_root with this session's workspace path."
+                .to_string(),
+        )
+    }
+}
 
 pub struct ListServersTool;
 
@@ -168,6 +205,10 @@ impl MetaTool for ListServersTool {
                 .cmp(b.get("id").and_then(|v| v.as_str()).unwrap_or(""))
         });
 
-        Ok(text_result(json!({ "servers": servers })))
+        let mut result = json!({ "servers": servers });
+        if let Some(note) = pending_roots_note(&call, resolved.source) {
+            result["note"] = json!(note);
+        }
+        Ok(text_result(result))
     }
 }

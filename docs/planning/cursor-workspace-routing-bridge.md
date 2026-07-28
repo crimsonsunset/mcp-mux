@@ -1,7 +1,7 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
-**Last Updated:** Jul 27, 2026
-**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate shipped as server-side safety net
+**Last Updated:** Jul 28, 2026
+**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note
 **Branch:** `dev-rebased`
 
 ### Phase 1 spike results (Jul 20, 2026)
@@ -42,6 +42,8 @@
 **Next if fail:** prefer per-repo static `.cursor/mcp.json` header for Agents Window, and/or treat as Cursor Agents Window MCP binding gap (not a new per-agent identity axis).
 
 **Spike results (Jul 24–27, 2026):** Session isolation works — Agents Window agents in separate workspaces get distinct `session_id`s and (when present) distinct `X-Mcpmux-Workspace` headers; no pin-clobber. Identical tool answers in the repro were overlapping FeatureSets, not shared-session clobber. Real bug found: some sessions arrive with an empty/absent workspace header, so `SessionRootsRegistry::get()` returns the full multi-folder `roots/list` and the resolver used to first-match-wins across that list. **Fix shipped:** resolver returns `PendingRoots` whenever `reported_roots.len() > 1` (no pinned header); escape hatch is `mcpmux_set_workspace_root` / a correct header pin. Complements the bridge's header injection as a server-side safety net.
+
+**Follow-up (Jul 27–28, 2026):** An unpinned dual-root session still let `mcpmux_bind_current_workspace` first-root-wins and offered to append `bundle:gait` onto `sync2hire-platform` (approval dialog). **Bind now shares the multi-root gate:** refuses with an `isError` listing the reported roots and instructing `mcpmux_set_workspace_root` with exactly one path before retry. `mcpmux_list_servers` adds a `note` with the same candidate list when resolution is `PendingRoots`. Pre-approval bind logs include `session_id` / `chosen_root` / `feature_set_id`.
 
 ---
 
@@ -133,7 +135,7 @@ Cursor resolves `${workspaceFolder}` to the active window's project root *before
 
 ### Interaction with existing resolver tiers
 
-The bridge is a transport-layer trick to get `X-Mcpmux-Workspace` populated correctly — the gateway already treats that header as authoritative and pins it ahead of probed `roots` (`session_roots.rs`, `SessionRootsRegistry`). When the header is absent and `roots/list` returns multiple folders, `feature_set_resolver.rs` now holds at `PendingRoots` instead of first-match-wins (multi-root ambiguity gate, Jul 27) — the server-side safety net for the empty-header path the Agents Window spike found.
+The bridge is a transport-layer trick to get `X-Mcpmux-Workspace` populated correctly — the gateway already treats that header as authoritative and pins it ahead of probed `roots` (`session_roots.rs`, `SessionRootsRegistry`). When the header is absent and `roots/list` returns multiple folders, `feature_set_resolver.rs` holds at `PendingRoots`, and `mcpmux_bind_current_workspace` refuses with a recoverable error listing candidates (multi-root ambiguity gate, Jul 27–28) — the server-side safety net for the empty-header path the Agents Window spike found.
 
 ---
 
@@ -195,6 +197,8 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 | [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; warns when pin skipped |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Resolver resolved log includes `workspace_root` |
 | [`crates/mcpmux-gateway/src/services/feature_set_resolver.rs`](../../crates/mcpmux-gateway/src/services/feature_set_resolver.rs) | Multi-root ambiguity → `PendingRoots` when `get()` returns >1 root (no pin) |
+| [`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs) | Same multi-root gate on bind; fat recoverable error + pre-approval info log |
+| [`crates/mcpmux-gateway/src/services/meta_tools/list_servers.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/list_servers.rs) | `PendingRoots` `note` lists candidate roots for agent self-heal |
 | [`docs/manual/workspace-header-routing.md`](../manual/workspace-header-routing.md) | Documents the underlying Cursor `roots`-reporting bug this bridge works around |
 | [`docs/planning/upstream-client-mapping-reconciliation.md`](./upstream-client-mapping-reconciliation.md) | Phase 1 — `mcpk_` API-key auth, reused here as the bridge's auth mechanism |
 | [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx) | Existing API-key minting UI this feature's Phase 2 panel is modeled on |

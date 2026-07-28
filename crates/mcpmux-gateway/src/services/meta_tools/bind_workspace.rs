@@ -133,14 +133,43 @@ impl MetaTool for BindCurrentWorkspaceTool {
             .session_id
             .and_then(|sid| call.ctx.session_roots.get(sid))
             .unwrap_or_default();
-        let root = roots.into_iter().next().ok_or_else(|| {
-            MetaToolError::InvalidArgument(
-                "caller did not report any MCP roots; cannot bind — \
-                 call mcpmux_set_workspace_root first to declare your workspace path, \
-                 then retry mcpmux_bind_current_workspace"
-                    .into(),
-            )
-        })?;
+        // Same gate as FeatureSetResolver PendingRoots: never first-root-wins
+        // when multiple unpinned roots are present (header pin collapses get() to 1).
+        let root = match roots.as_slice() {
+            [] => {
+                return Err(MetaToolError::InvalidArgument(
+                    "caller did not report any MCP roots; cannot bind — \
+                     call mcpmux_set_workspace_root first to declare your workspace path, \
+                     then retry mcpmux_bind_current_workspace"
+                        .into(),
+                ));
+            }
+            [single] => single.clone(),
+            many => {
+                info!(
+                    session_id = ?call.session_id,
+                    client_id = %call.client_id,
+                    root_count = many.len(),
+                    reported_roots = ?many,
+                    feature_set_id = %fs_id,
+                    "[meta_tools] bind_current_workspace refused — multiple unpinned roots"
+                );
+                let listed = many
+                    .iter()
+                    .map(|r| format!("  - {r}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return Err(MetaToolError::InvalidArgument(format!(
+                    "cannot bind: {} workspace roots reported and none is pinned, so which \
+                     folder to mutate is ambiguous. Reported roots:\n{listed}\n\
+                     Call mcpmux_set_workspace_root with exactly one of those paths (the \
+                     workspace this agent is actually working in), then retry \
+                     mcpmux_bind_current_workspace with the same feature_set_id. A correct \
+                     X-Mcpmux-Workspace header pin also collapses this.",
+                    many.len(),
+                )));
+            }
+        };
         let normalized = normalize_workspace_root(&root);
 
         let fs_name = call
@@ -198,6 +227,18 @@ impl MetaTool for BindCurrentWorkspaceTool {
         let session_id_owned = call.session_id.map(str::to_owned);
         let caller_client_id_for_response = caller_client_id.clone();
         let request_machine_id = call.request_machine_id;
+        info!(
+            session_id = ?call.session_id,
+            client_id = %call.client_id,
+            chosen_root = %normalized,
+            root_count = 1,
+            feature_set_id = %fs_id,
+            feature_set_name = %fs_name,
+            request_machine_id = ?call.request_machine_id,
+            effective_machine_id = ?machine_id,
+            space_id = %space_id,
+            "[meta_tools] bind_current_workspace approval requested"
+        );
         with_approval(
             &call,
             "mcpmux_bind_current_workspace",
