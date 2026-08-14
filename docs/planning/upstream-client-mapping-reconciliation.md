@@ -1,11 +1,25 @@
 # Upstream Client Mapping Reconciliation (`upstream/main` #201–#206 → `dev-rebased`)
 
-**Last Updated:** Jul 16, 2026
-**Status:** Planning — not started
+**Last Updated:** Aug 14, 2026
+**Status:** ✅ Completed — all 4 phases landed Jul 17, 2026
 **Branch:** N/A — each phase is a separate feature branch off `dev-rebased`
 **Base branch:** `dev-rebased` (fork lineage, currently at migration `035_inbound_client_machine.sql`)
 **Depends on:** `dev-to-main-port.md` migration-renumbering precedent (020–031 map); this doc extends that pattern for a second wave
 **Unblocks:** Headless/remote MCP client support (`mcpk_` API keys) landing on the fork without regressing deny-by-default or machine-scoped routing
+
+---
+
+## Resolution (Aug 14, 2026)
+
+Shipped exactly as planned below, all in one day (Jul 17, 2026):
+
+- `eb5ae35` — merge `upstream/main` (`87df4a2`, #203) into `dev-rebased`, conflicts resolved
+- `830c2ec` — Phase 1: API-key inbound auth (`036_inbound_client_api_keys.sql`)
+- `9af05c0` — Phase 2: id-type bindings + resolver Tier 2 (`037_workspace_binding_type.sql`)
+- `3401053` — Phase 3: Space lock as narrowing filter (`038_inbound_client_locked_space.sql`)
+- `3eb678c` — Phase 4: gateway fixes + consent polish
+
+`upstream/main` hasn't moved since (`87df4a2` is still its tip as of this check) — `dev-rebased` is fully caught up: 0 commits behind, 147 ahead. The plan below is kept as the historical record of *why* each schema/resolver decision was made, not as an open TODO.
 
 ---
 
