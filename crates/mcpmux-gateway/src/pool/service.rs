@@ -684,7 +684,10 @@ mod tests {
             Ok(vec![])
         }
 
-        async fn get(&self, _id: &Uuid) -> mcpmux_core::repository::RepoResult<Option<ServerFeature>> {
+        async fn get(
+            &self,
+            _id: &Uuid,
+        ) -> mcpmux_core::repository::RepoResult<Option<ServerFeature>> {
             Ok(None)
         }
 

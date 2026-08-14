@@ -258,6 +258,15 @@ pub async fn mcp_oauth_middleware(
         (sid, ws)
     };
     match (&session_id_header, &workspace_header) {
+        (_, Some(ws)) if ws.trim().is_empty() => {
+            warn!(
+                trace_id = %trace_id,
+                session_id = session_id_header.as_deref().unwrap_or("<none>"),
+                "[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped \
+                 (Cursor Agents window often spawns mcp-remote without resolving \
+                 ${{workspaceFolder}}; see docs/manual/cursor-workspace-bridge.md Fallback)",
+            );
+        }
         (Some(sid), Some(ws)) => {
             services.session_roots.set_pinned(sid, ws);
         }

@@ -80,17 +80,11 @@ fn init_tracing() -> tracing_appender::non_blocking::WorkerGuard {
         .expect("Failed to create log file appender");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
 
-    // Environment filter for log levels
-    // RUST_LOG takes precedence, with sensible defaults for our crates
-    // Note: Rust crate names use underscores in tracing (e.g., mcpmux-core → mcpmux_core)
+    // RUST_LOG / .env wins. Default is info; set e.g. RUST_LOG=mcpmux_gateway=debug
+    // to opt a crate back into debug. Crate names use underscores in tracing
+    // (mcpmux-core → mcpmux_core).
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        // Default filter when RUST_LOG is not set
         EnvFilter::new("info")
-            .add_directive("mcpmux_core=debug".parse().unwrap())
-            .add_directive("mcpmux_gateway=debug".parse().unwrap())
-            .add_directive("mcpmux_storage=debug".parse().unwrap())
-            .add_directive("mcpmux_mcp=debug".parse().unwrap())
-            .add_directive("mcpmux_lib=debug".parse().unwrap())
             .add_directive("tauri=info".parse().unwrap())
             .add_directive("tao=warn".parse().unwrap())
             .add_directive("wry=warn".parse().unwrap())

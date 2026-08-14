@@ -4,12 +4,13 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, warn};
+use tokio::sync::{broadcast, RwLock};
+use tracing::{debug, info, warn};
 
 use crate::services::PrefixCacheService;
 use mcpmux_core::{
-    FeatureSet, FeatureSetRepository, FeatureType, MemberMode, MemberType, ServerFeature,
-    ServerFeatureRepository,
+    DomainEvent, FeatureSet, FeatureSetRepository, FeatureType, MemberMode, MemberType,
+    ServerFeature, ServerFeatureRepository,
 };
 
 /// A catalog tool visible in discovery but not invokable until its FeatureSet is bound.
@@ -32,11 +33,18 @@ fn apply_mode_to_set(
     }
 }
 
+/// Cache key: space + sorted FeatureSet ids. Type filter is applied after
+/// the hit so tools/prompts/resources share one entry.
+type ResolutionCacheKey = (String, Vec<String>);
+
 /// Handles feature set resolution and permission evaluation
 pub struct FeatureResolutionService {
     feature_repo: Arc<dyn ServerFeatureRepository>,
     feature_set_repo: Arc<dyn FeatureSetRepository>,
     prefix_cache: Arc<PrefixCacheService>,
+    /// Resolved (allow/exclude + prefix) features, invalidated when
+    /// [`DomainEvent::affects_mcp_capabilities`] is true.
+    cache: Arc<RwLock<HashMap<ResolutionCacheKey, Vec<ServerFeature>>>>,
 }
 
 impl FeatureResolutionService {
@@ -49,7 +57,59 @@ impl FeatureResolutionService {
             feature_repo,
             feature_set_repo,
             prefix_cache,
+            cache: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Drop cached resolutions when a capability-changing domain event fires.
+    ///
+    /// Uses the same [`DomainEvent::affects_mcp_capabilities`] predicate as
+    /// [`crate::consumers::MCPNotifier`] so invalidation stays in lockstep
+    /// with `list_changed` fanout. Space-scoped when the event carries a
+    /// `space_id`; whole-cache drop on lag (missed events).
+    pub fn start_cache_invalidation(
+        self: Arc<Self>,
+        mut event_rx: broadcast::Receiver<DomainEvent>,
+    ) {
+        tokio::spawn(async move {
+            info!("[FeatureResolution] cache invalidation listener started");
+            loop {
+                match event_rx.recv().await {
+                    Ok(event) => {
+                        if !event.affects_mcp_capabilities() {
+                            continue;
+                        }
+                        if let Some(space_id) = event.space_id() {
+                            self.invalidate_space(&space_id.to_string()).await;
+                        } else {
+                            self.invalidate_all().await;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            skipped,
+                            "[FeatureResolution] lagged — dropping resolution cache"
+                        );
+                        self.invalidate_all().await;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        warn!("[FeatureResolution] event channel closed, stopping cache listener");
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    async fn invalidate_space(&self, space_id: &str) {
+        self.cache
+            .write()
+            .await
+            .retain(|(cached_space, _), _| cached_space != space_id);
+    }
+
+    async fn invalidate_all(&self) {
+        self.cache.write().await.clear();
     }
 
     /// Get all available features for a space (optionally filtered by type)
@@ -87,6 +147,38 @@ impl FeatureResolutionService {
         space_id: &str,
         feature_set_ids: &[String],
         filter_type: Option<FeatureType>,
+    ) -> Result<Vec<ServerFeature>> {
+        let mut sorted_ids = feature_set_ids.to_vec();
+        sorted_ids.sort();
+        let key = (space_id.to_string(), sorted_ids);
+
+        if let Some(cached) = self.cache.read().await.get(&key).cloned() {
+            return Ok(Self::apply_type_filter(cached, filter_type));
+        }
+
+        // ponytail: concurrent misses recompute; single-flight if cold-start
+        // stampede shows up.
+        let resolved = self
+            .resolve_feature_sets_uncached(space_id, feature_set_ids)
+            .await?;
+        self.cache.write().await.insert(key, resolved.clone());
+        Ok(Self::apply_type_filter(resolved, filter_type))
+    }
+
+    fn apply_type_filter(
+        mut features: Vec<ServerFeature>,
+        filter_type: Option<FeatureType>,
+    ) -> Vec<ServerFeature> {
+        if let Some(feature_type) = filter_type {
+            features.retain(|f| f.feature_type == feature_type);
+        }
+        features
+    }
+
+    async fn resolve_feature_sets_uncached(
+        &self,
+        space_id: &str,
+        feature_set_ids: &[String],
     ) -> Result<Vec<ServerFeature>> {
         let mut allowed_feature_ids: HashSet<String> = HashSet::new();
         let mut excluded_feature_ids: HashSet<String> = HashSet::new();
@@ -144,6 +236,7 @@ impl FeatureResolutionService {
             excluded_feature_ids.len()
         );
 
+        let mut filtered_out = 0usize;
         let mut result: Vec<ServerFeature> = all_features
             .into_iter()
             .filter(|f| {
@@ -151,26 +244,18 @@ impl FeatureResolutionService {
                 let in_excluded = excluded_feature_ids.contains(&f.id.to_string());
                 let passes = f.is_available && in_allowed && !in_excluded;
                 if !passes && in_allowed {
-                    debug!(
-                        "[FeatureResolution] Feature {} (server={}) filtered out: is_available={}, in_allowed={}, in_excluded={}",
-                        f.feature_name, f.server_id, f.is_available, in_allowed, in_excluded
-                    );
+                    filtered_out += 1;
                 }
                 passes
             })
             .collect();
 
         debug!(
-            "[FeatureResolution] After filter: {} features",
-            result.len()
+            "[FeatureResolution] After filter: {} features, filtered_out={}",
+            result.len(),
+            filtered_out
         );
 
-        // Apply type filter if specified (OCP)
-        if let Some(feature_type) = filter_type {
-            result.retain(|f| f.feature_type == feature_type);
-        }
-
-        // Enrich with prefixes
         for feature in &mut result {
             let prefix = self
                 .prefix_cache

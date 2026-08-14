@@ -268,9 +268,8 @@ impl MetaTool for SearchToolsTool {
             widened_index = Some(index);
         }
 
-        let index: &[crate::services::ToolIndexEntry] = widened_index
-            .as_deref()
-            .unwrap_or(active_index.as_slice());
+        let index: &[crate::services::ToolIndexEntry] =
+            widened_index.as_deref().unwrap_or(active_index.as_slice());
         let merged_index_len = index.len();
 
         let enrichment_started = Instant::now();

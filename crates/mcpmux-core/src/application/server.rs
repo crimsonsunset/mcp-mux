@@ -402,14 +402,11 @@ impl ServerAppService {
             .get_definition()
             .ok_or_else(|| anyhow!("Server has no cached definition"))?;
 
-        let user_entry: UserServerEntry = serde_json::from_value(entry)
-            .map_err(|e| anyhow!("Invalid server entry: {}", e))?;
+        let user_entry: UserServerEntry =
+            serde_json::from_value(entry).map_err(|e| anyhow!("Invalid server entry: {}", e))?;
 
-        let mut definition = user_entry.to_server_definition(
-            server_id,
-            &space_id_str,
-            std::path::PathBuf::new(),
-        );
+        let mut definition =
+            user_entry.to_server_definition(server_id, &space_id_str, std::path::PathBuf::new());
 
         definition.id = existing.id.clone();
         definition.source = ServerSource::ManualEntry;
@@ -847,9 +844,7 @@ mod tests {
             name: "PostHog Personal".to_string(),
             description: None,
             alias: Some("posthog".to_string()),
-            auth: Some(AuthConfig::ApiKey {
-                instructions: None,
-            }),
+            auth: Some(AuthConfig::ApiKey { instructions: None }),
             icon: None,
             transport: TransportConfig::Http {
                 url: "https://mcp.posthog.com/mcp".to_string(),
@@ -898,15 +893,10 @@ mod tests {
                 "Authorization".to_string(),
                 "Bearer phx_parent_token".to_string(),
             ),
-            (
-                "x-posthog-project-id".to_string(),
-                "345911".to_string(),
-            ),
+            ("x-posthog-project-id".to_string(), "345911".to_string()),
         ]);
-        let parent_inputs = HashMap::from([(
-            "POSTHOG_API_KEY".to_string(),
-            "phc_parent_key".to_string(),
-        )]);
+        let parent_inputs =
+            HashMap::from([("POSTHOG_API_KEY".to_string(), "phc_parent_key".to_string())]);
 
         let definition = user_space_http_definition("posthog-personal");
         let mut source = InstalledServer::new(space_id.to_string(), "posthog-personal")
@@ -918,12 +908,7 @@ mod tests {
         source.extra_headers = parent_headers.clone();
         repo.seed(source).await;
 
-        let service = ServerAppService::new(
-            repo.clone(),
-            None,
-            None,
-            event_bus.sender(),
-        );
+        let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
 
         let cloned = service
             .clone_server(space_id, "posthog-personal", "mesh", None, None)

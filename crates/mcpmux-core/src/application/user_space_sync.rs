@@ -759,7 +759,10 @@ mod tests {
             .expect("sync should update existing server");
         assert_eq!(result.updated, vec!["alpha".to_string()]);
 
-        let event = receiver.recv().await.expect("ServerConfigUpdated should emit");
+        let event = receiver
+            .recv()
+            .await
+            .expect("ServerConfigUpdated should emit");
         assert_eq!(event.type_name(), "server_config_updated");
         assert_eq!(event.server_id(), Some("alpha"));
     }

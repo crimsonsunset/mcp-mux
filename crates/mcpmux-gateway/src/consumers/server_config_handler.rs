@@ -55,7 +55,11 @@ impl ServerConfigUpdatedHandler {
 
     /// Handle one domain event, evicting the pool instance when applicable.
     async fn handle_event(&self, event: DomainEvent) -> anyhow::Result<()> {
-        let DomainEvent::ServerConfigUpdated { space_id, server_id } = event else {
+        let DomainEvent::ServerConfigUpdated {
+            space_id,
+            server_id,
+        } = event
+        else {
             return Ok(());
         };
 

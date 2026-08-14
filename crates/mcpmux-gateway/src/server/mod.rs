@@ -389,8 +389,13 @@ impl GatewayServer {
         // Start listening to DomainEvents
         {
             let gw_state = tokio::task::block_in_place(|| state.blocking_read());
-            let event_rx = gw_state.subscribe_domain_events();
-            notification_bridge.clone().start(event_rx);
+            notification_bridge
+                .clone()
+                .start(gw_state.subscribe_domain_events());
+            self.services
+                .pool_services
+                .feature_service
+                .start_resolution_cache_invalidation(gw_state.subscribe_domain_events());
         }
 
         // Create OAuth event handler (updates oauth_connected flag on OAuth success)
