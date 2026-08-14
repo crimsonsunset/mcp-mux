@@ -9,7 +9,10 @@
 //!     // Signal 1 — reported root (deprecated MCP primitive, SEP-2577)
 //!     if session reported roots:
 //!         if roots.len() > 1 (no pinned X-Mcpmux-Workspace header):
-//!             return ([], default_space, PendingRoots)   // ambiguous — never guess
+//!             if exactly one reported root still exists on disk:
+//!                 narrow to that root and continue            // disambiguated
+//!             else:
+//!                 return ([], default_space, PendingRoots)    // ambiguous — never guess
 //!         if a binding matches the (single) root:
 //!             return (binding.space_id, [binding.feature_set_id], WorkspaceBinding)
 //!
@@ -73,7 +76,16 @@
 //! Multi-root ambiguity is a separate, non-timed hold: when
 //! [`SessionRootsRegistry::get`](crate::services::session_roots::SessionRootsRegistry::get)
 //! returns more than one root (no pinned `X-Mcpmux-Workspace` header), the
-//! resolver stays at `PendingRoots` indefinitely until the client pins a
+//! resolver first checks whether the ambiguity is only apparent — clients can
+//! report roots from unrelated or stale sources alongside the caller's real
+//! workspace (e.g. an orphaned background-agent worker still pointed at a
+//! folder that was since moved or deleted). If exactly one reported root
+//! still exists on disk, the resolver narrows to that root and proceeds
+//! normally — filesystem existence, not binding presence, is the signal,
+//! since discarding a root just because it lacks a binding would silently
+//! route the request to a *different*, unrelated-but-bound root's
+//! FeatureSet. Otherwise — zero surviving roots, or more than one that still
+//! exists — it stays at `PendingRoots` indefinitely until the client pins a
 //! single root (header or `mcpmux_set_workspace_root`). Unlike the in-flight
 //! grace window, time alone cannot resolve which open folder the request
 //! belongs to — guessing would silently route to the wrong FeatureSet.
@@ -515,26 +527,57 @@ impl FeatureSetResolverService {
             // Tier 1: session reported roots — try an EXACT binding match
             // (no ancestor inheritance).
             if has_roots {
-                let reported_roots = roots.expect("has_roots implies Some");
+                let mut reported_roots = roots.expect("has_roots implies Some");
 
                 // Ambiguous multi-root session: SessionRootsRegistry::get() only
                 // returns more than one entry when there's no pinned
                 // X-Mcpmux-Workspace header collapsing it to a single root (see
-                // SessionRootsRegistry::get). Never guess which open folder this
-                // request belongs to — hold at PendingRoots (meta tools, incl.
-                // mcpmux_set_workspace_root, remain reachable) until the client
-                // pins one explicitly.
+                // SessionRootsRegistry::get). Before giving up, check whether the
+                // ambiguity is only apparent: clients can report roots from
+                // unrelated or stale sources alongside the caller's real
+                // workspace — e.g. an orphaned background-agent worker still
+                // pointed at a folder that was since moved or deleted. If
+                // exactly one reported root still exists on disk, narrow to it
+                // and fall through to the normal Tier 1 lookup below.
+                //
+                // Filesystem existence — NOT binding presence — is the only
+                // safe disambiguation signal here. Discarding a root just
+                // because it lacks a binding would silently route the request
+                // to a *different*, unrelated-but-bound root's FeatureSet
+                // whenever two genuinely distinct open folders both got
+                // reported together — exactly the cross-workspace bleed this
+                // gate exists to prevent. A phantom root, by contrast, can
+                // never itself hold or acquire a binding, so dropping it loses
+                // no real ambiguity. Bounded to a handful of cheap local
+                // `stat()` calls on this already-cold path.
                 if reported_roots.len() > 1 {
-                    debug!(
-                        session_id = %sid,
-                        root_count = reported_roots.len(),
-                        "[FeatureSetResolver] multiple roots reported, no pinned header — PendingRoots",
-                    );
-                    return Ok(ResolvedFeatureSet {
-                        feature_set_ids: vec![],
-                        space_id: Some(deny_space_id),
-                        source: ResolutionSource::PendingRoots,
-                    });
+                    let existing_roots: Vec<String> = reported_roots
+                        .iter()
+                        .filter(|root| std::path::Path::new(root.as_str()).exists())
+                        .cloned()
+                        .collect();
+
+                    if existing_roots.len() == 1 {
+                        debug!(
+                            session_id = %sid,
+                            root_count = reported_roots.len(),
+                            resolved_root = %existing_roots[0],
+                            "[FeatureSetResolver] disambiguated multi-root session — only one reported root exists on disk",
+                        );
+                        reported_roots = existing_roots;
+                    } else {
+                        debug!(
+                            session_id = %sid,
+                            root_count = reported_roots.len(),
+                            existing_count = existing_roots.len(),
+                            "[FeatureSetResolver] multiple roots reported, no pinned header — PendingRoots",
+                        );
+                        return Ok(ResolvedFeatureSet {
+                            feature_set_ids: vec![],
+                            space_id: Some(deny_space_id),
+                            source: ResolutionSource::PendingRoots,
+                        });
+                    }
                 }
 
                 if let Some(binding) = self

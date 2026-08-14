@@ -779,6 +779,65 @@ async fn roots_capable_multi_root_session_unblocked_by_pinned_header() {
 }
 
 #[tokio::test]
+async fn multi_root_session_disambiguated_by_phantom_root_no_longer_on_disk() {
+    // Regression: Cursor can report a root from a stale/orphaned source (e.g.
+    // a background-agent worker still pointed at a folder that was moved or
+    // deleted) alongside the caller's real, live workspace. Since the
+    // phantom root no longer exists on disk, the resolver narrows to the
+    // real one instead of holding at PendingRoots forever.
+    let f = Fixture::new().await;
+    let real_dir = tempfile::tempdir().unwrap();
+    let real_root = real_dir.path().to_str().unwrap();
+    let phantom_root = real_dir.path().join("this-does-not-exist-on-disk");
+    let phantom_root = phantom_root.to_str().unwrap();
+
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(real_root),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
+        .await
+        .unwrap();
+
+    f.session_roots.set("s", [phantom_root, real_root]);
+    f.session_roots.set_roots_capable("s", true);
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(r.feature_set_ids, vec![f.fs_a_id]);
+}
+
+#[tokio::test]
+async fn multi_root_session_stays_pending_when_all_reported_roots_exist_on_disk() {
+    // Counterpart to the phantom-root regression above: when every reported
+    // root is a real, live folder (the ordinary multi-root-workspace case),
+    // filesystem existence can't disambiguate anything — stay at
+    // PendingRoots exactly like the no-binding-at-all case, even though one
+    // of the two happens to be bound. Guards against silently leaking a
+    // different, unrelated-but-bound folder's tools into this session.
+    let f = Fixture::new().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let root_a = dir_a.path().to_str().unwrap();
+    let root_b = dir_b.path().to_str().unwrap();
+
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(root_a),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
+        .await
+        .unwrap();
+
+    f.session_roots.set("s", [root_a, root_b]);
+    f.session_roots.set_roots_capable("s", true);
+    let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
+    assert_eq!(r.source, ResolutionSource::PendingRoots);
+    assert!(r.feature_set_ids.is_empty());
+}
+
+#[tokio::test]
 async fn rootless_client_without_grants_falls_back_to_default() {
     let f = Fixture::new().await;
     let client_id = "rootless.example/no-grants";
