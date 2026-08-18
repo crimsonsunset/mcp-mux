@@ -8,10 +8,15 @@
  * Opens the HMR URL in the default browser after the admin health check passes.
  *
  * Usage (repo root): pnpm dev:admin
+ *
+ * When run from a Cursor agent shell (`CURSOR_AGENT=1`) or with `--detach` /
+ * `MCPMUX_DEV_DETACH=1`, re-execs into a new session so Cursor Helper
+ * (Plugin) cannot SIGTERM the gateway when it reaps the agent job.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,12 +29,65 @@ const GATEWAY_PORT = Number.parseInt(process.env.MCPMUX_GATEWAY_PORT ?? '45818',
 const HEALTH_URL = `http://127.0.0.1:${ADMIN_PORT}/api/v1/health`;
 const GATEWAY_HEALTH_URL = `http://127.0.0.1:${GATEWAY_PORT}/health`;
 const VITE_URL = 'http://127.0.0.1:1420';
+const DIST_INDEX = path.join(DESKTOP_DIR, 'dist', 'index.html');
 const OPEN_WAIT_MS = 90_000;
 const POLL_MS = 500;
+/** How long to wait for the first `vite build --watch` write before starting
+ * the gateway/admin process anyway. admin/router.rs checks for dist/index.html
+ * once, at router-build time — starting before this file exists means :45819
+ * falls back to the "run a build" hint page for the rest of the process's life. */
+const DIST_BUILD_WAIT_MS = 30_000;
 /** Number of consecutive healthy responses required before gateway is considered stable. */
 const GATEWAY_STABLE_TICKS = 3;
 /** Minimum ms between stability ticks — ensures we aren't measuring the same in-flight response twice. */
 const GATEWAY_STABLE_INTERVAL_MS = 1_000;
+
+/**
+ * Stdio log for a detached `dev:admin` session (same dir as the app log).
+ * @returns {string}
+ */
+function detachedStdioLogPath() {
+  const home = os.homedir();
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library/Application Support/com.mcpmux.desktop/logs/dev-admin.stdio.log');
+  }
+  if (process.platform === 'win32') {
+    return path.join(process.env.LOCALAPPDATA ?? home, 'com.mcpmux.desktop', 'logs', 'dev-admin.stdio.log');
+  }
+  return path.join(home, '.local/share/com.mcpmux.desktop/logs/dev-admin.stdio.log');
+}
+
+/**
+ * True when this process should re-exec outside the Cursor agent process tree.
+ * @returns {boolean}
+ */
+function shouldDetach() {
+  if (process.env.MCPMUX_DEV_DETACHED === '1') return false;
+  if (process.argv.includes('--detach')) return true;
+  if (process.env.MCPMUX_DEV_DETACH === '1') return true;
+  return process.env.CURSOR_AGENT === '1';
+}
+
+/**
+ * Re-spawn this script as a session leader and exit so the agent job completes.
+ * Cursor Helper then has nothing in its tree to SIGTERM.
+ */
+function detachSelf() {
+  const logPath = detachedStdioLogPath();
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  const out = openSync(logPath, 'a');
+  const args = process.argv.slice(1).filter((arg) => arg !== '--detach');
+  const child = spawn(process.execPath, args, {
+    cwd: REPO_ROOT,
+    detached: true,
+    stdio: ['ignore', out, out],
+    env: { ...process.env, MCPMUX_DEV_DETACHED: '1' },
+  });
+  child.unref();
+  console.log(`[dev-admin] Detached from agent (pid ${child.pid}). stdio → ${logPath}`);
+  console.log('[dev-admin] Stop with: pnpm dev:stop');
+  process.exit(0);
+}
 
 /**
  * @param {number} ms
@@ -162,6 +220,29 @@ function spawnAdminSpaWatch() {
   });
 }
 
+/**
+ * Wait for the first `vite build --watch` write so admin/router.rs's
+ * one-shot `dist/index.html` check passes when the gateway/admin process
+ * starts. If dist/ already exists from a prior build, returns immediately.
+ * On timeout, warns and lets the caller proceed anyway rather than blocking
+ * forever on a broken build.
+ */
+async function waitForInitialDistBuild() {
+  if (existsSync(DIST_INDEX)) return;
+  console.log('[dev-admin] Waiting for initial admin SPA build (dist/index.html)…');
+  const deadline = Date.now() + DIST_BUILD_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (existsSync(DIST_INDEX)) {
+      console.log('[dev-admin] Admin SPA build ready.');
+      return;
+    }
+    await sleep(POLL_MS);
+  }
+  console.warn(
+    `[dev-admin] dist/index.html still missing after ${DIST_BUILD_WAIT_MS}ms — starting anyway; :${ADMIN_PORT} will show the build hint page until the next restart.`
+  );
+}
+
 async function main() {
   if (!existsSync(path.join(REPO_ROOT, 'package.json'))) {
     console.error('[dev-admin] Could not locate repo root.');
@@ -170,8 +251,14 @@ async function main() {
 
   loadRepoDotEnv(REPO_ROOT);
 
+  if (shouldDetach()) {
+    detachSelf();
+    return;
+  }
+
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   const spaWatchChild = spawnAdminSpaWatch();
+  await waitForInitialDistBuild();
   // Async spawn (not spawnSync): spawnSync blocks the event loop for the whole
   // life of `pnpm dev`, which would starve the health-check + browser-open
   // below so they never run until the app exits.
@@ -191,6 +278,9 @@ async function main() {
 
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
+      console.log(
+        `[dev-admin] received ${signal} at ${new Date().toISOString()} — forwarding to pnpm dev (pid ${child.pid}) and spa watch (pid ${spaWatchChild.pid})`
+      );
       child.kill(signal);
       spaWatchChild.kill(signal);
     });

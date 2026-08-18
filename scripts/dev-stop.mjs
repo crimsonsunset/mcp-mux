@@ -77,11 +77,14 @@ function killPid(pid) {
  */
 function quitMacApp() {
   if (process.platform !== 'darwin') return;
+  console.log(`[dev-stop] ${new Date().toISOString()} asking "McpMux" to quit via osascript`);
   const result = spawnSync('osascript', ['-e', 'tell application "McpMux" to quit'], {
     stdio: 'ignore',
   });
   if (result.status === 0) {
-    console.log('[dev-stop] Asked McpMux.app to quit.');
+    console.log('[dev-stop] "McpMux" accepted the quit request.');
+  } else {
+    console.log(`[dev-stop] "McpMux" quit request returned status ${result.status} (likely not running).`);
   }
 }
 
@@ -98,7 +101,7 @@ async function main() {
   let killedAny = false;
   for (const port of PORTS) {
     for (const pid of pidsOnPort(port)) {
-      console.log(`[dev-stop] Killing PID ${pid} on :${port}`);
+      console.log(`[dev-stop] ${new Date().toISOString()} sending SIGTERM to PID ${pid} on :${port}`);
       killPid(pid);
       killedAny = true;
     }

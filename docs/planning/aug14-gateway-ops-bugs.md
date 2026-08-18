@@ -1,7 +1,7 @@
 # Aug 14 Gateway Ops Bugs
 
 **Last Updated:** Aug 14, 2026
-**Status:** Planning — decisions locked, ready to implement
+**Status:** Implemented — Phases 1-3 shipped on this branch; Phase 4 close-out below
 **Branch:** `docs/aug14-gateway-ops-bugs` (off `dev-rebased`)
 **Depends on:** `cursor-workspace-routing-bridge.md` (empty-header / Agents Window), `search-tools-perf.md` (`resolve_feature_sets` hot path), `7ac5dc1` (filesystem multi-root disambiguation)
 **Unblocks:** Quieter logs, a process that stays up, fewer false "gateway is dead" signals, and a clean connect set on boot
@@ -40,14 +40,14 @@ Severity is "how much it hurts today," not "how hard to fix."
 ### B2. Empty-header warn is per-request, not per-session
 
 **Severity:** Medium (will re-bloat the log)
-**Status:** Open (side effect of B1 telemetry)
+**Status:** Won't-fix this pass — Decision 1 keeps the per-request warn for its telemetry value
 **Symptom:** Same empty header logged on every MCP POST. 477 lines in 40 minutes from a handful of sessions.
 **Question:** rate-limit / first-pin-only / drop to debug after first warn?
 
 ### B3. Unexplained SIGTERM (~10 min after `dev:admin`)
 
 **Severity:** High (gateway vanishes)
-**Status:** Open
+**Status:** Shipped attribution logging (Phase 1) — root cause still open, watch next occurrence
 **Symptom:** Process does not panic. Log ends with `[Signal] SIGTERM — requesting exit` then a 2s graceful-shutdown timeout. No `.ips` crash report. Window-close would have logged `[Window] Close requested`, not SIGTERM.
 **Times today:** 16:38 (our `dev:stop`), 16:58 (~13 min after start), 17:15 (~9 min after start).
 **Suspects:** dock Quit on the McpMux app name, `tauri dev` recycling the child, Cursor-managed terminal SIGTERM on the process group, `osascript tell application "McpMux" to quit` from `dev-stop.mjs` colliding with the named Tauri window.
@@ -55,26 +55,26 @@ Severity is "how much it hurts today," not "how hard to fix."
 ### B4. Graceful shutdown times out at 2s
 
 **Severity:** Low (follow-on of B3)
-**Status:** Open
+**Status:** Deferred — gated on B3's root cause (Decision 2), no change this pass
 **Symptom:** `[Gateway] Graceful shutdown timed out after 2s — aborting task (listener socket may briefly linger in kernel)`. Happens on every SIGTERM. May leave `:45818` / `:45819` in `TIME_WAIT` and make the next start flaky.
 
 ### B5. rmcp 5-minute keep-alive kills idle sessions
 
 **Severity:** Medium (looks like a crash; is not)
-**Status:** Open
+**Status:** Shipped (Phase 2) — `keep_alive` raised to 1800s
 **Symptom:** `worker quit with fatal: keep alive timeout after 300000ms` → client `GET /mcp` → 404. 17 hits since 16:45. Gateway stays up. Already noted as expected RMCP behavior in [`deny-by-default-bindable-callers.md`](./deny-by-default-bindable-callers.md) (Jun 29).
 **Question:** raise the timeout, treat 404-after-keepalive as a reconnect, or leave it and stop logging it as ERROR?
 
 ### B6. `GET /mcp` 400 before `initialize`
 
 **Severity:** Low (noise)
-**Status:** Open — may be expected
+**Status:** Shipped (Phase 2) — warn narrowed to skip `(GET, 400)` and any `404`
 **Symptom:** `mcp-remote` opens the SSE GET before it has `mcp-session-id`. Pin skipped, 400, then POST `initialize` succeeds. Same pattern for a leftover `mcp-remote-fallback-test` client (`0.0.0`) that reconnects on every restart.
 
 ### B7. `typesense` handshake fails every boot
 
 **Severity:** Medium (one backend always down)
-**Status:** Open
+**Status:** Shipped (Phase 3) — user config args fixed; stderr surfacing added generically for the next time this happens
 **Symptom:** `uv` stdio: `MCP handshake failed: connection closed: initialize response.` Then `[Startup] ✗ Failed to connect …/typesense`. Repeats every `dev:admin`.
 
 ### B8. OAuth-skipped backends on every boot
@@ -86,19 +86,19 @@ Severity is "how much it hurts today," not "how hard to fix."
 ### B9. Some backends `-32601 Method not found` on `resources/list`
 
 **Severity:** Low
-**Status:** Open
+**Status:** Shipped (Phase 3) — downgraded to `debug!` when the error is `-32601 Method not found`
 **Symptom:** `[FeatureDiscovery] Failed to list resources: Mcp error: -32601: Method not found`. Discovery continues. Confirm which servers and whether we should skip the call when the capability is absent.
 
 ### B10. Admin `:45819` missing `dist/index.html`
 
 **Severity:** Low (dev-only)
-**Status:** Open
+**Status:** Shipped (Phase 3) — `dev-admin.mjs` waits for the first `vite build` write before starting the gateway
 **Symptom:** `[Admin] frontend dist missing index.html … serving build hint page`. Vite watch on `:1420` is up; the production-parity SPA for `:45819` / CF tunnel is not.
 
 ### B11. macOS Contacts permission denied
 
 **Severity:** Low
-**Status:** Open
+**Status:** Shipped (Phase 3) — `ensure_contacts_registered()` skips under `cfg!(debug_assertions)`
 **Symptom:** `[Permissions] Contacts request failed: Access Denied` on every launch.
 
 ### Parked (not digging)
@@ -139,7 +139,7 @@ Locked after four parallel digs + `AskQuestion` + a `propose-opts-brainstorm` on
 | 7 | B9 `-32601` on `resources/list` | **Downgrade to `debug!`, do not retry or special-case per server** | The Atlassian family (`com.atlassian-mcp`, `-mesh`, `-gait`) advertises `resources: {}` at initialize but returns Method not found. Discovery already tolerates it; only the log level was wrong. |
 | 8 | B10 admin dist race | **`dev-admin.mjs` waits for the first `vite build` to finish before declaring the stack ready** | `admin/router.rs`'s dist check is one-shot at router-build time; the race is purely in dev orchestration timing, not gateway code. |
 | 9 | B11 Contacts prompt | **Skip `requestAccess` when running under `tauri dev`** | TCC never persists a decision for the unsigned dev binary, so every dev launch re-prompts and fails. Production behavior (signed `.app`) is unchanged. |
-| 10 | Leftover `mcp-remote-fallback-test` client | **Delete the inbound client row + revoke its key** | Not created by any code path we own — stale manual-test artifact reconnecting on every restart. |
+| 10 | Leftover `mcp-remote-fallback-test` client | **Corrected during implementation — not a stale artifact, no action** | No `inbound_clients` row exists for it (confirmed via SQLite query). Traced to `mcp-remote`'s own `dist/chunk-*.js`: `connectToRemoteServer()` spins up a disposable `Client({ name: "mcp-remote-fallback-test", version: "0.0.0" })` to test the HTTP transport on *every* real connect/reconnect before servicing the actual bridge, then tears it down. It's mcp-remote-side connection-test noise inherent to the `http-first` strategy, not a leftover client we can delete — same class of expected noise as B6, now covered by Decision 4's narrowed warn. |
 
 ---
 
@@ -153,7 +153,7 @@ Locked after four parallel digs + `AskQuestion` + a `propose-opts-brainstorm` on
 - `-32601` resources/list log downgrade (Phase 3)
 - Admin dist startup race fix in `dev-admin.mjs` (Phase 3)
 - Contacts prompt skip under `tauri dev` (Phase 3)
-- Delete leftover `mcp-remote-fallback-test` inbound client (Phase 3)
+- ~~Delete leftover `mcp-remote-fallback-test` inbound client~~ (Phase 3) — corrected during implementation, see Decision 10
 
 **Out / deferred:**
 
@@ -208,7 +208,7 @@ Two of those shapes are spec-correct per rmcp's `tower.rs` (`get_without_session
 | [`crates/mcpmux-gateway/src/pool/transport/stdio.rs`](../../crates/mcpmux-gateway/src/pool/transport/stdio.rs) | Handshake failure path: include captured child stderr in the `MCP handshake failed` message instead of the generic `connection closed: initialize response` |
 | User config: `~/Library/Application Support/com.mcpmux.desktop/spaces/00000000-0000-0000-0000-000000000001.json` | typesense server args: `["--directory", ".../typesense-mcp-server", "run", "mcp", "run", "main.py"]` → `["--directory", ".../typesense-mcp-server", "run", "python", "main.py"]` |
 | [`apps/desktop/src-tauri/src/macos_permissions.rs`](../../apps/desktop/src-tauri/src/macos_permissions.rs) | `ensure_contacts_registered()` (~L30): early-return when `cfg!(debug_assertions)` (or a `TAURI_ENV_DEBUG`-style check) instead of always requesting |
-| SQLite `inbound_clients` table (via existing admin/repo tooling, not a schema change) | Delete the `mcp-remote-fallback-test` row and revoke its API key |
+| ~~SQLite `inbound_clients` table~~ | Not touched — no row exists; see Decision 10 correction |
 
 ---
 
@@ -236,9 +236,9 @@ Two of those shapes are spec-correct per rmcp's `tower.rs` (`get_without_session
 - `discovery.rs`: downgrade `-32601 Method not found` on `resources/list` to `debug!` (discovery already tolerates it; only the level was wrong)
 - `dev-admin.mjs`: don't declare the dev stack ready (open-browser / health-probe success) until the first `vite build --watch` write lands, closing the race with `admin/router.rs`'s one-shot `dist/index.html` check
 - `macos_permissions.rs`: skip `ensure_contacts_registered()` under `tauri dev` / debug builds
-- Delete the `mcp-remote-fallback-test` row from `inbound_clients` and revoke its key
+- ~~Delete the `mcp-remote-fallback-test` row from `inbound_clients`~~ — no such row exists; traced to `mcp-remote`'s own per-connection transport test client (Decision 10), not our code
 
-**Outcome:** A clean `pnpm dev:admin` boot: typesense connects, no Contacts prompt, admin `:45819` serves the real SPA on first load, resources/list mismatches don't warn, and the connected-client list only shows real clients.
+**Outcome:** A clean `pnpm dev:admin` boot: typesense connects, no Contacts prompt, admin `:45819` serves the real SPA on first load, resources/list mismatches don't warn.
 
 ### Phase 4 — Close-out
 

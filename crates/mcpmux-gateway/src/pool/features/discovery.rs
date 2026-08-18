@@ -9,6 +9,14 @@ use tracing::{debug, info, warn};
 use super::{convert_to_feature, resource_to_feature, CachedFeatures};
 use crate::pool::instance::McpClient;
 use mcpmux_core::ServerFeatureRepository;
+use rmcp::{model::ErrorCode, ServiceError};
+
+/// True when the error is a JSON-RPC `-32601 Method not found` — a server
+/// advertised a capability but never implemented the corresponding list
+/// method, not a transport/connection problem.
+fn is_method_not_found(e: &ServiceError) -> bool {
+    matches!(e, ServiceError::McpError(err) if err.code == ErrorCode::METHOD_NOT_FOUND)
+}
 
 /// Handles feature discovery and caching from MCP clients
 pub struct FeatureDiscoveryService {
@@ -124,7 +132,20 @@ impl FeatureDiscoveryService {
                         discovered.resources.len()
                     );
                 }
-                Some(Err(e)) => warn!("[FeatureDiscovery] Failed to list resources: {}", e),
+                Some(Err(e)) => {
+                    // Some servers (notably the Atlassian family) advertise
+                    // `resources: {}` at initialize but never implemented
+                    // resources/list. That's a server quirk we already
+                    // tolerate — only the log level was wrong.
+                    if is_method_not_found(&e) {
+                        debug!(
+                            "[FeatureDiscovery] resources/list not implemented despite advertised capability: {}",
+                            e
+                        );
+                    } else {
+                        warn!("[FeatureDiscovery] Failed to list resources: {}", e);
+                    }
+                }
                 None => {}
             }
         } else {
@@ -194,5 +215,19 @@ mod tests {
         let never = pending::<Result<i32, &str>>();
         let out = FeatureDiscoveryService::with_list_timeout("resources/list", never).await;
         assert!(out.is_none());
+    }
+
+    #[test]
+    fn is_method_not_found_matches_only_32601() {
+        let not_found = ServiceError::McpError(rmcp::ErrorData::new(
+            ErrorCode::METHOD_NOT_FOUND,
+            "nope",
+            None,
+        ));
+        assert!(is_method_not_found(&not_found));
+
+        let invalid_params =
+            ServiceError::McpError(rmcp::ErrorData::invalid_params("bad params", None));
+        assert!(!is_method_not_found(&invalid_params));
     }
 }

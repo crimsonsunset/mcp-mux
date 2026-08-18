@@ -9,9 +9,9 @@
 //! etc.). These logs are internal to the desktop app and are never exposed
 //! externally via the HTTP gateway.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -49,6 +49,22 @@ pub fn configure_child_process_platform(cmd: &mut Command) {
     }
 }
 
+/// Formats the last few captured stderr lines for inclusion in an error
+/// message, or an empty string if nothing was captured. Best-effort: the
+/// child may not have flushed stderr yet when the handshake fails.
+fn format_stderr_tail(tail: &StderrTail) -> String {
+    let Ok(tail) = tail.lock() else {
+        return String::new();
+    };
+    if tail.is_empty() {
+        return String::new();
+    }
+    format!(
+        " stderr: {}",
+        tail.iter().cloned().collect::<Vec<_>>().join(" | ")
+    )
+}
+
 /// Returns a helpful hint for common runtime-dependent commands when they fail.
 fn command_hint(command: &str) -> &'static str {
     let cmd = command.rsplit(['/', '\\']).next().unwrap_or(command);
@@ -59,8 +75,21 @@ fn command_hint(command: &str) -> &'static str {
     }
 }
 
-/// Spawn an async task that reads lines from the child process stderr
-/// and logs them to the server log manager.
+/// Max stderr lines kept for handshake-failure error messages.
+/// ponytail: fixed-size ring, not a full transcript — enough to surface a
+/// spawn/exec error (e.g. "No such file or directory") without unbounded
+/// growth for long-running or chatty servers.
+const STDERR_TAIL_LINES: usize = 10;
+
+/// Shared tail buffer of recent stderr lines, read by the connect() error
+/// paths after the handshake fails or times out.
+type StderrTail = Arc<Mutex<VecDeque<String>>>;
+
+/// Spawn an async task that reads lines from the child process stderr,
+/// logs them to the server log manager, and keeps the last
+/// [`STDERR_TAIL_LINES`] in `tail` so a handshake-failure error can quote
+/// the actual cause (e.g. the child's own "command not found") instead of
+/// just "connection closed".
 ///
 /// The task runs until the stderr stream is closed (child process exits)
 /// or an I/O error occurs.
@@ -69,11 +98,8 @@ fn spawn_stderr_reader(
     log_manager: Option<Arc<ServerLogManager>>,
     space_id: Uuid,
     server_id: String,
+    tail: StderrTail,
 ) {
-    let Some(log_manager) = log_manager else {
-        return;
-    };
-
     let space_id_str = space_id.to_string();
 
     tokio::spawn(async move {
@@ -84,9 +110,17 @@ fn spawn_stderr_reader(
             match lines.next_line().await {
                 Ok(Some(line)) if line.is_empty() => continue,
                 Ok(Some(line)) => {
-                    let level = classify_stderr_line(&line);
-                    let log = ServerLog::new(level, LogSource::Stderr, &line);
-                    let _ = log_manager.append(&space_id_str, &server_id, log).await;
+                    if let Ok(mut tail) = tail.lock() {
+                        if tail.len() == STDERR_TAIL_LINES {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line.clone());
+                    }
+                    if let Some(log_manager) = &log_manager {
+                        let level = classify_stderr_line(&line);
+                        let log = ServerLog::new(level, LogSource::Stderr, &line);
+                        let _ = log_manager.append(&space_id_str, &server_id, log).await;
+                    }
                 }
                 Ok(None) => {
                     // EOF - child process closed stderr
@@ -250,13 +284,18 @@ impl Transport for StdioTransport {
                 }
             };
 
-        // Start the async stderr reader if we got a handle
+        // Start the async stderr reader if we got a handle. `stderr_tail`
+        // keeps the last few lines so a handshake failure below can quote
+        // the child's own error instead of just "connection closed".
+        let stderr_tail: StderrTail =
+            Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
         if let Some(stderr) = child_stderr {
             spawn_stderr_reader(
                 stderr,
                 self.log_manager.clone(),
                 self.space_id,
                 self.server_id.clone(),
+                stderr_tail.clone(),
             );
         } else {
             warn!(
@@ -279,7 +318,8 @@ impl Transport for StdioTransport {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => {
                 let hint = command_hint(&self.command);
-                let err = format!("MCP handshake failed: {e}.{hint}");
+                let stderr = format_stderr_tail(&stderr_tail);
+                let err = format!("MCP handshake failed: {e}.{hint}{stderr}");
                 error!(server_id = %self.server_id, "{}", err);
                 self.log(LogLevel::Error, LogSource::Connection, err.clone())
                     .await;
@@ -287,7 +327,11 @@ impl Transport for StdioTransport {
             }
             Err(_) => {
                 let hint = command_hint(&self.command);
-                let err = format!("Connection timeout ({:?}).{hint}", self.connect_timeout);
+                let stderr = format_stderr_tail(&stderr_tail);
+                let err = format!(
+                    "Connection timeout ({:?}).{hint}{stderr}",
+                    self.connect_timeout
+                );
                 error!(server_id = %self.server_id, "{}", err);
                 self.log(LogLevel::Error, LogSource::Connection, err.clone())
                     .await;

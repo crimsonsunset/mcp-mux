@@ -12,6 +12,8 @@ mod commands;
 mod macos_dock;
 mod macos_permissions;
 mod main_window;
+#[cfg(unix)]
+mod unix_signal;
 mod services;
 mod state;
 mod tray;
@@ -898,25 +900,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     #[cfg(unix)]
                     {
-                        use tokio::signal::unix::{signal, SignalKind};
-                        let mut sigterm = match signal(SignalKind::terminate()) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("[Signal] Failed to install SIGTERM handler: {}", e);
-                                return;
-                            }
-                        };
-                        let mut sigint = match signal(SignalKind::interrupt()) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("[Signal] Failed to install SIGINT handler: {}", e);
-                                return;
-                            }
-                        };
-                        tokio::select! {
-                            _ = sigterm.recv() => info!("[Signal] SIGTERM — requesting exit"),
-                            _ = sigint.recv() => info!("[Signal] SIGINT — requesting exit"),
-                        }
+                        crate::unix_signal::wait_for_term().await;
                     }
                     #[cfg(windows)]
                     {

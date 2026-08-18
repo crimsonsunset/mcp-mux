@@ -446,12 +446,18 @@ impl GatewayServer {
         http_cfg.sse_keep_alive = Some(std::time::Duration::from_secs(30));
         http_cfg.sse_retry = Some(std::time::Duration::from_secs(3));
         http_cfg.cancellation_token = CancellationToken::new();
+        // rmcp's default session idle timeout (300s) is tuned for multi-tenant
+        // servers; a local single-user agent host legitimately idles longer
+        // mid-thread. Raise it so a session survives normal think/pause time —
+        // see docs/planning/aug14-gateway-ops-bugs.md Decision 3.
+        let mut session_manager = LocalSessionManager::default();
+        session_manager.session_config.keep_alive = Some(std::time::Duration::from_secs(1800));
         let mcp_service = StreamableHttpService::new(
             move || {
                 debug!("[Gateway] Creating handler instance for MCP session");
                 Ok(handler.clone())
             },
-            LocalSessionManager::default().into(),
+            session_manager.into(),
             http_cfg,
         );
 
