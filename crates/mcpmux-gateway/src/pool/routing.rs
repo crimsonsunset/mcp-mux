@@ -7,14 +7,11 @@
 //!
 //! Uses FeatureService for permission resolution and TokenService for refresh.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use mcpmux_core::{
-    FeatureType, InstalledServerRepository, LogLevel, LogSource, ServerLog, ServerLogManager,
-};
+use mcpmux_core::{FeatureType, LogLevel, LogSource, ServerLog, ServerLogManager};
 use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Meta};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -23,8 +20,6 @@ use uuid::Uuid;
 use super::connection::ConnectionResult;
 use super::features::FeatureService;
 use super::service::PoolService;
-use super::transport::resolution::resolve_auto_connection_context;
-
 /// A tool as returned by the routing service
 #[derive(Debug, Clone)]
 pub struct RoutedTool {
@@ -181,28 +176,20 @@ pub struct RoutingService {
     feature_service: Arc<FeatureService>,
     pool_service: Arc<PoolService>,
     log_manager: Arc<ServerLogManager>,
-    installed_server_repo: Arc<dyn InstalledServerRepository>,
-    state_dir: Option<PathBuf>,
 }
 
 impl RoutingService {
-    /// Create a routing service.
-    ///
-    /// `installed_server_repo` and `state_dir` are used to re-resolve transport
-    /// config when a call fails with a dead backend connection.
+    /// Create a routing service. Transport re-resolve on dead connections
+    /// goes through [`PoolService::reconnect_fresh_from_db`].
     pub fn new(
         feature_service: Arc<FeatureService>,
         pool_service: Arc<PoolService>,
         log_manager: Arc<ServerLogManager>,
-        installed_server_repo: Arc<dyn InstalledServerRepository>,
-        state_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             feature_service,
             pool_service,
             log_manager,
-            installed_server_repo,
-            state_dir,
         }
     }
 
@@ -922,25 +909,9 @@ impl RoutingService {
 
     /// Evict + re-resolve + connect. Used for non-auth transport-closed errors.
     async fn reconnect_fresh_from_db(&self, space_id: Uuid, server_id: &str) -> ConnectionResult {
-        match resolve_auto_connection_context(
-            self.installed_server_repo.as_ref(),
-            self.state_dir.as_deref(),
-            space_id,
-            server_id,
-        )
-        .await
-        {
-            Ok(ctx) => self.pool_service.reconnect_fresh(&ctx).await,
-            Err(error) => {
-                warn!(
-                    server_id = %server_id,
-                    space_id = %space_id,
-                    error = %error,
-                    "reconnect_fresh re-resolve failed"
-                );
-                ConnectionResult::Failed { error }
-            }
-        }
+        self.pool_service
+            .reconnect_fresh_from_db(space_id, server_id)
+            .await
     }
 
     /// Check if an error string indicates authentication is needed

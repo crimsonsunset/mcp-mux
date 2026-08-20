@@ -271,11 +271,19 @@ pub async fn mcp_oauth_middleware(
             services.session_roots.set_pinned(sid, ws);
         }
         (None, Some(ws)) => {
-            warn!(
+            info!(
                 trace_id = %trace_id,
                 workspace_header = %ws,
-                "[SessionRoots] X-Mcpmux-Workspace present without mcp-session-id — pin skipped",
+                "[SessionRoots] X-Mcpmux-Workspace held until mcp-session-id exists",
             );
+            services
+                .session_roots
+                .remember_pending_workspace(&client_id, ws);
+        }
+        (Some(sid), None) => {
+            services
+                .session_roots
+                .apply_pending_workspace(&client_id, sid);
         }
         _ => {}
     }
@@ -326,6 +334,20 @@ pub async fn mcp_oauth_middleware(
     };
 
     let response = next.run(request).await;
+
+    if let Some(ws) = workspace_header
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        if let Some(sid) = response
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+        {
+            services.session_roots.set_pinned(sid, ws);
+        }
+    }
 
     // Log errors only — except two rmcp spec-correct shapes that are not
     // gateway problems: a GET without Mcp-Session-Id (client opening the SSE

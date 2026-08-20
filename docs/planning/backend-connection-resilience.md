@@ -257,6 +257,7 @@ Tauri-watch rebuild mid-test wiped Streamable HTTP sessions (`POST /mcp` → 404
 
 - [`docs/planning/backend-connection-resilience-test.md`](./backend-connection-resilience-test.md) — manual playbook + Aug 20 results (A/B pass; C skipped; D never reached classifier)
 - [`docs/planning/aug14-gateway-ops-bugs.md`](./aug14-gateway-ops-bugs.md) — this branch's parent investigation (inbound session keep-alive, log noise); marked stale by this doc (Decision 5)
+- [`docs/planning/pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) — follow-on after Aug 20 verification: config-save `reconnect_fresh`, stdio OAuth refuse, inbound 404 recovery, trust `X-Mcpmux-Workspace`
 - [`docs/planning/clone-auth-header-config-editing.md`](./clone-auth-header-config-editing.md) — separate "Connection closed" bug (stale pool reuse after a config edit), same `PoolService::connect_server()` healthy-reuse code path this doc's Decision 1/2 also touches
 - [`docs/planning/deny-by-default-bindable-callers.md`](./deny-by-default-bindable-callers.md) — established rmcp's inbound keepalive as expected client-hang behavior (Jun 29), informed PR #221's Decision 3
 - [`docs/planning/cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) — `set_workspace_root`/`SessionRootsRegistry` design this doc confirms is inbound-only, not a backend reconnect mechanism

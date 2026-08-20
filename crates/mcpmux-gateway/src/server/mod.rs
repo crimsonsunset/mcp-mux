@@ -417,6 +417,7 @@ impl GatewayServer {
             let config_handler = Arc::new(crate::consumers::ServerConfigUpdatedHandler::new(
                 self.services.dependencies.installed_server_repo.clone(),
                 self.services.pool_services.pool_service.clone(),
+                self.services.dependencies.state_dir.clone(),
             ));
             let gw_state = tokio::task::block_in_place(|| state.blocking_read());
             let event_rx = gw_state.subscribe_domain_events();

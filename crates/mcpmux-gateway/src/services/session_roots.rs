@@ -81,6 +81,10 @@ pub struct SessionRootsRegistry {
     /// resolver, the on-demand probe skip, and the prompt-root derivation all
     /// honor the header with no special-casing. Already normalized on insert.
     pinned: DashMap<String, String>,
+    /// `client_id -> workspace path` held when `X-Mcpmux-Workspace` arrived
+    /// before `mcp-session-id` (initialize). Applied on the first request
+    /// that has a session id, or when initialize's response issues one.
+    pending_by_client: DashMap<String, String>,
     /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
     /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext)
     /// so `mcpmux_search_tools` can reuse a session's resolved tool index.
@@ -97,6 +101,7 @@ impl SessionRootsRegistry {
             probe_lock: DashMap::new(),
             first_seen: DashMap::new(),
             pinned: DashMap::new(),
+            pending_by_client: DashMap::new(),
             search_cache: Arc::new(DashMap::new()),
         })
     }
@@ -241,7 +246,37 @@ impl SessionRootsRegistry {
                 "[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header",
             );
         }
+        self.last_resolution.remove(session_id);
+        self.search_cache.remove(session_id);
         self.pinned.insert(session_id.to_string(), normalized);
+    }
+
+    /// Hold a workspace path for `client_id` until a session id exists.
+    ///
+    /// Empty/whitespace values are ignored (same as [`Self::set_pinned`]).
+    pub fn remember_pending_workspace(&self, client_id: &str, raw_root: &str) {
+        let normalized = normalize_workspace_root(raw_root);
+        if normalized.is_empty() {
+            return;
+        }
+        self.pending_by_client
+            .insert(client_id.to_string(), normalized);
+    }
+
+    /// Pin a session from a previously remembered client header, if any.
+    ///
+    /// Returns `true` when a pending path was applied. The pending entry is
+    /// kept so a later session from the same client can reuse it.
+    pub fn apply_pending_workspace(&self, client_id: &str, session_id: &str) -> bool {
+        let Some(path) = self
+            .pending_by_client
+            .get(client_id)
+            .map(|value| value.clone())
+        else {
+            return false;
+        };
+        self.set_pinned(session_id, &path);
+        true
     }
 
     /// The explicit workspace root pinned for a session via the header, if any
@@ -437,6 +472,55 @@ mod tests {
         // The pinned (header) root entirely shadows the probed root.
         assert_eq!(reg.get("sess-1"), Some(vec![pin_norm.to_string()]));
         assert_eq!(reg.get_pinned("sess-1"), Some(pin_norm.to_string()));
+    }
+
+    #[test]
+    fn pending_header_pins_when_session_id_arrives() {
+        let reg = SessionRootsRegistry::default();
+        #[cfg(windows)]
+        let (pin_in, pin_norm) = ("D:\\Pinned\\Path", "d:\\pinned\\path");
+        #[cfg(not(windows))]
+        let (pin_in, pin_norm) = (
+            "/Users/joe/Desktop/Repos/Personal/mcp-mux",
+            "/Users/joe/Desktop/Repos/Personal/mcp-mux",
+        );
+
+        reg.remember_pending_workspace("client-1", pin_in);
+        assert!(reg.get_pinned("sess-new").is_none());
+        assert!(reg.apply_pending_workspace("client-1", "sess-new"));
+        assert_eq!(reg.get("sess-new"), Some(vec![pin_norm.to_string()]));
+
+        reg.set(
+            "sess-new",
+            ["/a", "/b", "/c", "/d", "/e", "/f"]
+                .into_iter()
+                .map(String::from),
+        );
+        assert_eq!(
+            reg.get("sess-new"),
+            Some(vec![pin_norm.to_string()]),
+            "six-way roots/list must stay shadowed by the pending pin"
+        );
+    }
+
+    #[test]
+    fn empty_pending_header_does_not_pin() {
+        let reg = SessionRootsRegistry::default();
+        reg.remember_pending_workspace("client-1", "   ");
+        assert!(!reg.apply_pending_workspace("client-1", "sess-1"));
+        assert!(reg.get_pinned("sess-1").is_none());
+    }
+
+    #[test]
+    fn set_pinned_clears_last_resolution() {
+        let reg = SessionRootsRegistry::default();
+        assert!(reg.record_resolution("sess-1", Some("fs-pending")));
+        assert!(!reg.record_resolution("sess-1", Some("fs-pending")));
+        reg.set_pinned("sess-1", "/p");
+        assert!(
+            reg.record_resolution("sess-1", Some("fs-bound")),
+            "pin must drop the cached PendingRoots resolution"
+        );
     }
 
     #[test]

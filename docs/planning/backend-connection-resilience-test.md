@@ -18,6 +18,10 @@
 
 Confounders: Tauri-watch rebuild wiped inbound sessions (`POST /mcp` â†’ 404 until MCP reload). After reload, 6 unpinned roots required one `mcpmux_set_workspace_root` to *this* repo before invoke was possible. That pin was session disambiguation, not the reconnect path.
 
+**Inbound 404 after gateway rebuild (Decision 3, follow-on):** process death drops `LocalSessionManager`. `POST /mcp` with a stale `Mcp-Session-Id` is a spec-correct 404. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) and the [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk/issues/1708) do **not** re-`initialize` on that 404 (they stay stuck on the dead session id). Do not persist sessions. Recovery is Reload MCP once. `/health` staying 200 means the gateway is up; 404 is not "gateway is down."
+
+**Header pin after reload (Decision 4):** a non-empty `X-Mcpmux-Workspace` is held across initialize (no session id yet) and applied when `mcp-session-id` appears. After Reload MCP, `mcpmux_list_servers` should be bound for this repo without `set_workspace_root`. Empty `${workspaceFolder}` is still the Agents-window hole.
+
 ---
 
 ## Answer first: new sessions in different roots?
@@ -71,7 +75,7 @@ sqlite3 "$HOME/Library/Application Support/com.mcpmux.desktop/mcpmux.db" \
 2. Cursor MCP `user-mcpmux` points at `http://localhost:45818/mcp`. Reload tools **once** if the binary was just rebuilt, then do not reload again mid-case.
 3. Only call mux via `user-mcpmux`. No direct backend MCP servers.
 4. Do not run `pnpm dev:stop` / rebuild mid-test (evicts the pool *and* all inbound sessions).
-5. If `mcpmux_list_servers` reports several unpinned roots, pin `/Users/joe/Desktop/Repos/Personal/mcp-mux` once, then start Case A/B.
+5. If `mcpmux_list_servers` reports several unpinned roots **and** this chat's `X-Mcpmux-Workspace` is empty/absent, pin `/Users/joe/Desktop/Repos/Personal/mcp-mux` once, then start Case A/B. If the header is a real path, pin should happen without `set_workspace_root`.
 
 ---
 
@@ -159,6 +163,24 @@ A permission / not-found error that never hits the backend is also acceptable â€
 - `pkill -f mcpmux`.
 - Write a real FeatureSet bind as part of Case A.
 - Dump `credentials` / OAuth tables from the DB.
+
+---
+
+## Follow-on cases (pool-invalidation-and-session-survival)
+
+Playbook for [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md). Same mux-only / no-`pkill` rules.
+
+### Config save reconnect
+
+Change an enabled server's header or stdio arg in Configure, **do not** click Retry Connection, invoke a tool on that server. Expect `reconnect_fresh completed ok=true` from `[ServerConfigHandler]` and the new value in use.
+
+### Rebuild 404
+
+Trigger a Rust rebuild. `curl -sf http://127.0.0.1:45818/health` stays 200. Existing Cursor chats 404 on `/mcp`. Reload MCP once. Do not treat 404 as a dead gateway.
+
+### Header pin
+
+Multi-folder Cursor window with a real `X-Mcpmux-Workspace` pointing at this repo. Reload MCP. `mcpmux_list_servers` is bound, not 6-way `bindable`. `set_workspace_root` is not the success path.
 
 ---
 

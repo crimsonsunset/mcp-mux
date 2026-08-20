@@ -10,11 +10,13 @@
 //! - Bulk connect on startup (reconnect_all_enabled)
 //! - Providing access to server instances for routing
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
 use dashmap::DashMap;
+use mcpmux_core::InstalledServerRepository;
 use serde_json::Value;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -25,6 +27,7 @@ use super::features::{CachedFeatures, FeatureService};
 use super::instance::{InstanceKey, InstanceState, ServerInstance};
 use super::oauth::OutboundOAuthManager;
 use super::token::TokenService;
+use super::transport::resolution::resolve_auto_connection_context;
 use super::transport::{ResolvedTransport, TransportType};
 
 /// Check if an error string indicates an authentication/authorization failure
@@ -89,13 +92,21 @@ pub struct PoolService {
     feature_service: Arc<FeatureService>,
     /// Token service (exposed for routing)
     token_service: Arc<TokenService>,
+    /// Installed-server rows used to re-resolve transport on `reconnect_fresh`.
+    installed_server_repo: Arc<dyn InstalledServerRepository>,
+    /// Optional MCP state dir forwarded to transport resolution.
+    state_dir: Option<PathBuf>,
 }
 
 impl PoolService {
+    /// Create a pool wired to connection/feature/token services and a repo for
+    /// transport re-resolve (`reconnect_fresh_from_db`).
     pub fn new(
         connection_service: Arc<ConnectionService>,
         feature_service: Arc<FeatureService>,
         token_service: Arc<TokenService>,
+        installed_server_repo: Arc<dyn InstalledServerRepository>,
+        state_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             instances: DashMap::new(),
@@ -103,6 +114,8 @@ impl PoolService {
             connection_service,
             feature_service,
             token_service,
+            installed_server_repo,
+            state_dir,
         }
     }
 
@@ -137,7 +150,7 @@ impl PoolService {
                     "[PoolService] Auth error on read_resource for {}/{}, attempting auto-reconnect",
                     server_id, uri
                 );
-                match self.reconnect_instance(space_id, server_id).await {
+                match self.reconnect_fresh_from_db(space_id, server_id).await {
                     ConnectionResult::Connected { .. } => {
                         info!(
                             "[PoolService] Reconnected {}, retrying read_resource",
@@ -211,7 +224,7 @@ impl PoolService {
                     "[PoolService] Auth error on get_prompt for {}/{}, attempting auto-reconnect",
                     server_id, prompt_name
                 );
-                match self.reconnect_instance(space_id, server_id).await {
+                match self.reconnect_fresh_from_db(space_id, server_id).await {
                     ConnectionResult::Connected { .. } => {
                         info!(
                             "[PoolService] Reconnected {}, retrying get_prompt",
@@ -481,6 +494,37 @@ impl PoolService {
         result
     }
 
+    /// Re-resolve transport from DB, then [`Self::reconnect_fresh`].
+    ///
+    /// Used for auth retries on `read_resource`/`get_prompt` and for
+    /// `RoutingService` transport-closed retries. Safe for stdio (does not
+    /// go through `reconnect_after_oauth`).
+    pub async fn reconnect_fresh_from_db(
+        &self,
+        space_id: Uuid,
+        server_id: &str,
+    ) -> ConnectionResult {
+        match resolve_auto_connection_context(
+            self.installed_server_repo.as_ref(),
+            self.state_dir.as_deref(),
+            space_id,
+            server_id,
+        )
+        .await
+        {
+            Ok(ctx) => self.reconnect_fresh(&ctx).await,
+            Err(error) => {
+                warn!(
+                    server_id = %server_id,
+                    space_id = %space_id,
+                    error = %error,
+                    "reconnect_fresh re-resolve failed"
+                );
+                ConnectionResult::Failed { error }
+            }
+        }
+    }
+
     /// Disconnect all servers in a space
     pub async fn disconnect_space(&self, space_id: Uuid) -> Result<()> {
         let server_ids: Vec<String> = self
@@ -587,6 +631,12 @@ impl PoolService {
         self.get_instance(space_id, server_id)
             .and_then(|instance| instance.get_url())
     }
+
+    /// Build a pool with mock connection deps and a caller-supplied installed-server repo.
+    #[cfg(test)]
+    pub(crate) fn new_test_with_repo(repo: Arc<dyn InstalledServerRepository>) -> Self {
+        tests::build_pool(repo)
+    }
 }
 
 /// Info about an installed server for reconnection
@@ -604,9 +654,11 @@ mod tests {
     use crate::pool::{ConnectionService, FeatureService, OutboundOAuthManager, TokenService};
     use crate::services::PrefixCacheService;
     use async_trait::async_trait;
+    use chrono::Utc;
     use mcpmux_core::{
-        Credential, CredentialRepository, CredentialType, FeatureSetRepository,
-        OutboundOAuthRegistration, OutboundOAuthRepository, ServerFeature, ServerFeatureRepository,
+        Credential, CredentialRepository, CredentialType, FeatureSetRepository, InstalledServer,
+        InstalledServerRepository, OutboundOAuthRegistration, OutboundOAuthRepository,
+        ServerFeature, ServerFeatureRepository,
     };
 
     #[derive(Clone)]
@@ -835,7 +887,112 @@ mod tests {
         }
     }
 
-    fn create_test_pool_service() -> PoolService {
+    struct StubInstalledRepo;
+
+    #[async_trait]
+    impl InstalledServerRepository for StubInstalledRepo {
+        async fn list(&self) -> mcpmux_core::repository::RepoResult<Vec<InstalledServer>> {
+            Ok(vec![])
+        }
+        async fn list_for_space(
+            &self,
+            _space_id: &str,
+        ) -> mcpmux_core::repository::RepoResult<Vec<InstalledServer>> {
+            Ok(vec![])
+        }
+        async fn list_by_source_file(
+            &self,
+            _file_path: &std::path::Path,
+        ) -> mcpmux_core::repository::RepoResult<Vec<InstalledServer>> {
+            Ok(vec![])
+        }
+        async fn get(
+            &self,
+            _id: &Uuid,
+        ) -> mcpmux_core::repository::RepoResult<Option<InstalledServer>> {
+            Ok(None)
+        }
+        async fn get_by_server_id(
+            &self,
+            _space_id: &str,
+            _server_id: &str,
+        ) -> mcpmux_core::repository::RepoResult<Option<InstalledServer>> {
+            Ok(None)
+        }
+        async fn install(
+            &self,
+            _server: &InstalledServer,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn update(
+            &self,
+            _server: &InstalledServer,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn uninstall(&self, _id: &Uuid) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn list_enabled(
+            &self,
+            _space_id: &str,
+        ) -> mcpmux_core::repository::RepoResult<Vec<InstalledServer>> {
+            Ok(vec![])
+        }
+        async fn list_enabled_all(
+            &self,
+        ) -> mcpmux_core::repository::RepoResult<Vec<InstalledServer>> {
+            Ok(vec![])
+        }
+        async fn set_enabled(
+            &self,
+            _id: &Uuid,
+            _enabled: bool,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn set_oauth_connected(
+            &self,
+            _id: &Uuid,
+            _connected: bool,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn update_inputs(
+            &self,
+            _id: &Uuid,
+            _input_values: std::collections::HashMap<String, String>,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn update_cached_definition(
+            &self,
+            _id: &Uuid,
+            _server_name: Option<String>,
+            _cached_definition: Option<String>,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn set_display_name_override(
+            &self,
+            _id: &Uuid,
+            _value: Option<String>,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+        async fn update_version_cache(
+            &self,
+            _id: &Uuid,
+            _latest_available_version: Option<String>,
+            _current_version: Option<String>,
+            _version_checked_at: chrono::DateTime<Utc>,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn build_pool(repo: Arc<dyn InstalledServerRepository>) -> PoolService {
         let credential_repo = Arc::new(MockCredentialRepo);
         let backend_oauth_repo = Arc::new(MockOAuthRepo);
         let token_service = Arc::new(TokenService::new(
@@ -856,7 +1013,17 @@ mod tests {
             Arc::new(MockFeatureSetRepo),
             prefix_cache,
         ));
-        PoolService::new(connection_service, feature_service, token_service)
+        PoolService::new(
+            connection_service,
+            feature_service,
+            token_service,
+            repo,
+            None,
+        )
+    }
+
+    fn create_test_pool_service() -> PoolService {
+        PoolService::new_test_with_repo(Arc::new(StubInstalledRepo))
     }
 
     #[test]
@@ -898,5 +1065,23 @@ mod tests {
 
         assert!(!result.is_connected());
         assert!(pool.get_instance(space_id, server_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn reconnect_instance_refuses_stdio() {
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        pool.insert_test_instance(space_id, "stdio-server");
+
+        let result = pool.reconnect_instance(space_id, "stdio-server").await;
+        match result {
+            ConnectionResult::Failed { error } => {
+                assert!(
+                    error.contains("stdio cannot reconnect via OAuth"),
+                    "unexpected error: {error}"
+                );
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
     }
 }
