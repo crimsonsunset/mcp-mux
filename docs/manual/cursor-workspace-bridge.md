@@ -41,8 +41,10 @@ On first connect, McpMux may show **Name this machine** — approve it.
 Check the McpMux log (macOS:
 `~/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.<date>.log`):
 
-- `[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header`
-  with the correct path per session.
+- `[SessionRoots] X-Mcpmux-Workspace held until mcp-session-id exists` on
+  initialize, then `pinned explicit workspace root from X-Mcpmux-Workspace header`
+  with the correct path per session. A non-empty header without a session id
+  is held, not skipped.
 - `[FeatureSetResolver] resolved via WorkspaceBinding workspace_root=…` matching
   each window's folder.
 

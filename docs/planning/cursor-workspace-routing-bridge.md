@@ -1,7 +1,7 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
-**Last Updated:** Aug 14, 2026
-**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note
+**Last Updated:** Aug 20, 2026
+**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note. Non-empty header without session id is **held then pinned** (`dcc2977`). Empty `${workspaceFolder}` still open.
 **Branch:** `dev-rebased`
 
 ### Open question (Aug 14, 2026)
@@ -39,7 +39,7 @@ is left literal or stripped to empty by `mcp-remote`'s `${ENV}` pass).
 | Signal | Where | Level |
 | ------ | ----- | ----- |
 | `session_id` + `workspace_header` on every MCP POST | `oauth_middleware` `→ MCP` | info |
-| Workspace header without `mcp-session-id` (pin skipped) | `oauth_middleware` | warn |
+| Workspace header without `mcp-session-id` (held, then pinned) | `oauth_middleware` | info (`held until mcp-session-id exists`) |
 | Workspace header present but empty (pin skipped) | `oauth_middleware` | warn |
 | First pin / same-session root clobber | `session_roots.set_pinned` | info / warn |
 | `workspace_root` on resolve | `handler` `[FeatureSetResolver] resolved` | info |
@@ -54,7 +54,7 @@ is left literal or stripped to empty by `mcp-remote`'s `${ENV}` pass).
 
 **Pass:** distinct `session_id` values; each `workspace_header` / resolved `workspace_root` matches that agent's workspace; no `pin clobber` warn.
 
-**Fail:** shared `session_id` with `pin clobber` (previous ≠ new), or `workspace_header=<absent>`, or header present without session id.
+**Fail:** shared `session_id` with `pin clobber` (previous ≠ new), or `workspace_header=<absent>`, or empty header (Agents window). A non-empty header on initialize (no `mcp-session-id` yet) is **not** a fail — it is held, then pinned.
 
 **Next if fail:** prefer per-repo static `.cursor/mcp.json` header for Agents Window, and/or treat as Cursor Agents Window MCP binding gap (not a new per-agent identity axis).
 
@@ -211,7 +211,7 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 | ---- | ---- |
 | [`apps/desktop/src-tauri/src/commands/workspace_install.rs`](../../apps/desktop/src-tauri/src/commands/workspace_install.rs) | The existing per-repo header install this feature supplements, not replaces |
 | [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `X-Mcpmux-Workspace` pin is authoritative; Agents Window spike adds pin/clobber info+warn logs |
-| [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; warns when pin skipped |
+| [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; non-empty header without sid is held then pinned; empty header still warn-skips |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Resolver resolved log includes `workspace_root` |
 | [`crates/mcpmux-gateway/src/services/feature_set_resolver.rs`](../../crates/mcpmux-gateway/src/services/feature_set_resolver.rs) | Multi-root ambiguity → `PendingRoots` when `get()` returns >1 root (no pin) |
 | [`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs) | Same multi-root gate on bind; fat recoverable error + pre-approval info log |
@@ -227,3 +227,5 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 - [`docs/manual/workspace-header-routing.md`](../manual/workspace-header-routing.md) — the Cursor `roots`-reporting bug and the per-repo header fix
 - [`docs/planning/upstream-client-mapping-reconciliation.md`](./upstream-client-mapping-reconciliation.md) — `mcpk_` API-key auth this feature depends on
 - [`docs/planning/per-device-machine-header.md`](./per-device-machine-header.md) — prior art for a header-based routing signal (`X-Mcpmux-Machine-Id`), same pattern applied to a different axis
+- [`docs/planning/pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) — hold-then-pin for non-empty `X-Mcpmux-Workspace` without session id (`dcc2977`)
+- [`docs/planning/resilience-routing-leftovers.md`](./resilience-routing-leftovers.md) — the empty-header/Agents-window open question here is item 1 in that doc's next-work list

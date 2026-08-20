@@ -16,11 +16,13 @@
 | C HA idle | **SKIPPED** |
 | D unmatched | **SKIPPED** — grant-layer "did you mean", never reached classifier |
 
-Confounders: Tauri-watch rebuild wiped inbound sessions (`POST /mcp` → 404 until MCP reload). After reload, 6 unpinned roots required one `mcpmux_set_workspace_root` to *this* repo before invoke was possible. That pin was session disambiguation, not the reconnect path.
+Confounders (A/B run, before `dcc2977`): Tauri-watch rebuild wiped inbound sessions (`POST /mcp` → 404 until MCP reload). After reload, 6 unpinned roots required one `mcpmux_set_workspace_root` to *this* repo. That pin was session disambiguation, not the reconnect path.
 
-**Inbound 404 after gateway rebuild (Decision 3, follow-on):** process death drops `LocalSessionManager`. `POST /mcp` with a stale `Mcp-Session-Id` is a spec-correct 404. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) and the [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk/issues/1708) do **not** re-`initialize` on that 404 (they stay stuck on the dead session id). Do not persist sessions. Recovery is Reload MCP once. `/health` staying 200 means the gateway is up; 404 is not "gateway is down."
+Follow-on (`dcc2977`) playbook: [`pool-invalidation-and-session-survival-test.md`](./pool-invalidation-and-session-survival-test.md) — E/F/H PASS (hold-then-pin, no `set_workspace_root`), G BLOCKED.
 
-**Header pin after reload (Decision 4):** a non-empty `X-Mcpmux-Workspace` is held across initialize (no session id yet) and applied when `mcp-session-id` appears. After Reload MCP, `mcpmux_list_servers` should be bound for this repo without `set_workspace_root`. Empty `${workspaceFolder}` is still the Agents-window hole.
+**Inbound 404 after gateway rebuild:** process death drops `LocalSessionManager`. `POST /mcp` with a stale `Mcp-Session-Id` is a spec-correct 404. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) and the [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk/issues/1708) do **not** re-`initialize` on that 404. Do not persist sessions. Recovery is Reload MCP once. `/health` staying 200 means the gateway is up.
+
+**Header pin after reload:** a non-empty `X-Mcpmux-Workspace` is held across initialize and applied when `mcp-session-id` appears. Empty `${workspaceFolder}` is still the Agents-window hole.
 
 ---
 
@@ -168,19 +170,14 @@ A permission / not-found error that never hits the backend is also acceptable �
 
 ## Follow-on cases (pool-invalidation-and-session-survival)
 
-Playbook for [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md). Same mux-only / no-`pkill` rules.
+Dedicated playbook + Aug 20 results: [`pool-invalidation-and-session-survival-test.md`](./pool-invalidation-and-session-survival-test.md). Same mux-only / no-`pkill` rules.
 
-### Config save reconnect
-
-Change an enabled server's header or stdio arg in Configure, **do not** click Retry Connection, invoke a tool on that server. Expect `reconnect_fresh completed ok=true` from `[ServerConfigHandler]` and the new value in use.
-
-### Rebuild 404
-
-Trigger a Rust rebuild. `curl -sf http://127.0.0.1:45818/health` stays 200. Existing Cursor chats 404 on `/mcp`. Reload MCP once. Do not treat 404 as a dead gateway.
-
-### Header pin
-
-Multi-folder Cursor window with a real `X-Mcpmux-Workspace` pointing at this repo. Reload MCP. `mcpmux_list_servers` is bound, not 6-way `bindable`. `set_workspace_root` is not the success path.
+| Case | Result |
+| ---- | ------ |
+| E header pin | **PASS** — hold then pin; this repo `ready` |
+| F stdio refuse / Case B regression | **PASS** — `reconnect_fresh`, no OAuth / no HTTP fallback |
+| G config-save | **BLOCKED** — admin `:45819` 401 (no CF probe headers). Do not sqlite-edit |
+| H rebuild 404 | **PASS** off the 11:36 recycle — `/health` 200, 404 is expected noise, Case E pin ~3s later |
 
 ---
 

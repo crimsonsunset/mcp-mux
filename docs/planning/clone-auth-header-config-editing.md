@@ -1,7 +1,7 @@
 # Clone Auth Header Config Editing
 
-**Last Updated:** Jul 23, 2026
-**Status:** Planning — ready to implement
+**Last Updated:** Aug 20, 2026
+**Status:** Desktop shipped. Web admin is in scope and not yet done — clone auth should work on web, not just desktop. Clone-time seeding (`clone_server` rewrites `source`, seeds `extra_headers`/`input_values`), the DB-backed `update_definition()` save path, the Definition-editor save dispatch, and the empty-header warning banner are all in code, but only reachable through desktop Tauri. Decision 4 pool half **shipped** (`dcc2977`, [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md)); `retry_connection` uses `reconnect_fresh` on both runtimes. Phase 5 below is the remaining work: `clone_server`, `is_clone_id_available`, `suggest_clone_suffix`, `list_clone_dependents`, and `set_server_display_name` all return `"...not yet available"` in the web admin bridge (`command_bridge/write.rs` L1036/L1054, `command_bridge/read.rs` L805-831) even though every underlying `ServerAppService` method they need already exists and is called the same way by desktop Tauri.
 **Depends on:** Clone lineage (`cloned_from`, migration 021) and `manual_entry` install source — both already shipped
 **Unblocks:** Editing/fixing auth headers on any `manual_entry` clone through the UI instead of raw `sqlite3`
 
@@ -21,8 +21,7 @@ Traced live (DB inspection + code reading, not guessed):
 - The Definition editor gates edit vs. read-only purely on that inherited tag — `isEditable = server.source.type === 'UserSpace'` (`ServerDefinitionModal.tsx:80`), `canEditDefinition={server.source.type === 'UserSpace'}` (`ServersPage.tsx:1967`) — never checking `installation_source`. So the UI shows an "editable" definition, but Save calls `updateServerInConfig()` → `update_server_in_config` (`apps/desktop/src-tauri/src/commands/space.rs:322`, mirrored in `crates/mcpmux-gateway/src/admin/command_bridge/space.rs:182`), which only reads/writes `spaces/*.json`. The clone has no key there → `"not found in config"`. Every `manual_entry` clone hits this, not just this one server.
 - Separately, `clone_server()` copies definition/lineage but **not** `extra_headers`, `input_values`, `env_overrides`, `args_append`, or credentials (`server.rs:413-420`) — the new row starts with `extra_headers: {}`. There is **no runtime fallback to the parent's `extra_headers`** — `build_transport_config()` (`crates/mcpmux-gateway/src/pool/transport/resolution.rs:47-127`) only reads the clone's own row and merges `installed.extra_headers` last (line 127). The wrong-project behavior came from the clone's copied `cached_definition` carrying the parent's baked-in header/template values forward while the clone's own override column stayed empty — not from any live parent lookup. Working sibling `posthog-personal-gait` has both `Authorization` and `x-posthog-project-id` set in its **own** `extra_headers`, proving the override mechanism works fine once populated.
 - The Configure modal (`ServersPage.tsx`, `save_server_inputs` → `update_config()` at `server.rs:217-269`) already has key/value editors for `extra_headers` (HTTP transports) and does correctly persist per-clone overrides — the gap is that nothing seeds or prompts for them at clone time, and nothing warns when they're left empty.
-- After patching `cached_definition` directly via SQL, a plain client-side reconnect/retry returned "Connection closed"; only killing and relaunching `McpMux.app` picked up the change. Root cause: `PoolService::connect_server` (`crates/mcpmux-gateway/src/pool/service.rs:267-297`) returns early (`reused: true`, line 291) whenever the existing instance `is_healthy()` (line 284) — it never re-reads the DB unless the instance is explicitly evicted first. `retry_connection` (`apps/desktop/src-tauri/src/commands/server_manager.rs:512-545`) is the one path that calls `remove_instance()` before reconnecting, and `ServersPage` already calls it after Configure saves (`ServersPage.tsx:1087,1184,1221,1446,1472`). But `ServerConfigUpdated` (`crates/mcpmux-core/src/domain/event.rs:200`) — emitted by both `update_config()` and the (to-be-added) definition update — is only bridged to the frontend for a toast (`apps/desktop/src-tauri/src/commands/gateway.rs:547`, `crates/mcpmux-gateway/src/admin/ui_events.rs:115`). Nothing in the gateway subscribes to it to evict the pool instance, and the frontend's own `server-changed` handler only reloads the list on `installed`/`uninstalled` (`ServersPage.tsx:522`), not `config_updated`. So a save that doesn't happen to route through Configure's explicit `retryConnectionV2` call has no invalidation path at all.
-- Headless/web-admin `retry_connection` is unimplemented — returns `gateway_write_unavailable()` / `gateway_not_running()` in both `LiveGatewayWriteRuntime` and the stub runtime (`crates/mcpmux-gateway/src/admin/write_runtime.rs:181-182,407-409`). Desktop delegates to Tauri instead of this trait, so the gap only bites web-admin-only usage today, but it means the invalidation fix can't be uniform across both surfaces without also filling this in.
+- After patching `cached_definition` directly via SQL, a plain client-side reconnect/retry returned "Connection closed"; only killing and relaunching `McpMux.app` picked up the change. Root cause at investigation: `PoolService::connect_server` returns early whenever `is_healthy()`, and `ServerConfigUpdated` was UI-toast-only. **Shipped since:** `ServerConfigUpdatedHandler` evicts + `reconnect_fresh`; `UserSpaceSync` emits the event; `LiveGatewayWriteRuntime::retry_connection` is implemented; Definition editor edit/save and the Configure-side seeding/warning UI are also implemented. Only the web-admin `clone_server`/`set_server_display_name` stubs remain (see Status above).
 
 ---
 
@@ -33,23 +32,27 @@ Traced live (DB inspection + code reading, not guessed):
 | 1 | Edit path for `manual_entry` clones | **Both**: add a DB-backed definition save path for clones (writes `cached_definition` on the `installed_servers` row instead of `spaces/*.json`), and tighten Configure/clone-wizard so headers are visible up front | Fixes the false-affordance bug (editor claims editable, save 404s) *and* the discoverability gap (headers only reachable by digging into Configure after the fact) |
 | 2 | Clone creation: auth seeding | **Copy parent's `extra_headers` / `input_values`** into the new clone as editable starting values | Directly prevents the exact bug — a header-auth'd clone no longer starts silently blank; user still must swap the project-specific value but isn't starting from nothing |
 | 3 | Empty/inherited-auth footgun | **Warn**, don't block | A banner/toast when a clone with empty `extra_headers` is enabled while its parent/definition required auth headers. Fail-closed was rejected — some clones legitimately don't need headers (e.g. stdio env-only auth), and a hard block would break those |
-| 4 | Pool invalidation on save | **Auto-evict + reconnect on `ServerConfigUpdated`**, not just Configure's existing explicit `retryConnectionV2` call | Evict half shipped (`ServerConfigUpdatedHandler` + `UserSpaceSync` emit). Reconnect lives in [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) Phase 1 (`reconnect_fresh`). Closes the gap for the new definition-save path and file-driven `update_cached_definition()` |
-| 5 | Scope | **Desktop + web admin write-runtime/bridge parity in the same effort** | `LiveGatewayWriteRuntime::retry_connection` (`write_runtime.rs:181`) and the clone/display-name stubs in `command_bridge/write.rs` are already tracked as Phase 6 gaps (`dev-to-main-port.md`); doing the invalidation and definition-update work once across both runtimes avoids reopening this file again for web-admin parity later |
+| 4 | Pool invalidation on save | **Auto-evict + reconnect on `ServerConfigUpdated`** | **Shipped** (`dcc2977`). Handler `reconnect_fresh` + `UserSpaceSync` emit. Clone definition-save still needs to emit the same event when that path lands |
+| 5 | Scope | **Desktop + web admin parity, both required** | Clone auth is meant to work identically from the web admin UI, not just desktop. `retry_connection` already has parity (`reconnect_fresh` on both). Clone create/list/display-name in `command_bridge/{read,write}.rs` do not — Phase 5 closes that gap. Not tracked in `dev-to-main-port.md`; its Phase 6 is desktop-only cloning UI and never touches these bridge functions |
 | 6 | Clone-time `source` rewrite | **Yes** — `clone_server()` rewrites the copied definition's embedded `source` to reflect the clone's own storage (not `UserSpace`) | Removes the root cause of the false editability signal at its origin, so the UI gate (`isEditable`/`canEditDefinition`) stays correct without needing to special-case `installation_source` everywhere it's checked |
 
 ---
 
 ## Scope
 
-**In:**
-- `clone_server()`: rewrite `definition.source` on the copy; copy `extra_headers`/`input_values` from the source row into the new row
-- New DB-backed definition update path for `manual_entry` rows (Tauri command + admin bridge command), parallel to `update_server_in_config` but targeting `installed_servers.cached_definition`
-- `ServerDefinitionModal` / `ServersPage`: route save to the new DB path when `installation_source === ManualEntry`; editability gate switches from `source.type` to `installation_source`
-- Clone wizard / Configure: surface required auth header fields inline when cloning a header-auth'd server (using whatever fields the parent's own `extra_headers`/registry input schema names)
-- Warning UI when a clone with auth-requiring parent/definition has empty `extra_headers` at enable/connect time
-- `ServerConfigUpdated` gains a gateway-side subscriber that calls `remove_instance()` + reconnect for enabled servers (both Tauri desktop path and `LiveGatewayWriteRuntime`)
-- Wire the same auto-evict trigger into `UserSpaceSyncService::update_cached_definition()` callers
-- Implement `LiveGatewayWriteRuntime::retry_connection` (currently stubbed) so web-admin gets the same invalidation guarantee
+**In (all shipped):**
+- `clone_server()`: rewrites `definition.source` on the copy; copies `extra_headers`/`input_values` from the source row into the new row
+- DB-backed `update_definition()` for `manual_entry` rows (Tauri command + admin bridge command), targeting `installed_servers.cached_definition`
+- `ServerDefinitionModal` / `ServersPage`: save dispatch on `installation_source === manual_entry` (hybrid gate, see Decision 6 note below); editability no longer purely `source.type`
+- Clone wizard: read-only preview of parent header key names; Configure auto-opens post-clone with seeded values (in place of inline editable fields at creation time)
+- Warning banner + toast when a clone with auth-requiring parent/definition has empty `extra_headers`
+- `ServerConfigUpdated` gateway subscriber + `reconnect_fresh` — **shipped**
+- `UserSpaceSync` emit + `LiveGatewayWriteRuntime::retry_connection` — **shipped**
+
+**In (not shipped — Phase 5):**
+- `command_bridge/write.rs`: un-stub `clone_server` and `set_server_display_name` — call `ctx.services.server().clone_server(...)` / `.set_display_name_override(...)`, same calls desktop Tauri already makes
+- `command_bridge/read.rs`: un-stub `is_clone_id_available`, `suggest_clone_suffix`, `list_clone_dependents` the same way
+- Web admin UI: clone wizard + display-name edit surfaces, wired to the now-working bridge commands (confirm these exist on the web admin frontend or need building)
 
 **Out:**
 
@@ -59,7 +62,6 @@ Traced live (DB inspection + code reading, not guessed):
 | Transport fingerprint check on `connect_server`'s healthy-reuse path | Not needed once `ServerConfigUpdated` reliably evicts on every config/definition write; revisit only if the event-driven path proves to miss cases in practice |
 | Copying OAuth credentials / `credentials` table rows on clone | Separate concern — credentials are per-install by design (OAuth tokens shouldn't be shared across clones); only header/input overrides are in scope here |
 | Fixing `docs/guide/gateway.mdx`'s outdated `server_id + sha256(config)` pooling description | Docs correction, unrelated to the actual code fix; flag separately |
-| Un-stubbing the rest of `command_bridge/write.rs` (clone_server, set_server_display_name for web admin) | Tracked already as Phase 6 in `dev-to-main-port.md`; only `retry_connection` is pulled forward here because this fix depends on it |
 
 ---
 
@@ -125,18 +127,7 @@ Exposed as a new Tauri command (desktop) and admin bridge command (web admin), p
 
 ### Pool invalidation on `ServerConfigUpdated`
 
-Today `ServerConfigUpdated` only reaches UI toasts (`gateway.rs:547`, `ui_events.rs:115`) — no gateway consumer. New subscriber added alongside the existing consumers in `crates/mcpmux-gateway/src/consumers/` (`mcp_notifier.rs`, `OAuthEventHandler`), registered the same way they are in `crates/mcpmux-gateway/src/server/mod.rs:398-406` off the `domain_event_tx.subscribe()` receiver (`crates/mcpmux-gateway/src/server/state.rs:141`):
-
-```rust
-DomainEvent::ServerConfigUpdated { space_id, server_id } => {
-    if server_is_enabled(space_id, &server_id) {
-        pool_service.remove_instance(space_id, &server_id);
-        // next request or an eager reconnect picks up build_transport_config() fresh from DB
-    }
-}
-```
-
-`UserSpaceSyncService::sync_from_file`'s `update_cached_definition()` calls (`user_space_sync.rs:154-162`) currently emit nothing — add the same `ServerConfigUpdated` emission there so file-driven definition changes get the same eviction, closing the second silent-cache path found during research.
+**Shipped** in [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md): `ServerConfigUpdatedHandler` resolves transport and `reconnect_fresh`s enabled servers. `UserSpaceSync` emits `ServerConfigUpdated`. `LiveGatewayWriteRuntime::retry_connection` uses the same helper. A new `update_definition()` path still needs to emit that event when it lands.
 
 ### Auth-seeding + warning surfaces (frontend)
 
@@ -151,10 +142,9 @@ DomainEvent::ServerConfigUpdated { space_id, server_id } => {
 | ---- | ------ |
 | [`crates/mcpmux-core/src/application/server.rs`](../../crates/mcpmux-core/src/application/server.rs) | `clone_server()`: rewrite `definition.source`, seed `extra_headers`/`input_values` from source. New `update_definition()` method for `manual_entry` rows, emits `ServerConfigUpdated` |
 | [`crates/mcpmux-core/src/domain/server.rs`](../../crates/mcpmux-core/src/domain/server.rs) | Add `ServerSource::ManualEntry` unit variant (currently only `UserSpace`/`Bundled`/`Registry`, L80-91) |
-| [`crates/mcpmux-core/src/application/user_space_sync.rs`](../../crates/mcpmux-core/src/application/user_space_sync.rs) | Emit `ServerConfigUpdated` alongside existing `update_cached_definition()` calls so file-sync definition changes also trigger pool eviction |
-| [`crates/mcpmux-gateway/src/consumers/`](../../crates/mcpmux-gateway/src/consumers/) (new module, alongside `mcp_notifier.rs`) | New `ServerConfigUpdated` subscriber: `remove_instance()` for enabled servers on config/definition change |
-| [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | Register the new consumer's `.subscribe()` loop alongside `OAuthEventHandler` (L398-406) |
-| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | Implement `LiveGatewayWriteRuntime::retry_connection` (currently `gateway_write_unavailable()` at L181-182) |
+| [`crates/mcpmux-core/src/application/user_space_sync.rs`](../../crates/mcpmux-core/src/application/user_space_sync.rs) | **Shipped:** emits `ServerConfigUpdated` on definition updates |
+| [`crates/mcpmux-gateway/src/consumers/server_config_handler.rs`](../../crates/mcpmux-gateway/src/consumers/server_config_handler.rs) | **Shipped:** `reconnect_fresh` on enabled servers |
+| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | **Shipped:** `retry_connection` → `reconnect_fresh` |
 | [`crates/mcpmux-gateway/src/admin/command_bridge/space.rs`](../../crates/mcpmux-gateway/src/admin/command_bridge/space.rs) | New bridge command for `update_definition()`, parallel to the existing `update_server_in_config` (L182 error site) |
 | [`apps/desktop/src-tauri/src/commands/space.rs`](../../apps/desktop/src-tauri/src/commands/space.rs) | New Tauri command wrapping `update_definition()`, parallel to `update_server_in_config` (L322 error site) |
 | [`apps/desktop/src-tauri/src/commands/server_clone.rs`](../../apps/desktop/src-tauri/src/commands/server_clone.rs) | Thread through any new clone-time auth-seeding params if the wizard needs them at create time rather than post-clone Configure |
@@ -163,44 +153,49 @@ DomainEvent::ServerConfigUpdated { space_id, server_id } => {
 | [`apps/desktop/src/features/servers/CloneAccountModal.tsx`](../../apps/desktop/src/features/servers/CloneAccountModal.tsx) | Add header/input seeding step or pre-fill Configure with parent's values post-clone |
 | [`apps/desktop/src/lib/api/spaces.ts`](../../apps/desktop/src/lib/api/spaces.ts) | New API shim for the DB-backed definition update command |
 | [`apps/desktop/src/lib/backend/events/useDomainEvents.ts`](../../apps/desktop/src/lib/backend/events/useDomainEvents.ts) | Confirm `config_updated` payload shape is sufficient for the new reconnect-on-save handler |
+| [`crates/mcpmux-gateway/src/admin/command_bridge/write.rs`](../../crates/mcpmux-gateway/src/admin/command_bridge/write.rs) | Phase 5: un-stub `clone_server` (L1052-1055), `set_server_display_name` (L1030-1037) |
+| [`crates/mcpmux-gateway/src/admin/command_bridge/read.rs`](../../crates/mcpmux-gateway/src/admin/command_bridge/read.rs) | Phase 5: un-stub `is_clone_id_available`, `suggest_clone_suffix`, `list_clone_dependents` (L805-831) |
+| [`apps/desktop/src-tauri/src/commands/server_clone.rs`](../../apps/desktop/src-tauri/src/commands/server_clone.rs) | Phase 5 reference implementation — the admin bridge calls the same `ServerAppService` methods this file already calls |
 
 ---
 
 ## Phases
 
-### Phase 1 — Clone-time fixes: source rewrite + auth seeding (~half day)
+### Phase 1 — Clone-time fixes: source rewrite + auth seeding — **shipped**
 
-- `clone_server()`: rewrite `definition.source`; seed `extra_headers` and `input_values` from the source row (`server.rs:413-420`)
-- Unit test: cloning a `UserSpace`-sourced, header-auth'd server produces a row with `installation_source: ManualEntry`, a non-`UserSpace` definition `source`, and non-empty `extra_headers` matching the parent's
-- `cargo nextest run -p mcpmux-core` targeted on `server` / clone tests
+`clone_server()` rewrites `definition.source` and seeds `extra_headers`/`input_values` from the source row. Unit test `clone_server_rewrites_source_and_seeds_auth_headers` covers it.
 
-**Outcome:** A freshly cloned `posthog-personal-mesh`-equivalent starts with the parent's `Authorization`/`x-posthog-project-id` values already in `extra_headers` (user still swaps the project id), and its Definition editor no longer falsely claims to be `UserSpace`-editable.
+**Outcome (landed):** A freshly cloned server starts with the parent's auth headers already in `extra_headers` (user still swaps project-specific values), and its Definition editor no longer falsely claims to be `UserSpace`-editable.
 
-### Phase 2 — DB-backed definition edit path (~1 day)
+### Phase 2 — DB-backed definition edit path — **shipped**
 
-- `update_definition()` on `ServerAppService`; reject if `installation_source != ManualEntry`
-- New Tauri command + admin bridge command mirroring `update_server_in_config`
-- `ServerDefinitionModal` / `ServersPage`: editability gate + save dispatch on `installation_source`
-- `pnpm typecheck && pnpm lint`, `cargo clippy --workspace -- -D warnings`
+`update_definition()` exists on `ServerAppService`, rejects non-`ManualEntry` rows, and emits `ServerConfigUpdated`. Wired through the Tauri command, the admin bridge command, and `ServerDefinitionModal`'s editability gate + save dispatch (hybrid check: `UserSpace` source type or `manual_entry` installation source).
 
-**Outcome:** Opening the Definition editor on any `manual_entry` clone (not just PostHog ones) allows edit + save, persisting to `installed_servers.cached_definition` instead of 404ing on `spaces/*.json`.
+**Outcome (landed):** Opening the Definition editor on any `manual_entry` clone allows edit + save, persisting to `installed_servers.cached_definition` instead of 404ing on `spaces/*.json`.
 
-### Phase 3 — Pool invalidation on config/definition change (~half day)
+### Phase 3 — Pool invalidation on config/definition change — **shipped** (`dcc2977`)
 
-- `ServerConfigUpdated` subscriber in the gateway pool: evict enabled server's instance
-- `UserSpaceSyncService`: emit `ServerConfigUpdated` alongside `update_cached_definition()`
-- Implement `LiveGatewayWriteRuntime::retry_connection`
-- Regression test: simulate a config update while an instance is pooled+healthy, assert next connect rebuilds transport from DB without a manual `retry_connection` call
+See [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md). Remaining for *this* doc: the new definition-save path must emit `ServerConfigUpdated` so the shipped handler runs.
 
-**Outcome:** Saving a clone's headers (via Configure, the new Definition editor, or a file-sync adoption) takes effect on the next call without requiring an app relaunch — reproducing the original bug's fix without the raw-SQL + relaunch workaround.
+**Outcome (landed):** Configure / file-sync / `update_config` reconnects without an app relaunch. Manual Case G (admin PUT) is still BLOCKED on CF Access in the Aug 20 playbook.
 
-### Phase 4 — Footgun warning UI (~half day)
+### Phase 4 — Footgun warning UI — **shipped**
 
-- Enable/connect-time check: clone's `extra_headers` empty for keys the parent/definition declares as required, non-blocking banner
-- Clone wizard: surface header fields inline at creation time if not already covered by Phase 1's seeding
-- i18n strings for the warning
+`hasCloneMissingAuthHeaders()` / `getExpectedCloneHeaderKeys()` in `ServersPage.tsx` drive a persistent banner plus a toast on enable/retry/refresh/reconnect. Clone wizard shows parent header key names (read-only) and auto-opens Configure with seeded values post-clone, instead of inline editable fields at creation time.
 
-**Outcome:** A clone left with genuinely empty required headers surfaces a visible warning instead of connecting silently against the wrong (or missing) credentials.
+**Outcome (landed):** A clone left with genuinely empty required headers surfaces a visible warning instead of connecting silently against the wrong (or missing) credentials. No frontend test coverage for this warning logic yet.
+
+### Phase 5 — Web admin clone parity (~half day)
+
+Every underlying method already exists on `ServerAppService` and is already exercised by desktop Tauri (`apps/desktop/src-tauri/src/commands/server_clone.rs`) — this is a mechanical port to the admin bridge, not new logic:
+
+- `command_bridge/write.rs`: `clone_server(ctx, body)` calls `ctx.services.server().clone_server(space_uuid, &body.source_server_id, &body.suffix, body.alias.as_deref(), body.display_name.as_deref())`; `set_server_display_name(ctx, id, body)` calls `.set_display_name_override(&server_id, ...)` — same signatures the Tauri commands already use, just swap `State<ServerAppService>` for `ctx.services.server()`
+- `command_bridge/read.rs`: `is_clone_id_available`, `suggest_clone_suffix`, `list_clone_dependents` — same pattern, delegate to the existing service methods instead of the `Err(anyhow!("...not yet available"))` stub
+- Remove the `// ponytail: clone_server lands in Phase 6` comments on all five stubs — this is that phase, and it is Phase 5 in this doc, not `dev-to-main-port.md`'s Phase 6 (see Decision 5)
+- Confirm the web admin frontend has (or needs) clone wizard / display-name-edit UI wired to these commands — if the UI doesn't exist yet, that's an additional sub-task, not just a backend un-stub
+- `pnpm test:rust` targeted on `command_bridge`; `pnpm lint`
+
+**Outcome:** Cloning a server, checking clone-id availability, listing clone dependents, and overriding a display name all work identically from the web admin UI and from desktop. No `command_bridge` function returns "not yet available" for clone operations.
 
 ---
 
@@ -211,12 +206,14 @@ DomainEvent::ServerConfigUpdated { space_id, server_id } => {
 | [`crates/mcpmux-core/src/application/server.rs`](../../crates/mcpmux-core/src/application/server.rs) | `clone_server()` L374-443 (what is/isn't copied), `update_config()` L217-269 (existing override save path, unaffected by this fix) |
 | [`crates/mcpmux-core/src/domain/server.rs`](../../crates/mcpmux-core/src/domain/server.rs) | `ServerSource` enum L80, `source` field L38 — inherited on clone today |
 | [`crates/mcpmux-core/src/domain/installed_server.rs`](../../crates/mcpmux-core/src/domain/installed_server.rs) | `InstallationSource` enum L77-83 (`Registry` \| `UserConfig` \| `ManualEntry`), `source` field L159 |
-| [`crates/mcpmux-core/src/domain/event.rs`](../../crates/mcpmux-core/src/domain/event.rs) | `ServerConfigUpdated` L200 — currently UI-only, no gateway consumer |
-| [`crates/mcpmux-core/src/application/user_space_sync.rs`](../../crates/mcpmux-core/src/application/user_space_sync.rs) | `update_cached_definition()` calls L154-162 — silent today, no event emission |
+| [`crates/mcpmux-core/src/domain/event.rs`](../../crates/mcpmux-core/src/domain/event.rs) | `ServerConfigUpdated` — gateway handler + UI toast |
+| [`crates/mcpmux-core/src/application/user_space_sync.rs`](../../crates/mcpmux-core/src/application/user_space_sync.rs) | Emits `ServerConfigUpdated` on cached-definition updates |
 | [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | `build_transport_config()` L47-127 — confirms no parent/`cloned_from` lookup exists; `extra_headers` merge is the last step (L127) |
 | [`crates/mcpmux-gateway/src/pool/service.rs`](../../crates/mcpmux-gateway/src/pool/service.rs) | `connect_server()` L267-297 — healthy-instance reuse (`reused: true` L291) skips config reload unless evicted first; `remove_instance()` L344 |
 | [`apps/desktop/src-tauri/src/commands/server_manager.rs`](../../apps/desktop/src-tauri/src/commands/server_manager.rs) | `retry_connection()` L512-545 — existing evict-then-reconnect pattern this fix generalizes via the event subscriber |
-| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | `retry_connection` stub L181-182 (`LiveGatewayWriteRuntime`), L407-409 (no-gateway fallback) |
+| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | `retry_connection` implemented (`reconnect_fresh`) |
+| [`crates/mcpmux-gateway/src/admin/command_bridge/write.rs`](../../crates/mcpmux-gateway/src/admin/command_bridge/write.rs) | `clone_server` / `set_server_display_name` still stubbed (`"...not yet available"`) — Phase 5 target |
+| [`crates/mcpmux-gateway/src/admin/command_bridge/read.rs`](../../crates/mcpmux-gateway/src/admin/command_bridge/read.rs) | `is_clone_id_available` / `suggest_clone_suffix` / `list_clone_dependents` still stubbed — Phase 5 target |
 | [`apps/desktop/src-tauri/src/commands/space.rs`](../../apps/desktop/src-tauri/src/commands/space.rs) | `update_server_in_config` error site L322 — the exact "not found in config" message users hit today |
 | [`crates/mcpmux-gateway/src/admin/command_bridge/space.rs`](../../crates/mcpmux-gateway/src/admin/command_bridge/space.rs) | Same error, web-admin bridge copy, L182 |
 | [`apps/desktop/src/components/ServerDefinitionModal.tsx`](../../apps/desktop/src/components/ServerDefinitionModal.tsx) | `isEditable` gate L80 — root of the false-affordance bug |
@@ -228,6 +225,8 @@ DomainEvent::ServerConfigUpdated { space_id, server_id } => {
 
 ## Related Documentation
 
-- [`dev-to-main-port.md`](./dev-to-main-port.md) — original clone lineage work (migration 021, `cloned_from`), Phase 6 web-admin clone/display-name stubs this fix partially pulls forward
-- [`user-config-sync-collision-fix.md`](./user-config-sync-collision-fix.md) — separate `UserSpaceSyncService` bug fixed same layer; this doc's Phase 3 touches the same `sync_from_file` file for the `ServerConfigUpdated` emission
+- [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) — Decision 4 pool reconnect, shipped
+- [`dev-to-main-port.md`](./dev-to-main-port.md) — original clone lineage work (migration 021, `cloned_from`), Phase 6 desktop cloning UI. Its Phase 6 does not cover the web-admin `command_bridge/{read,write}.rs` stubs — those are Phase 5 in this doc
+- [`resilience-routing-leftovers.md`](./resilience-routing-leftovers.md) — this doc's web-admin clone gap is now Phase 5 here, not parked; that doc should be updated to stop calling it frozen
+- [`user-config-sync-collision-fix.md`](./user-config-sync-collision-fix.md) — separate `UserSpaceSyncService` bug fixed same layer; `ServerConfigUpdated` emission already shipped
 - [`dev-rebased-post-port-completion.md`](./dev-rebased-post-port-completion.md) — QA checklist item "Clone account — independent config" this fix is meant to finally satisfy
