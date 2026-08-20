@@ -956,8 +956,15 @@ impl RoutingService {
     }
 
     /// Check if an error string indicates the backend transport died.
+    ///
+    /// Live rmcp stdio kill (Aug 20) stringified as `MCP call failed: Transport closed`.
     fn is_transport_closed_error(error_str: &str) -> bool {
-        let indicators = ["connection closed", "-32000", "transport channel closed"];
+        let indicators = [
+            "connection closed",
+            "-32000",
+            "transport closed",
+            "transport channel closed",
+        ];
         indicators.iter().any(|s| error_str.contains(s))
     }
 
@@ -1068,6 +1075,13 @@ mod call_failure_classify_tests {
     fn connection_closed_without_code_is_transport_closed() {
         let err = "connection closed";
         assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
+    }
+
+    #[test]
+    fn rmcp_stdio_transport_closed_is_not_unmatched() {
+        let err = "mcp call failed: transport closed";
+        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
+        assert!(!RoutingService::is_auth_error(err));
     }
 
     #[test]
