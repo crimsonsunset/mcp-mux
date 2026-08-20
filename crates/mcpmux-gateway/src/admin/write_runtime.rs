@@ -11,7 +11,9 @@ use tokio::sync::RwLock;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::pool::transport::resolution::{build_transport_config, TransportResolutionOptions};
+use crate::pool::transport::resolution::{
+    build_transport_config, resolve_auto_connection_context, TransportResolutionOptions,
+};
 use crate::pool::{
     ConnectionContext, ConnectionResult, FeatureService, PoolService, ServerKey, ServerManager,
 };
@@ -180,31 +182,19 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
 
     async fn retry_connection(&self, space_id: String, server_id: String) -> Result<Value> {
         let space_uuid = Uuid::parse_str(&space_id)?;
-
-        self.pool_service.remove_instance(space_uuid, &server_id);
-
-        let installed = self
-            .installed_server_repo
-            .get_by_server_id(&space_id, &server_id)
-            .await?
-            .ok_or_else(|| anyhow!("Server not found: {space_id}/{server_id}"))?;
-
-        let server_definition = installed
-            .get_definition()
-            .ok_or_else(|| anyhow!("Server {server_id} has no cached definition"))?;
+        let ctx = resolve_auto_connection_context(
+            self.installed_server_repo.as_ref(),
+            Some(&self.data_dir),
+            space_uuid,
+            &server_id,
+        )
+        .await
+        .map_err(|e| anyhow!(e))?;
 
         let key = ServerKey::new(space_uuid, &server_id);
         self.server_manager.set_connecting(&key).await;
 
-        let transport = build_transport_config(
-            &server_definition.transport,
-            &installed,
-            Some(&self.data_dir),
-            TransportResolutionOptions::default(),
-        );
-
-        let ctx = ConnectionContext::auto(space_uuid, server_id.clone(), transport);
-        let result = self.pool_service.connect_server(&ctx).await;
+        let result = self.pool_service.reconnect_fresh(&ctx).await;
 
         match result {
             ConnectionResult::Connected { features, .. } => {

@@ -106,6 +106,8 @@ impl ServiceFactory {
             feature_service.clone(),
             pool_service.clone(),
             deps.log_manager.clone(),
+            deps.installed_server_repo.clone(),
+            deps.state_dir.clone(),
         ));
 
         PoolServices {

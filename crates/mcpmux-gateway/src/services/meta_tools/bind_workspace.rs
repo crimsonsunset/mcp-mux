@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use mcpmux_core::{normalize_workspace_root, WorkspaceBinding, WorkspaceBindingRepository};
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::meta_tool_common::{
@@ -172,13 +172,20 @@ impl MetaTool for BindCurrentWorkspaceTool {
         };
         let normalized = normalize_workspace_root(&root);
 
-        let fs_name = call
-            .ctx
-            .feature_set_repo
-            .get(&fs_id.to_string())
-            .await?
-            .map(|fs| fs.name)
-            .unwrap_or_else(|| fs_id.to_string());
+        let fs_name = match call.ctx.feature_set_repo.get(&fs_id.to_string()).await? {
+            Some(fs) => fs.name,
+            None => {
+                warn!(
+                    feature_set_id = %fs_id,
+                    space_id = %space_id,
+                    "[meta_tools] bind_current_workspace rejected — feature_set_id does not exist"
+                );
+                return Err(MetaToolError::InvalidArgument(format!(
+                    "feature_set_id '{fs_id}' does not exist — call mcpmux_list_feature_sets \
+                     to obtain a valid id"
+                )));
+            }
+        };
 
         let binding_repo = call.ctx.binding_repo.clone();
         let fs_id_str = fs_id.to_string();

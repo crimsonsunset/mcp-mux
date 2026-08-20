@@ -1,7 +1,7 @@
 # Backend Connection Resilience + Bind Validation
 
 **Last Updated:** Aug 20, 2026
-**Status:** Planning — ready to implement
+**Status:** Implemented on `root-resolution` — Phases 1–3
 **Branch:** `root-resolution` (off `docs/aug14-gateway-ops-bugs`)
 **Depends on:** `aug14-gateway-ops-bugs.md` Decision 3 (inbound session `keep_alive` 300s→1800s) — already on this branch
 **Unblocks:** `mcpmux_invoke_tool` surviving a backend connection that died silently between calls, and `mcpmux_bind_current_workspace` failing cleanly instead of a raw SQLite FK error
@@ -118,34 +118,15 @@ On success, `RoutingService::call_tool` should call `instance.record_success()` 
 ### Transport-agnostic reconnect (Decision 2)
 
 ```rust
-// crates/mcpmux-gateway/src/pool/service.rs, new method alongside reconnect_instance() (~L434)
+// resolution.rs: resolve_auto_connection_context(repo, state_dir, space_id, server_id)
+// service.rs: PoolService::reconnect_fresh(&self, ctx: &ConnectionContext)
 
-/// Reconnect by evicting the stale instance and re-resolving transport
-/// config fresh from DB, mirroring desktop's retry_connection pattern
-/// (apps/desktop/src-tauri/src/commands/server_manager.rs:516-547).
-/// Unlike reconnect_instance()/reconnect_after_oauth(), this is transport-
-/// agnostic — safe for stdio backends, not just OAuth-token HTTP ones.
-pub async fn reconnect_fresh(&self, space_id: Uuid, server_id: &str) -> ConnectionResult {
-    let started = Instant::now();
-    self.remove_instance(space_id, server_id);
-    // Re-resolve ConnectionContext from DB and call connect_server() —
-    // confirm exact re-resolve call chain during implementation by reading
-    // what connect_enabled_server() (apps/desktop/src-tauri/src/commands/server_manager.rs)
-    // does today; RoutingService/PoolService may need it exposed as a
-    // shared helper so both Tauri and gateway-internal callers use one path.
-    let result = /* ... */;
-    tracing::info!(
-        server_id = %server_id,
-        space_id = %space_id,
-        ok = result.is_ok(),
-        duration_ms = started.elapsed().as_millis(),
-        "reconnect_fresh completed"
-    );
-    result
-}
+// PoolService stays thin (no repo). RoutingService and LiveGatewayWriteRuntime
+// hold InstalledServerRepository + state_dir, call resolve then reconnect_fresh.
+// reconnect_fresh = remove_instance() + connect_server(ctx). Logs ok/duration_ms.
 ```
 
-**Pre-flight to confirm during implementation:** `connect_enabled_server`'s exact re-resolve chain (likely through `crates/mcpmux-gateway/src/pool/transport/resolution.rs`'s `build_transport_config()`, per the existing `clone-auth-header-config-editing.md` investigation) needs to be reachable from gateway-internal code without going through Tauri state. If it's desktop-only today, extracting the shared piece into `PoolService`/`ConnectionService` is part of this phase, not a separate one.
+**Pre-flight result:** `build_transport_config()` was already gateway-internal. `PoolService` has no repo/`state_dir`, so `reconnect_fresh` takes a caller-built `ConnectionContext`. Shared resolve helper lives in `resolution.rs`; `RoutingService` gained those two deps; admin `retry_connection` now uses the same helper.
 
 ### `bind_current_workspace` FK guard (Decision 3)
 
@@ -176,9 +157,10 @@ let fs_name = match call.ctx.feature_set_repo.get(&fs_id.to_string()).await? {
 | File | Change |
 | ---- | ------ |
 | [`crates/mcpmux-gateway/src/pool/routing.rs`](../../crates/mcpmux-gateway/src/pool/routing.rs) | New `is_transport_closed_error()` alongside `is_auth_error()` (~L816); widen `call_tool`'s error branch (~L657-788) to route auth errors through the existing `reconnect_instance()` path and transport-closed errors through the new `reconnect_fresh()`; add the structured failure/reconnect log lines (Decisions 8/9) and `record_success()`/`record_failure()` calls |
-| [`crates/mcpmux-gateway/src/pool/service.rs`](../../crates/mcpmux-gateway/src/pool/service.rs) | New `reconnect_fresh()` method alongside `reconnect_instance()` (~L434): `remove_instance()` + re-resolve + `connect_server()`, logs `ok`/`duration_ms` |
-| [`crates/mcpmux-gateway/src/pool/instance.rs`](../../crates/mcpmux-gateway/src/pool/instance.rs) | No signature changes — just start calling the existing `record_success()`/`record_failure()` (L435-444) from `routing.rs`, which today have zero call sites (Decision 9) |
-| [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | Confirm `build_transport_config()` is reachable from `reconnect_fresh()` without desktop-only state; extract/share if not |
+| [`crates/mcpmux-gateway/src/pool/service.rs`](../../crates/mcpmux-gateway/src/pool/service.rs) | New `reconnect_fresh(&self, ctx: &ConnectionContext)`: `remove_instance()` + `connect_server()`, logs `ok`/`duration_ms` |
+| [`crates/mcpmux-gateway/src/pool/instance.rs`](../../crates/mcpmux-gateway/src/pool/instance.rs) | No signature changes — `record_success()`/`record_failure()` now called from `routing.rs` (Decision 9) |
+| [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | New `resolve_auto_connection_context()` wrapping `build_transport_config()` + `ConnectionContext::auto` |
+| [`crates/mcpmux-gateway/src/admin/write_runtime.rs`](../../crates/mcpmux-gateway/src/admin/write_runtime.rs) | `retry_connection` now uses the shared resolve + `reconnect_fresh` helper |
 | [`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs) | `feature_set_repo.get()` result (~L175-181): reject with `InvalidArgument` on `None` instead of falling back to the raw id string; log a `warn!` on rejection |
 | [`docs/planning/aug14-gateway-ops-bugs.md`](./aug14-gateway-ops-bugs.md) | Header `Status` line: mark stale, point to this doc (Decision 5) |
 

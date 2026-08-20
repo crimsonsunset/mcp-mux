@@ -12,11 +12,11 @@ mod commands;
 mod macos_dock;
 mod macos_permissions;
 mod main_window;
-#[cfg(unix)]
-mod unix_signal;
 mod services;
 mod state;
 mod tray;
+#[cfg(unix)]
+mod unix_signal;
 
 // Re-export deep link handler
 use commands::oauth::{route_or_buffer_deep_link, PendingInitialDeepLink};

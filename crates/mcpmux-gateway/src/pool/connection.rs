@@ -48,6 +48,13 @@ pub enum ConnectionResult {
     },
 }
 
+impl ConnectionResult {
+    /// True when the attempt produced a live connection (new or reused).
+    pub fn is_connected(&self) -> bool {
+        matches!(self, Self::Connected { .. })
+    }
+}
+
 /// Connection Service handles server connection lifecycle
 pub struct ConnectionService {
     token_service: Arc<TokenService>,

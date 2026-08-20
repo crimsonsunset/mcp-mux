@@ -43,7 +43,11 @@ pub async fn wait_for_term() {
     let sender = SENDER_PID.load(Ordering::SeqCst);
     let sig = SIGNAL_NO.load(Ordering::SeqCst);
     let code = SIGNAL_CODE.load(Ordering::SeqCst);
-    let name = if sig == libc::SIGINT { "SIGINT" } else { "SIGTERM" };
+    let name = if sig == libc::SIGINT {
+        "SIGINT"
+    } else {
+        "SIGTERM"
+    };
 
     info!(
         pid,

@@ -11,6 +11,7 @@
 //! - Providing access to server instances for routing
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use dashmap::DashMap;
@@ -459,6 +460,27 @@ impl PoolService {
             .await
     }
 
+    /// Evict the stale instance and connect using a caller-resolved transport.
+    ///
+    /// Transport-agnostic: the caller re-resolves config from DB via
+    /// [`resolve_auto_connection_context`](super::transport::resolution::resolve_auto_connection_context)
+    /// (or any other `ConnectionContext` source). Unlike
+    /// [`Self::reconnect_instance`], this does not go through
+    /// `reconnect_after_oauth` and will not mis-route stdio backends to HTTP.
+    pub async fn reconnect_fresh(&self, ctx: &ConnectionContext) -> ConnectionResult {
+        let started = Instant::now();
+        self.remove_instance(ctx.space_id, &ctx.server_id);
+        let result = self.connect_server(ctx).await;
+        info!(
+            server_id = %ctx.server_id,
+            space_id = %ctx.space_id,
+            ok = result.is_connected(),
+            duration_ms = started.elapsed().as_millis(),
+            "reconnect_fresh completed"
+        );
+        result
+    }
+
     /// Disconnect all servers in a space
     pub async fn disconnect_space(&self, space_id: Uuid) -> Result<()> {
         let server_ids: Vec<String> = self
@@ -849,6 +871,32 @@ mod tests {
         pool.remove_instance(space_id, server_id);
 
         assert_eq!(pool.stats().total_instances, 0);
+        assert!(pool.get_instance(space_id, server_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn reconnect_fresh_evicts_stale_instance() {
+        use super::super::transport::ResolvedTransport;
+        use std::collections::HashMap;
+
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        let server_id = "stale-server";
+        pool.insert_test_instance(space_id, server_id);
+        assert_eq!(pool.stats().total_instances, 1);
+
+        let ctx = ConnectionContext::auto(
+            space_id,
+            server_id,
+            ResolvedTransport::Stdio {
+                command: "/nonexistent/mcpmux-reconnect-fresh-test".into(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        );
+        let result = pool.reconnect_fresh(&ctx).await;
+
+        assert!(!result.is_connected());
         assert!(pool.get_instance(space_id, server_id).is_none());
     }
 }

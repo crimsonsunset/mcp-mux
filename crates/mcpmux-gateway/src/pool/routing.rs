@@ -7,11 +7,14 @@
 //!
 //! Uses FeatureService for permission resolution and TokenService for refresh.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use mcpmux_core::{FeatureType, LogLevel, LogSource, ServerLog, ServerLogManager};
+use mcpmux_core::{
+    FeatureType, InstalledServerRepository, LogLevel, LogSource, ServerLog, ServerLogManager,
+};
 use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Meta};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -20,6 +23,7 @@ use uuid::Uuid;
 use super::connection::ConnectionResult;
 use super::features::FeatureService;
 use super::service::PoolService;
+use super::transport::resolution::resolve_auto_connection_context;
 
 /// A tool as returned by the routing service
 #[derive(Debug, Clone)]
@@ -177,18 +181,28 @@ pub struct RoutingService {
     feature_service: Arc<FeatureService>,
     pool_service: Arc<PoolService>,
     log_manager: Arc<ServerLogManager>,
+    installed_server_repo: Arc<dyn InstalledServerRepository>,
+    state_dir: Option<PathBuf>,
 }
 
 impl RoutingService {
+    /// Create a routing service.
+    ///
+    /// `installed_server_repo` and `state_dir` are used to re-resolve transport
+    /// config when a call fails with a dead backend connection.
     pub fn new(
         feature_service: Arc<FeatureService>,
         pool_service: Arc<PoolService>,
         log_manager: Arc<ServerLogManager>,
+        installed_server_repo: Arc<dyn InstalledServerRepository>,
+        state_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             feature_service,
             pool_service,
             log_manager,
+            installed_server_repo,
+            state_dir,
         }
     }
 
@@ -446,6 +460,12 @@ impl RoutingService {
                             "[RoutingService] Auth error in tool result for {}/{}, attempting auto-reconnect",
                             server_id, actual_tool_name
                         );
+                        self.record_call_outcome(
+                            &space_id,
+                            &server_id,
+                            false,
+                            Some("auth error in tool result"),
+                        );
                         self.log(
                             &space_id,
                             &server_id,
@@ -486,10 +506,19 @@ impl RoutingService {
                                                 "[RoutingService] Tool retry still has error: {} (duration: {:?})",
                                                 actual_tool_name, retry_duration
                                             );
+                                            self.record_call_outcome(
+                                                &space_id,
+                                                &server_id,
+                                                false,
+                                                Some("tool result is_error after reconnect"),
+                                            );
                                         } else {
                                             info!(
                                                 "[RoutingService] Tool retry succeeded after reconnect: {} (duration: {:?})",
                                                 actual_tool_name, retry_duration
+                                            );
+                                            self.record_call_outcome(
+                                                &space_id, &server_id, true, None,
                                             );
                                         }
                                         self.log(
@@ -550,6 +579,12 @@ impl RoutingService {
                             "[RoutingService] Tool execution error: {} (duration: {:?})",
                             actual_tool_name, duration
                         );
+                        self.record_call_outcome(
+                            &space_id,
+                            &server_id,
+                            false,
+                            Some("tool result is_error"),
+                        );
                         self.log(
                             &space_id,
                             &server_id,
@@ -567,6 +602,12 @@ impl RoutingService {
                         warn!(
                             "[RoutingService] Auth error in successful tool result for {}/{}, attempting auto-reconnect",
                             server_id, actual_tool_name
+                        );
+                        self.record_call_outcome(
+                            &space_id,
+                            &server_id,
+                            false,
+                            Some("auth error in tool result"),
                         );
                         self.log(
                             &space_id,
@@ -607,6 +648,14 @@ impl RoutingService {
                                             "[RoutingService] Tool retry result: {} (is_error={}, duration: {:?})",
                                             actual_tool_name, retry_result.is_error, retry_duration
                                         );
+                                        self.record_call_outcome(
+                                            &space_id,
+                                            &server_id,
+                                            !retry_result.is_error,
+                                            retry_result
+                                                .is_error
+                                                .then_some("tool result is_error after reconnect"),
+                                        );
                                         self.log(
                                             &space_id,
                                             &server_id,
@@ -642,6 +691,7 @@ impl RoutingService {
                             "[RoutingService] Tool executed successfully: {} (duration: {:?})",
                             actual_tool_name, duration
                         );
+                        self.record_call_outcome(&space_id, &server_id, true, None);
                         self.log(
                             &space_id,
                             &server_id,
@@ -657,47 +707,53 @@ impl RoutingService {
             Err(e) => {
                 let duration = call_start.elapsed();
                 let err_str = e.to_string().to_lowercase();
+                let reconnect_path = reconnect_path_for_error(&err_str);
+                let trigger = failure_trigger_label(reconnect_path);
 
-                warn!(
-                    "[RoutingService] Tool call failed: {} on {} - {} (duration: {:?})",
-                    actual_tool_name, server_id, e, duration
+                self.record_call_outcome(&space_id, &server_id, false, Some(&err_str));
+                self.log_backend_call_failure(
+                    &space_id,
+                    &server_id,
+                    &actual_tool_name,
+                    &err_str,
+                    trigger,
                 );
 
-                let is_auth = Self::is_auth_error(&err_str);
-
-                if is_auth {
-                    // Auth error detected - attempt auto-reconnect and retry once.
-                    // This handles the case where RMCP's AuthClient failed to refresh
-                    // the token (e.g., stale in-memory state after idle).
-                    // Creating a fresh connection loads latest tokens from the database.
-                    warn!(
-                        "[RoutingService] Auth error for {}/{}, attempting auto-reconnect",
-                        server_id, actual_tool_name
-                    );
+                if let Some(path) = reconnect_path {
                     self.log(
                         &space_id,
                         &server_id,
                         LogLevel::Warn,
                         format!(
-                            "Auth error on tool '{}' - auto-reconnecting to refresh credentials",
-                            actual_tool_name
+                            "{trigger} error on tool '{actual_tool_name}' - auto-reconnecting"
                         ),
-                        Some(serde_json::json!({ "error": e.to_string(), "duration_ms": duration.as_millis() })),
+                        Some(serde_json::json!({ "error": e.to_string(), "duration_ms": duration.as_millis(), "trigger": trigger })),
                     )
                     .await;
 
-                    match self
-                        .pool_service
-                        .reconnect_instance(space_id, &server_id)
-                        .await
-                    {
+                    let reconnect_result = match path {
+                        ReconnectPath::OAuth => {
+                            self.pool_service
+                                .reconnect_instance(space_id, &server_id)
+                                .await
+                        }
+                        ReconnectPath::Fresh => {
+                            self.reconnect_fresh_from_db(space_id, &server_id).await
+                        }
+                    };
+                    info!(
+                        server_id = %server_id,
+                        ok = reconnect_result.is_connected(),
+                        "reconnect attempted after call_tool failure"
+                    );
+
+                    match reconnect_result {
                         ConnectionResult::Connected { .. } => {
                             info!(
                                 "[RoutingService] Reconnected {}, retrying tool call: {}",
                                 server_id, actual_tool_name
                             );
 
-                            // Retry the call once with the fresh connection
                             let retry_start = std::time::Instant::now();
                             match execute_call(
                                 self.pool_service.clone(),
@@ -714,6 +770,7 @@ impl RoutingService {
                                         "[RoutingService] Tool retry succeeded: {} (duration: {:?})",
                                         actual_tool_name, retry_duration
                                     );
+                                    self.record_call_outcome(&space_id, &server_id, true, None);
                                     self.log(
                                         &space_id,
                                         &server_id,
@@ -732,6 +789,12 @@ impl RoutingService {
                                         "[RoutingService] Tool retry also failed: {} - {}",
                                         actual_tool_name, retry_err
                                     );
+                                    self.record_call_outcome(
+                                        &space_id,
+                                        &server_id,
+                                        false,
+                                        Some(&retry_err.to_string()),
+                                    );
                                     self.log(
                                         &space_id,
                                         &server_id,
@@ -744,7 +807,7 @@ impl RoutingService {
                                     )
                                     .await;
                                     Err(anyhow!(
-                                        "Server '{}' auth error persists after auto-reconnect. Please disconnect and connect again. Error: {}",
+                                        "Server '{}' {trigger} error persists after auto-reconnect. Please disconnect and connect again. Error: {}",
                                         server_id,
                                         retry_err
                                     ))
@@ -774,13 +837,12 @@ impl RoutingService {
                         }
                     }
                 } else {
-                    // Not an auth error, return original error
                     self.log(
                         &space_id,
                         &server_id,
                         LogLevel::Error,
                         format!("Tool call failed: {}", e),
-                        Some(serde_json::json!({ "error": e.to_string(), "duration_ms": duration.as_millis() })),
+                        Some(serde_json::json!({ "error": e.to_string(), "duration_ms": duration.as_millis(), "trigger": trigger })),
                     )
                     .await;
                     Err(e)
@@ -812,6 +874,75 @@ impl RoutingService {
         }
     }
 
+    /// Record call-time stats on the pooled instance without flipping `state`.
+    fn record_call_outcome(&self, space_id: &Uuid, server_id: &str, ok: bool, error: Option<&str>) {
+        let Some(instance) = self.pool_service.get_instance(*space_id, server_id) else {
+            return;
+        };
+        if ok {
+            instance.record_success();
+        } else {
+            instance.record_failure(error.unwrap_or("unknown"));
+        }
+    }
+
+    /// Structured breadcrumb for every transport-level `call_tool` failure.
+    fn log_backend_call_failure(
+        &self,
+        space_id: &Uuid,
+        server_id: &str,
+        tool: &str,
+        err_str: &str,
+        trigger: &'static str,
+    ) {
+        let (instance_age_secs, consecutive_failures, requests_served) =
+            match self.pool_service.get_instance(*space_id, server_id) {
+                Some(instance) => {
+                    let stats = instance.stats.read();
+                    (
+                        stats.connected_at.map(|t| t.elapsed().as_secs()),
+                        stats.consecutive_failures,
+                        stats.requests_served,
+                    )
+                }
+                None => (None, 0, 0),
+            };
+        warn!(
+            server_id = %server_id,
+            space_id = %space_id,
+            tool = %tool,
+            error = %err_str,
+            trigger,
+            instance_age_secs,
+            consecutive_failures,
+            requests_served,
+            "backend call_tool failed"
+        );
+    }
+
+    /// Evict + re-resolve + connect. Used for non-auth transport-closed errors.
+    async fn reconnect_fresh_from_db(&self, space_id: Uuid, server_id: &str) -> ConnectionResult {
+        match resolve_auto_connection_context(
+            self.installed_server_repo.as_ref(),
+            self.state_dir.as_deref(),
+            space_id,
+            server_id,
+        )
+        .await
+        {
+            Ok(ctx) => self.pool_service.reconnect_fresh(&ctx).await,
+            Err(error) => {
+                warn!(
+                    server_id = %server_id,
+                    space_id = %space_id,
+                    error = %error,
+                    "reconnect_fresh re-resolve failed"
+                );
+                ConnectionResult::Failed { error }
+            }
+        }
+    }
+
     /// Check if an error string indicates authentication is needed
     fn is_auth_error(error_str: &str) -> bool {
         let indicators = [
@@ -821,6 +952,12 @@ impl RoutingService {
             "token expired",
             "access token",
         ];
+        indicators.iter().any(|s| error_str.contains(s))
+    }
+
+    /// Check if an error string indicates the backend transport died.
+    fn is_transport_closed_error(error_str: &str) -> bool {
+        let indicators = ["connection closed", "-32000", "transport channel closed"];
         indicators.iter().any(|s| error_str.contains(s))
     }
 
@@ -840,6 +977,40 @@ impl RoutingService {
             }
         }
         false
+    }
+}
+
+/// Which reconnect path a transport-level error should take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReconnectPath {
+    OAuth,
+    Fresh,
+}
+
+impl ReconnectPath {
+    /// Structured-log `trigger` label for this path.
+    fn trigger_label(self) -> &'static str {
+        match self {
+            Self::OAuth => "auth",
+            Self::Fresh => "transport_closed",
+        }
+    }
+}
+
+/// Label for the structured `call_tool` failure log (`trigger` field).
+fn failure_trigger_label(path: Option<ReconnectPath>) -> &'static str {
+    path.map(ReconnectPath::trigger_label)
+        .unwrap_or("unmatched")
+}
+
+/// Classify a lowercased transport error for retry routing.
+fn reconnect_path_for_error(err_str: &str) -> Option<ReconnectPath> {
+    if RoutingService::is_auth_error(err_str) {
+        Some(ReconnectPath::OAuth)
+    } else if RoutingService::is_transport_closed_error(err_str) {
+        Some(ReconnectPath::Fresh)
+    } else {
+        None
     }
 }
 
@@ -874,5 +1045,44 @@ mod redirect_tests {
         assert_eq!(forwarded.structured_content, Some(structured));
         assert_eq!(forwarded.meta, Some(meta));
         assert_eq!(forwarded.is_error, Some(false));
+    }
+}
+
+#[cfg(test)]
+mod call_failure_classify_tests {
+    use super::{failure_trigger_label, reconnect_path_for_error, ReconnectPath, RoutingService};
+
+    #[test]
+    fn reported_minus_32000_is_transport_closed_not_auth() {
+        let err = "mcp error -32000: connection closed";
+        assert!(RoutingService::is_transport_closed_error(err));
+        assert!(!RoutingService::is_auth_error(err));
+        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
+        assert_eq!(
+            failure_trigger_label(Some(ReconnectPath::Fresh)),
+            "transport_closed"
+        );
+    }
+
+    #[test]
+    fn connection_closed_without_code_is_transport_closed() {
+        let err = "connection closed";
+        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
+    }
+
+    #[test]
+    fn auth_error_still_routes_to_oauth_reconnect() {
+        let err = "401 unauthorized: token expired";
+        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::OAuth));
+        assert_eq!(failure_trigger_label(Some(ReconnectPath::OAuth)), "auth");
+    }
+
+    #[test]
+    fn unmatched_error_does_not_retry() {
+        let err = "tool not found: no_such_tool";
+        assert!(reconnect_path_for_error(err).is_none());
+        assert_eq!(failure_trigger_label(None), "unmatched");
+        assert!(!RoutingService::is_transport_closed_error(err));
+        assert!(!RoutingService::is_auth_error(err));
     }
 }
