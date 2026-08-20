@@ -1,7 +1,7 @@
 # Aug 14 Gateway Ops Bugs
 
 **Last Updated:** Aug 14, 2026
-**Status:** Implemented — Phases 1-3 shipped on this branch; Phase 4 close-out below
+**Status:** STALE — Phases 1-3 shipped on this branch, but [PR #221](https://github.com/mcpmux/mcp-mux/pull/221) closed without merging on Aug 20, 2026. Phase 4 close-out below never happened on `main`. Commits stay on this branch's lineage (now `root-resolution`) by choice — see [`backend-connection-resilience.md`](./backend-connection-resilience.md) Decision 4. That doc is the active thread for the connection-reliability work that grew out of this investigation.
 **Branch:** `docs/aug14-gateway-ops-bugs` (off `dev-rebased`)
 **Depends on:** `cursor-workspace-routing-bridge.md` (empty-header / Agents Window), `search-tools-perf.md` (`resolve_feature_sets` hot path), `7ac5dc1` (filesystem multi-root disambiguation)
 **Unblocks:** Quieter logs, a process that stays up, fewer false "gateway is dead" signals, and a clean connect set on boot
