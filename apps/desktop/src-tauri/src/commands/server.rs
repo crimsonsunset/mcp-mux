@@ -137,6 +137,7 @@ pub async fn save_server_inputs(
     env_overrides: Option<HashMap<String, String>>,
     args_append: Option<Vec<String>>,
     extra_headers: Option<HashMap<String, String>>,
+    display_name_override: Option<String>,
     update_policy: Option<String>,
     pinned_version: Option<String>,
 ) -> Result<InstalledServer, String> {
@@ -147,7 +148,7 @@ pub async fn save_server_inputs(
 
     let space_uuid = uuid::Uuid::parse_str(&space_id).map_err(|e| e.to_string())?;
 
-    service
+    let updated = service
         .update_config(
             space_uuid,
             &id,
@@ -159,7 +160,16 @@ pub async fn save_server_inputs(
             pinned_version,
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if display_name_override.is_some() {
+        service
+            .set_display_name_override(space_uuid, &id, display_name_override)
+            .await
+            .map_err(|e| e.to_string())
+    } else {
+        Ok(updated)
+    }
 }
 
 /// Set (or clear) the display name override for an installed server.

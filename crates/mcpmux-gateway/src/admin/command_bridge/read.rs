@@ -803,31 +803,45 @@ pub async fn get_server_feature(ctx: &AdminBridgeCtx, id: String) -> Result<Valu
 }
 
 pub async fn is_clone_id_available(
-    _ctx: &AdminBridgeCtx,
-    _space_id: String,
-    _source_server_id: String,
-    _suffix: String,
+    ctx: &AdminBridgeCtx,
+    space_id: String,
+    source_server_id: String,
+    suffix: String,
 ) -> Result<Value> {
-    // ponytail: clone_server lands in Phase 6
-    Err(anyhow!("Server cloning not yet available"))
+    let space_uuid = Uuid::parse_str(&space_id)?;
+    as_json(
+        ctx.services
+            .server()
+            .is_clone_id_available(space_uuid, &source_server_id, &suffix)
+            .await?,
+    )
 }
 
 pub async fn suggest_clone_suffix(
-    _ctx: &AdminBridgeCtx,
-    _space_id: String,
-    _source_server_id: String,
+    ctx: &AdminBridgeCtx,
+    space_id: String,
+    source_server_id: String,
 ) -> Result<Value> {
-    // ponytail: clone_server lands in Phase 6
-    Err(anyhow!("Server cloning not yet available"))
+    let space_uuid = Uuid::parse_str(&space_id)?;
+    as_json(
+        ctx.services
+            .server()
+            .suggest_clone_suffix(space_uuid, &source_server_id)
+            .await?,
+    )
 }
 
 pub async fn list_clone_dependents(
-    _ctx: &AdminBridgeCtx,
-    _space_id: String,
-    _source_server_id: String,
+    ctx: &AdminBridgeCtx,
+    space_id: String,
+    source_server_id: String,
 ) -> Result<Value> {
-    // ponytail: clone_server lands in Phase 6
-    Err(anyhow!("Server cloning not yet available"))
+    as_json(
+        ctx.services
+            .server()
+            .list_clone_dependents(&space_id, &source_server_id)
+            .await?,
+    )
 }
 
 pub async fn now_utc() -> Result<Value> {

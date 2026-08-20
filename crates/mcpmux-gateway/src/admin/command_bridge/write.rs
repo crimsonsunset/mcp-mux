@@ -1020,20 +1020,34 @@ pub async fn save_server_inputs(
             body.env_overrides,
             body.args_append,
             body.extra_headers,
-            None,
-            None,
+            body.update_policy.map(|p| UpdatePolicy::from_db_str(&p)),
+            body.pinned_version,
         )
         .await?;
+
+    let installed = if body.display_name_override.is_some() {
+        ctx.services
+            .server()
+            .set_display_name_override(space_uuid, &id, body.display_name_override)
+            .await?
+    } else {
+        installed
+    };
     as_json(installed)
 }
 
 pub async fn set_server_display_name(
-    _ctx: &AdminBridgeCtx,
-    _id: String,
-    _body: SetServerDisplayNameBody,
+    ctx: &AdminBridgeCtx,
+    id: String,
+    body: SetServerDisplayNameBody,
 ) -> Result<Value> {
-    // ponytail: set_display_name_override lands in Phase 6
-    Err(anyhow!("Server display name override not yet available"))
+    let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let installed = ctx
+        .services
+        .server()
+        .set_display_name_override(space_uuid, &id, body.display_name)
+        .await?;
+    as_json(installed)
 }
 
 pub async fn set_server_oauth_connected(
@@ -1049,9 +1063,20 @@ pub async fn set_server_oauth_connected(
     Ok(json!({ "ok": true }))
 }
 
-pub async fn clone_server(_ctx: &AdminBridgeCtx, _body: CloneServerBody) -> Result<Value> {
-    // ponytail: clone_server lands in Phase 6
-    Err(anyhow!("Server cloning not yet available"))
+pub async fn clone_server(ctx: &AdminBridgeCtx, body: CloneServerBody) -> Result<Value> {
+    let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let installed = ctx
+        .services
+        .server()
+        .clone_server(
+            space_uuid,
+            &body.source_server_id,
+            &body.suffix,
+            body.alias.as_deref(),
+            body.display_name.as_deref(),
+        )
+        .await?;
+    as_json(installed)
 }
 
 // --- Gateway writes (delegated) ---

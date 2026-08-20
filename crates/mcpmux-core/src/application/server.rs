@@ -934,4 +934,150 @@ mod tests {
             .expect("cloned row should be persisted");
         assert_eq!(persisted.extra_headers, parent_headers);
     }
+
+    #[tokio::test]
+    async fn is_clone_id_available_reflects_existing_rows() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("posthog-personal");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal")
+                .with_definition(&definition),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal-work")
+                .with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo, None, None, event_bus.sender());
+
+        assert!(
+            !service
+                .is_clone_id_available(space_id, "posthog-personal", "work")
+                .await
+                .unwrap(),
+            "suffix already installed must not be available"
+        );
+        assert!(
+            service
+                .is_clone_id_available(space_id, "posthog-personal", "mesh")
+                .await
+                .unwrap(),
+            "unused suffix must be available"
+        );
+    }
+
+    #[tokio::test]
+    async fn suggest_clone_suffix_skips_taken_defaults() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("posthog-personal");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal")
+                .with_definition(&definition),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal-work")
+                .with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo, None, None, event_bus.sender());
+
+        let suggested = service
+            .suggest_clone_suffix(space_id, "posthog-personal")
+            .await
+            .unwrap();
+        assert_eq!(
+            suggested, "personal",
+            "first free default suffix after 'work'"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_clone_dependents_filters_by_cloned_from() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("posthog-personal");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal")
+                .with_definition(&definition),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal-work")
+                .with_definition(&definition)
+                .with_cloned_from("posthog-personal"),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal-mesh")
+                .with_definition(&definition)
+                .with_cloned_from("posthog-personal"),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "unrelated-server")
+                .with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo, None, None, event_bus.sender());
+
+        let mut dependents = service
+            .list_clone_dependents(&space_id.to_string(), "posthog-personal")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.server_id)
+            .collect::<Vec<_>>();
+        dependents.sort();
+        assert_eq!(
+            dependents,
+            vec!["posthog-personal-mesh", "posthog-personal-work"]
+        );
+    }
+
+    #[tokio::test]
+    async fn set_display_name_override_sets_and_clears() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("posthog-personal");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "posthog-personal")
+                .with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
+
+        let updated = service
+            .set_display_name_override(
+                space_id,
+                "posthog-personal",
+                Some("Work PostHog".to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            updated.display_name_override,
+            Some("Work PostHog".to_string())
+        );
+
+        let cleared = service
+            .set_display_name_override(space_id, "posthog-personal", Some("   ".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(
+            cleared.display_name_override, None,
+            "whitespace-only value clears the override"
+        );
+    }
 }
