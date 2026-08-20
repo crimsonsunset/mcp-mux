@@ -1,7 +1,7 @@
 # Backend Connection Resilience + Bind Validation
 
 **Last Updated:** Aug 20, 2026
-**Status:** Implemented on `root-resolution` — Phases 1–3
+**Status:** Implemented and verified on `root-resolution` — Phases 1–3. Matcher follow-up: `54d0de2` plus normalized rmcp Display matching (see Verification).
 **Branch:** `root-resolution` (off `docs/aug14-gateway-ops-bugs`)
 **Depends on:** `aug14-gateway-ops-bugs.md` Decision 3 (inbound session `keep_alive` 300s→1800s) — already on this branch
 **Unblocks:** `mcpmux_invoke_tool` surviving a backend connection that died silently between calls, and `mcpmux_bind_current_workspace` failing cleanly instead of a raw SQLite FK error
@@ -21,7 +21,7 @@ Traced live (code reading, not guessed):
 - The one place that already does this correctly is `retry_connection` (`apps/desktop/src-tauri/src/commands/server_manager.rs:516-547`): `pool_service.remove_instance()` then `connect_enabled_server()`, which re-resolves transport config fresh from DB and calls `connect_server()` again — transport-agnostic, unlike `reconnect_after_oauth()`. That path is Tauri-desktop-only today; `RoutingService` (gateway-internal, used by both desktop and headless/web-admin) has no equivalent.
 - `mcpmux_set_workspace_root` (`crates/mcpmux-gateway/src/services/meta_tools/set_workspace_root.rs:53-114`) only re-seeds the **inbound** `SessionRootsRegistry` and fires `tools/list_changed` — it never touches `PoolService` or any backend instance. The "fix" working is a side effect of Cursor opening a fresh inbound rmcp session (hence the new `session_id`) — nothing in the gateway explicitly reconnects the dead backend.
 - Separately: `mcpmux_bind_current_workspace` (`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs:175-181`) loads the FeatureSet name via `feature_set_repo.get(&fs_id.to_string())`, and on `Ok(None)` (nonexistent id) falls back to `fs_id.to_string()` as the display name **instead of rejecting** — then proceeds to `binding_repo.create()`. `WorkspaceBindingRepository::create()` (`crates/mcpmux-storage/src/repositories/workspace_binding_repository.rs:236-268`) wraps the parent `INSERT` and `rewrite_fs_for_binding()`'s junction `INSERT`s (`workspace_binding_repository.rs:142-160`) in one transaction against `workspace_binding_feature_sets.feature_set_id → feature_sets(id)` — a nonexistent `feature_set_id` surfaces as a raw SQLite `FOREIGN KEY constraint failed`, not a clean domain error. The transaction wrapping means it fails atomically (no partial binding), but the error is the wrong shape for an agent to act on.
-- **The pool already has per-instance telemetry fields for exactly this failure mode, and nothing populates them at call time.** `InstanceStats` (`instance.rs:315-328`) carries `connected_at`, `consecutive_failures`, `requests_served`, and `last_error`, and `ServerInstance::record_success()` / `record_failure()` (`instance.rs:435-444`) exist to update them — but grepping the whole gateway crate turns up **zero call sites** for either method. `mark_failed()` (`instance.rs:421-426`, which *does* flip `state` to `Failed`) is only ever called from `connection.rs` on a failed **connect/reconnect** attempt (L414, L588) — never from `routing.rs`'s `call_tool()` when a live call fails against an already-`Connected` instance. So today, a `-32000` on a supposedly-healthy instance leaves `is_healthy()` reporting `true`, `consecutive_failures` at `0`, and `last_error` at `None` — the exact data needed to answer "was this a fixed idle timeout or something else" (this bug report's open question) is structurally unreachable, not just unlogged.
+- **At investigation time the pool already had per-instance telemetry and nothing populated it at call time.** `InstanceStats` carries `connected_at`, `consecutive_failures`, `requests_served`, and `last_error`, and `record_success()` / `record_failure()` existed with **zero call sites**. Phase 1 wired them from `call_tool`. `mark_failed()` (flips `state` to `Failed`) stays connect/reconnect-only — a call-time `-32000` on a `Connected` instance used to leave `is_healthy()` true and `consecutive_failures` at 0. That is no longer true for call stats; the state-flag lie (Decision 6) is still deferred.
 
 This is the third distinct surface of the same reconnect gap in this project's history — the [Aug 13–14 investigation](cbeb19ed-ab32-408b-9dac-37ab0ac011d7) hit "inactive" mid-call, [a later session](b9424e65-59ac-4642-bb05-c09d36eaf04c) built a habit of re-pinning without ever root-causing it, and this session's `-32000` is the same gap with a third error shape. [PR #221](https://github.com/mcpmux/mcp-mux/pull/221) (`docs/aug14-gateway-ops-bugs.md`, this branch's parent) fixed the adjacent inbound-session keep-alive and closed **without merging** on Aug 20 — its changes stay on this branch by choice (see Decision 2) but none of them touch the outbound pool.
 
@@ -31,7 +31,7 @@ This is the third distinct surface of the same reconnect gap in this project's h
 
 | # | Decision | Choice | Rationale |
 | - | -------- | ------ | --------- |
-| 1 | Backend reconnect trigger | **Widen the retry condition in `RoutingService::call_tool` to also match transport-closed errors** (`"connection closed"`, `-32000`), not just `is_auth_error()` | Directly closes the gap that caused this bug — today a non-auth transport failure gets zero retry and returns raw to the agent |
+| 1 | Backend reconnect trigger | **Widen `call_tool` retry to transport-closed errors**, not just `is_auth_error()`. Matcher is case/punctuation/camelCase-normalized against rmcp Display strings (`Transport closed`, `connection closed`, `transport channel closed`, `unexpected end of stream`, `session expired`, `broken pipe`, …) plus MCP `-32000` | Directly closes the gap — a non-auth transport failure used to get zero retry. Literal `"connection closed"` / `-32000` was not enough: live stdio kill stringified as `MCP call failed: Transport closed` |
 | 2 | Reconnect mechanism for the widened path | **New transport-agnostic reconnect** (`remove_instance()` + re-resolve config + `connect_server()`), not `reconnect_instance()`/`reconnect_after_oauth()` | `reconnect_after_oauth()` is OAuth-token-based and actively mis-reconnects stdio backends (`connection.rs:499-502`). The correct pattern already exists in desktop's `retry_connection` — this pulls it into gateway-internal code so both desktop and headless/web-admin get it, not just Tauri callers |
 | 3 | `bind_current_workspace` FK bug | **Reject with a clean `InvalidArgument`/`NotFound` error when `feature_set_repo.get()` returns `None`**, before touching `binding_repo.create()` | Same investigation surfaced this as a distinct, isolated bug — small fix, same root-cause-tracing session, no reason to defer |
 | 4 | PR #221 disposition | **Leave closed. Keep its commits on this branch (`root-resolution`) as-is** — no revert, no re-open | User call: the branch already carries the keep-alive/log-noise fixes locally; re-opening #221 isn't required to build on top of it, and nothing in this plan depends on it landing on `main` first |
@@ -111,9 +111,9 @@ if is_auth || is_transport_closed {
 }
 ```
 
-On success, `RoutingService::call_tool` should call `instance.record_success()` right alongside its existing happy-path return, so `requests_served` actually reflects real traffic instead of sitting at 0 forever (Decision 9 — currently dead code, `instance.rs:435-444`).
+On success, `RoutingService::call_tool` calls `instance.record_success()` so `requests_served` reflects real traffic (Decision 9 — wired in Phase 1).
 
-`is_transport_closed_error()` mirrors `is_auth_error()`'s shape (`routing.rs:816-824`) — match on `"connection closed"`, `"-32000"`, and whatever `rmcp`'s stdio/HTTP client actually stringifies a dead transport as (confirm exact string during implementation by triggering the failure against a stdio backend, since the reported error came through `home-assistant-new`, an HTTP-style backend — stdio may stringify differently).
+`is_transport_closed_error()` normalizes the Display string (lowercase, camelCase split, punctuation → spaces) then matches rmcp 1.5 phrases plus `-32000`. Confirmed live Aug 20 against stdio `wakatime`: `MCP call failed: Transport closed` (`rmcp::service::ServiceError::TransportClosed`). HTTP idle historically was `MCP error -32000: Connection closed`. Auth is classified first, so `401 … connection closed` still takes the OAuth path.
 
 ### Transport-agnostic reconnect (Decision 2)
 
@@ -216,6 +216,19 @@ Manual:
 - Force an error string that matches neither `is_auth_error()` nor `is_transport_closed_error()` (e.g. temporarily rename the check or use a malformed request) and confirm the `trigger = "unmatched"` line fires and the raw error still surfaces to the caller unchanged — this is the regression guard for "don't accidentally swallow a real unknown error just because we added logging"
 - Call `mcpmux_bind_current_workspace` with a made-up UUID for `feature_set_id` — confirm a clean `InvalidArgument` message, not a raw SQLite error, a `warn!` line in the log, and no orphaned row via `sqlite3 mcpmux.db "select * from workspace_bindings"`
 
+### Verification (Aug 20, 2026)
+
+Playbook: [`backend-connection-resilience-test.md`](./backend-connection-resilience-test.md). Commits: `c09e569` (retry + FK guard), `54d0de2` (`Transport closed` substring). Matcher since then also normalizes rmcp Display variants.
+
+| Case | Result |
+| ---- | ------ |
+| A bind FK | **PASS** — `invalid_argument` + `mcpmux_list_feature_sets`; counts unchanged |
+| B stdio kill (`wakatime`) | **PASS** after `54d0de2`. First matcher miss: `MCP call failed: Transport closed` logged `trigger=unmatched`. After the substring (and now normalize): `trigger=transport_closed`, `reconnect_fresh completed ok=true`, invoke succeeded |
+| C HA idle | **SKIPPED** (15–20 min wait) |
+| D unmatched | **SKIPPED** — grant-layer "did you mean", never reached the classifier |
+
+Tauri-watch rebuild mid-test wiped Streamable HTTP sessions (`POST /mcp` → 404). Reload MCP once, then pin this repo if `list_servers` reports unpinned roots. Do not use `set_workspace_root` as the reconnect itself.
+
 ---
 
 ## Key Files Referenced
@@ -224,9 +237,9 @@ Manual:
 | ---- | ----- |
 | [`crates/mcpmux-gateway/src/pool/routing.rs`](../../crates/mcpmux-gateway/src/pool/routing.rs) | `call_tool()` L298; error branch L657-788; `is_auth_error()` L816-824 — Phase 1 target |
 | [`crates/mcpmux-gateway/src/pool/service.rs`](../../crates/mcpmux-gateway/src/pool/service.rs) | `connect_server()` L267-341 (health check L284, non-healthy reconnect L297-301); `remove_instance()` L344; `reconnect_instance()` L434-459 (OAuth-only, unchanged) — Phase 1 target |
-| [`crates/mcpmux-gateway/src/pool/instance.rs`](../../crates/mcpmux-gateway/src/pool/instance.rs) | `is_healthy()` L397-399 (state-only, not touched this pass — Decision 6); `InstanceKey::stdio()`/`::http()` L266-284 (transport config not retained on the key); `record_success()`/`record_failure()` L435-444 (exist today, zero call sites — Phase 1 wires them up, Decision 9); `mark_failed()` L421-426 (connect/reconnect-only, deliberately not reused for call-time failures — Decision 10) |
+| [`crates/mcpmux-gateway/src/pool/instance.rs`](../../crates/mcpmux-gateway/src/pool/instance.rs) | `is_healthy()` still state-only (Decision 6, deferred); `record_success()`/`record_failure()` wired from `routing.rs` (Decision 9); `mark_failed()` stays connect/reconnect-only (Decision 10) |
 | [`crates/mcpmux-gateway/src/pool/connection.rs`](../../crates/mcpmux-gateway/src/pool/connection.rs) | `reconnect_after_oauth()` L459; stdio-to-HTTP fallback warn L499-502 — root of why `reconnect_instance()` is unsafe for the widened trigger |
-| [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | `build_transport_config()` — likely re-resolve chain for `reconnect_fresh()`, confirm during Phase 1 |
+| [`crates/mcpmux-gateway/src/pool/transport/resolution.rs`](../../crates/mcpmux-gateway/src/pool/transport/resolution.rs) | `resolve_auto_connection_context()` + `build_transport_config()` — shared re-resolve for `reconnect_fresh` |
 | [`apps/desktop/src-tauri/src/commands/server_manager.rs`](../../apps/desktop/src-tauri/src/commands/server_manager.rs) | `retry_connection()` L516-547 — existing evict-then-reconnect pattern `reconnect_fresh()` generalizes into gateway-internal code |
 | [`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs) | `feature_set_repo.get()` fallback L175-181 — Phase 2 target |
 | [`crates/mcpmux-storage/src/repositories/workspace_binding_repository.rs`](../../crates/mcpmux-storage/src/repositories/workspace_binding_repository.rs) | `create()` L236-268; `rewrite_fs_for_binding()` L142-160 — FK constraint site, not modified (guard moves upstream instead) |
@@ -242,7 +255,7 @@ Manual:
 
 ## Related Documentation
 
-- [`docs/planning/backend-connection-resilience-test.md`](./backend-connection-resilience-test.md) — agent-followable manual playbook (same session, no re-pin)
+- [`docs/planning/backend-connection-resilience-test.md`](./backend-connection-resilience-test.md) — manual playbook + Aug 20 results (A/B pass; C skipped; D never reached classifier)
 - [`docs/planning/aug14-gateway-ops-bugs.md`](./aug14-gateway-ops-bugs.md) — this branch's parent investigation (inbound session keep-alive, log noise); marked stale by this doc (Decision 5)
 - [`docs/planning/clone-auth-header-config-editing.md`](./clone-auth-header-config-editing.md) — separate "Connection closed" bug (stale pool reuse after a config edit), same `PoolService::connect_server()` healthy-reuse code path this doc's Decision 1/2 also touches
 - [`docs/planning/deny-by-default-bindable-callers.md`](./deny-by-default-bindable-callers.md) — established rmcp's inbound keepalive as expected client-hang behavior (Jun 29), informed PR #221's Decision 3

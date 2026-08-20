@@ -945,6 +945,7 @@ impl RoutingService {
 
     /// Check if an error string indicates authentication is needed
     fn is_auth_error(error_str: &str) -> bool {
+        let lower = error_str.to_ascii_lowercase();
         let indicators = [
             "401",
             "unauthorized",
@@ -952,20 +953,42 @@ impl RoutingService {
             "token expired",
             "access token",
         ];
-        indicators.iter().any(|s| error_str.contains(s))
+        indicators.iter().any(|s| lower.contains(s))
     }
 
     /// Check if an error string indicates the backend transport died.
     ///
-    /// Live rmcp stdio kill (Aug 20) stringified as `MCP call failed: Transport closed`.
+    /// Matches after case/punctuation/camelCase normalize so rmcp Display
+    /// variants (`Transport closed`, `connection closed: …`, `Transport channel
+    /// closed`, `unexpected end of stream`) and MCP `-32000` all hit the same
+    /// path. Auth is classified first by [`reconnect_path_for_error`].
     fn is_transport_closed_error(error_str: &str) -> bool {
-        let indicators = [
-            "connection closed",
-            "-32000",
+        let lower = error_str.to_ascii_lowercase();
+        if lower.contains("-32000") {
+            return true;
+        }
+        let tokens = normalize_error_tokens(error_str);
+        const PHRASES: &[&str] = &[
             "transport closed",
-            "transport channel closed",
+            "connection closed",
+            "channel closed",
+            "transport terminated",
+            "handler terminated",
+            "unexpected end of stream",
+            "session expired",
+            "broken pipe",
+            "connection reset",
+            "keep alive timeout",
+            "transport send error",
+            "send message error",
         ];
-        indicators.iter().any(|s| error_str.contains(s))
+        if PHRASES.iter().any(|p| tokens.contains(p)) {
+            return true;
+        }
+        tokens.contains("closed")
+            && ["transport", "connection", "channel", "stream"]
+                .iter()
+                .any(|noun| tokens.contains(noun))
     }
 
     /// Check if tool result content contains authentication error indicators.
@@ -1010,7 +1033,34 @@ fn failure_trigger_label(path: Option<ReconnectPath>) -> &'static str {
         .unwrap_or("unmatched")
 }
 
-/// Classify a lowercased transport error for retry routing.
+/// Collapse camelCase and punctuation so `TransportClosed` / `transport_closed`
+/// / `transport-closed` all become `transport closed`.
+fn normalize_error_tokens(error_str: &str) -> String {
+    let mut with_camel = String::with_capacity(error_str.len() + 8);
+    let mut prev_was_lower = false;
+    for c in error_str.chars() {
+        if c.is_ascii_uppercase() && prev_was_lower {
+            with_camel.push(' ');
+        }
+        with_camel.push(c);
+        prev_was_lower = c.is_ascii_lowercase();
+    }
+
+    let mut out = String::with_capacity(with_camel.len());
+    let mut prev_space = false;
+    for c in with_camel.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            prev_space = false;
+        } else if !prev_space {
+            out.push(' ');
+            prev_space = true;
+        }
+    }
+    out
+}
+
+/// Classify a transport error for retry routing. Case-insensitive.
 fn reconnect_path_for_error(err_str: &str) -> Option<ReconnectPath> {
     if RoutingService::is_auth_error(err_str) {
         Some(ReconnectPath::OAuth)
@@ -1079,9 +1129,33 @@ mod call_failure_classify_tests {
 
     #[test]
     fn rmcp_stdio_transport_closed_is_not_unmatched() {
-        let err = "mcp call failed: transport closed";
+        let err = "MCP call failed: Transport closed";
         assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
         assert!(!RoutingService::is_auth_error(err));
+    }
+
+    #[test]
+    fn transport_closed_shapes_normalize_to_fresh() {
+        let cases = [
+            "TransportClosed",
+            "transport_closed",
+            "transport-closed",
+            "Transport channel closed",
+            "connection closed: initialize response",
+            "unexpected end of stream",
+            "broken pipe",
+            "Session expired (HTTP 404)",
+            "keep alive timeout after 30000ms",
+            "connection reset by peer",
+            "the transport has been closed",
+        ];
+        for err in cases {
+            assert_eq!(
+                reconnect_path_for_error(err),
+                Some(ReconnectPath::Fresh),
+                "{err}"
+            );
+        }
     }
 
     #[test]
@@ -1098,5 +1172,17 @@ mod call_failure_classify_tests {
         assert_eq!(failure_trigger_label(None), "unmatched");
         assert!(!RoutingService::is_transport_closed_error(err));
         assert!(!RoutingService::is_auth_error(err));
+    }
+
+    #[test]
+    fn closed_without_transport_noun_is_unmatched() {
+        assert!(reconnect_path_for_error("file closed").is_none());
+        assert!(reconnect_path_for_error("request timeout after 60s").is_none());
+    }
+
+    #[test]
+    fn auth_wins_when_error_also_looks_closed() {
+        let err = "401 unauthorized: connection closed";
+        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::OAuth));
     }
 }
