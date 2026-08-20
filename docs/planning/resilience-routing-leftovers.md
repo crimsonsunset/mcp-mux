@@ -10,7 +10,7 @@
 
 ## Why this doc exists
 
-`backend-connection-resilience.md` and `pool-invalidation-and-session-survival.md` both shipped and both carry an Out/Deferred table. Those tables are correct but scattered, and `clone-auth-header-config-editing.md` had drifted — its plan still described Phases 1/2/4 as open when the code had already landed them (desktop side). This doc collects everything still parked or still open in one place, and does not re-litigate anything already shipped. Item 4 (web admin clone parity) has since shipped (`f024d9e`) — kept below for history since it was the one active, non-frozen item when this doc was written.
+`backend-connection-resilience.md` and `pool-invalidation-and-session-survival.md` both shipped and both carry an Out/Deferred table. Those tables are correct but scattered, and `clone-auth-header-config-editing.md` had drifted — its plan still described Phases 1/2/4 as open when the code had already landed them (desktop side). This doc collects everything still parked or still open in one place, and does not re-litigate anything already shipped. Item 4 (web admin clone parity) shipped in `f024d9e`. Item 3 (`mcpmux-mcp` / `ClientPool`) has since been deleted. Both kept below for history.
 
 ---
 
@@ -37,9 +37,9 @@ A present-but-empty `X-Mcpmux-Workspace` header still warn-skips the pin in [`oa
 
 [`ServerInstance::is_healthy()`](../../crates/mcpmux-gateway/src/pool/instance.rs#L397) is `state == Connected && client.is_some()` — a state flag, not a transport check. Three call sites trust it: `PoolService::connect_server()`'s healthy-reuse (`service.rs`), `PoolService::is_connected()`, and `ConnectionService::connect_with_instance()`'s reconnect-skip. The existing 60s loop in [`server_manager.rs`](../../crates/mcpmux-gateway/src/pool/server_manager.rs#L1476) (`start_periodic_refresh`, `REFRESH_INTERVAL`) is a **different state machine** — it walks `ServerManager`'s UI-facing `ConnectionStatus` map, and `refresh_single_server()` (`server_manager.rs#L1297`) is trace-log-only today, touching neither `PoolService` nor any `ServerInstance`. It is also desktop-only (wired from `apps/desktop/src-tauri/src/commands/gateway.rs`), not started in headless/web-admin. A real liveness probe would need to run against `PoolService` instances directly, not piggyback on the UI loop as-is. Keep Decision 10 from `backend-connection-resilience.md`: a transient call failure should stay `record_failure()` (stats-only), not `mark_failed()` — a heartbeat changes detection, not that split.
 
-### 3. Delete unused `ClientPool`
+### 3. Delete unused `ClientPool` — **deleted**
 
-[`crates/mcpmux-mcp/src/client_pool.rs`](../../crates/mcpmux-mcp/src/client_pool.rs) has a 300s `DEFAULT_IDLE_TIMEOUT` (`#L87`) and a `cleanup_idle()` (`#L167`) that is never called from anywhere in the workspace. There are zero `use mcpmux_mcp::ClientPool` references outside the crate itself, and `mcpmux-gateway/Cargo.toml` does not depend on `mcpmux-mcp` at all — the gateway's actual pool is `PoolService` + rmcp directly. Before deleting, confirm whether the entire `mcpmux-mcp` crate (not just `ClientPool`) is orphaned — it is a workspace member with no importers found during this dig, which would make it a bigger deletion than originally scoped.
+The whole `mcpmux-mcp` crate was orphaned (`ClientPool`, transports, and the crate itself had no importers). Removed from the workspace. Gateway pooling stays on `PoolService` + rmcp.
 
 ### 4. Web admin clone parity — **shipped (`f024d9e`)**
 
@@ -55,7 +55,7 @@ A present-but-empty `X-Mcpmux-Workspace` header still warn-skips the pin in [`oa
 
 ## Related documentation
 
-- [`backend-connection-resilience.md`](./backend-connection-resilience.md) — shipped `call_tool` retry + bind FK guard; Decisions 5–7 are the matcher/heartbeat/ClientPool deferrals this doc collects
-- [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) — shipped config-save reconnect, stdio OAuth refuse, hold-then-pin; Decision 3 (no session persist) and Decision 5 (matcher/heartbeat/ClientPool out) restated above
+- [`backend-connection-resilience.md`](./backend-connection-resilience.md) — shipped `call_tool` retry + bind FK guard; Decision 5 matcher freeze and Decision 6 heartbeat stay deferred. Decision 7 (`ClientPool`) is now deleted (item 3)
+- [`pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) — shipped config-save reconnect, stdio OAuth refuse, hold-then-pin; Decision 3 (no session persist) and Decision 5 matcher/heartbeat stay out. `ClientPool` deletion is done
 - [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) — the Agents-window empty-header open question this doc's item 1 points back to
 - [`clone-auth-header-config-editing.md`](./clone-auth-header-config-editing.md) — clone seeding/definition-save/warning UI shipped on desktop; Phase 5 there (web admin clone parity, item 4 above) is now shipped too

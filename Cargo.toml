@@ -4,7 +4,6 @@ members = [
     "apps/desktop/src-tauri",
     "crates/mcpmux-core",
     "crates/mcpmux-gateway",
-    "crates/mcpmux-mcp",
     "crates/mcpmux-storage",
     "tests/rust",
 ]
@@ -78,7 +77,6 @@ http-body-util = "0.1"
 # Internal crates (path-only for workspace)
 mcpmux-core = { path = "crates/mcpmux-core" }
 mcpmux-gateway = { path = "crates/mcpmux-gateway" }
-mcpmux-mcp = { path = "crates/mcpmux-mcp" }
 mcpmux-storage = { path = "crates/mcpmux-storage" }
 
 [profile.release]

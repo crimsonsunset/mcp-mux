@@ -16,8 +16,7 @@ mcp-mux/
 ├── crates/
 │   ├── mcpmux-core/       # Domain entities, repository traits, service layer, EventBus
 │   ├── mcpmux-gateway/    # Axum gateway — routing, OAuth refresh, FeatureSet filtering
-│   ├── mcpmux-storage/    # SQLite + AES-256-GCM field encryption + OS keychain
-│   └── mcpmux-mcp/        # MCP protocol client wrapper (rmcp SDK)
+│   └── mcpmux-storage/    # SQLite + AES-256-GCM field encryption + OS keychain
 ├── packages/ui/           # Shared UI components (`@mcpmux/ui`)
 ├── schemas/               # JSON Schemas surfaced in the Monaco editor
 └── tests/                 # Rust integration, TS unit (vitest), desktop E2E (WDIO), web E2E (playwright)
