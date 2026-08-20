@@ -46,6 +46,8 @@ fn redact_headers_compact(headers: &axum::http::HeaderMap) -> String {
                     | "mcp-session-id"
                     | "mcp-protocol-version"
                     | "last-event-id"
+                    | "x-mcpmux-workspace"
+                    | "x-mcpmux-machine-id"
             )
         })
         .map(|(name, value)| {

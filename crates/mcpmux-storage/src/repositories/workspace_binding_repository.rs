@@ -32,7 +32,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use mcpmux_core::{WorkspaceBinding, WorkspaceBindingRepository};
+use mcpmux_core::{BindingType, WorkspaceBinding, WorkspaceBindingRepository};
 use rusqlite::params;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -67,10 +67,20 @@ impl SqliteWorkspaceBindingRepository {
         let space_id_str: String = row.get(2)?;
         let created_at: String = row.get(3)?;
         let updated_at: String = row.get(4)?;
+        let client_id: Option<String> = row.get(5)?;
+        let machine_id_str: Option<String> = row.get(6)?;
+        let label: Option<String> = row.get(7)?;
+        let icon: Option<String> = row.get(8)?;
+        let binding_type_raw: String = row.get(9)?;
 
         Ok(WorkspaceBinding {
             id: id_str.parse().unwrap_or_else(|_| Uuid::new_v4()),
             workspace_root,
+            binding_type: BindingType::from_db_str(&binding_type_raw),
+            client_id,
+            machine_id: machine_id_str.and_then(|s| s.parse().ok()),
+            label,
+            icon,
             space_id: space_id_str.parse().unwrap_or_else(|_| Uuid::nil()),
             feature_set_ids: Vec::new(), // filled in by caller
             created_at: Self::parse_datetime(&created_at),
@@ -149,7 +159,22 @@ impl SqliteWorkspaceBindingRepository {
         Ok(())
     }
 
-    const SELECT_COLS: &'static str = "id, workspace_root, space_id, created_at, updated_at";
+    const SELECT_COLS: &'static str =
+        "id, workspace_root, space_id, created_at, updated_at, client_id, machine_id, label, icon, binding_type";
+
+    /// Last path segment of a normalized workspace root for basename matching.
+    fn workspace_root_basename(normalized: &str) -> Option<String> {
+        if normalized.is_empty() {
+            return None;
+        }
+        let sep = if normalized.contains('\\') { '\\' } else { '/' };
+        normalized
+            .trim_end_matches(sep)
+            .rsplit(sep)
+            .next()
+            .filter(|segment| !segment.is_empty())
+            .map(str::to_ascii_lowercase)
+    }
 
     /// Fetch bindings + their FeatureSet lists in two queries.
     /// `where_clause` is appended to the binding SELECT (use `""` for none);
@@ -221,14 +246,19 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO workspace_bindings
-                (id, workspace_root, space_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+                (id, workspace_root, space_id, created_at, updated_at, client_id, machine_id, label, icon, binding_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
                 binding.space_id.to_string(),
                 binding.created_at.to_rfc3339(),
                 binding.updated_at.to_rfc3339(),
+                binding.client_id,
+                binding.machine_id.map(|id| id.to_string()),
+                binding.label,
+                binding.icon,
+                binding.binding_type.as_db_str(),
             ],
         )?;
         Self::rewrite_fs_for_binding(&tx, &binding.id.to_string(), &binding.feature_set_ids)?;
@@ -248,13 +278,19 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         let tx = conn.unchecked_transaction()?;
         let rows_affected = tx.execute(
             "UPDATE workspace_bindings
-             SET workspace_root = ?2, space_id = ?3, updated_at = ?4
+             SET workspace_root = ?2, space_id = ?3, updated_at = ?4, client_id = ?5,
+                 machine_id = ?6, label = ?7, icon = ?8, binding_type = ?9
              WHERE id = ?1",
             params![
                 binding.id.to_string(),
                 binding.workspace_root,
                 binding.space_id.to_string(),
                 binding.updated_at.to_rfc3339(),
+                binding.client_id,
+                binding.machine_id.map(|id| id.to_string()),
+                binding.label,
+                binding.icon,
+                binding.binding_type.as_db_str(),
             ],
         )?;
 
@@ -294,11 +330,89 @@ impl WorkspaceBindingRepository for SqliteWorkspaceBindingRepository {
         // Exact match only — no ancestor/prefix inheritance. A folder resolves
         // to a binding for THAT exact root, or to nothing.
         for root in candidate_roots {
-            if let Some(b) = bindings.iter().find(|b| &b.workspace_root == root) {
+            if let Some(b) = bindings
+                .iter()
+                .find(|b| b.binding_type == BindingType::Path && &b.workspace_root == root)
+            {
                 return Ok(Some(b.clone()));
             }
         }
         Ok(None)
+    }
+
+    async fn find_by_basename_for_roots(
+        &self,
+        candidate_roots: &[String],
+    ) -> Result<Option<WorkspaceBinding>> {
+        if candidate_roots.is_empty() {
+            return Ok(None);
+        }
+
+        let bindings = self.list().await?;
+        for root in candidate_roots {
+            let Some(declared) = Self::workspace_root_basename(root) else {
+                continue;
+            };
+            if let Some(binding) = bindings.iter().find(|b| {
+                b.binding_type == BindingType::Path
+                    && Self::workspace_root_basename(&b.workspace_root)
+                        .is_some_and(|basename| basename == declared)
+            }) {
+                return Ok(Some(binding.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn find_exact_for_machine(
+        &self,
+        machine_id: &Uuid,
+        workspace_root: &str,
+        client_id: Option<&str>,
+    ) -> Result<Option<WorkspaceBinding>> {
+        let bindings = self.list().await?;
+        // Client+machine scoped binding takes priority over machine-only canonical.
+        // Try the specific client match first, fall back to canonical (client_id IS NULL).
+        let specific = client_id.and_then(|cid| {
+            bindings.iter().find(|b| {
+                b.binding_type == BindingType::Path
+                    && b.workspace_root == workspace_root
+                    && b.machine_id == Some(*machine_id)
+                    && b.client_id.as_deref() == Some(cid)
+            })
+        });
+        if let Some(b) = specific {
+            return Ok(Some(b.clone()));
+        }
+        Ok(bindings.into_iter().find(|b| {
+            b.binding_type == BindingType::Path
+                && b.workspace_root == workspace_root
+                && b.machine_id == Some(*machine_id)
+                && b.client_id.is_none()
+        }))
+    }
+
+    async fn find_by_id_key(
+        &self,
+        client_id: &str,
+        machine_id: Option<&Uuid>,
+    ) -> Result<Option<WorkspaceBinding>> {
+        let bindings = self.list().await?;
+        Ok(bindings.into_iter().find(|b| {
+            b.binding_type == BindingType::Id
+                && b.workspace_root == client_id
+                && b.machine_id.as_ref() == machine_id
+        }))
+    }
+
+    async fn find_exact_global(&self, workspace_root: &str) -> Result<Option<WorkspaceBinding>> {
+        let bindings = self.list().await?;
+        Ok(bindings.into_iter().find(|b| {
+            b.binding_type == BindingType::Path
+                && b.workspace_root == workspace_root
+                && b.machine_id.is_none()
+                && b.client_id.is_none()
+        }))
     }
 }
 
@@ -344,6 +458,67 @@ mod tests {
             )
             .unwrap();
         fs_id
+    }
+
+    #[tokio::test]
+    async fn test_machine_id_round_trip() {
+        let (repo, space_id, fs_id) = fixture().await;
+        let db = repo.db.clone();
+        let machine_id = Uuid::new_v4();
+        let now = Utc::now().to_rfc3339();
+        {
+            let guard = db.lock().await;
+            guard
+                .connection()
+                .execute(
+                    "INSERT INTO machines (id, name, created_at, updated_at)
+                     VALUES (?1, 'Box 4', ?2, ?2)",
+                    params![machine_id.to_string(), now],
+                )
+                .unwrap();
+        }
+
+        let root = if cfg!(windows) {
+            "d:\\machine-scoped"
+        } else {
+            "/machine-scoped"
+        };
+        let mut binding = WorkspaceBinding::new(root, space_id, fs_id.clone());
+        binding.machine_id = Some(machine_id);
+        repo.create(&binding).await.unwrap();
+
+        let got = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(got.machine_id, Some(machine_id));
+
+        let mut cleared = got;
+        cleared.machine_id = None;
+        cleared.updated_at = Utc::now();
+        repo.update(&cleared).await.unwrap();
+        let after = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(after.machine_id, None);
+    }
+
+    #[tokio::test]
+    async fn test_label_and_icon_round_trip() {
+        let (repo, space_id, fs_id) = fixture().await;
+        let root = if cfg!(windows) {
+            "d:\\labeled"
+        } else {
+            "/labeled"
+        };
+        let mut binding = WorkspaceBinding::new(root, space_id, fs_id.clone());
+        binding.label = Some("My Project".to_string());
+        binding.icon = Some("🚀".to_string());
+        repo.create(&binding).await.unwrap();
+
+        let mut got = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(got.label.as_deref(), Some("My Project"));
+        assert_eq!(got.icon.as_deref(), Some("🚀"));
+
+        got.icon = Some("📁".to_string());
+        repo.update(&got).await.unwrap();
+        let after = repo.get(&binding.id).await.unwrap().unwrap();
+        assert_eq!(after.icon.as_deref(), Some("📁"));
     }
 
     #[tokio::test]
@@ -467,6 +642,49 @@ mod tests {
         let other = Uuid::new_v4();
         let hits_other = repo.list_for_space(&other).await.unwrap();
         assert!(hits_other.is_empty());
+    }
+
+    /// Regression: machine-scoped canonical binding (`client_id IS NULL`) must
+    /// match when the caller passes its OAuth `client_id` for the specific
+    /// lookup — the repo falls back to the machine-only row after no
+    /// client+machine row exists.
+    #[tokio::test]
+    async fn test_find_exact_for_machine_canonical_matches_registered_client() {
+        let (repo, space_id, fs_id) = fixture().await;
+        let db = repo.db.clone();
+        let machine_id = Uuid::new_v4();
+        let client_id = "mcp_36740f70";
+        let root = if cfg!(windows) {
+            "d:\\jsg-tech-check"
+        } else {
+            "/Users/joe/Desktop/Repos/Personal/jsg-tech-check"
+        };
+        let now = Utc::now().to_rfc3339();
+
+        {
+            let guard = db.lock().await;
+            guard
+                .connection()
+                .execute(
+                    "INSERT INTO machines (id, name, created_at, updated_at)
+                     VALUES (?1, 'Gondor', ?2, ?2)",
+                    params![machine_id.to_string(), now],
+                )
+                .unwrap();
+        }
+
+        let binding =
+            WorkspaceBinding::new_machine_scoped_multi(root, space_id, machine_id, vec![fs_id]);
+        repo.create(&binding).await.unwrap();
+
+        let hit = repo
+            .find_exact_for_machine(&machine_id, root, Some(client_id))
+            .await
+            .unwrap()
+            .expect("machine-scoped canonical binding should match registered client");
+        assert_eq!(hit.workspace_root, root);
+        assert_eq!(hit.machine_id, Some(machine_id));
+        assert!(hit.client_id.is_none());
     }
 
     #[tokio::test]

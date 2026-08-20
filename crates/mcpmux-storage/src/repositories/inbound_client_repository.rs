@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
+use uuid::Uuid;
 
 use crate::Database;
 
@@ -107,6 +108,13 @@ pub struct InboundClient {
     /// that haven't opened a session yet — the UI hides the capability
     /// badge in that state instead of misleadingly showing "Rootless".
     pub roots_capability_known: bool,
+
+    /// Machine this OAuth client is assigned to for per-machine binding lookup.
+    pub machine_id: Option<Uuid>,
+
+    /// User-set emoji override for the Connections-page icon. `None` falls
+    /// back to `logo_uri` / known-client-name resolution in the UI.
+    pub client_icon: Option<String>,
 }
 
 /// Authorization code (pending exchange)
@@ -160,6 +168,27 @@ pub struct TokenRecord {
     pub parent_token_id: Option<String>,
 }
 
+/// A stored API-key record. Never exposes the secret — only its display prefix.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboundApiKey {
+    pub key_id: String,
+    pub client_id: String,
+    pub key_prefix: String,
+    pub label: Option<String>,
+    pub revoked: bool,
+    pub last_used_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Identity resolved from a presented API key.
+#[derive(Debug, Clone)]
+pub struct ApiKeyAuth {
+    pub key_id: String,
+    pub client_id: String,
+}
+
 /// OAuth Repository with database persistence
 pub struct InboundClientRepository {
     db: Arc<Mutex<Database>>,
@@ -184,6 +213,8 @@ impl InboundClientRepository {
         let approved_int: i32 = row.get::<_, Option<i32>>(19)?.unwrap_or(0);
         let reports_roots_int: i32 = row.get::<_, Option<i32>>(20)?.unwrap_or(0);
         let roots_capability_known_int: i32 = row.get::<_, Option<i32>>(21)?.unwrap_or(0);
+        let machine_id_str: Option<String> = row.get(22)?;
+        let client_icon: Option<String> = row.get(23)?;
 
         Ok(InboundClient {
             client_id: row.get(0)?,
@@ -217,6 +248,8 @@ impl InboundClientRepository {
             approved: approved_int != 0,
             reports_roots: reports_roots_int != 0,
             roots_capability_known: roots_capability_known_int != 0,
+            machine_id: machine_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
+            client_icon,
         })
     }
 
@@ -226,7 +259,8 @@ impl InboundClientRepository {
          logo_uri, client_uri, software_id, software_version,
          redirect_uris, grant_types, response_types, token_endpoint_auth_method, scope,
          metadata_url, metadata_cached_at, metadata_cache_ttl,
-         last_seen, created_at, updated_at, approved, reports_roots, roots_capability_known";
+         last_seen, created_at, updated_at, approved, reports_roots, roots_capability_known,
+         machine_id, client_icon";
 
     // =========================================================================
     // Client Operations (unified inbound_clients table)
@@ -427,6 +461,68 @@ impl InboundClientRepository {
         Ok(merged_uris)
     }
 
+    /// Read the machine id assigned to an inbound OAuth client.
+    pub async fn get_machine_id(&self, client_id: &str) -> Result<Option<Uuid>> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let machine_id_str: Option<String> = conn
+            .query_row(
+                "SELECT machine_id FROM inbound_clients WHERE client_id = ?1",
+                params![client_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(machine_id_str.and_then(|s| Uuid::parse_str(&s).ok()))
+    }
+
+    /// Read the Space lock assigned to an inbound client, if any.
+    pub async fn get_locked_space(&self, client_id: &str) -> Result<Option<Uuid>> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let locked_space_str: Option<String> = conn
+            .query_row(
+                "SELECT locked_space_id FROM inbound_clients WHERE client_id = ?1",
+                params![client_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(locked_space_str.and_then(|s| Uuid::parse_str(&s).ok()))
+    }
+
+    /// Assign or clear the Space lock for an inbound client.
+    pub async fn set_locked_space(&self, client_id: &str, space_id: Option<Uuid>) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let space_id_str = space_id.map(|id| id.to_string());
+        conn.execute(
+            "UPDATE inbound_clients SET locked_space_id = ?1, updated_at = ?2 WHERE client_id = ?3",
+            params![space_id_str, now, client_id],
+        )?;
+        debug!(
+            "[OAuth] Set locked_space_id for client {}: {:?}",
+            client_id, space_id
+        );
+        Ok(())
+    }
+
+    /// Assign or clear the machine id for an inbound OAuth client.
+    pub async fn set_machine_id(&self, client_id: &str, machine_id: Option<Uuid>) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let machine_id_str = machine_id.map(|id| id.to_string());
+        conn.execute(
+            "UPDATE inbound_clients SET machine_id = ?1, updated_at = ?2 WHERE client_id = ?3",
+            params![machine_id_str, now, client_id],
+        )?;
+        debug!(
+            "[OAuth] Set machine_id for client {}: {:?}",
+            client_id, machine_id
+        );
+        Ok(())
+    }
+
     /// Update a client's human-facing alias.
     pub async fn update_client_alias(
         &self,
@@ -443,6 +539,25 @@ impl InboundClientRepository {
             )?;
         }
         debug!("[OAuth] Updated alias for client: {}", client_id);
+        self.get_client(client_id).await
+    }
+
+    /// Update a client's emoji icon override.
+    pub async fn update_client_icon(
+        &self,
+        client_id: &str,
+        client_icon: Option<String>,
+    ) -> Result<Option<InboundClient>> {
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        {
+            let db = self.db.lock().await;
+            let conn = db.connection();
+            conn.execute(
+                "UPDATE inbound_clients SET client_icon = ?1, updated_at = ?2 WHERE client_id = ?3",
+                params![client_icon, now, client_id],
+            )?;
+        }
+        debug!("[OAuth] Updated icon for client: {}", client_id);
         self.get_client(client_id).await
     }
 
@@ -564,6 +679,126 @@ impl InboundClientRepository {
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         hex::encode(hasher.finalize())
+    }
+
+    // =========================================================================
+    // Inbound client API keys (long-lived, host-issued bearer credentials)
+    // =========================================================================
+
+    /// SHA-256 hex of an API key — the only form ever persisted. Same algorithm
+    /// as `hash_token`; named separately for intent.
+    pub fn hash_api_key(key: &str) -> String {
+        Self::hash_token(key)
+    }
+
+    /// Persist a freshly-generated API key for a client. The caller generates
+    /// the random `plaintext` (shown to the user once) and a unique `key_id`;
+    /// only the SHA-256 hash + a display prefix are stored.
+    pub async fn create_api_key(
+        &self,
+        key_id: &str,
+        client_id: &str,
+        plaintext: &str,
+        key_prefix: &str,
+        label: Option<&str>,
+        expires_at: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let hash = Self::hash_api_key(plaintext);
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        conn.execute(
+            "INSERT INTO inbound_client_api_keys
+                (key_id, client_id, key_hash, key_prefix, label, revoked, expires_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?7)",
+            params![key_id, client_id, hash, key_prefix, label, expires_at, now],
+        )?;
+        info!(
+            "[ApiKey] Created key {} for client {}",
+            key_prefix, client_id
+        );
+        Ok(())
+    }
+
+    /// Validate a presented API key: look up a live (non-revoked, unexpired) key
+    /// by hash, touch `last_used_at`, and return the owning client.
+    pub async fn validate_api_key(&self, presented: &str) -> Result<Option<ApiKeyAuth>> {
+        let hash = Self::hash_api_key(presented);
+        let now = chrono::Utc::now().to_rfc3339();
+        let db = self.db.lock().await;
+        let conn = db.connection();
+
+        let result = conn.query_row(
+            "SELECT key_id, client_id, expires_at
+             FROM inbound_client_api_keys
+             WHERE key_hash = ?1 AND revoked = 0",
+            params![hash],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            },
+        );
+        let (key_id, client_id, expires_at) = match result {
+            Ok(t) => t,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+
+        // ISO-8601 strings compare lexicographically; reject expired keys.
+        if let Some(exp) = expires_at.as_deref() {
+            if exp <= now.as_str() {
+                return Ok(None);
+            }
+        }
+
+        conn.execute(
+            "UPDATE inbound_client_api_keys SET last_used_at = ?1 WHERE key_id = ?2",
+            params![now, key_id],
+        )?;
+        Ok(Some(ApiKeyAuth { key_id, client_id }))
+    }
+
+    /// List a client's API keys (no secrets — prefix + metadata only).
+    pub async fn list_api_keys(&self, client_id: &str) -> Result<Vec<InboundApiKey>> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let mut stmt = conn.prepare(
+            "SELECT key_id, client_id, key_prefix, label, revoked, last_used_at, expires_at, created_at, updated_at
+             FROM inbound_client_api_keys WHERE client_id = ?1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![client_id], |r| {
+            Ok(InboundApiKey {
+                key_id: r.get(0)?,
+                client_id: r.get(1)?,
+                key_prefix: r.get(2)?,
+                label: r.get(3)?,
+                revoked: r.get::<_, i32>(4)? != 0,
+                last_used_at: r.get(5)?,
+                expires_at: r.get(6)?,
+                created_at: r.get(7)?,
+                updated_at: r.get(8)?,
+            })
+        })?;
+        let mut keys = Vec::new();
+        for k in rows {
+            keys.push(k?);
+        }
+        Ok(keys)
+    }
+
+    /// Revoke a single API key (irreversible — it can never authenticate again).
+    pub async fn revoke_api_key(&self, key_id: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        conn.execute(
+            "UPDATE inbound_client_api_keys SET revoked = 1, updated_at = ?1 WHERE key_id = ?2",
+            params![now, key_id],
+        )?;
+        Ok(())
     }
 
     /// Save a token record
@@ -825,6 +1060,77 @@ impl InboundClientRepository {
         }
 
         Ok(grants)
+    }
+
+    /// True when the user dismissed the WorkspaceNeedsBinding prompt for this
+    /// `(client_id, workspace_root)` pair.
+    pub async fn is_binding_prompt_dismissed(
+        &self,
+        client_id: &str,
+        workspace_root: &str,
+    ) -> Result<bool> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM workspace_binding_prompt_dismissals \
+                 WHERE client_id = ?1 AND workspace_root = ?2",
+                params![client_id, workspace_root],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(count > 0)
+    }
+
+    /// True when any client dismissed the prompt for this workspace root.
+    /// Used by the Workspaces page auto-open path when no client id is known.
+    pub async fn is_binding_prompt_dismissed_for_root(&self, workspace_root: &str) -> Result<bool> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM workspace_binding_prompt_dismissals \
+                 WHERE workspace_root = ?1",
+                params![workspace_root],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(count > 0)
+    }
+
+    /// Record that the user closed the binding prompt without saving.
+    pub async fn dismiss_binding_prompt(
+        &self,
+        client_id: &str,
+        workspace_root: &str,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT OR REPLACE INTO workspace_binding_prompt_dismissals \
+             (client_id, workspace_root, dismissed_at) VALUES (?1, ?2, ?3)",
+            params![client_id, workspace_root, now],
+        )?;
+        debug!(
+            client_id,
+            workspace_root, "[OAuth] Dismissed workspace binding prompt"
+        );
+        Ok(())
+    }
+
+    /// Remove dismissals for a workspace root after a binding is saved.
+    pub async fn clear_binding_prompt_dismissals_for_root(
+        &self,
+        workspace_root: &str,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let conn = db.connection();
+        conn.execute(
+            "DELETE FROM workspace_binding_prompt_dismissals WHERE workspace_root = ?1",
+            params![workspace_root],
+        )?;
+        Ok(())
     }
 }
 

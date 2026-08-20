@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use mcpmux_core::normalize_workspace_root;
-use tracing::debug;
+use tracing::{info, warn};
+
+use super::tool_discovery::ToolIndex;
 
 /// Thread-safe registry mapping `mcp-session-id` to the caller's reported
 /// workspace roots, plus the most recently resolved feature-set id so the
@@ -79,6 +81,10 @@ pub struct SessionRootsRegistry {
     /// resolver, the on-demand probe skip, and the prompt-root derivation all
     /// honor the header with no special-casing. Already normalized on insert.
     pinned: DashMap<String, String>,
+    /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
+    /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext)
+    /// so `mcpmux_search_tools` can reuse a session's resolved tool index.
+    search_cache: Arc<DashMap<String, (u64, Arc<ToolIndex>)>>,
 }
 
 impl SessionRootsRegistry {
@@ -91,7 +97,27 @@ impl SessionRootsRegistry {
             probe_lock: DashMap::new(),
             first_seen: DashMap::new(),
             pinned: DashMap::new(),
+            search_cache: Arc::new(DashMap::new()),
         })
+    }
+
+    /// Shared per-session `search_tools` active index cache.
+    pub fn search_cache(&self) -> Arc<DashMap<String, (u64, Arc<ToolIndex>)>> {
+        self.search_cache.clone()
+    }
+
+    /// Evict cached active indexes for sessions reporting `workspace_root`.
+    pub fn evict_search_cache_for_workspace_root(&self, workspace_root: &str) {
+        let normalized = normalize_workspace_root(workspace_root);
+        let session_ids: Vec<String> = self
+            .map
+            .iter()
+            .filter(|entry| entry.value().iter().any(|root| root == &normalized))
+            .map(|entry| entry.key().clone())
+            .collect();
+        for session_id in session_ids {
+            self.search_cache.remove(&session_id);
+        }
     }
 
     /// Elapsed time since this session was first observed without roots,
@@ -190,23 +216,31 @@ impl SessionRootsRegistry {
     /// header falls back to the client's reported roots rather than denying.
     /// Cheap to call on the request hot path: redundant writes (same
     /// normalized value already pinned) are skipped to avoid shard churn.
+    ///
+    /// Logs at info on first pin, warn when the same session is re-pinned to a
+    /// different root (Agents Window / shared-session cross-workspace clobber).
     pub fn set_pinned(&self, session_id: &str, raw_root: &str) {
         let normalized = normalize_workspace_root(raw_root);
         if normalized.is_empty() {
             return;
         }
-        if self
-            .pinned
-            .get(session_id)
-            .is_some_and(|v| *v == normalized)
-        {
-            return;
+        if let Some(previous) = self.pinned.get(session_id) {
+            if *previous == normalized {
+                return;
+            }
+            warn!(
+                %session_id,
+                previous = %previous.as_str(),
+                new = %normalized,
+                "[SessionRoots] X-Mcpmux-Workspace pin clobber — same session, different root",
+            );
+        } else {
+            info!(
+                %session_id,
+                workspace_root = %normalized,
+                "[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header",
+            );
         }
-        debug!(
-            %session_id,
-            workspace_root = %normalized,
-            "[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header",
-        );
         self.pinned.insert(session_id.to_string(), normalized);
     }
 
@@ -225,6 +259,7 @@ impl SessionRootsRegistry {
         self.probe_lock.remove(session_id);
         self.first_seen.remove(session_id);
         self.pinned.remove(session_id);
+        self.search_cache.remove(session_id);
     }
 
     /// Compare-and-set the session's resolved feature-set id. Returns `true`
@@ -262,6 +297,17 @@ impl SessionRootsRegistry {
         out.sort();
         out.dedup();
         out
+    }
+
+    /// Drop a single root from the registry regardless of binding status.
+    /// Removes it from every session that holds it; sessions left empty are
+    /// evicted (same as [`Self::forget_unmapped_roots`]). Returns `true` when
+    /// the root was found and removed from at least one session.
+    pub fn forget_root(&self, root: &str) -> bool {
+        let normalized = normalize_workspace_root(root);
+        !self
+            .forget_unmapped_roots(|r| r != normalized.as_str())
+            .is_empty()
     }
 
     /// Forget every reported root that is **not** currently mapped, so the

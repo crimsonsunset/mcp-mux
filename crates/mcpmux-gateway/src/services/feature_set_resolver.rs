@@ -1,65 +1,99 @@
 //! FeatureSet Resolver Service.
 //!
-//! Capability-branched resolution. The branch point is the MCP `roots`
-//! capability declared by the client at `initialize`:
+//! Binding-canonical resolution. The resolver answers one question: *which
+//! [`WorkspaceBinding`](mcpmux_core::WorkspaceBinding) (if any) matches the
+//! signals this caller presents?* Signals are ranked; none are mandatory:
 //!
 //! ```text
 //! resolve(session_id, client_id):
-//!     // Tier 1 — roots-capable session with reported roots
-//!     if session reported roots AND a binding matches:
-//!         return (binding.space_id, [binding.feature_set_id], WorkspaceBinding)
+//!     // Signal 1 — reported root (deprecated MCP primitive, SEP-2577)
+//!     if session reported roots:
+//!         if roots.len() > 1 (no pinned X-Mcpmux-Workspace header):
+//!             if exactly one reported root still exists on disk:
+//!                 narrow to that root and continue            // disambiguated
+//!             else:
+//!                 return ([], default_space, PendingRoots)    // ambiguous — never guess
+//!         if a binding matches the (single) root:
+//!             return (binding.space_id, [binding.feature_set_id], WorkspaceBinding)
 //!
-//!     // Tier 1b — roots-capable, roots reported, but no binding yet
+//!     // Tier 1b — roots reported, no binding matched
 //!     if session reported roots AND no binding matched:
-//!         return (default_space, [starter_fs], SpaceDefault)   // unmapped folder
-//!         // (also emits WorkspaceNeedsBinding upstream so the user can still map)
+//!         if roots_capable == false (true rootless):
+//!             fall through to Tier 3 (declare-root gate + grant lookup)
+//!         else:
+//!             return (scoped_space, [], Unbound)   // deny by default
+//!             // (upstream emits WorkspaceNeedsBinding so the user can bind)
 //!
 //!     // Tier 1c — declared `roots` but they haven't arrived yet
 //!     if session declared `roots` AND none yet in registry:
 //!         if within the pending-roots grace window:
 //!             return ([], default_space, PendingRoots)   // wait for the root
 //!         else:
-//!             return (default_space, [starter_fs], SpaceDefault)   // gave up waiting
+//!             return (default_space, [], Unbound)   // gave up waiting
 //!
-//!     // Tier 2 — rootless-by-design (Claude.ai web, ChatGPT, …)
+//!     // Signal 2 — client identity (id-type binding, rootless)
+//!     if client has an id-type WorkspaceBinding:
+//!         return (binding.space_id, binding.feature_set_ids, WorkspaceBinding)
+//!
+//!     // Signal 3 — client identity (rootless-by-design: Claude.ai web, …)
 //!     if client has grants in the default space:
-//!         return (default_space, grants, ClientGrant)
+//!         if rootless session AND no declared root yet:
+//!             return ([], default_space, PendingRoots)   // meta tools only
+//!         else:
+//!             return (default_space, grants, ClientGrant)
 //!
-//!     // Tier 3 — no roots, no grants
-//!     return (default_space, [starter_fs], SpaceDefault)
+//!     // Tier 4 — no roots, no id binding, no grants
+//!     return (default_space, [], Unbound)
 //! ```
 //!
-//! # Default fallback (the "every folder needs mapping" fix)
+//! Signal 3 (machine) scopes binding lookup. When the client sends
+//! `X-Mcpmux-Machine-Id`, only that machine and global bindings are
+//! considered — gateway `local_machine_id` and `inbound_clients.machine_id`
+//! are skipped so a tunneled caller is not mistaken for the gateway host.
+//! Without the header: client machine → local machine → global.
 //!
-//! When nothing more specific resolves — an unmapped folder (Tier 1b), a
-//! rootless client with no grants, or a roots-capable client that never
-//! reported a folder (Tier 1c after the grace window) — the resolver falls
-//! back to the **default Space's Starter FeatureSet** instead of denying.
-//! That makes folders work out of the box: a freshly-opened project gets the
-//! Starter tools immediately, and the user only *needs* an explicit
-//! [`WorkspaceBinding`](mcpmux_core::WorkspaceBinding) when they want a folder
-//! to see something *other* than the default. The Starter FS's membership is
-//! the control surface: edit it to change what every unmapped folder sees, or
-//! empty it to grant nothing by default. (The Starter is builtin and can't be
-//! deleted, so the fallback always has a target.)
+//! ## Deny by default
 //!
-//! ## Grace window — avoid "default then mapped" flips
+//! When no binding matches — an unmapped folder (Tier 1b), a rootless client
+//! with no grants, or a roots-capable client that never reported a folder
+//! (Tier 1c after the grace window) — the resolver returns
+//! [`ResolutionSource::Unbound`] with empty `feature_set_ids`. Callers get
+//! zero backend tools until they have an explicit binding (or a client grant
+//! for rootless clients). Meta management tools are appended unconditionally
+//! by the request handler.
+//!
+//! ## Grace window — avoid "empty then mapped" flips
 //!
 //! A roots-capable client that's *about* to report a folder must resolve
-//! straight to that folder's binding (or the default-for-unmapped), never
-//! flash the default tools first and then flip. So while a session has
-//! declared (or might declare) `roots` and none have arrived yet, the
-//! resolver holds at `PendingRoots` (empty) for a short grace window rather
-//! than defaulting immediately. Only once the window lapses with no root in
-//! sight does it settle on `SpaceDefault`, so a misbehaving client that never
-//! reports isn't stranded on meta-tools forever. A roots-capable session
-//! **never** falls through to another client's grants — after the grace it
-//! goes straight to the Space default, preserving per-session isolation.
+//! straight to that folder's binding (or `Unbound`), never flash tools first
+//! and then flip. So while a session has declared (or might declare) `roots`
+//! and none have arrived yet, the resolver holds at `PendingRoots` (empty) for
+//! a short grace window. Only once the window lapses with no root in sight
+//! does it settle on `Unbound`. A roots-capable session **never** falls
+//! through to another client's grants — after the grace it goes straight to
+//! `Unbound`, preserving per-session isolation.
 //!
-//! The caller's client identity is used **only** for the rootless fallback —
-//! every roots-capable session routes via its own reported roots, regardless
-//! of which OAuth client opened it. This is what makes "two VS Code windows
-//! sharing one OAuth identity" route independently.
+//! Multi-root ambiguity is a separate, non-timed hold: when
+//! [`SessionRootsRegistry::get`](crate::services::session_roots::SessionRootsRegistry::get)
+//! returns more than one root (no pinned `X-Mcpmux-Workspace` header), the
+//! resolver first checks whether the ambiguity is only apparent — clients can
+//! report roots from unrelated or stale sources alongside the caller's real
+//! workspace (e.g. an orphaned background-agent worker still pointed at a
+//! folder that was since moved or deleted). If exactly one reported root
+//! still exists on disk, the resolver narrows to that root and proceeds
+//! normally — filesystem existence, not binding presence, is the signal,
+//! since discarding a root just because it lacks a binding would silently
+//! route the request to a *different*, unrelated-but-bound root's
+//! FeatureSet. Otherwise — zero surviving roots, or more than one that still
+//! exists — it stays at `PendingRoots` indefinitely until the client pins a
+//! single root (header or `mcpmux_set_workspace_root`). Unlike the in-flight
+//! grace window, time alone cannot resolve which open folder the request
+//! belongs to — guessing would silently route to the wrong FeatureSet.
+//!
+//! The caller's client identity is used **only** for the rootless Tier-2 grant
+//! lookup — every roots-capable session routes via its own reported roots,
+//! regardless of which OAuth client opened it. This is what makes "two VS Code
+//! windows sharing one OAuth identity" route independently.
 //!
 //! # Trust model (deliberate design decision)
 //!
@@ -99,6 +133,7 @@ use mcpmux_core::{
 };
 use mcpmux_storage::InboundClientRepository;
 use serde::Serialize;
+use tokio::sync::RwLock;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -115,27 +150,33 @@ const DEFAULT_PENDING_ROOTS_GRACE: Duration = Duration::from_secs(5);
 /// Why the resolver picked the FS(es) it picked (or didn't pick any).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+// SpaceDefault is retained for serde compat; it is no longer produced but may appear
+// in deserialized data from older gateway versions. The unused-variant pattern is
+// intentional, not an oversight.
+#[allow(clippy::manual_non_exhaustive)]
 pub enum ResolutionSource {
     /// A [`WorkspaceBinding`](mcpmux_core::WorkspaceBinding) matched one of
     /// the session's reported MCP roots.
     WorkspaceBinding,
-    /// No binding matched, but the client is roots-capable so its `roots`
-    /// list is in flight; return empty and re-resolve when they arrive.
+    /// Held empty pending an unambiguous root: roots still in flight (grace
+    /// window), a rootless client awaiting `mcpmux_set_workspace_root`, or a
+    /// multi-root session with no pinned `X-Mcpmux-Workspace` header.
     PendingRoots,
     /// Rootless-by-design client. The space-default's per-client
     /// `client_grants` were applied.
     ClientGrant,
-    /// Fell back to the default Space's Starter FeatureSet because nothing
-    /// more specific resolved — an unmapped folder, a rootless client with
-    /// no grants, or a roots-capable client that never reported a folder.
-    /// For the unmapped-folder subcase the upstream caller still emits
-    /// `WorkspaceNeedsBinding` so the user can attach an explicit mapping.
+    /// No binding matched; deny by default (empty `feature_set_ids`). Carries
+    /// `space_id` for base-dir context and the bind CTA. Upstream emits
+    /// `WorkspaceNeedsBinding` for unmapped folders.
+    Unbound,
+    /// Deprecated — no longer produced by the resolver. Retained for serde
+    /// compatibility (e.g. `set_workspace_root` responses that may still
+    /// carry this value from older gateway versions).
+    #[doc(hidden)]
     SpaceDefault,
     /// No FeatureSet resolved at all. Defensive: reached only when there's no
     /// default Space, or — degenerately — the default Space somehow has no
-    /// Starter FeatureSet. The Starter is builtin and seeded with every Space,
-    /// so this is normally unreachable; to grant nothing by default the user
-    /// empties the Starter (still `SpaceDefault`, just with no members).
+    /// Starter FeatureSet.
     Deny,
 }
 
@@ -177,8 +218,9 @@ pub struct FeatureSetResolverService {
     /// Reads `client_grants` for the rootless Tier-2 fallback. Stored as a
     /// concrete repo (storage owns this type and there's only ever one).
     client_repo: Arc<InboundClientRepository>,
-    /// Looks up each Space's Starter FeatureSet for the default fallback
-    /// (Tier 1b / Tier 1c-after-grace / Tier 3).
+    /// Retained in the constructor signature for API stability; was used by the
+    /// now-removed `default_fallback()` helper. Remove once all call sites are updated.
+    #[allow(dead_code)]
     feature_set_repo: Arc<dyn FeatureSetRepository>,
     /// Scopes an unmapped reported root to a Space by base directory — an
     /// unmapped folder under a Space's base dir falls back to that Space's
@@ -188,6 +230,9 @@ pub struct FeatureSetResolverService {
     /// [`DEFAULT_PENDING_ROOTS_GRACE`]. Configurable so tests can force the
     /// post-grace path deterministically without sleeping.
     pending_grace: Duration,
+    /// This install's registered machine id (`gateway.local_machine_id`).
+    /// When set, Tier 1 prefers machine-scoped bindings before global fallbacks.
+    local_machine_id: Arc<RwLock<Option<Uuid>>>,
 }
 
 impl FeatureSetResolverService {
@@ -198,6 +243,7 @@ impl FeatureSetResolverService {
         client_repo: Arc<InboundClientRepository>,
         feature_set_repo: Arc<dyn FeatureSetRepository>,
         space_base_dir_repo: Arc<dyn SpaceBaseDirRepository>,
+        local_machine_id: Option<Uuid>,
     ) -> Self {
         Self {
             space_repo,
@@ -207,7 +253,145 @@ impl FeatureSetResolverService {
             feature_set_repo,
             space_base_dir_repo,
             pending_grace: DEFAULT_PENDING_ROOTS_GRACE,
+            local_machine_id: Arc::new(RwLock::new(local_machine_id)),
         }
+    }
+
+    /// Hot-reload this install's machine identity without restarting the gateway.
+    pub async fn set_local_machine_id(&self, id: Option<Uuid>) {
+        *self.local_machine_id.write().await = id;
+    }
+
+    /// The machine identity that should govern a *binding write* for this
+    /// caller — mirrors Tier 1's read-side priority (request header, then the
+    /// OAuth client's registered machine, then this gateway's own local
+    /// machine identity) so a bind and the resolve that follows it never
+    /// disagree about whose binding it is. `None` means no machine identity
+    /// exists anywhere yet (fresh install with nothing registered) — callers
+    /// should fall back to the pre-machine, client-scoped binding shape.
+    pub async fn effective_machine_id(
+        &self,
+        client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
+        if let Some(id) = request_machine_id {
+            return Ok(Some(id));
+        }
+        if let Some(cid) = client_id {
+            if let Some(client_machine) = self.client_repo.get_machine_id(cid).await? {
+                return Ok(Some(client_machine));
+            }
+        }
+        Ok(*self.local_machine_id.read().await)
+    }
+
+    /// Tier 1 exact binding lookup: request machine header, then client machine,
+    /// then local machine, then global.
+    async fn find_binding_for_roots(
+        &self,
+        roots: &[String],
+        client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
+    ) -> Result<Option<mcpmux_core::WorkspaceBinding>> {
+        for root in roots {
+            let registered_machine = if let Some(cid) = client_id {
+                self.client_repo.get_machine_id(cid).await?
+            } else {
+                None
+            };
+
+            if let Some(header_machine) = request_machine_id {
+                if let Some(binding) = self
+                    .binding_repo
+                    .find_exact_for_machine(&header_machine, root, client_id)
+                    .await?
+                {
+                    return Ok(Some(binding));
+                }
+                if let Some(binding) = self.binding_repo.find_exact_global(root).await? {
+                    return Ok(Some(binding));
+                }
+                // Header-only semantics when the header matches the OAuth
+                // client's registered machine (tunneled caller on the wrong
+                // box stays Unbound) or the caller is anonymous. When the
+                // header disagrees with the registered tag it is treated as
+                // stale — e.g. cloud-agent config on a native localhost
+                // session — and we fall through to client/local/global below.
+                if client_id.is_none() || registered_machine.is_some_and(|m| m == header_machine) {
+                    continue;
+                }
+            }
+
+            if let Some(client_machine) = registered_machine {
+                if let Some(binding) = self
+                    .binding_repo
+                    .find_exact_for_machine(&client_machine, root, client_id)
+                    .await?
+                {
+                    return Ok(Some(binding));
+                }
+            }
+            if let Some(local_id) = *self.local_machine_id.read().await {
+                if let Some(binding) = self
+                    .binding_repo
+                    .find_exact_for_machine(&local_id, root, client_id)
+                    .await?
+                {
+                    return Ok(Some(binding));
+                }
+            }
+            if let Some(binding) = self.binding_repo.find_exact_global(root).await? {
+                return Ok(Some(binding));
+            }
+        }
+        // ponytail: when this install has no machine identity, preserve the
+        // pre-machine exact match (includes client-scoped bindings). Once
+        // local_machine_id is set, only machine + global canonical bindings apply.
+        if self.local_machine_id.read().await.is_none() {
+            return self.binding_repo.find_exact_for_roots(roots).await;
+        }
+        Ok(None)
+    }
+
+    /// Tier 2 id-type binding lookup: request machine header, then client
+    /// machine, then local machine, then global.
+    async fn find_binding_for_client_id(
+        &self,
+        client_id: &str,
+        request_machine_id: Option<Uuid>,
+    ) -> Result<Option<mcpmux_core::WorkspaceBinding>> {
+        if let Some(header_machine) = request_machine_id {
+            if let Some(binding) = self
+                .binding_repo
+                .find_by_id_key(client_id, Some(&header_machine))
+                .await?
+            {
+                return Ok(Some(binding));
+            }
+            if let Some(binding) = self.binding_repo.find_by_id_key(client_id, None).await? {
+                return Ok(Some(binding));
+            }
+            return Ok(None);
+        }
+        if let Some(client_machine) = self.client_repo.get_machine_id(client_id).await? {
+            if let Some(binding) = self
+                .binding_repo
+                .find_by_id_key(client_id, Some(&client_machine))
+                .await?
+            {
+                return Ok(Some(binding));
+            }
+        }
+        if let Some(local_id) = *self.local_machine_id.read().await {
+            if let Some(binding) = self
+                .binding_repo
+                .find_by_id_key(client_id, Some(&local_id))
+                .await?
+            {
+                return Ok(Some(binding));
+            }
+        }
+        self.binding_repo.find_by_id_key(client_id, None).await
     }
 
     /// The Space that claims one of `roots` by base directory, or `None`. Each
@@ -246,39 +430,27 @@ impl FeatureSetResolverService {
         self
     }
 
-    /// Fall back to `space_id`'s Starter FeatureSet. `space_id` is the global
-    /// default Space for rootless sessions, or a base-dir-scoped Space for an
-    /// unmapped folder under that Space's base directory. Returns
-    /// [`ResolutionSource::SpaceDefault`] when a Starter exists (the normal
-    /// path — it's builtin and seeded per Space), or, defensively,
-    /// [`ResolutionSource::Deny`] in the degenerate case where the Space has no
-    /// Starter.
-    async fn default_fallback(&self, space_id: Uuid) -> Result<ResolvedFeatureSet> {
-        if let Some(fs) = self
-            .feature_set_repo
-            .get_starter_for_space(&space_id.to_string())
-            .await?
-        {
-            debug!(
-                %space_id,
-                feature_set_id = %fs.id,
-                "[FeatureSetResolver] resolved via SpaceDefault (Starter fallback)",
-            );
-            return Ok(ResolvedFeatureSet {
-                feature_set_ids: vec![fs.id],
-                space_id: Some(space_id),
-                source: ResolutionSource::SpaceDefault,
-            });
-        }
-        debug!(
-            %space_id,
-            "[FeatureSetResolver] no Starter FeatureSet in Space — deny",
-        );
-        Ok(ResolvedFeatureSet {
+    /// Deny by default: no binding matched. Carries `space_id` for base-dir
+    /// context and the bind CTA; `feature_set_ids` is empty.
+    fn unbound(&self, space_id: Uuid) -> ResolvedFeatureSet {
+        ResolvedFeatureSet {
             feature_set_ids: vec![],
             space_id: Some(space_id),
-            source: ResolutionSource::Deny,
-        })
+            source: ResolutionSource::Unbound,
+        }
+    }
+
+    /// Whether a binding is eligible under an optional Space lock.
+    fn binding_matches_space_lock(
+        binding: &mcpmux_core::WorkspaceBinding,
+        space_lock: Option<Uuid>,
+    ) -> bool {
+        space_lock.is_none_or(|lock| binding.space_id == lock)
+    }
+
+    /// Space id used for Unbound / grant lookups when a lock is active.
+    fn unbound_space_id(space_lock: Option<Uuid>, fallback: Uuid) -> Uuid {
+        space_lock.unwrap_or(fallback)
     }
 
     /// Borrow the session-roots registry. The notifier uses this to GC
@@ -292,12 +464,15 @@ impl FeatureSetResolverService {
     ///
     /// `session_id`: the client's `mcp-session-id` header (or `None` when
     /// the caller is stateless — e.g. desktop UI HTTP path).
-    /// `client_id`: the OAuth client identity. Used only for the Tier-2
-    /// `client_grants` lookup; ignored for binding-based routing.
+    /// `client_id`: the OAuth client identity. Used for Tier-2 id-type binding
+    /// lookup and Tier-3 `client_grants`; ignored for path-based routing.
+    /// `request_machine_id`: optional per-device identity from
+    /// `X-Mcpmux-Machine-Id`; highest-priority machine signal for Tier 1.
     pub async fn resolve(
         &self,
         session_id: Option<&str>,
         client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
     ) -> Result<ResolvedFeatureSet> {
         let default_space_id = match self.space_repo.get_default().await? {
             Some(s) => s.id,
@@ -310,6 +485,14 @@ impl FeatureSetResolverService {
                 });
             }
         };
+
+        // Tier 0 — Space lock narrows all subsequent tiers to one Space.
+        // It never grants tools by itself; no in-Space match still → Unbound.
+        let space_lock = match client_id {
+            Some(cid) => self.client_repo.get_locked_space(cid).await?,
+            None => None,
+        };
+        let deny_space_id = Self::unbound_space_id(space_lock, default_space_id);
 
         // Tier 1 / 1b / 1c — branches on roots-capable + roots-arrived state.
         if let Some(sid) = session_id {
@@ -344,42 +527,135 @@ impl FeatureSetResolverService {
             // Tier 1: session reported roots — try an EXACT binding match
             // (no ancestor inheritance).
             if has_roots {
-                let reported_roots = roots.expect("has_roots implies Some");
+                let mut reported_roots = roots.expect("has_roots implies Some");
+
+                // Ambiguous multi-root session: SessionRootsRegistry::get() only
+                // returns more than one entry when there's no pinned
+                // X-Mcpmux-Workspace header collapsing it to a single root (see
+                // SessionRootsRegistry::get). Before giving up, check whether the
+                // ambiguity is only apparent: clients can report roots from
+                // unrelated or stale sources alongside the caller's real
+                // workspace — e.g. an orphaned background-agent worker still
+                // pointed at a folder that was since moved or deleted. If
+                // exactly one reported root still exists on disk, narrow to it
+                // and fall through to the normal Tier 1 lookup below.
+                //
+                // Filesystem existence — NOT binding presence — is the only
+                // safe disambiguation signal here. Discarding a root just
+                // because it lacks a binding would silently route the request
+                // to a *different*, unrelated-but-bound root's FeatureSet
+                // whenever two genuinely distinct open folders both got
+                // reported together — exactly the cross-workspace bleed this
+                // gate exists to prevent. A phantom root, by contrast, can
+                // never itself hold or acquire a binding, so dropping it loses
+                // no real ambiguity. Bounded to a handful of cheap local
+                // `stat()` calls on this already-cold path.
+                if reported_roots.len() > 1 {
+                    let existing_roots: Vec<String> = reported_roots
+                        .iter()
+                        .filter(|root| std::path::Path::new(root.as_str()).exists())
+                        .cloned()
+                        .collect();
+
+                    if existing_roots.len() == 1 {
+                        debug!(
+                            session_id = %sid,
+                            root_count = reported_roots.len(),
+                            resolved_root = %existing_roots[0],
+                            "[FeatureSetResolver] disambiguated multi-root session — only one reported root exists on disk",
+                        );
+                        reported_roots = existing_roots;
+                    } else {
+                        debug!(
+                            session_id = %sid,
+                            root_count = reported_roots.len(),
+                            existing_count = existing_roots.len(),
+                            "[FeatureSetResolver] multiple roots reported, no pinned header — PendingRoots",
+                        );
+                        return Ok(ResolvedFeatureSet {
+                            feature_set_ids: vec![],
+                            space_id: Some(deny_space_id),
+                            source: ResolutionSource::PendingRoots,
+                        });
+                    }
+                }
+
                 if let Some(binding) = self
-                    .binding_repo
-                    .find_exact_for_roots(&reported_roots)
+                    .find_binding_for_roots(&reported_roots, client_id, request_machine_id)
                     .await?
                 {
+                    if Self::binding_matches_space_lock(&binding, space_lock) {
+                        debug!(
+                            workspace_root = %binding.workspace_root,
+                            space_id = %binding.space_id,
+                            feature_sets = ?binding.feature_set_ids,
+                            "[FeatureSetResolver] resolved via WorkspaceBinding",
+                        );
+                        return Ok(ResolvedFeatureSet {
+                            feature_set_ids: binding.feature_set_ids,
+                            space_id: Some(binding.space_id),
+                            source: ResolutionSource::WorkspaceBinding,
+                        });
+                    }
                     debug!(
-                        workspace_root = %binding.workspace_root,
-                        space_id = %binding.space_id,
-                        feature_sets = ?binding.feature_set_ids,
-                        "[FeatureSetResolver] resolved via WorkspaceBinding",
+                        binding_space = %binding.space_id,
+                        ?space_lock,
+                        "[FeatureSetResolver] path binding outside locked Space — ignored",
                     );
-                    return Ok(ResolvedFeatureSet {
-                        feature_set_ids: binding.feature_set_ids,
-                        space_id: Some(binding.space_id),
-                        source: ResolutionSource::WorkspaceBinding,
-                    });
                 }
-                // Tier 1b: had roots, no binding. The folder is unmapped, so
-                // fall back to a Starter FS — the folder works immediately
-                // instead of getting nothing. Scope it to the Space whose base
-                // directory claims the root (longest-prefix), if any; otherwise
-                // the global default Space. Upstream still emits
-                // WorkspaceNeedsBinding (it prompts on SpaceDefault too) so the
-                // user can attach an explicit mapping for something other than
-                // the default.
-                let target_space = self
-                    .space_for_roots(&reported_roots)
-                    .await?
-                    .unwrap_or(default_space_id);
-                debug!(
-                    %target_space,
-                    scoped_by_base_dir = target_space != default_space_id,
-                    "[FeatureSetResolver] roots reported but no binding matched — SpaceDefault",
-                );
-                return self.default_fallback(target_space).await;
+                // Tier 1b: had roots, no binding (or binding outside lock).
+                if roots_capable_known == Some(false) {
+                    // True rootless client declared a root (e.g. via
+                    // `mcpmux_set_workspace_root`) but it didn't exact-match any
+                    // binding — try repo-name (basename) match, then fall through
+                    // to Tier 3 grant lookup. The pre-Tier-3 gate treats the
+                    // declared root as the identity signal it was waiting for.
+                    if let Some(binding) = self
+                        .binding_repo
+                        .find_by_basename_for_roots(&reported_roots)
+                        .await?
+                    {
+                        if Self::binding_matches_space_lock(&binding, space_lock) {
+                            debug!(
+                                workspace_root = %binding.workspace_root,
+                                space_id = %binding.space_id,
+                                feature_sets = ?binding.feature_set_ids,
+                                "[FeatureSetResolver] rootless session resolved via basename WorkspaceBinding",
+                            );
+                            return Ok(ResolvedFeatureSet {
+                                feature_set_ids: binding.feature_set_ids,
+                                space_id: Some(binding.space_id),
+                                source: ResolutionSource::WorkspaceBinding,
+                            });
+                        }
+                        debug!(
+                            binding_space = %binding.space_id,
+                            ?space_lock,
+                            "[FeatureSetResolver] basename binding outside locked Space — ignored",
+                        );
+                    }
+                    debug!(
+                        session_id = %sid,
+                        "[FeatureSetResolver] rootless session declared root but no binding matched — fall through to Tier 3",
+                    );
+                } else {
+                    // Roots-capable or still-probing session: unmapped folder
+                    // denies by default. When locked, scope `space_id` to the
+                    // locked Space; otherwise longest-prefix base dir.
+                    let target_space = if space_lock.is_some() {
+                        deny_space_id
+                    } else {
+                        self.space_for_roots(&reported_roots)
+                            .await?
+                            .unwrap_or(default_space_id)
+                    };
+                    debug!(
+                        %target_space,
+                        scoped_by_base_dir = target_space != default_space_id,
+                        "[FeatureSetResolver] roots reported but no binding matched — Unbound",
+                    );
+                    return Ok(self.unbound(target_space));
+                }
             }
 
             // Tier 1c: client declared `roots` but none have ARRIVED yet
@@ -410,29 +686,56 @@ impl FeatureSetResolverService {
                     );
                     return Ok(ResolvedFeatureSet {
                         feature_set_ids: vec![],
-                        space_id: Some(default_space_id),
+                        space_id: Some(deny_space_id),
                         source: ResolutionSource::PendingRoots,
                     });
                 }
-                // Grace lapsed with no root in sight — settle on the Space
-                // default rather than stranding the client on meta-tools
-                // forever. Go STRAIGHT to the default (not via Tier-2 grants):
-                // a roots-capable session must never pick up another client's
-                // grants (per-session isolation invariant).
+                // Grace lapsed with no root in sight — deny by default. Go
+                // STRAIGHT to Unbound (not via Tier-2 grants): a roots-capable
+                // session must never pick up another client's grants
+                // (per-session isolation invariant).
                 debug!(
                     session_id = %sid,
                     capability = ?roots_capable_known,
-                    "[FeatureSetResolver] pending-roots grace lapsed, no root reported — SpaceDefault",
+                    "[FeatureSetResolver] pending-roots grace lapsed, no root reported — Unbound",
                 );
-                return self.default_fallback(default_space_id).await;
+                return Ok(self.unbound(deny_space_id));
             }
         }
 
-        // Tier 2 — rootless-by-design. Either the session declared no
+        // Tier 2 — id-type client mapping (rootless / API-key / OAuth clientId).
+        if let Some(cid) = client_id {
+            if let Some(binding) = self
+                .find_binding_for_client_id(cid, request_machine_id)
+                .await?
+            {
+                if Self::binding_matches_space_lock(&binding, space_lock) {
+                    debug!(
+                        client_id = %cid,
+                        space_id = %binding.space_id,
+                        feature_sets = ?binding.feature_set_ids,
+                        "[FeatureSetResolver] resolved via id-type WorkspaceBinding",
+                    );
+                    return Ok(ResolvedFeatureSet {
+                        feature_set_ids: binding.feature_set_ids,
+                        space_id: Some(binding.space_id),
+                        source: ResolutionSource::WorkspaceBinding,
+                    });
+                }
+                debug!(
+                    binding_space = %binding.space_id,
+                    ?space_lock,
+                    "[FeatureSetResolver] id binding outside locked Space — ignored",
+                );
+            }
+        }
+
+        // Tier 3 — rootless-by-design. Either the session declared no
         // `roots` capability, or the caller has no session id at all
         // (the desktop UI's preview HTTP path lands here too). Consult the
         // per-client grant table.
         if let Some(cid) = client_id {
+            let grant_space_id = deny_space_id;
             // Propagate storage errors instead of treating them as "no
             // grants": a transient DB failure must surface as a request
             // error, not a silent deny (which would also record a `None`
@@ -440,33 +743,56 @@ impl FeatureSetResolverService {
             // cycle once the error clears).
             let grants = self
                 .client_repo
-                .get_grants_for_space(cid, &default_space_id.to_string())
+                .get_grants_for_space(cid, &grant_space_id.to_string())
                 .await?;
             if !grants.is_empty() {
+                // Pre-Tier-3 gate: rootless sessions must declare a workspace
+                // root (via `mcpmux_set_workspace_root` or equivalent) before
+                // the blanket grant unlocks. Reuses PendingRoots so meta tools
+                // stay reachable while the client self-unblocks.
+                if let Some(sid) = session_id {
+                    if self.session_roots.is_roots_capable(sid) == Some(false) {
+                        let has_declared_root = self
+                            .session_roots
+                            .get(sid)
+                            .is_some_and(|roots| !roots.is_empty());
+                        if !has_declared_root {
+                            debug!(
+                                session_id = %sid,
+                                client_id = %cid,
+                                "[FeatureSetResolver] rootless session has grant but no declared root — PendingRoots",
+                            );
+                            return Ok(ResolvedFeatureSet {
+                                feature_set_ids: vec![],
+                                space_id: Some(grant_space_id),
+                                source: ResolutionSource::PendingRoots,
+                            });
+                        }
+                    }
+                }
                 debug!(
                     client_id = %cid,
-                    space_id = %default_space_id,
+                    space_id = %grant_space_id,
                     grant_count = grants.len(),
                     "[FeatureSetResolver] resolved via ClientGrant",
                 );
                 return Ok(ResolvedFeatureSet {
                     feature_set_ids: grants,
-                    space_id: Some(default_space_id),
+                    space_id: Some(grant_space_id),
                     source: ResolutionSource::ClientGrant,
                 });
             }
         }
 
-        // Tier 3 — no roots, no grants. Fall back to the Space default so a
-        // bare client still gets the Starter tools instead of nothing. The
-        // mcpmux_* meta tools are appended unconditionally by the request
-        // handler regardless, so the LLM can always self-bind / ask the user
-        // for a grant from here.
+        // Tier 4 — no roots, no id binding, no grants. Deny by default. The mcpmux_* meta
+        // tools are appended unconditionally by the request handler regardless,
+        // so the LLM can always self-bind / ask the user for a grant from here.
         debug!(
-            space_id = %default_space_id,
+            space_id = %deny_space_id,
             ?client_id,
-            "[FeatureSetResolver] no roots + no grants — SpaceDefault",
+            ?space_lock,
+            "[FeatureSetResolver] no roots + no id binding + no grants — Unbound",
         );
-        self.default_fallback(default_space_id).await
+        Ok(self.unbound(deny_space_id))
     }
 }
