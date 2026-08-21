@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 use crate::auth::validate_token;
 use crate::logging::TraceContext;
 use crate::server::ServiceContainer;
-use crate::services::{resolve_window_key, PinSource};
+use crate::services::{resolve_window_key, PinSource, SessionRootsRegistry};
 
 /// Synthetic client identity used when system-wide inbound auth is disabled and
 /// a connection arrives without a (valid) Bearer token. Routing still prefers
@@ -362,7 +362,13 @@ pub async fn mcp_oauth_middleware(
     }
 
     if let Some(sid) = session_id_header.as_deref() {
-        resolve_window_pin(&services, sid, empty_workspace_header, &trace_id);
+        resolve_window_pin(
+            &services,
+            sid,
+            empty_workspace_header,
+            workspace_set_header.as_deref(),
+            &trace_id,
+        );
     }
 
     // Captured before `request` is consumed below — needed to recognize the
@@ -433,7 +439,13 @@ pub async fn mcp_oauth_middleware(
                 .session_roots
                 .set_pinned(sid, ws, PinSource::WorkspaceHeader);
         }
-        resolve_window_pin(&services, sid, empty_workspace_header, &trace_id);
+        resolve_window_pin(
+            &services,
+            sid,
+            empty_workspace_header,
+            workspace_set_header.as_deref(),
+            &trace_id,
+        );
     }
 
     // Log errors only — except two rmcp spec-correct shapes that are not
@@ -484,13 +496,18 @@ fn attach_window_identity(services: &ServiceContainer, session_id: &str, peer: O
 /// An empty header is a failed substitution, not "reuse the last pin." Drop
 /// the session claim and skip window inherit so a sibling window on the
 /// shared `mcp-session-id` cannot keep resolving through the previous root.
+/// A one-member set on *this* request is a stronger claim than the empty
+/// active-folder header and must keep the SingleCandidate pin.
 fn resolve_window_pin(
     services: &ServiceContainer,
     session_id: &str,
     empty_workspace_header: bool,
+    workspace_set_header: Option<&str>,
     trace_id: &str,
 ) {
-    if empty_workspace_header {
+    let same_request_single_set = workspace_set_header
+        .is_some_and(SessionRootsRegistry::set_header_is_single_folder);
+    if empty_workspace_header && !same_request_single_set {
         services.session_roots.forget_empty_header_claim(session_id);
         warn!(
             trace_id = %trace_id,
@@ -509,13 +526,7 @@ fn resolve_window_pin(
         services.session_roots.promote_pin_to_window(session_id);
         return;
     }
-    if services
-        .session_roots
-        .inherit_window_pin(session_id)
-        .is_some()
-    {
-        return;
-    }
+    services.session_roots.inherit_window_pin(session_id);
 }
 
 /// Generate unauthorized response with RFC 9728 protected-resource discovery.

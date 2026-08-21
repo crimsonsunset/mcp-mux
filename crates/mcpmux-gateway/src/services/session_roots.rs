@@ -588,6 +588,15 @@ impl SessionRootsRegistry {
         self.store_candidates(session_id, parse_candidate_set(raw_set));
     }
 
+    /// Whether this request's `X-Mcpmux-Workspace-Set` names exactly one folder.
+    ///
+    /// Unexpanded `${...}` values and blanks are dropped first, same as
+    /// [`Self::set_candidates`]. A one-member set is unambiguous and may keep
+    /// a pin even when the active-folder header arrived empty.
+    pub fn set_header_is_single_folder(raw_set: &str) -> bool {
+        parse_candidate_set(raw_set).len() == 1
+    }
+
     fn store_candidates(&self, session_id: &str, parsed: Vec<String>) {
         if parsed.is_empty() {
             return;
@@ -1236,6 +1245,23 @@ mod tests {
             Some(vec![CANDIDATES[0].to_string()]),
             "the next real header must lift the suppress"
         );
+    }
+
+    #[test]
+    fn empty_header_plus_one_folder_set_keeps_pin_across_repeat_requests() {
+        let reg = SessionRootsRegistry::default();
+        for _ in 0..3 {
+            reg.set_candidates("sess", CANDIDATES[0]);
+            if !SessionRootsRegistry::set_header_is_single_folder(CANDIDATES[0]) {
+                reg.forget_empty_header_claim("sess");
+            }
+        }
+        assert_eq!(
+            reg.session_pin("sess").as_deref(),
+            Some(CANDIDATES[0]),
+            "empty ${{workspaceFolder}} must not wipe a same-request one-folder set"
+        );
+        assert_eq!(reg.get("sess"), Some(vec![CANDIDATES[0].to_string()]));
     }
 
     /// Regression test for the field-confirmed cross-window leak (see

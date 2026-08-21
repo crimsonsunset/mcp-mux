@@ -82,14 +82,22 @@ export function redactArg(arg) {
 }
 
 /**
- * Whether an environment variable name looks like a secret.
+ * Whether this env key is part of the substitution study (log the value).
+ * Everything else is treated as a secret.
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function isLoggedEnvKey(key) {
+  return /^(WORKSPACE_FOLDER_PATHS|PWD|VSCODE_PID|CURSOR_.*)$/i.test(key);
+}
+
+/**
+ * Whether an environment variable should be redacted in the probe log.
  * @param {string} key
  * @returns {boolean}
  */
 export function isSecretEnvKey(key) {
-  return /token|secret|password|passwd|api[_-]?key|authorization|credential|bearer|mcpk/i.test(
-    key
-  );
+  return !isLoggedEnvKey(key);
 }
 
 /**

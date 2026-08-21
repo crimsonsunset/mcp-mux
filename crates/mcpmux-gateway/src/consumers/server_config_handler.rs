@@ -98,6 +98,7 @@ impl ServerConfigUpdatedHandler {
         }
 
         let started = Instant::now();
+        self.drop_stale_features(space_id, server_id).await;
         match resolve_auto_connection_context(
             self.installed_server_repo.as_ref(),
             self.state_dir.as_deref(),
@@ -135,6 +136,27 @@ impl ServerConfigUpdatedHandler {
             }
         }
         Ok(())
+    }
+
+    /// Flip cached features off and drop the resolution cache before reconnect.
+    ///
+    /// A successful discover writes `is_available` back. Without this, a failed
+    /// `reconnect_fresh` evicts the instance while `tools/list` still advertises
+    /// the pre-save rows.
+    async fn drop_stale_features(&self, space_id: Uuid, server_id: &str) {
+        if let Err(error) = self
+            .pool_service
+            .feature_service()
+            .mark_unavailable(&space_id.to_string(), server_id)
+            .await
+        {
+            warn!(
+                server_id = %server_id,
+                space_id = %space_id,
+                error = %error,
+                "[ServerConfigHandler] mark_unavailable failed before reconnect"
+            );
+        }
     }
 }
 
