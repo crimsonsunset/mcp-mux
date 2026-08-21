@@ -1,7 +1,7 @@
 # Window-Scoped Workspace Pin
 
 **Last Updated:** Aug 20, 2026
-**Status:** Complete (Phases 1–4). Chosen from a six-option brainstorm as the highest value-per-line fix for the empty-`${workspaceFolder}` residual. Phase 1 load-bearing check passed in-process: unprivileged `netstat2` socket→PID lookup resolves a loopback peer to this process.
+**Status:** Phases 1–4 shipped, then patched same night after a field-confirmed cross-window leak on the shared global bridge process (decision 4b). Chosen from a six-option brainstorm as the highest value-per-line fix for the empty-`${workspaceFolder}` residual. Phase 1 load-bearing check passed in-process: unprivileged `netstat2` socket→PID lookup resolves a loopback peer to this process — see "second incident" below for why that check didn't catch the leak.
 **Branch:** `root-resolution`
 **Depends on:** [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) Phases 1–3 (shipped) — this reuses the bridge's `X-Mcpmux-Workspace` / `X-Mcpmux-Workspace-Set` headers and the `set_workspace_root` escape hatch rather than replacing any of them
 **Unblocks:** One workspace answer per Cursor window instead of one per MCP session — the residual cost that [`resilience-routing-leftovers.md`](./resilience-routing-leftovers.md) item 1 calls inherent
@@ -55,6 +55,26 @@ The daemon was never the problem during this window. `127.0.0.1:45818/health` re
 
 Two things follow. First, the substitution flake is not scoped to `${workspaceFolder}` — it hits `${MCPMUX_API_KEY}` and `${WORKSPACE_FOLDER_PATHS}` through the same `mcp-remote` `${ENV}` pass, so any design that assumes "at least one header survives" is unsafe. Second, a mass respawn is precisely when session-keyed state is most expensive: every window loses its pin simultaneously, and every window has to be re-answered. A window-scoped pin survives the respawn if the process survives, and where the process doesn't survive, it at least collapses N sessions of re-asking into one.
 
+### Field evidence, second incident (Aug 20, 11:09 PM — cross-window leak)
+
+Phases 1–4 shipped and passed every unit/integration test, and still produced a real credential-scope bug the first night it ran against a live multi-window setup. Worth recording exactly, because the fix (decision 3, revised below) came directly from this trace and no test caught it first.
+
+Setup: the global bridge entry (the one built from `buildCursorBridgeMcpJson`, `${workspaceFolder}` in argv) was open in more than one Cursor window at once. Cursor spawns **one `mcp-remote` process for that entry**, not one per window — confirmed by proving a claim made in window B's chat landed on window A's session id:
+
+```
+window B calls mcpmux_set_workspace_root(/repo/generAIt)
+  → {"session_id": "8e8b54e8-...", ...}   ← the id already serving window A's chat
+
+window A, which never called the tool, immediately shows generAIt's
+FeatureSets as ready (Jira-GAIT, Netlify-GAIT, langfuse-GAIT, ...)
+```
+
+`mcp-session-id` is therefore not a window identity on this transport — it's shared across every window that has the global entry open. The original design (decision 3, first cut) keyed `window_pins` on the owning PID, which is exactly as shared: writing a window pin for this process handed every window sharing it the same folder, and made that leak survive session churn instead of ending at session death. The window-scoping feature made an existing session-level leak *durable* — a regression on the dimension this doc set out to fix, introduced by the same change that fixed the dimension it was built for.
+
+The false negative in Phase 1's own load-bearing check is worth naming: "one PID covering the same window's sessions across a Reload MCP" is also exactly what "one PID covering several windows' sessions" looks like from the log. The outcome that was supposed to falsify the design (decision 1's contingency) can't distinguish the good case from the bad one — only cross-window correlation (as above) can.
+
+What the trace also shows: the two `PinSource` values are not equally trustworthy for this purpose. `WorkspaceHeader` and `SingleCandidate` are each a Cursor-side claim about *the calling request's own window* — a non-empty, non-template header value can only exist because some window's `${workspaceFolder}` resolved, and a one-member `X-Mcpmux-Workspace-Set` can only exist because exactly one folder is open right now. Both are self-attesting. `MetaTool` is not: an agent calling `mcpmux_set_workspace_root` asserts nothing about which window issued the call, and on a shared session there is no way to tell.
+
 ---
 
 ## Decisions
@@ -65,6 +85,7 @@ Two things follow. First, the substitution flake is not scoped to `${workspaceFo
 | 2 | How the PID lookup happens | [`netstat2`](https://crates.io/crates/netstat2) crate (one new dep, cross-platform socket→PID) | The alternatives are worse: shelling out to `lsof` spawns a child per new session (and the repo's child-process rules exist for good reason — `configure_child_process_platform()`), and hand-rolling libproc/`/proc`/`GetExtendedTcpTable` means three platform implementations with the CI blind spot documented in `AGENTS.md`. Phase 1 verifies it works unprivileged for own-user sockets before anything is built on it. |
 | 3 | Window key shape | `pid` plus a liveness re-check on read, **not** `pid` + process start time | Avoids a second dependency for start-time lookup. A stale entry requires the process to die *and* its PID to be reused *by another `mcp-remote` connected to this gateway*. `ponytail:` ceiling — narrow but not impossible; the upgrade path is adding start time from the same crate family if a misroute is ever observed. Mitigated by decision 5. |
 | 4 | What becomes durable | Only **explicit claims** — a substituted `X-Mcpmux-Workspace` header, or a `set_workspace_root` call | Probed `roots/list` values are already suspect (`listChanged: false`, stale across windows) and deductions are not proof. Promoting either to window scope would give a wrong answer a longer life, which is strictly worse than asking again. |
+| 4b | Which explicit claims may *promote* (revised after the second incident) | A header or single-candidate pin promotes unconditionally — each is self-attesting proof of single-window intent. A `set_workspace_root` pin promotes only if the session's own candidate set independently narrows to exactly one folder; otherwise it stays session-scoped and a warn names the skip. | Decision 4 assumed all explicit claims carry equal proof of *which* window made them. The second incident shows a meta-tool call on a shared session carries none — nothing about the call distinguishes window A's agent from window B's. Gating on the candidate set reuses machinery decision 5 already requires, so this is a narrower condition on an existing write path, not new state. |
 | 5 | Applying a window pin | Re-validate against the session's own candidate set when the set is present; skip validation when the set is absent or unexpanded | Keeps the invariant `set_workspace_root` already enforces — a session can only claim a folder its window actually has open. When the set header didn't survive (see Field evidence), there is nothing to validate against, and refusing would reintroduce the very friction this doc removes. |
 | 6 | Precedence | Explicit header for *this* session > window pin > probed roots > `PendingRoots` | A live explicit claim must always beat remembered state, so a genuine window switch is never overridden by a stale pin. This is a new tier inserted below `pinned`, not a change to any existing tier's behavior. |
 | 7 | Transport scope | Loopback peers only; remote/tunnel clients get no window pin | A tunnelled client has no local PID to resolve, so there's nothing to key on. Correct outcome, not a gap — those clients keep today's per-session behavior. |
@@ -191,7 +212,8 @@ Closes the ways a remembered pin could outlive its truth.
 - Evict `window_pins` when the owning process no longer holds a connection to the gateway; drop `session_window` in `remove()`
 - Assert precedence: a live explicit header always overrides an inherited pin (a genuine window switch must win)
 - Refuse inheritance when the session's candidate set is present and the remembered root isn't in it, with a warn naming both
-- Tests: precedence ordering, eviction on process exit, set-mismatch refusal, and inheritance skipped for non-loopback peers
+- **(added after the second incident)** Refuse to *write* a `set_workspace_root` pin to `window_pins` unless the session's candidate set independently narrows to one folder — decision 4b, implemented in `promote_pin_to_window()` via `pinned_source`
+- Tests: precedence ordering, eviction on process exit, set-mismatch refusal, inheritance skipped for non-loopback peers, and a meta-tool pin on a multi-candidate (or candidate-less) session never reaching `window_pins` while still applying to its own session
 
 **Outcome:** Closing a Cursor window drops its pin (a later window reusing that PID inherits nothing), and a window that switches folders re-pins immediately instead of serving the previous answer. `pnpm test:rust` covers all four cases.
 

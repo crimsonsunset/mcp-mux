@@ -82,6 +82,17 @@ pub struct SessionRootsRegistry {
     /// resolver, the on-demand probe skip, and the prompt-root derivation all
     /// honor the header with no special-casing. Already normalized on insert.
     pinned: DashMap<String, String>,
+    /// `session_id -> which claim produced the current [`Self::pinned`] entry.
+    ///
+    /// Read by [`Self::promote_pin_to_window`] to decide whether the pin is
+    /// safe to make durable: a header or single-candidate pin is itself proof
+    /// the calling process serves exactly one window, but a `set_workspace_root`
+    /// call carries no such proof — the global Cursor bridge shares one
+    /// `mcp-remote` process (and one `mcp-session-id`) across every open
+    /// window, so a meta-tool pin issued into that shared session with no
+    /// corroborating single-folder candidate set could be *any* window's
+    /// agent, not the one whose process key we'd be writing.
+    pinned_source: DashMap<String, PinSource>,
     /// `client_id -> workspace path` held when `X-Mcpmux-Workspace` arrived
     /// before `mcp-session-id` (initialize). Applied on the first request
     /// that has a session id, or when initialize's response issues one.
@@ -186,6 +197,7 @@ impl SessionRootsRegistry {
             probe_lock: DashMap::new(),
             first_seen: DashMap::new(),
             pinned: DashMap::new(),
+            pinned_source: DashMap::new(),
             pending_by_client: DashMap::new(),
             candidates: DashMap::new(),
             pending_candidates_by_client: DashMap::new(),
@@ -348,6 +360,7 @@ impl SessionRootsRegistry {
         self.last_resolution.remove(session_id);
         self.search_cache.remove(session_id);
         self.pinned.insert(session_id.to_string(), normalized);
+        self.pinned_source.insert(session_id.to_string(), source);
         self.promote_pin_to_window(session_id);
     }
 
@@ -411,11 +424,24 @@ impl SessionRootsRegistry {
         self.session_window.get(session_id).map(|key| *key)
     }
 
-    /// Copy this session's explicit pin onto its window, if both exist.
+    /// Copy this session's explicit pin onto its window, if both exist and
+    /// the pin is attributable to that one window.
     ///
     /// No-op when the session has no pin or no window — initialize often
     /// pins before the peer socket has been mapped, and the next request
     /// retries.
+    ///
+    /// A header or single-candidate pin is itself proof the calling process
+    /// serves exactly one window, so those promote unconditionally. A
+    /// `set_workspace_root` pin carries no such proof: Cursor's global bridge
+    /// shares one `mcp-remote` process, and therefore one `mcp-session-id`,
+    /// across every open window (confirmed in the field — see
+    /// `docs/planning/window-scoped-workspace-pin.md` "Field evidence, second
+    /// incident"). Writing that claim to `window_pins` would durably hand
+    /// every future session on that shared process whichever window happened
+    /// to call the tool first. It only promotes when the session's own
+    /// candidate set independently narrows to that single folder — i.e. the
+    /// window isn't sharing right now, whatever it might do later.
     ///
     /// Called from the request hot path (every request carrying a session pin
     /// re-promotes), so an unchanged value skips both the write and the log.
@@ -428,6 +454,27 @@ impl SessionRootsRegistry {
         let Some(root) = self.pinned.get(session_id).map(|value| value.clone()) else {
             return;
         };
+        let source = self
+            .pinned_source
+            .get(session_id)
+            .map(|value| *value)
+            .unwrap_or(PinSource::MetaTool);
+        if source == PinSource::MetaTool {
+            let candidates = self.get_candidates(session_id);
+            let single_folder_proven = matches!(candidates.as_deref(), Some([_]));
+            if !single_folder_proven {
+                warn!(
+                    %session_id,
+                    window_key = %key,
+                    workspace_root = %root,
+                    candidates = ?candidates,
+                    "[SessionRoots] window pin skipped — meta-tool claim without proof this \
+                     mcp-remote process serves a single window; this session keeps the pin, \
+                     but it will not survive a Reload MCP or session churn",
+                );
+                return;
+            }
+        }
         // Owned bool so the read guard drops before the insert below — see
         // `record_resolution` for the self-deadlock this avoids.
         let unchanged = self
@@ -1057,6 +1104,10 @@ mod tests {
         let key = WindowKey::from_pid(std::process::id());
         reg.attach_window("sess-1", key);
         reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
+        // A MetaTool pin only promotes with single-folder proof — see
+        // `meta_tool_pin_promotes_only_with_single_folder_proof` for the
+        // no-proof case this test deliberately avoids.
+        reg.set_candidates("sess-1", CANDIDATES[1]);
         reg.set_pinned("sess-1", CANDIDATES[1], PinSource::MetaTool);
 
         reg.attach_window("sess-2", key);
@@ -1064,6 +1115,61 @@ mod tests {
             reg.inherit_window_pin("sess-2"),
             Some(CANDIDATES[1].to_string()),
             "the window must remember the newest explicit claim, not the first"
+        );
+    }
+
+    /// Regression test for the field-confirmed cross-window leak (see
+    /// `docs/planning/window-scoped-workspace-pin.md`, "second incident"):
+    /// Cursor's global bridge shares one `mcp-remote` process, and therefore
+    /// one `mcp-session-id`, across every open window. A `set_workspace_root`
+    /// call on that shared session names no window, so it must not become
+    /// the answer every other window inherits after this session ends.
+    #[test]
+    fn meta_tool_pin_promotes_only_with_single_folder_proof() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+
+        // No candidate set at all (the leak's actual trigger: an unexpanded
+        // X-Mcpmux-Workspace-Set never got stored) — must not promote.
+        reg.attach_window("sess-shared-a", key);
+        reg.set_pinned("sess-shared-a", CANDIDATES[0], PinSource::MetaTool);
+        assert_eq!(
+            reg.get("sess-shared-a"),
+            Some(vec![CANDIDATES[0].to_string()]),
+            "the calling session still gets its own answer"
+        );
+
+        reg.attach_window("sess-shared-b", key);
+        assert!(
+            reg.inherit_window_pin("sess-shared-b").is_none(),
+            "an unproven meta-tool claim must not leak to a sibling session \
+             on the same shared process"
+        );
+
+        // A multi-folder candidate set is equally insufficient — it proves
+        // the window is one of several, not that it is exactly one.
+        reg.attach_window("sess-shared-c", key);
+        reg.set_candidates("sess-shared-c", &CANDIDATES.join(","));
+        reg.set_pinned("sess-shared-c", CANDIDATES[0], PinSource::MetaTool);
+        reg.attach_window("sess-shared-d", key);
+        assert!(
+            reg.inherit_window_pin("sess-shared-d").is_none(),
+            "a multi-folder candidate set is not proof of single-window intent"
+        );
+
+        // A one-member candidate set IS proof — the window really has only
+        // one folder open right now. `set_candidates` self-pins in that case
+        // (decision 4b's SingleCandidate path), so the MetaTool call below is
+        // redundant in practice; it's here to confirm a MetaTool claim on an
+        // already-proven session is at worst a no-op, never a regression.
+        reg.attach_window("sess-solo-a", key);
+        reg.set_candidates("sess-solo-a", CANDIDATES[0]);
+        reg.set_pinned("sess-solo-a", CANDIDATES[0], PinSource::MetaTool);
+        reg.attach_window("sess-solo-b", key);
+        assert_eq!(
+            reg.inherit_window_pin("sess-solo-b"),
+            Some(CANDIDATES[0].to_string()),
+            "single-folder proof must still let the window pin work"
         );
     }
 
