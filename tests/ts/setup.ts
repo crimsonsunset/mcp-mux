@@ -1,6 +1,43 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
+/**
+ * Zustand persist writes `viewSpaceId` / theme via `localStorage.setItem`.
+ * jsdom usually provides it, but some workers expose `undefined` and every
+ * store mutation then throws. Install a memory backend when the real one is
+ * missing so appStore tests and persist-backed UI clicks stay runnable.
+ */
+function ensureLocalStorage(): void {
+  const existing = (globalThis as { localStorage?: Storage }).localStorage;
+  if (existing && typeof existing.setItem === 'function') {
+    return;
+  }
+  const store = new Map<string, string>();
+  const memory: Storage = {
+    get length() {
+      return store.size;
+    },
+    clear: () => {
+      store.clear();
+    },
+    getItem: (key: string) => store.get(key) ?? null,
+    key: (index: number) => [...store.keys()][index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  };
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: memory,
+  });
+}
+
+ensureLocalStorage();
+
 // Mock Tauri core API
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),

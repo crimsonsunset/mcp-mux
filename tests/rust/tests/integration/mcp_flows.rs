@@ -694,8 +694,10 @@ async fn test_server_disconnect_marks_features_unavailable() {
         .unwrap();
     assert_eq!(tools_before.len(), 2);
 
-    // Simulate server disconnect
-    ctx.feature_repo
+    // Simulate server disconnect through FeatureService so the resolution
+    // cache drops with the availability flip (repo-only writes leave the
+    // cache serving the pre-disconnect tool list).
+    ctx.service
         .mark_unavailable(&ctx.space_id, "server")
         .await
         .unwrap();

@@ -33,7 +33,10 @@ vi.mock('@/lib/api/featureSets', () => ({
 }));
 vi.mock('@/lib/api/gateway', () => ({ getGatewayStatus: mockGatewayStatus }));
 vi.mock('@/lib/api/registry', () => ({ listInstalledServers: mockListInstalled }));
-vi.mock('@/lib/api/workspaceBindings', () => ({ listWorkspaceBindings: mockListBindings }));
+vi.mock('@/lib/api/workspaceBindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/workspaceBindings')>();
+  return { ...actual, listWorkspaceBindings: mockListBindings };
+});
 vi.mock('@/lib/api/serverManager', () => ({ getServerStatuses: mockServerStatuses }));
 vi.mock('@/stores', () => ({
   useViewSpace: () => ({ id: 'space-1', name: 'My Space' }),

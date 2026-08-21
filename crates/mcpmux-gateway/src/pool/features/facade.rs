@@ -69,11 +69,17 @@ impl FeatureService {
     }
 
     pub async fn mark_unavailable(&self, space_id: &str, server_id: &str) -> Result<()> {
-        self.discovery.mark_unavailable(space_id, server_id).await
+        self.discovery.mark_unavailable(space_id, server_id).await?;
+        self.resolution.invalidate_space(space_id).await;
+        Ok(())
     }
 
     pub async fn delete_for_server(&self, space_id: &str, server_id: &str) -> Result<()> {
-        self.discovery.delete_for_server(space_id, server_id).await
+        self.discovery
+            .delete_for_server(space_id, server_id)
+            .await?;
+        self.resolution.invalidate_space(space_id).await;
+        Ok(())
     }
 
     // Delegate to FeatureResolutionService

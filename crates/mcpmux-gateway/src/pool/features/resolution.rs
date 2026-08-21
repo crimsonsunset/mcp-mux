@@ -101,7 +101,10 @@ impl FeatureResolutionService {
         });
     }
 
-    async fn invalidate_space(&self, space_id: &str) {
+    /// Drop cached resolutions for one space. Called from the event listener
+    /// and from `FeatureService::mark_unavailable` so a disconnect does not
+    /// keep serving a pre-disconnect tool list.
+    pub async fn invalidate_space(&self, space_id: &str) {
         self.cache
             .write()
             .await
