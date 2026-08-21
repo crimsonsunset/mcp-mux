@@ -1034,6 +1034,9 @@ pub fn run() {
             commands::list_workspace_install_clients,
             commands::generate_workspace_config_snippet,
             commands::install_workspace_mcp_config,
+            commands::cursor_hook_status,
+            commands::install_cursor_hook,
+            commands::uninstall_cursor_hook,
             // Workspace appearance commands
             commands::list_workspace_appearances,
             commands::upsert_workspace_appearance,

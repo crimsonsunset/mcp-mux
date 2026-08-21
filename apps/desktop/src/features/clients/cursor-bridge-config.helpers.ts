@@ -73,3 +73,28 @@ export function buildCursorBridgeMcpJson(apiKey: string, gatewayUrl: string): st
   };
   return JSON.stringify(config, null, 2);
 }
+
+/**
+ * Manual `~/.cursor/hooks.json` fallback when the installer refuses JSONC.
+ *
+ * `scriptPath` should be the absolute managed script path from the Tauri
+ * status/install result. Used only as copy-paste text.
+ */
+export function buildCursorHookFallbackJson(scriptPath: string): string {
+  return JSON.stringify(
+    {
+      version: 1,
+      hooks: {
+        preToolUse: [
+          {
+            command: `node ${scriptPath}`,
+            matcher: 'MCP:mcpmux_.*',
+            timeout: 5,
+          },
+        ],
+      },
+    },
+    null,
+    2
+  );
+}

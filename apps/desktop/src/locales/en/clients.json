@@ -207,6 +207,15 @@
     "copy": "Copy config",
     "copied": "Copied",
     "keyOnceWarning": "The API key is shown only in this snippet. Store it in ~/.cursor/mcp.json now — McpMux cannot display it again.",
-    "fallbackNote": "The snippet always targets http://127.0.0.1 (local gateway), even when Connections shows a public tunnel. Per-repo install via Workspaces remains available if you prefer not to use npx/mcp-remote."
+    "fallbackNote": "The snippet always targets http://127.0.0.1 (local gateway), even when Connections shows a public tunnel. Per-repo install via Workspaces remains available if you prefer not to use npx/mcp-remote.",
+    "hookInstall": "Install workspace hook",
+    "hookInstalling": "Installing hook…",
+    "hookInstalled": "Workspace hook installed",
+    "hookUninstall": "Uninstall hook",
+    "hookBackup": "Backup saved to {{path}}",
+    "hookJsoncRefused": "hooks.json is not plain JSON. Copy the entry below into it by hand.",
+    "hookManualLabel": "Manual hooks.json entry",
+    "hookCopyManual": "Copy hook entry",
+    "hookHint": "Adds a preToolUse hook so concurrent Cursor agents on this global bridge route to the correct workspace without a shared pin."
   }
 }

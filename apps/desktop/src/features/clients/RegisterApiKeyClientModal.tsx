@@ -39,6 +39,12 @@ import {
 import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
 import { useSpaces } from '@/stores';
 import {
+  getCursorHookStatus,
+  installCursorHook,
+  uninstallCursorHook,
+  type CursorHookResult,
+} from '@/lib/api/cursorHooks';
+import {
   buildCursorBridgeMcpJson,
   CURSOR_BRIDGE_CLIENT_NAME,
 } from './cursor-bridge-config.helpers';
@@ -76,6 +82,9 @@ export function RegisterApiKeyClientModal({
   const [copied, setCopied] = useState(false);
   const [snippetCopied, setSnippetCopied] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [hookStatus, setHookStatus] = useState<CursorHookResult | null>(null);
+  const [hookBusy, setHookBusy] = useState(false);
+  const [hookManualCopied, setHookManualCopied] = useState(false);
 
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedMachineId, setSelectedMachineId] = useState('');
@@ -246,6 +255,92 @@ export function RegisterApiKeyClientModal({
       // Snippet is selectable as a fallback.
     }
   };
+
+  /**
+   * Load managed-hook install state from the desktop command.
+   */
+  const refreshHookStatus = async () => {
+    try {
+      setHookStatus(await getCursorHookStatus());
+    } catch (e) {
+      setHookStatus({
+        action: 'error',
+        installed: false,
+        hooks_path: '',
+        script_path: '',
+        backed_up: null,
+        error: e instanceof Error ? e.message : String(e),
+        jsonc_refused: false,
+        manual_entry: '',
+      });
+    }
+  };
+
+  /**
+   * Install or update the managed Cursor `preToolUse` hook.
+   */
+  const handleInstallHook = async () => {
+    setHookBusy(true);
+    try {
+      setHookStatus(await installCursorHook());
+    } catch (e) {
+      setHookStatus({
+        action: 'error',
+        installed: false,
+        hooks_path: '',
+        script_path: '',
+        backed_up: null,
+        error: e instanceof Error ? e.message : String(e),
+        jsonc_refused: false,
+        manual_entry: '',
+      });
+    } finally {
+      setHookBusy(false);
+    }
+  };
+
+  /**
+   * Remove the managed hook entry and script.
+   */
+  const handleUninstallHook = async () => {
+    setHookBusy(true);
+    try {
+      setHookStatus(await uninstallCursorHook());
+    } catch (e) {
+      setHookStatus({
+        action: 'error',
+        installed: false,
+        hooks_path: '',
+        script_path: '',
+        backed_up: null,
+        error: e instanceof Error ? e.message : String(e),
+        jsonc_refused: false,
+        manual_entry: '',
+      });
+    } finally {
+      setHookBusy(false);
+    }
+  };
+
+  /**
+   * Copy the manual hooks.json fallback snippet.
+   */
+  const handleCopyHookManual = async () => {
+    const text = hookStatus?.manual_entry;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setHookManualCopied(true);
+      setTimeout(() => setHookManualCopied(false), 2000);
+    } catch {
+      // Snippet is selectable as a fallback.
+    }
+  };
+
+  useEffect(() => {
+    if (!result || resultTab !== 'cursor') return;
+    void refreshHookStatus();
+  }, [result, resultTab]);
 
   const handleDone = () => {
     if (result) onRegistered(result);
@@ -425,6 +520,78 @@ export function RegisterApiKeyClientModal({
                   <Button variant="primary" size="md" onClick={handleDone}>
                     Done
                   </Button>
+                </div>
+
+                <div className="space-y-2 rounded-xl border border-[rgb(var(--border))] p-3.5">
+                  <p className="text-xs text-[rgb(var(--muted))]">{t('cursorBridge.hookHint')}</p>
+                  {hookStatus?.installed ? (
+                    <p
+                      className="text-sm text-emerald-700 dark:text-emerald-300"
+                      data-testid="cursor-hook-installed"
+                    >
+                      {t('cursorBridge.hookInstalled')}
+                    </p>
+                  ) : null}
+                  {hookStatus?.backed_up ? (
+                    <p className="text-xs text-[rgb(var(--muted))]">
+                      {t('cursorBridge.hookBackup', { path: hookStatus.backed_up })}
+                    </p>
+                  ) : null}
+                  {hookStatus?.error ? (
+                    <p className="text-sm text-red-600 dark:text-red-400" data-testid="cursor-hook-error">
+                      {hookStatus.jsonc_refused
+                        ? t('cursorBridge.hookJsoncRefused')
+                        : hookStatus.error}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      onClick={() => void handleInstallHook()}
+                      disabled={hookBusy}
+                      data-testid="cursor-hook-install"
+                    >
+                      {hookBusy ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      {hookBusy ? t('cursorBridge.hookInstalling') : t('cursorBridge.hookInstall')}
+                    </Button>
+                    {hookStatus?.installed ? (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        onClick={() => void handleUninstallHook()}
+                        disabled={hookBusy}
+                        data-testid="cursor-hook-uninstall"
+                      >
+                        {t('cursorBridge.hookUninstall')}
+                      </Button>
+                    ) : null}
+                    {hookStatus?.manual_entry ? (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        onClick={() => void handleCopyHookManual()}
+                        data-testid="cursor-hook-copy-manual"
+                      >
+                        {hookManualCopied ? t('cursorBridge.copied') : t('cursorBridge.hookCopyManual')}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {hookStatus?.jsonc_refused && hookStatus.manual_entry ? (
+                    <div>
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[rgb(var(--muted))]">
+                        {t('cursorBridge.hookManualLabel')}
+                      </p>
+                      <pre
+                        data-testid="cursor-hook-manual"
+                        className="max-h-40 overflow-auto rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3 font-mono text-xs"
+                      >
+                        {hookStatus.manual_entry}
+                      </pre>
+                    </div>
+                  ) : null}
                 </div>
 
                 <p className="text-xs text-[rgb(var(--muted))]">{t('cursorBridge.fallbackNote')}</p>
