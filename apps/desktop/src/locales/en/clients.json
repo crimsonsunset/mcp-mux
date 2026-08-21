@@ -207,6 +207,6 @@
     "copy": "Copy config",
     "copied": "Copied",
     "keyOnceWarning": "The API key is shown only in this snippet. Store it in ~/.cursor/mcp.json now — McpMux cannot display it again.",
-    "fallbackNote": "Per-repo install via Workspaces remains available if you prefer not to use npx/mcp-remote."
+    "fallbackNote": "The snippet always targets http://127.0.0.1 (local gateway), even when Connections shows a public tunnel. Per-repo install via Workspaces remains available if you prefer not to use npx/mcp-remote."
   }
 }

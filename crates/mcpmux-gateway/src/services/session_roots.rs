@@ -17,6 +17,7 @@ use mcpmux_core::normalize_workspace_root;
 use tracing::{info, warn};
 
 use super::tool_discovery::ToolIndex;
+use super::window_identity::WindowKey;
 
 /// Thread-safe registry mapping `mcp-session-id` to the caller's reported
 /// workspace roots, plus the most recently resolved feature-set id so the
@@ -105,6 +106,14 @@ pub struct SessionRootsRegistry {
     /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext)
     /// so `mcpmux_search_tools` can reuse a session's resolved tool index.
     search_cache: Arc<DashMap<String, (u64, Arc<ToolIndex>)>>,
+    /// `window_key -> explicit workspace root` — survives session churn for
+    /// the life of the owning `mcp-remote` process. Only ever written from
+    /// an explicit claim (header pin or `set_workspace_root`), never from
+    /// probed roots or a deduction.
+    window_pins: DashMap<WindowKey, String>,
+    /// `session_id -> window_key` so session teardown and pin promotion can
+    /// both find the window without redoing the socket lookup.
+    session_window: DashMap<String, WindowKey>,
 }
 
 /// Split an `X-Mcpmux-Workspace-Set` header into normalized folder paths,
@@ -139,6 +148,34 @@ fn is_unexpanded_variable(value: &str) -> bool {
     value.contains("${")
 }
 
+/// Which explicit claim produced a pin, carried purely for log attribution.
+///
+/// The registry treats all three identically, but a field trace cannot: a
+/// header pin means Cursor's `${workspaceFolder}` substitution worked, while a
+/// meta-tool pin means it failed and an agent recovered by hand. Reading one as
+/// the other turns "did the bridge work?" into guesswork.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinSource {
+    /// The `X-Mcpmux-Workspace` request header, including a value held across
+    /// `initialize` until an `mcp-session-id` existed.
+    WorkspaceHeader,
+    /// A single-member `X-Mcpmux-Workspace-Set`, which names the active folder
+    /// unambiguously.
+    SingleCandidate,
+    /// The `mcpmux_set_workspace_root` meta tool.
+    MetaTool,
+}
+
+impl PinSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkspaceHeader => "X-Mcpmux-Workspace",
+            Self::SingleCandidate => "X-Mcpmux-Workspace-Set(single)",
+            Self::MetaTool => "mcpmux_set_workspace_root",
+        }
+    }
+}
+
 impl SessionRootsRegistry {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
@@ -153,6 +190,8 @@ impl SessionRootsRegistry {
             candidates: DashMap::new(),
             pending_candidates_by_client: DashMap::new(),
             search_cache: Arc::new(DashMap::new()),
+            window_pins: DashMap::new(),
+            session_window: DashMap::new(),
         })
     }
 
@@ -251,15 +290,19 @@ impl SessionRootsRegistry {
 
     /// Retrieve the (already-normalized) roots for a session, if any.
     ///
-    /// An explicit root pinned via the `X-Mcpmux-Workspace` header
-    /// ([`Self::set_pinned`]) takes precedence over — and entirely shadows —
-    /// the client's probed MCP roots. That single seam is what makes the
-    /// header authoritative everywhere `get` is consulted (resolver Tier 1,
+    /// Precedence: session pin (`X-Mcpmux-Workspace` / `set_workspace_root`)
+    /// then a remembered window pin, then probed MCP roots. The session pin
+    /// always wins so a genuine folder switch is never overridden by a
+    /// leftover window answer. That single seam is what makes an explicit
+    /// claim authoritative everywhere `get` is consulted (resolver Tier 1,
     /// the probe early-return, prompt-root derivation) without threading the
     /// header through any of those call paths.
     pub fn get(&self, session_id: &str) -> Option<Vec<String>> {
         if let Some(pinned) = self.pinned.get(session_id) {
             return Some(vec![pinned.clone()]);
+        }
+        if let Some(inherited) = self.window_pin_for_session(session_id) {
+            return Some(vec![inherited]);
         }
         self.map.get(session_id).map(|v| v.clone())
     }
@@ -274,7 +317,11 @@ impl SessionRootsRegistry {
     ///
     /// Logs at info on first pin, warn when the same session is re-pinned to a
     /// different root (Agents Window / shared-session cross-workspace clobber).
-    pub fn set_pinned(&self, session_id: &str, raw_root: &str) {
+    /// Both lines name `source` so a trace can separate a working header from a
+    /// manual recovery. Also copies the pin onto the session's window when one
+    /// is attached, so later sessions from the same `mcp-remote` process
+    /// inherit it.
+    pub fn set_pinned(&self, session_id: &str, raw_root: &str, source: PinSource) {
         let normalized = normalize_workspace_root(raw_root);
         if normalized.is_empty() {
             return;
@@ -287,18 +334,21 @@ impl SessionRootsRegistry {
                 %session_id,
                 previous = %previous.as_str(),
                 new = %normalized,
-                "[SessionRoots] X-Mcpmux-Workspace pin clobber — same session, different root",
+                source = source.as_str(),
+                "[SessionRoots] pin clobber — same session, different root",
             );
         } else {
             info!(
                 %session_id,
                 workspace_root = %normalized,
-                "[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header",
+                source = source.as_str(),
+                "[SessionRoots] pinned explicit workspace root",
             );
         }
         self.last_resolution.remove(session_id);
         self.search_cache.remove(session_id);
         self.pinned.insert(session_id.to_string(), normalized);
+        self.promote_pin_to_window(session_id);
     }
 
     /// Hold a workspace path for `client_id` until a session id exists.
@@ -325,14 +375,118 @@ impl SessionRootsRegistry {
         else {
             return false;
         };
-        self.set_pinned(session_id, &path);
+        self.set_pinned(session_id, &path, PinSource::WorkspaceHeader);
         true
     }
 
-    /// The explicit workspace root pinned for a session via the header, if any
-    /// (already normalized).
+    /// The explicit workspace root for a session, if any (already normalized).
+    ///
+    /// Includes a remembered window pin when this session has no header /
+    /// `set_workspace_root` claim of its own, so callers that treat "pinned"
+    /// as "we know the folder" (probe skip, candidate audit) honor durability
+    /// without a second code path.
     pub fn get_pinned(&self, session_id: &str) -> Option<String> {
+        if let Some(pinned) = self.pinned.get(session_id) {
+            return Some(pinned.clone());
+        }
+        self.window_pin_for_session(session_id)
+    }
+
+    /// Session-only pin, excluding a remembered window pin.
+    ///
+    /// Used by the middleware to decide "this request already has an explicit
+    /// claim" before attempting inheritance.
+    pub fn session_pin(&self, session_id: &str) -> Option<String> {
         self.pinned.get(session_id).map(|v| v.clone())
+    }
+
+    /// Associate `session_id` with a window so later pins and inherits can
+    /// find it without another socket lookup.
+    pub fn attach_window(&self, session_id: &str, key: WindowKey) {
+        self.session_window.insert(session_id.to_string(), key);
+    }
+
+    /// The window key attached to this session, if any.
+    pub fn window_key_for(&self, session_id: &str) -> Option<WindowKey> {
+        self.session_window.get(session_id).map(|key| *key)
+    }
+
+    /// Copy this session's explicit pin onto its window, if both exist.
+    ///
+    /// No-op when the session has no pin or no window — initialize often
+    /// pins before the peer socket has been mapped, and the next request
+    /// retries.
+    ///
+    /// Called from the request hot path (every request carrying a session pin
+    /// re-promotes), so an unchanged value skips both the write and the log.
+    /// Without that guard the durability this feature exists to provide would
+    /// only be observable as one log line per request.
+    pub fn promote_pin_to_window(&self, session_id: &str) {
+        let Some(key) = self.window_key_for(session_id) else {
+            return;
+        };
+        let Some(root) = self.pinned.get(session_id).map(|value| value.clone()) else {
+            return;
+        };
+        // Owned bool so the read guard drops before the insert below — see
+        // `record_resolution` for the self-deadlock this avoids.
+        let unchanged = self
+            .window_pins
+            .get(&key)
+            .is_some_and(|existing| *existing == root);
+        if unchanged {
+            return;
+        }
+        info!(
+            %session_id,
+            window_key = %key,
+            workspace_root = %root,
+            "[SessionRoots] window pin stored — later sessions from this process inherit it",
+        );
+        self.window_pins.insert(key, root);
+    }
+
+    /// Apply a remembered window pin to a session that has no explicit claim.
+    ///
+    /// Returns the inherited root when the window is live and the root passes
+    /// the candidate-set check (or no set was reported). Logs distinctly from
+    /// [`Self::set_pinned`] so field traces can tell a fresh pin from a reuse.
+    pub fn inherit_window_pin(&self, session_id: &str) -> Option<String> {
+        if self.pinned.contains_key(session_id) {
+            return None;
+        }
+        let root = self.window_pin_for_session(session_id)?;
+        info!(
+            %session_id,
+            workspace_root = %root,
+            window_key = ?self.window_key_for(session_id),
+            "[SessionRoots] inherited workspace pin from window",
+        );
+        self.last_resolution.remove(session_id);
+        self.search_cache.remove(session_id);
+        Some(root)
+    }
+
+    /// Window-scoped pin for `session_id`, or [`None`] if the window is dead,
+    /// the pin is missing, or the session's candidate set rejects it.
+    fn window_pin_for_session(&self, session_id: &str) -> Option<String> {
+        let key = self.window_key_for(session_id)?;
+        if !key.is_live() {
+            self.window_pins.remove(&key);
+            return None;
+        }
+        let root = self.window_pins.get(&key).map(|value| value.clone())?;
+        if !self.is_candidate(session_id, &root) {
+            warn!(
+                %session_id,
+                remembered_root = %root,
+                candidates = ?self.get_candidates(session_id),
+                "[SessionRoots] window pin is absent from X-Mcpmux-Workspace-Set — \
+                 inheritance skipped",
+            );
+            return None;
+        }
+        Some(root)
     }
 
     /// Record the calling window's full folder set from the
@@ -364,13 +518,9 @@ impl SessionRootsRegistry {
 
         if let [only] = parsed.as_slice() {
             // The active folder is always a member of the set, so a set of one
-            // names it outright — no guessing involved.
-            info!(
-                %session_id,
-                workspace_root = %only,
-                "[SessionRoots] single-folder X-Mcpmux-Workspace-Set — pinned without ambiguity",
-            );
-            self.set_pinned(session_id, only);
+            // names it outright — no guessing involved. `set_pinned` logs the
+            // pin itself with `source=X-Mcpmux-Workspace-Set(single)`.
+            self.set_pinned(session_id, only, PinSource::SingleCandidate);
         }
 
         match self.get_pinned(session_id) {
@@ -464,6 +614,15 @@ impl SessionRootsRegistry {
         self.pinned.remove(session_id);
         self.candidates.remove(session_id);
         self.search_cache.remove(session_id);
+        if let Some((_, key)) = self.session_window.remove(session_id) {
+            let still_used = self
+                .session_window
+                .iter()
+                .any(|entry| *entry.value() == key);
+            if !still_used && !key.is_live() {
+                self.window_pins.remove(&key);
+            }
+        }
     }
 
     /// Compare-and-set the session's resolved feature-set id. Returns `true`
@@ -636,7 +795,7 @@ mod tests {
         );
 
         reg.set("sess-1", [reported]);
-        reg.set_pinned("sess-1", pin_in);
+        reg.set_pinned("sess-1", pin_in, PinSource::WorkspaceHeader);
 
         // The pinned (header) root entirely shadows the probed root.
         assert_eq!(reg.get("sess-1"), Some(vec![pin_norm.to_string()]));
@@ -685,7 +844,7 @@ mod tests {
         let reg = SessionRootsRegistry::default();
         assert!(reg.record_resolution("sess-1", Some("fs-pending")));
         assert!(!reg.record_resolution("sess-1", Some("fs-pending")));
-        reg.set_pinned("sess-1", "/p");
+        reg.set_pinned("sess-1", "/p", PinSource::WorkspaceHeader);
         assert!(
             reg.record_resolution("sess-1", Some("fs-bound")),
             "pin must drop the cached PendingRoots resolution"
@@ -697,21 +856,21 @@ mod tests {
         let reg = SessionRootsRegistry::default();
         // Whitespace/garbage that normalizes to empty leaves no pin, so a
         // malformed header falls back to reported roots rather than denying.
-        reg.set_pinned("sess-1", "   ");
+        reg.set_pinned("sess-1", "   ", PinSource::WorkspaceHeader);
         assert!(reg.get_pinned("sess-1").is_none());
 
         #[cfg(windows)]
         let (pin_in, pin_norm) = ("file:///D:/Foo/", "d:\\foo");
         #[cfg(not(windows))]
         let (pin_in, pin_norm) = ("file:///home/u/Foo/", "/home/u/Foo");
-        reg.set_pinned("sess-1", pin_in);
+        reg.set_pinned("sess-1", pin_in, PinSource::WorkspaceHeader);
         assert_eq!(reg.get_pinned("sess-1"), Some(pin_norm.to_string()));
     }
 
     #[test]
     fn test_remove_clears_pinned() {
         let reg = SessionRootsRegistry::default();
-        reg.set_pinned("sess-1", "/p");
+        reg.set_pinned("sess-1", "/p", PinSource::WorkspaceHeader);
         assert!(reg.get_pinned("sess-1").is_some());
         reg.remove("sess-1");
         assert!(reg.get_pinned("sess-1").is_none());
@@ -871,5 +1030,93 @@ mod tests {
         // After remove, recording the same value should be considered a
         // change (no prior entry).
         assert!(reg.record_resolution("sess-1", Some("fs-a")));
+    }
+
+    #[test]
+    fn window_pin_survives_session_churn_for_live_process() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+        reg.attach_window("sess-1", key);
+        reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
+
+        reg.attach_window("sess-2", key);
+        assert_eq!(
+            reg.inherit_window_pin("sess-2"),
+            Some(CANDIDATES[0].to_string())
+        );
+        assert_eq!(reg.get("sess-2"), Some(vec![CANDIDATES[0].to_string()]));
+        assert!(
+            reg.session_pin("sess-2").is_none(),
+            "inherit must not copy into the session pin — a later header must still win"
+        );
+    }
+
+    #[test]
+    fn repinning_a_session_moves_the_window_pin() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+        reg.attach_window("sess-1", key);
+        reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
+        reg.set_pinned("sess-1", CANDIDATES[1], PinSource::MetaTool);
+
+        reg.attach_window("sess-2", key);
+        assert_eq!(
+            reg.inherit_window_pin("sess-2"),
+            Some(CANDIDATES[1].to_string()),
+            "the window must remember the newest explicit claim, not the first"
+        );
+    }
+
+    #[test]
+    fn explicit_session_pin_beats_window_pin() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+        reg.attach_window("sess-1", key);
+        reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
+        reg.attach_window("sess-2", key);
+        reg.set_pinned("sess-2", CANDIDATES[1], PinSource::WorkspaceHeader);
+        assert_eq!(reg.get("sess-2"), Some(vec![CANDIDATES[1].to_string()]));
+        assert_eq!(
+            reg.session_pin("sess-2"),
+            Some(CANDIDATES[1].to_string()),
+            "live header must win over the remembered window answer"
+        );
+    }
+
+    #[test]
+    fn inherit_refuses_when_remembered_root_not_in_candidate_set() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+        reg.attach_window("sess-1", key);
+        reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
+        reg.attach_window("sess-2", key);
+        let set = format!("{},{}", CANDIDATES[1], CANDIDATES[2]);
+        reg.set_candidates("sess-2", &set);
+        assert!(reg.inherit_window_pin("sess-2").is_none());
+        assert!(reg.get_pinned("sess-2").is_none());
+    }
+
+    #[test]
+    fn inherit_skipped_without_window_key() {
+        let reg = SessionRootsRegistry::default();
+        assert!(reg.inherit_window_pin("sess-1").is_none());
+        assert!(reg.window_key_for("sess-1").is_none());
+    }
+
+    #[test]
+    fn dead_window_pin_is_evicted_on_read_and_remove() {
+        let reg = SessionRootsRegistry::default();
+        let dead = WindowKey::from_pid(u32::MAX);
+        reg.attach_window("sess-1", dead);
+        reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
+        reg.attach_window("sess-2", dead);
+        assert!(
+            reg.inherit_window_pin("sess-2").is_none(),
+            "dead PID must not inherit"
+        );
+        reg.remove("sess-1");
+        reg.remove("sess-2");
+        reg.attach_window("sess-3", dead);
+        assert!(reg.inherit_window_pin("sess-3").is_none());
     }
 }

@@ -23,6 +23,7 @@ mod server_version_probe;
 mod session_roots;
 mod space_resolver;
 pub mod tool_discovery;
+mod window_identity;
 
 pub use authorization::AuthorizationService;
 pub use client_metadata_service::ClientMetadataService;
@@ -49,8 +50,9 @@ pub use server_version_probe::update_policy_parsing as server_update_policy_pars
 pub use server_version_probe::{
     ServerVersionProbeResult, ServerVersionProbeService, ServerVersionProbeSummary,
 };
-pub use session_roots::SessionRootsRegistry;
+pub use session_roots::{PinSource, SessionRootsRegistry};
 pub use space_resolver::SpaceResolverService;
 pub use tool_discovery::{
     DetailLevel, SearchContext, ToolDiscoveryService, ToolIndex, ToolIndexEntry,
 };
+pub use window_identity::{resolve_window_key, WindowKey};

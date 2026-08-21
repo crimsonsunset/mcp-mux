@@ -23,7 +23,9 @@ use mcpmux_core::{
     normalize_workspace_root, FeatureSet, FeatureSetRepository, Machine, MachineRepository, Space,
     SpaceBaseDirRepository, SpaceRepository, WorkspaceBinding, WorkspaceBindingRepository,
 };
-use mcpmux_gateway::services::{FeatureSetResolverService, ResolutionSource, SessionRootsRegistry};
+use mcpmux_gateway::services::{
+    FeatureSetResolverService, PinSource, ResolutionSource, SessionRootsRegistry,
+};
 use mcpmux_storage::{
     Database, InboundClient, InboundClientRepository, RegistrationType, SqliteFeatureSetRepository,
     SqliteMachineRepository, SqliteSpaceBaseDirRepository, SqliteSpaceRepository,
@@ -771,7 +773,8 @@ async fn roots_capable_multi_root_session_unblocked_by_pinned_header() {
 
     f.session_roots.set("s", [root_a, root_b]);
     f.session_roots.set_roots_capable("s", true);
-    f.session_roots.set_pinned("s", root_b);
+    f.session_roots
+        .set_pinned("s", root_b, PinSource::WorkspaceHeader);
 
     let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
@@ -1053,7 +1056,8 @@ async fn pinned_header_root_routes_to_binding_without_any_reported_roots() {
         .unwrap();
 
     f.session_roots.set_roots_capable("s", false); // client says it has no roots
-    f.session_roots.set_pinned("s", test_root()); // ...but the header pins one
+    f.session_roots
+        .set_pinned("s", test_root(), PinSource::WorkspaceHeader); // ...but the header pins one
 
     let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
@@ -1091,7 +1095,8 @@ async fn pinned_header_root_overrides_a_conflicting_reported_root() {
 
     f.session_roots.set("s", [reported]);
     f.session_roots.set_roots_capable("s", true);
-    f.session_roots.set_pinned("s", pinned);
+    f.session_roots
+        .set_pinned("s", pinned, PinSource::WorkspaceHeader);
 
     let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
@@ -1137,7 +1142,8 @@ async fn header_takes_priority_but_reported_roots_still_map_without_one() {
     assert_eq!(reported.feature_set_ids, vec![f.fs_a_id.clone()]);
 
     // Pin a header root for a different folder → it takes priority (FS B).
-    f.session_roots.set_pinned("s", root_b);
+    f.session_roots
+        .set_pinned("s", root_b, PinSource::WorkspaceHeader);
     let pinned = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(pinned.source, ResolutionSource::WorkspaceBinding);
     assert_eq!(pinned.feature_set_ids, vec![f.fs_b_id.clone()]);
@@ -1148,7 +1154,8 @@ async fn pinned_header_root_without_binding_is_unbound() {
     // A pinned header root with no binding is Tier 1b — deny by default.
     // Upstream emits WorkspaceNeedsBinding so the user can attach a mapping.
     let f = Fixture::new().await;
-    f.session_roots.set_pinned("s", test_root());
+    f.session_roots
+        .set_pinned("s", test_root(), PinSource::WorkspaceHeader);
     let r = f.resolver.resolve(Some("s"), None, None).await.unwrap();
     assert_eq!(r.source, ResolutionSource::Unbound);
     assert!(r.feature_set_ids.is_empty());

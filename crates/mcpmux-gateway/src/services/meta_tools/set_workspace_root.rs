@@ -18,6 +18,7 @@ use tracing::warn;
 
 use super::meta_tool_common::{emit_tools_list_changed, text_result};
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
+use crate::services::PinSource;
 
 pub struct SetWorkspaceRootTool;
 
@@ -29,11 +30,11 @@ impl MetaTool for SetWorkspaceRootTool {
 
     fn description(&self) -> &'static str {
         "Emergency escape hatch: manually declare this session's workspace root when \
-         the automatic roots/list probe is not working (e.g. Cursor reports the MCP \
-         roots capability but never responds to list_roots). Injects the given path \
-         into the session registry and re-resolves the FeatureSet binding — all bound \
-         servers become available immediately without restarting. Use when \
-         mcpmux_list_servers shows readiness: bindable for all servers despite a \
+         the automatic roots/list probe is not working or Cursor failed to substitute \
+         ${workspaceFolder}. Injects the given path into the session registry and \
+         re-resolves the FeatureSet binding. The pin also sticks to this Cursor window \
+         (the mcp-remote process) so a Reload MCP does not need a second call. Use \
+         when mcpmux_list_servers shows readiness: bindable for all servers despite a \
          workspace binding already existing in McpMux."
     }
 
@@ -102,6 +103,11 @@ impl MetaTool for SetWorkspaceRootTool {
         call.ctx
             .session_roots
             .set(session_id, std::iter::once(normalized.as_str()));
+        // Explicit claim — also the session pin, which promotes to the window
+        // so the next session from this mcp-remote process inherits it.
+        call.ctx
+            .session_roots
+            .set_pinned(session_id, &normalized, PinSource::MetaTool);
 
         let resolved = call
             .ctx

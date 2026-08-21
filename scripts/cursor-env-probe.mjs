@@ -53,9 +53,8 @@ export function printSwapRecipe(logPath = defaultProbeLogPath()) {
           '--header',
           'X-Mcpmux-Workspace-Set:${WORKSPACE_FOLDER_PATHS}',
           '--header',
-          'Authorization:Bearer ${MCPMUX_API_KEY}',
+          'Authorization:Bearer <your mcpk_ key>',
         ],
-        env: { MCPMUX_API_KEY: '<your mcpk_ key>' },
       },
     },
   };

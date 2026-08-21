@@ -68,7 +68,7 @@ Cursor happened to report — the bug.
 
 **Verify in logs** (`%LOCALAPPDATA%\com.mcpmux.desktop\logs\mcpmux.<date>.log`):
 
-- `[SessionRoots] pinned explicit workspace root from X-Mcpmux-Workspace header`
+- `[SessionRoots] pinned explicit workspace root source=X-Mcpmux-Workspace`
   with the right path per session.
 - `[FeatureSetResolver] resolved via WorkspaceBinding workspace_root=d:\proj\alpha`
   (and `…\beta`) — note the header path wins even if Cursor also reports a

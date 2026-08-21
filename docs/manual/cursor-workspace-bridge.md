@@ -47,9 +47,18 @@ Check the McpMux log (macOS:
 `~/Library/Application Support/com.mcpmux.desktop/logs/mcpmux.<date>.log`):
 
 - `[SessionRoots] X-Mcpmux-Workspace held until mcp-session-id exists` on
-  initialize, then `pinned explicit workspace root from X-Mcpmux-Workspace header`
+  initialize, then `pinned explicit workspace root source=X-Mcpmux-Workspace`
   with the correct path per session. A non-empty header without a session id
-  is held, not skipped.
+  is held, not skipped. `source` distinguishes a working header from a manual
+  `source=mcpmux_set_workspace_root` recovery and from a one-member
+  `source=X-Mcpmux-Workspace-Set(single)` — the whole question this log answers.
+- `[SessionRoots] window identity from peer socket window_key=pid:…` once per
+  session. The same PID should cover that window's later sessions (Reload MCP
+  included, if `mcp-remote` did not respawn).
+- `[SessionRoots] window pin stored` once per distinct claim, naming the
+  `window_key` that will inherit it. Absence after a pin means the peer socket
+  had no owning PID yet, so nothing will survive session churn.
+- `→ MCP` lines include `window_key=pid:…` next to `session_id`.
 - `[FeatureSetResolver] resolved via WorkspaceBinding workspace_root=…` matching
   each window's folder.
 
@@ -60,7 +69,9 @@ appear in a healthy two-window run:
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `X-Mcpmux-Workspace-Set arrived unexpanded`         | Cursor mangled `${WORKSPACE_FOLDER_PATHS}` instead of passing it to `mcp-remote`. No candidate set, so routing degrades to pre-set-header behavior.              |
 | `pinned root is absent from X-Mcpmux-Workspace-Set` | The active folder isn't a member of the reported set. This violates the invariant the constraint rests on; `set_workspace_root` will start refusing valid roots. |
-| `no pinned root and multiple folders open`          | The 16% case. Expected occasionally; the session needs one `mcpmux_set_workspace_root` call.                                                                     |
+| `no pinned root and multiple folders open`          | The 16% case. Expected occasionally; the session needs one `mcpmux_set_workspace_root` call. After that call, Reload MCP should log `inherited workspace pin from window` instead of this warn again. |
+| `inherited workspace pin from window`               | Healthy. This session had no header; the window's previous explicit pin was reused.                                                                              |
+| `window pin is absent from X-Mcpmux-Workspace-Set`  | The remembered folder is not in this session's open set — inheritance skipped rather than misrouting.                                                            |
 
 ## 4. Bridge flags sanity check
 
@@ -72,7 +83,15 @@ Confirm the generated config includes:
 - `--header X-Mcpmux-Workspace-Set:${WORKSPACE_FOLDER_PATHS}`. Not a Cursor
   variable, so it passes through untouched and `mcp-remote` expands it from the
   child environment. Carries every folder open in the calling window.
-- `Authorization:Bearer ${MCPMUX_API_KEY}` with the key in `env.MCPMUX_API_KEY`.
+- `Authorization:Bearer mcpk_…` with the key **inlined**, not referenced through
+  `env.MCPMUX_API_KEY`. The two workspace headers have to be variables because
+  they differ per window; the key is a constant, and routing it through `env`
+  only exposed auth to the same substitution flake. A respawn was observed
+  sending the literal `${MCPMUX_API_KEY}`, which the gateway 401s with
+  `Authorization header contains an unexpanded ${...} template` while Cursor
+  reports nothing but `Timed out waiting for connection`. If you see that 401,
+  regenerate the snippet (Connections → Global Cursor setup) — an older config
+  still using `env` is the cause.
 
 To verify `mcp-remote` accepts these flags outside Cursor:
 
@@ -120,6 +139,34 @@ infer from position. What it does instead:
   calls `mcpmux_set_workspace_root`, which is now validated against the set so a
   caller can't declare a folder its window doesn't have open.
 
+## Window pin
+
+An explicit claim — a substituted `X-Mcpmux-Workspace` header, or one
+`mcpmux_set_workspace_root` call — is remembered for the life of that window's
+`mcp-remote` process (loopback peer port → owning PID). Later sessions from the
+same process inherit it. A live header on a new session always wins, so a
+folder switch is never overridden by the leftover answer.
+
+Grep:
+
+```
+[SessionRoots] window identity
+[SessionRoots] window pin stored
+[SessionRoots] inherited workspace pin from window
+[SessionRoots] X-Mcpmux-Workspace present but empty
+```
+
+The first two are the write side, the third is the read side. Seeing `window
+pin stored` but never an inherit line means the process died between sessions;
+seeing neither means the claim never reached a window at all.
+
+A Reload MCP that still shows the empty-header warn (and not an inherit line)
+means the process died and there was nothing to inherit. One `set_workspace_root`
+covers the new process.
+
+Remote / tunnel clients have no local PID and keep today's per-session
+behavior.
+
 To avoid the whole class of problem, use the per-repo install in
 [`workspace-header-routing.md`](./workspace-header-routing.md) section B. It
 writes a literal path into `.cursor/mcp.json` with no variable to substitute,
@@ -135,7 +182,8 @@ The 21% / 29% / 4% figures above came from a 282-spawn `env-probe` wrap of
 1. `pnpm probe:cursor-env` prints a `~/.cursor/mcp.json` snippet. `command` is
    `node`; the first arg is the absolute path to
    [`scripts/cursor-env-probe.mjs`](../../scripts/cursor-env-probe.mjs). Paste
-   it over the existing `mcpmux` entry (keep your real `MCPMUX_API_KEY`).
+   it over the existing `mcpmux` entry, substituting your real `mcpk_` key for
+   the placeholder in the `Authorization` header.
 2. Reload MCP. Use editor and Agents windows until you have hundreds of
    spawns. Each spawn appends one record to
    `$HOME/Desktop/mcpmux-env-probe.log` (override with `MCPMUX_ENV_PROBE_LOG`),

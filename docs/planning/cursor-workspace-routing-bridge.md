@@ -104,7 +104,7 @@ Cursor's own docs claim `${workspaceFolder}` resolves in the `command`/`args`/`e
 | 1 | Bridge implementation | **`mcp-remote`** (existing npm package, `npx mcp-remote`), not a first-party McpMux binary | Already solves stdio↔remote-HTTP bridging with a `--header` flag that supports arbitrary custom headers. Building our own binary duplicates it for no gain unless `mcp-remote` proves unreliable in practice (Phase 1 spike decides this). |
 | 2 | Workspace signal | `${workspaceFolder}` passed inline inside a `--header` value in the bridge's `args`, e.g. `--header X-Mcpmux-Workspace:${workspaceFolder}` | The better of the two interpolation paths (`args`/`command`), versus the worse one (`headers` on a native remote entry). No space around the `:` to dodge Cursor's known arg-escaping bug with `npx`. **Measured at 21% failure** (Aug 20), so it can't be the only signal — see decision 6. |
 | 6 | Fallback signal (added Aug 20, 2026) | Also send `${WORKSPACE_FOLDER_PATHS}` as `X-Mcpmux-Workspace-Set`, and treat it purely as a **constraint** | Not a Cursor variable, so it survives to `mcp-remote`, which expands it from the child env — it arrives even when `${workspaceFolder}` didn't. The active folder is always a member (212/212) but its position is right only 70% of the time, so the set may bound and disambiguate, never select. Rejected alternatives: first-entry heuristic (30% credential misroute), `CURSOR_WORKSPACE_LABEL` (stale), per-window process identity (`VSCODE_PID`/`VSCODE_IPC_HOOK` are app-level), FeatureSet union across roots (defeats isolation). |
-| 3 | Auth | Static `mcpk_` API-key header (`Authorization: Bearer mcpk_...`) via a second `--header` flag, not OAuth-through-the-bridge | `mcp-remote` does its own OAuth dance if no static header is given, which is one more auth surface to reason about. The API-key auth path shipped in `upstream-client-mapping-reconciliation.md` Phase 1 exists for exactly this kind of headless/remote-client case. |
+| 3 | Auth | Static `mcpk_` API-key header (`Authorization: Bearer mcpk_...`) via a second `--header` flag, not OAuth-through-the-bridge. The key is **inlined in `args`**, not referenced via `env.MCPMUX_API_KEY` (corrected Aug 20, 2026) | `mcp-remote` does its own OAuth dance if no static header is given, which is one more auth surface to reason about. The API-key auth path shipped in `upstream-client-mapping-reconciliation.md` Phase 1 exists for exactly this kind of headless/remote-client case. The original `env` indirection was removed after a respawn sent the literal `${MCPMUX_API_KEY}` and 401'd every window: the key and the `env` block sat in the same file at the same permissions, so the hop bought no secrecy while exposing auth to the same substitution flake as the workspace headers. A constant does not need to be a variable. |
 | 4 | Relationship to existing per-repo install | **Keep both** — the global bridge is the recommended setup for single-folder windows; the per-repo `.cursor/mcp.json` header install (`workspace_install.rs`) is the recommended setup for multi-root windows, not merely a fallback | Original rationale (don't replace a tested mechanism with an unverified one) held up, and the Aug 20 measurement sharpened the split: the per-repo install writes a literal path with no variable to substitute, so it is the *only* path immune to the 21% flake. Revisit whether the UI should say so. Blocker first: it writes the bearer token into a repo-local file with no `.gitignore` entry. |
 | 5 | Scope of client support | Cursor only — no changes for VS Code, Claude Code, or other clients | Those clients already route correctly via standard `roots` reporting (confirmed in `docs/manual/workspace-header-routing.md`: "VS Code / Claude Code are good controls — they already route correctly via roots"). This is a Cursor-specific spec-compliance gap, not a general McpMux limitation. |
 
@@ -125,7 +125,7 @@ Cursor's own docs claim `${workspaceFolder}` resolves in the `command`/`args`/`e
 | First-party McpMux bridge binary (replacing `mcp-remote`) | Decision 1 — only worth building if the Phase 1 spike finds `mcp-remote` unreliable or insufficient. Not blocking this feature. |
 | Cursor/VS Code extension reading `vscode.workspace.workspaceFolders` directly | Disproportionate effort (a whole editor extension) for a gap that's isolated to one client's `roots` implementation. Revisit only if this class of bug recurs across other clients. |
 | Deprecating/removing the per-repo `.cursor/mcp.json` install panel | Decision 4 — stays as a supported fallback indefinitely, not a transitional shim to delete later. |
-| Gateway-side process-tree introspection to infer workspace without any client config | Dead end — the gateway sees a TCP connection over streamable HTTP, not a spawned child process; there's no PID to walk. Not pursued. |
+| Gateway-side process-tree introspection to infer the *folder* without any client config | Half-wrong. Loopback source port → owning PID is real (`ConnectInfo` + `netstat2`; see [`window-scoped-workspace-pin.md`](./window-scoped-workspace-pin.md)). What stays dead is using that PID to *discover* the folder: SIP blocks cross-process env reads, and PPID/`VSCODE_PID` are app-level (all windows share one extension host). The PID is a window key only — it makes an explicit pin outlive the session, it does not pick a folder. |
 
 ---
 
@@ -162,9 +162,9 @@ Cursor resolves `${workspaceFolder}` to the active window's project root *before
         "http://localhost:45818/mcp",
         "--allow-http",
         "--header", "X-Mcpmux-Workspace:${workspaceFolder}",
-        "--header", "Authorization:Bearer ${MCPMUX_API_KEY}"
-      ],
-      "env": { "MCPMUX_API_KEY": "mcpk_..." }
+        "--header", "X-Mcpmux-Workspace-Set:${WORKSPACE_FOLDER_PATHS}",
+        "--header", "Authorization:Bearer mcpk_..."
+      ]
     }
   }
 }
@@ -255,3 +255,4 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 - [`docs/planning/per-device-machine-header.md`](./per-device-machine-header.md) — prior art for a header-based routing signal (`X-Mcpmux-Machine-Id`), same pattern applied to a different axis
 - [`docs/planning/pool-invalidation-and-session-survival.md`](./pool-invalidation-and-session-survival.md) — hold-then-pin for non-empty `X-Mcpmux-Workspace` without session id (`dcc2977`)
 - [`docs/planning/resilience-routing-leftovers.md`](./resilience-routing-leftovers.md) — the empty-header/Agents-window open question here is item 1 in that doc's next-work list
+- [`docs/planning/window-scoped-workspace-pin.md`](./window-scoped-workspace-pin.md) — explicit pins now outlive `mcp-session-id` for a loopback window
