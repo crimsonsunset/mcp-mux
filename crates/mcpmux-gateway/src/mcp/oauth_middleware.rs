@@ -481,14 +481,30 @@ fn attach_window_identity(services: &ServiceContainer, session_id: &str, peer: O
 
 /// Promote an explicit session pin to the window, or inherit a remembered one.
 ///
-/// The empty-header warn only fires when inheritance also failed — a reused
-/// window pin is the recovery, not another prompt.
+/// An empty header is a failed substitution, not "reuse the last pin." Drop
+/// the session claim and skip window inherit so a sibling window on the
+/// shared `mcp-session-id` cannot keep resolving through the previous root.
 fn resolve_window_pin(
     services: &ServiceContainer,
     session_id: &str,
     empty_workspace_header: bool,
     trace_id: &str,
 ) {
+    if empty_workspace_header {
+        services.session_roots.forget_empty_header_claim(session_id);
+        warn!(
+            trace_id = %trace_id,
+            session_id,
+            "[SessionRoots] X-Mcpmux-Workspace present but empty — pin cleared \
+             (Cursor did not substitute ${{workspaceFolder}} before spawning \
+             mcp-remote, which then expanded the unresolved literal to empty). \
+             Affects editor and Agents windows alike; recover with \
+             mcpmux_set_workspace_root, or install a per-repo static header to \
+             avoid substitution entirely — \
+             see docs/manual/cursor-workspace-bridge.md Fallback",
+        );
+        return;
+    }
     if services.session_roots.session_pin(session_id).is_some() {
         services.session_roots.promote_pin_to_window(session_id);
         return;
@@ -499,19 +515,6 @@ fn resolve_window_pin(
         .is_some()
     {
         return;
-    }
-    if empty_workspace_header {
-        warn!(
-            trace_id = %trace_id,
-            session_id,
-            "[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped \
-             (Cursor did not substitute ${{workspaceFolder}} before spawning \
-             mcp-remote, which then expanded the unresolved literal to empty). \
-             Affects editor and Agents windows alike; recover with \
-             mcpmux_set_workspace_root, or install a per-repo static header to \
-             avoid substitution entirely — \
-             see docs/manual/cursor-workspace-bridge.md Fallback",
-        );
     }
 }
 

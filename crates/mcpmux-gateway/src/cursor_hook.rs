@@ -47,8 +47,20 @@ fn script_path() -> Result<PathBuf, String> {
     Ok(cursor_dir()?.join("hooks").join(SCRIPT_NAME))
 }
 
+fn shell_quote(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", raw.replace('"', "\"\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", raw.replace('\'', "'\\''"))
+    }
+}
+
 fn hook_command(script: &Path) -> String {
-    format!("node {}", script.display())
+    format!("node {}", shell_quote(script))
 }
 
 fn managed_entry(script: &Path) -> Value {
@@ -306,5 +318,94 @@ pub fn uninstall() -> CursorHookResult {
         error: None,
         jsonc_refused: false,
         manual_entry: manual_entry_text(&script),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use std::path::PathBuf;
+
+    fn script() -> PathBuf {
+        PathBuf::from("/Users/Test User/.cursor/hooks/mcpmux-workspace-context.js")
+    }
+
+    #[test]
+    fn hook_command_quotes_spaces() {
+        let cmd = hook_command(&script());
+        assert!(
+            cmd.contains("'") || cmd.contains('"'),
+            "path with a space must be quoted: {cmd}"
+        );
+        assert!(cmd.contains(SCRIPT_NAME));
+    }
+
+    #[test]
+    fn merge_preserves_unrelated_hooks() {
+        let existing = r#"{
+            "version": 1,
+            "hooks": {
+                "preToolUse": [
+                    { "command": "npx wakatime-hook", "matcher": ".*" }
+                ]
+            }
+        }"#;
+        let out = merge_pre_tool_use(Some(existing), &script()).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let list = v["hooks"]["preToolUse"].as_array().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0]["command"], "npx wakatime-hook");
+        assert!(list[1]["command"].as_str().unwrap().contains(SCRIPT_NAME));
+    }
+
+    #[test]
+    fn merge_replaces_managed_entry_once() {
+        let existing = merge_pre_tool_use(None, &script()).unwrap();
+        let again = merge_pre_tool_use(Some(&existing), &script()).unwrap();
+        let v: Value = serde_json::from_str(&again).unwrap();
+        assert_eq!(v["hooks"]["preToolUse"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn merge_rejects_jsonc_and_non_object_shapes() {
+        let script = script();
+        assert!(merge_pre_tool_use(Some("{ // comment\n}"), &script).is_err());
+        assert!(merge_pre_tool_use(Some("[1]"), &script).is_err());
+        assert!(merge_pre_tool_use(Some(r#"{ "hooks": [] }"#), &script).is_err());
+        assert!(merge_pre_tool_use(Some(r#"{ "hooks": { "preToolUse": {} } }"#), &script).is_err());
+    }
+
+    #[test]
+    fn uninstall_keeps_other_entries() {
+        let existing = merge_pre_tool_use(
+            Some(r#"{ "hooks": { "preToolUse": [{ "command": "other" }] } }"#),
+            &script(),
+        )
+        .unwrap();
+        let removed = remove_managed_entry(&existing, &script()).unwrap();
+        let v: Value = serde_json::from_str(&removed).unwrap();
+        let list = v["hooks"]["preToolUse"].as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["command"], "other");
+    }
+
+    #[test]
+    fn write_with_backup_copies_existing() {
+        let tmp = std::env::temp_dir().join(format!(
+            "mcpmux-hook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("hooks.json");
+        std::fs::write(&path, "{}").unwrap();
+        let bak = write_with_backup(&path, "{\"ok\":true}").unwrap();
+        assert!(bak.is_some());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"ok\":true}");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

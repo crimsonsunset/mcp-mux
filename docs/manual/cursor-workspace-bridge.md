@@ -43,7 +43,8 @@ That writes `~/.cursor/hooks/mcpmux-workspace-context.js` and merges one
 `preToolUse` entry into `~/.cursor/hooks.json` (backup: `hooks.json.mcpmux-bak`).
 Unrelated hooks (including WakaTime) stay. If `hooks.json` is JSONC, the
 installer refuses and shows a copyable entry. Status / install / uninstall are
-`GET|POST /api/v1/cursor-hook` on the admin server, not Tauri-only.
+`GET /api/v1/cursor-hook`, `POST /api/v1/cursor-hook/install`, and
+`POST /api/v1/cursor-hook/uninstall` on the admin server, not Tauri-only.
 
 The hook injects `_mcpmux_context` on `MCP:mcpmux_*` calls when
 `workspace_roots` has exactly one path. The gateway uses that root for that

@@ -9,7 +9,7 @@
  * Usage:
  *   pnpm probe:cursor-env
  *   node scripts/cursor-env-probe.mjs --help
- *   node scripts/cursor-env-probe.mjs -y mcp-remote http://127.0.0.1:45818/mcp …
+ *   node scripts/cursor-env-probe.mjs npx -y mcp-remote http://127.0.0.1:45818/mcp …
  *
  * Log default: $HOME/Desktop/mcpmux-env-probe.log
  * Override:    MCPMUX_ENV_PROBE_LOG
@@ -44,6 +44,7 @@ export function printSwapRecipe(logPath = defaultProbeLogPath()) {
         command: 'node',
         args: [
           SCRIPT_PATH,
+          'npx',
           '-y',
           'mcp-remote',
           'http://127.0.0.1:45818/mcp',
@@ -72,6 +73,26 @@ ${JSON.stringify(snippet, null, 2)}
 }
 
 /**
+ * Replace bearer tokens and similar secrets in a logged argv entry.
+ * @param {string} arg
+ * @returns {string}
+ */
+export function redactArg(arg) {
+  return arg.replace(/(Bearer\s+)\S+/gi, '$1<redacted>');
+}
+
+/**
+ * Whether an environment variable name looks like a secret.
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function isSecretEnvKey(key) {
+  return /token|secret|password|passwd|api[_-]?key|authorization|credential|bearer|mcpk/i.test(
+    key
+  );
+}
+
+/**
  * Build one spawn record in the format the summarizer parses.
  * @param {string[]} argv
  * @param {NodeJS.ProcessEnv} env
@@ -82,11 +103,12 @@ ${JSON.stringify(snippet, null, 2)}
 export function formatProbeRecord(argv, env, cwd, now = new Date()) {
   const lines = [`=== ${now.toISOString()} ===`, '--- argv ---'];
   argv.forEach((arg, i) => {
-    lines.push(`[${i}] ${arg}`);
+    lines.push(`[${i}] ${redactArg(arg)}`);
   });
   lines.push('--- env (sorted) ---');
   for (const key of Object.keys(env).sort()) {
-    lines.push(`${key}=${env[key] ?? ''}`);
+    const value = isSecretEnvKey(key) ? '<redacted>' : (env[key] ?? '');
+    lines.push(`${key}=${value}`);
   }
   lines.push('--- pwd ---', cwd, '');
   return `${lines.join('\n')}\n`;

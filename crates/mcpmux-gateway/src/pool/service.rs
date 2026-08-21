@@ -277,19 +277,24 @@ impl PoolService {
         }
     }
 
+    /// Per-(space, server) lock shared by connect and reconnect_fresh.
+    fn connect_lock(&self, space_id: Uuid, server_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.connect_locks
+            .entry((space_id, server_id.to_string()))
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
     /// Connect a server for a space
     pub async fn connect_server(&self, ctx: &ConnectionContext) -> ConnectionResult {
-        let key = (ctx.space_id, ctx.server_id.to_string());
-
-        // Single-flight per key: the late caller waits, then reuses the
-        // winner's instance via the health check below instead of racing it.
-        // (Clone the Arc out so the DashMap entry guard drops before .await.)
-        let connect_lock = self
-            .connect_locks
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
+        let connect_lock = self.connect_lock(ctx.space_id, &ctx.server_id);
         let _connect_guard = connect_lock.lock().await;
+        self.connect_server_locked(ctx).await
+    }
+
+    /// Body of [`Self::connect_server`] after the per-key lock is held.
+    async fn connect_server_locked(&self, ctx: &ConnectionContext) -> ConnectionResult {
+        let key = (ctx.space_id, ctx.server_id.to_string());
 
         // Check for existing instance. Clone the Arc out of the DashMap so
         // no shard guard is held across the reconnect `.await` below.
@@ -482,8 +487,10 @@ impl PoolService {
     /// `reconnect_after_oauth` and will not mis-route stdio backends to HTTP.
     pub async fn reconnect_fresh(&self, ctx: &ConnectionContext) -> ConnectionResult {
         let started = Instant::now();
+        let connect_lock = self.connect_lock(ctx.space_id, &ctx.server_id);
+        let _connect_guard = connect_lock.lock().await;
         self.remove_instance(ctx.space_id, &ctx.server_id);
-        let result = self.connect_server(ctx).await;
+        let result = self.connect_server_locked(ctx).await;
         info!(
             server_id = %ctx.server_id,
             space_id = %ctx.space_id,

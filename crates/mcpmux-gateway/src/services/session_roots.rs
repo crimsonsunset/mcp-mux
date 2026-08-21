@@ -84,14 +84,11 @@ pub struct SessionRootsRegistry {
     pinned: DashMap<String, String>,
     /// `session_id -> which claim produced the current [`Self::pinned`] entry.
     ///
-    /// Read by [`Self::promote_pin_to_window`] to decide whether the pin is
-    /// safe to make durable: a header or single-candidate pin is itself proof
-    /// the calling process serves exactly one window, but a `set_workspace_root`
-    /// call carries no such proof — the global Cursor bridge shares one
-    /// `mcp-remote` process (and one `mcp-session-id`) across every open
-    /// window, so a meta-tool pin issued into that shared session with no
-    /// corroborating single-folder candidate set could be *any* window's
-    /// agent, not the one whose process key we'd be writing.
+    /// Read by [`Self::promote_pin_to_window`]. A header proves the root for
+    /// that request, not that the `mcp-remote` PID serves one window — Cursor
+    /// shares that process across every open window. Only a one-member
+    /// candidate set (or a `SingleCandidate` pin, which is that set) is
+    /// allowed to become a process-scoped window pin.
     pinned_source: DashMap<String, PinSource>,
     /// `client_id -> workspace path` held when `X-Mcpmux-Workspace` arrived
     /// before `mcp-session-id` (initialize). Applied on the first request
@@ -125,6 +122,10 @@ pub struct SessionRootsRegistry {
     /// `session_id -> window_key` so session teardown and pin promotion can
     /// both find the window without redoing the socket lookup.
     session_window: DashMap<String, WindowKey>,
+    /// Sessions whose current request sent an empty `X-Mcpmux-Workspace`.
+    /// `get` / `window_pin_for_session` skip the remembered window pin so a
+    /// sibling window on the shared `mcp-session-id` cannot keep A's folder.
+    inherit_suppressed: DashMap<String, ()>,
 }
 
 /// Split an `X-Mcpmux-Workspace-Set` header into normalized folder paths,
@@ -204,6 +205,7 @@ impl SessionRootsRegistry {
             search_cache: Arc::new(DashMap::new()),
             window_pins: DashMap::new(),
             session_window: DashMap::new(),
+            inherit_suppressed: DashMap::new(),
         })
     }
 
@@ -359,9 +361,24 @@ impl SessionRootsRegistry {
         }
         self.last_resolution.remove(session_id);
         self.search_cache.remove(session_id);
+        self.inherit_suppressed.remove(session_id);
         self.pinned.insert(session_id.to_string(), normalized);
         self.pinned_source.insert(session_id.to_string(), source);
         self.promote_pin_to_window(session_id);
+    }
+
+    /// Drop this session's pin and skip window-pin inheritance.
+    ///
+    /// An empty `X-Mcpmux-Workspace` means this request has no workspace
+    /// claim. Clearing only the session pin is not enough: [`Self::get`]
+    /// would still return a remembered window pin. Suppression lasts until
+    /// the next explicit [`Self::set_pinned`].
+    pub fn forget_empty_header_claim(&self, session_id: &str) {
+        self.pinned.remove(session_id);
+        self.pinned_source.remove(session_id);
+        self.last_resolution.remove(session_id);
+        self.search_cache.remove(session_id);
+        self.inherit_suppressed.insert(session_id.to_string(), ());
     }
 
     /// Hold a workspace path for `client_id` until a session id exists.
@@ -457,17 +474,11 @@ impl SessionRootsRegistry {
     /// pins before the peer socket has been mapped, and the next request
     /// retries.
     ///
-    /// A header or single-candidate pin is itself proof the calling process
-    /// serves exactly one window, so those promote unconditionally. A
-    /// `set_workspace_root` pin carries no such proof: Cursor's global bridge
-    /// shares one `mcp-remote` process, and therefore one `mcp-session-id`,
-    /// across every open window (confirmed in the field — see
-    /// `docs/planning/window-scoped-workspace-pin.md` "Field evidence, second
-    /// incident"). Writing that claim to `window_pins` would durably hand
-    /// every future session on that shared process whichever window happened
-    /// to call the tool first. It only promotes when the session's own
-    /// candidate set independently narrows to that single folder — i.e. the
-    /// window isn't sharing right now, whatever it might do later.
+    /// A header names the root for this request. It does not prove the PID
+    /// serves one window (Cursor shares one `mcp-remote` across every window;
+    /// see `docs/planning/window-scoped-workspace-pin.md`). `SingleCandidate`
+    /// is the set itself. Every other source promotes only when the session's
+    /// candidate set independently narrows to one folder.
     ///
     /// Called from the request hot path (every request carrying a session pin
     /// re-promotes), so an unchanged value skips both the write and the log.
@@ -485,7 +496,7 @@ impl SessionRootsRegistry {
             .get(session_id)
             .map(|value| *value)
             .unwrap_or(PinSource::MetaTool);
-        if source == PinSource::MetaTool {
+        if source != PinSource::SingleCandidate {
             let candidates = self.get_candidates(session_id);
             let single_folder_proven = matches!(candidates.as_deref(), Some([_]));
             if !single_folder_proven {
@@ -493,10 +504,11 @@ impl SessionRootsRegistry {
                     %session_id,
                     window_key = %key,
                     workspace_root = %root,
+                    source = source.as_str(),
                     candidates = ?candidates,
-                    "[SessionRoots] window pin skipped — meta-tool claim without proof this \
-                     mcp-remote process serves a single window; this session keeps the pin, \
-                     but it will not survive a Reload MCP or session churn",
+                    "[SessionRoots] window pin skipped — no single-folder candidate set to \
+                     prove this mcp-remote process serves one window; this session keeps \
+                     the pin, but it will not survive a Reload MCP or session churn",
                 );
                 return;
             }
@@ -543,6 +555,9 @@ impl SessionRootsRegistry {
     /// Window-scoped pin for `session_id`, or [`None`] if the window is dead,
     /// the pin is missing, or the session's candidate set rejects it.
     fn window_pin_for_session(&self, session_id: &str) -> Option<String> {
+        if self.inherit_suppressed.contains_key(session_id) {
+            return None;
+        }
         let key = self.window_key_for(session_id)?;
         if !key.is_live() {
             self.window_pins.remove(&key);
@@ -685,8 +700,10 @@ impl SessionRootsRegistry {
         self.probe_lock.remove(session_id);
         self.first_seen.remove(session_id);
         self.pinned.remove(session_id);
+        self.pinned_source.remove(session_id);
         self.candidates.remove(session_id);
         self.search_cache.remove(session_id);
+        self.inherit_suppressed.remove(session_id);
         if let Some((_, key)) = self.session_window.remove(session_id) {
             let still_used = self
                 .session_window
@@ -1139,6 +1156,7 @@ mod tests {
         let reg = SessionRootsRegistry::default();
         let key = WindowKey::from_pid(std::process::id());
         reg.attach_window("sess-1", key);
+        reg.set_candidates("sess-1", CANDIDATES[0]);
         reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
 
         reg.attach_window("sess-2", key);
@@ -1158,6 +1176,7 @@ mod tests {
         let reg = SessionRootsRegistry::default();
         let key = WindowKey::from_pid(std::process::id());
         reg.attach_window("sess-1", key);
+        reg.set_candidates("sess-1", CANDIDATES[0]);
         reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
         // A MetaTool pin only promotes with single-folder proof — see
         // `meta_tool_pin_promotes_only_with_single_folder_proof` for the
@@ -1170,6 +1189,52 @@ mod tests {
             reg.inherit_window_pin("sess-2"),
             Some(CANDIDATES[1].to_string()),
             "the window must remember the newest explicit claim, not the first"
+        );
+    }
+
+    #[test]
+    fn header_pin_promotes_only_with_single_folder_proof() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+        reg.attach_window("sess-a", key);
+        reg.set_pinned("sess-a", CANDIDATES[0], PinSource::WorkspaceHeader);
+        assert_eq!(
+            reg.get("sess-a"),
+            Some(vec![CANDIDATES[0].to_string()]),
+            "the calling session still gets its own header"
+        );
+        reg.attach_window("sess-b", key);
+        assert!(
+            reg.inherit_window_pin("sess-b").is_none(),
+            "a header without a one-folder set must not become a process pin"
+        );
+    }
+
+    #[test]
+    fn empty_header_clears_session_pin_and_skips_window_inherit() {
+        let reg = SessionRootsRegistry::default();
+        let key = WindowKey::from_pid(std::process::id());
+        reg.attach_window("sess-shared", key);
+        reg.set_candidates("sess-shared", CANDIDATES[0]);
+        reg.set_pinned("sess-shared", CANDIDATES[0], PinSource::WorkspaceHeader);
+        assert_eq!(
+            reg.get("sess-shared"),
+            Some(vec![CANDIDATES[0].to_string()])
+        );
+
+        reg.forget_empty_header_claim("sess-shared");
+        assert!(reg.session_pin("sess-shared").is_none());
+        assert!(
+            reg.get("sess-shared").is_none(),
+            "empty header must not fall through to the remembered window pin"
+        );
+        assert!(reg.inherit_window_pin("sess-shared").is_none());
+
+        reg.set_pinned("sess-shared", CANDIDATES[0], PinSource::WorkspaceHeader);
+        assert_eq!(
+            reg.get("sess-shared"),
+            Some(vec![CANDIDATES[0].to_string()]),
+            "the next real header must lift the suppress"
         );
     }
 
@@ -1249,6 +1314,7 @@ mod tests {
         let reg = SessionRootsRegistry::default();
         let key = WindowKey::from_pid(std::process::id());
         reg.attach_window("sess-1", key);
+        reg.set_candidates("sess-1", CANDIDATES[0]);
         reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
         reg.attach_window("sess-2", key);
         let set = format!("{},{}", CANDIDATES[1], CANDIDATES[2]);
@@ -1269,6 +1335,7 @@ mod tests {
         let reg = SessionRootsRegistry::default();
         let dead = WindowKey::from_pid(u32::MAX);
         reg.attach_window("sess-1", dead);
+        reg.set_candidates("sess-1", CANDIDATES[0]);
         reg.set_pinned("sess-1", CANDIDATES[0], PinSource::WorkspaceHeader);
         reg.attach_window("sess-2", dead);
         assert!(
