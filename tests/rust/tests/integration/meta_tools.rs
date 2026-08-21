@@ -1921,6 +1921,7 @@ async fn bind_current_workspace_header_targets_caller_machine_not_gateway_local(
             Some(&f.session_id),
             json!({ "feature_set_id": f.fs_android_id.to_string() }),
             Some(rohan_id),
+            None,
         )
         .await
         .unwrap();
