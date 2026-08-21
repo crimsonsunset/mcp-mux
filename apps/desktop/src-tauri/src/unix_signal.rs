@@ -17,13 +17,14 @@ static PIPE_WRITE_FD: AtomicI32 = AtomicI32::new(-1);
 
 /// Install the recorder and wait until SIGTERM or SIGINT arrives.
 ///
-/// Returns after the first termination signal. Caller should then exit.
-pub async fn wait_for_term() {
+/// Returns `true` after the first termination signal. Returns `false` if the
+/// handler could not be installed — the caller must not treat that as exit.
+pub async fn wait_for_term() -> bool {
     let read_end = match install() {
         Ok(fd) => fd,
         Err(e) => {
             tracing::warn!("[Signal] Failed to install SA_SIGINFO handler: {e}");
-            return;
+            return false;
         }
     };
 
@@ -31,7 +32,7 @@ pub async fn wait_for_term() {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("[Signal] Failed to wrap self-pipe: {e}");
-            return;
+            return false;
         }
     };
     let mut buf = [0u8; 1];
@@ -58,6 +59,7 @@ pub async fn wait_for_term() {
         si_code = code,
         "[Signal] {name} — requesting exit"
     );
+    true
 }
 
 fn install() -> std::io::Result<UnixStream> {

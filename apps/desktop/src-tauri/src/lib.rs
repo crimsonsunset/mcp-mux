@@ -900,7 +900,9 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     #[cfg(unix)]
                     {
-                        crate::unix_signal::wait_for_term().await;
+                        if !crate::unix_signal::wait_for_term().await {
+                            return;
+                        }
                     }
                     #[cfg(windows)]
                     {
