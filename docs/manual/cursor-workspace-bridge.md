@@ -6,6 +6,11 @@ Regression check for the global `~/.cursor/mcp.json` bridge (see
 This path replaces per-repo `.cursor/mcp.json` header installs for Cursor by
 routing through `npx mcp-remote` with `${workspaceFolder}` in the bridge args.
 
+Cursor resolves that variable unreliably (~21% failure, measured), so the bridge
+also sends `${WORKSPACE_FOLDER_PATHS}` as `X-Mcpmux-Workspace-Set`. That set is a
+constraint on which folder a session may claim, never a way to pick one — see
+[Fallback](#fallback) for why inference is off the table.
+
 ## Prerequisites
 
 - `pnpm dev:admin` (or production McpMux) with gateway on `localhost:45818`.
@@ -48,6 +53,15 @@ Check the McpMux log (macOS:
 - `[FeatureSetResolver] resolved via WorkspaceBinding workspace_root=…` matching
   each window's folder.
 
+Three warns exist to report that the bridge's assumptions broke. None should
+appear in a healthy two-window run:
+
+| Log line                                            | Means                                                                                                                                                            |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Mcpmux-Workspace-Set arrived unexpanded`         | Cursor mangled `${WORKSPACE_FOLDER_PATHS}` instead of passing it to `mcp-remote`. No candidate set, so routing degrades to pre-set-header behavior.              |
+| `pinned root is absent from X-Mcpmux-Workspace-Set` | The active folder isn't a member of the reported set. This violates the invariant the constraint rests on; `set_workspace_root` will start refusing valid roots. |
+| `no pinned root and multiple folders open`          | The 16% case. Expected occasionally; the session needs one `mcpmux_set_workspace_root` call.                                                                     |
+
 ## 4. Bridge flags sanity check
 
 Confirm the generated config includes:
@@ -55,6 +69,9 @@ Confirm the generated config includes:
 - `--allow-http` (gateway is loopback HTTP, not TLS).
 - `--header` with **no space** after the colon:
   `X-Mcpmux-Workspace:${workspaceFolder}`.
+- `--header X-Mcpmux-Workspace-Set:${WORKSPACE_FOLDER_PATHS}`. Not a Cursor
+  variable, so it passes through untouched and `mcp-remote` expands it from the
+  child environment. Carries every folder open in the calling window.
 - `Authorization:Bearer ${MCPMUX_API_KEY}` with the key in `env.MCPMUX_API_KEY`.
 
 To verify `mcp-remote` accepts these flags outside Cursor:
@@ -62,6 +79,7 @@ To verify `mcp-remote` accepts these flags outside Cursor:
 ```bash
 npx -y mcp-remote http://127.0.0.1:45818/mcp --allow-http \
   --header "X-Mcpmux-Workspace:/path/to/folder" \
+  --header "X-Mcpmux-Workspace-Set:/path/to/folder,/path/to/other" \
   --header "Authorization:Bearer mcpk_…"
 ```
 
@@ -69,17 +87,42 @@ The process should stay up and the gateway should log an incoming MCP session.
 
 ## Fallback
 
-Cursor's Agents window sometimes spawns the `mcp-remote` bridge without
-resolving `${workspaceFolder}`. The gateway then sees
-`X-Mcpmux-Workspace` present but empty, skips the pin, and the session
-stays at `PendingRoots` (or routes via the full multi-folder `roots/list`).
-
-Look for this log line:
+Cursor fails to substitute `${workspaceFolder}` before spawning `mcp-remote` in
+roughly 21% of spawns. `mcp-remote` then expands the leftover literal to an
+empty string, so the gateway sees `X-Mcpmux-Workspace` present but empty and
+skips the pin.
 
 ```
 [SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped
 ```
 
-When that happens, use the per-repo install path in
-[`workspace-header-routing.md`](./workspace-header-routing.md) section B
-(static `X-Mcpmux-Workspace` header in `.cursor/mcp.json`, no variable).
+This is **not** an Agents-window problem, despite what earlier revisions of this
+doc claimed. A 282-spawn probe measured editor windows failing at 29% and Agents
+windows at 4%, across folder counts from zero to five. It's a flaky
+substitution, not a surface-specific one.
+
+There is no fallback signal for the active folder. The probe checked all 22
+Cursor and VS Code environment variables in the child process:
+`CURSOR_WORKSPACE_LABEL` is stale (it names the window that started the
+extension host, often a folder not even in the set), `VSCODE_PID` and
+`VSCODE_IPC_HOOK` are app-level rather than per-window, `cwd` is always the home
+directory, and no `.code-workspace` file exists for ad-hoc multi-root windows.
+
+`WORKSPACE_FOLDER_PATHS` is the one usable signal, and only as a constraint. The
+active folder was a member of it in 212 of 212 resolved multi-folder spawns, but
+its position identified the active folder in only 70% of them. A 30% misroute
+rate would hand one project's credentials to another, so the gateway does not
+infer from position. What it does instead:
+
+- **One folder in the set:** pins outright. Unambiguous by construction.
+- **No folders:** no workspace to route to; falls through to grants.
+- **Two or more:** refuses to guess. The session gets meta tools only until it
+  calls `mcpmux_set_workspace_root`, which is now validated against the set so a
+  caller can't declare a folder its window doesn't have open.
+
+To avoid the whole class of problem, use the per-repo install in
+[`workspace-header-routing.md`](./workspace-header-routing.md) section B. It
+writes a literal path into `.cursor/mcp.json` with no variable to substitute,
+which is why it never flakes. Note that it also writes the bearer token into a
+file inside the repo and does not add a `.gitignore` entry, so exclude it
+yourself before committing.

@@ -262,6 +262,19 @@ pub async fn mcp_oauth_middleware(
         (sid, ws, ws_set)
     };
     match (&session_id_header, &workspace_header) {
+        // Neither the editor nor mcp-remote expanded the template, so the
+        // literal reached us. Distinct from the empty case below: it means
+        // mcp-remote's own `${ENV}` substitution changed behavior, since today
+        // it rewrites an unknown variable to an empty string.
+        (_, Some(ws)) if ws.contains("${") => {
+            warn!(
+                trace_id = %trace_id,
+                session_id = session_id_header.as_deref().unwrap_or("<none>"),
+                workspace_header = %ws,
+                "[SessionRoots] X-Mcpmux-Workspace arrived as an unexpanded template — \
+                 pin skipped rather than pinning a literal",
+            );
+        }
         (_, Some(ws)) if ws.trim().is_empty() => {
             warn!(
                 trace_id = %trace_id,
@@ -303,6 +316,21 @@ pub async fn mcp_oauth_middleware(
     // because one candidate cannot be ambiguous. Held across initialize like
     // the workspace header, since both arrive before `mcp-session-id`.
     match (&session_id_header, &workspace_set_header) {
+        // The bridge config assumes Cursor leaves `${WORKSPACE_FOLDER_PATHS}`
+        // alone (it isn't a Cursor variable) so mcp-remote expands it from the
+        // child environment. This warn is how that assumption reports failure:
+        // the set is dropped rather than parsed, so routing degrades to the
+        // pre-set-header behavior instead of misrouting.
+        (_, Some(set)) if set.contains("${") => {
+            warn!(
+                trace_id = %trace_id,
+                session_id = session_id_header.as_deref().unwrap_or("<none>"),
+                workspace_set_header = %set,
+                "[SessionRoots] X-Mcpmux-Workspace-Set arrived unexpanded — no candidate \
+                 set for this session; check that WORKSPACE_FOLDER_PATHS is present in \
+                 the mcp-remote child environment",
+            );
+        }
         (_, Some(set)) if set.trim().is_empty() => {}
         (Some(sid), Some(set)) => {
             services.session_roots.set_candidates(sid, set);

@@ -22,7 +22,7 @@ Follow-on (`dcc2977`) playbook: [`pool-invalidation-and-session-survival-test.md
 
 **Inbound 404 after gateway rebuild:** process death drops `LocalSessionManager`. `POST /mcp` with a stale `Mcp-Session-Id` is a spec-correct 404. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) and the [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk/issues/1708) do **not** re-`initialize` on that 404. Do not persist sessions. Recovery is Reload MCP once. `/health` staying 200 means the gateway is up.
 
-**Header pin after reload:** a non-empty `X-Mcpmux-Workspace` is held across initialize and applied when `mcp-session-id` appears. Empty `${workspaceFolder}` is still the Agents-window hole.
+**Header pin after reload:** a non-empty `X-Mcpmux-Workspace` is held across initialize and applied when `mcp-session-id` appears. An empty `${workspaceFolder}` is a ~21% flake in Cursor's substitution, not an Agents-window-specific hole (editor windows are the worse offender at 29%); the window's folder set now arrives separately as `X-Mcpmux-Workspace-Set` and collapses the single-folder case. See [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md).
 
 ---
 

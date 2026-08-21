@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use mcpmux_core::normalize_workspace_root;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
+use tracing::warn;
 
 use super::meta_tool_common::{emit_tools_list_changed, text_result};
 use super::registry::{MetaTool, MetaToolCall, MetaToolError};
@@ -81,6 +82,16 @@ impl MetaTool for SetWorkspaceRootTool {
                 .session_roots
                 .get_candidates(session_id)
                 .unwrap_or_default();
+            // Expected when an agent guesses; a burst of these against roots
+            // the user believes are open points at the membership invariant
+            // (see the audit warn in `session_roots::store_candidates`).
+            warn!(
+                %session_id,
+                client_id = %call.client_id,
+                requested_root = %normalized,
+                candidates = ?candidates,
+                "[meta_tools] set_workspace_root refused — root not open in this window",
+            );
             return Err(MetaToolError::InvalidArgument(format!(
                 "workspace_root `{normalized}` is not open in this window. \
                  Declare one of: {}",

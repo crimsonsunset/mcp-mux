@@ -120,12 +120,23 @@ pub struct SessionRootsRegistry {
 fn parse_candidate_set(raw_set: &str) -> Vec<String> {
     let mut parsed: Vec<String> = raw_set
         .split(',')
+        .filter(|entry| !is_unexpanded_variable(entry))
         .map(normalize_workspace_root)
         .filter(|path| !path.is_empty())
         .collect();
     parsed.sort();
     parsed.dedup();
     parsed
+}
+
+/// Whether a header value still carries a `${...}` template, meaning neither
+/// the editor nor `mcp-remote` expanded it.
+///
+/// Such a value must never become a candidate: it can't match any real folder,
+/// so it would turn the membership check into a blanket rejection of every
+/// legitimate root the caller might declare.
+fn is_unexpanded_variable(value: &str) -> bool {
+    value.contains("${")
 }
 
 impl SessionRootsRegistry {
@@ -339,6 +350,18 @@ impl SessionRootsRegistry {
         if parsed.is_empty() {
             return;
         }
+        // The set header rides every request, so skip the audit and the write
+        // when nothing changed. Read the comparison into an owned bool so the
+        // DashMap guard drops before the insert below (see `record_resolution`
+        // for the self-deadlock this avoids).
+        let unchanged = self
+            .candidates
+            .get(session_id)
+            .is_some_and(|existing| *existing == parsed);
+        if unchanged {
+            return;
+        }
+
         if let [only] = parsed.as_slice() {
             // The active folder is always a member of the set, so a set of one
             // names it outright — no guessing involved.
@@ -349,6 +372,41 @@ impl SessionRootsRegistry {
             );
             self.set_pinned(session_id, only);
         }
+
+        match self.get_pinned(session_id) {
+            // Audits the invariant the whole design rests on: the active
+            // folder was a member of the reported set in 212 of 212 sampled
+            // multi-folder spawns. If this ever fires, membership is no longer
+            // safe as a constraint and `is_candidate` will start refusing
+            // legitimate roots — treat it as a design regression, not noise.
+            Some(pinned) if !parsed.iter().any(|c| c == &pinned) => {
+                warn!(
+                    %session_id,
+                    pinned_root = %pinned,
+                    candidates = ?parsed,
+                    "[SessionRoots] pinned root is absent from X-Mcpmux-Workspace-Set — \
+                     membership invariant violated; set_workspace_root may now reject \
+                     valid roots for this session",
+                );
+            }
+            Some(_) => {}
+            // The active-folder header failed and more than one folder is
+            // open, so this session cannot be routed without the caller
+            // declaring which folder it is in. Logged at warn because it is
+            // the case that costs the user an extra round trip.
+            None if parsed.len() > 1 => {
+                warn!(
+                    %session_id,
+                    candidate_count = parsed.len(),
+                    candidates = ?parsed,
+                    "[SessionRoots] no pinned root and multiple folders open — session must \
+                     call mcpmux_set_workspace_root to disambiguate (a per-repo static \
+                     header install avoids this entirely)",
+                );
+            }
+            None => {}
+        }
+
         self.candidates.insert(session_id.to_string(), parsed);
     }
 
@@ -773,6 +831,26 @@ mod tests {
             vec![CANDIDATES[0].to_string(), CANDIDATES[1].to_string()]
         );
         assert!(parse_candidate_set("  ,  ").is_empty());
+    }
+
+    #[test]
+    fn unexpanded_template_never_becomes_a_candidate() {
+        // If mcp-remote stops expanding the variable, the literal must be
+        // dropped. Keeping it would match no real folder and so turn the
+        // membership check into a blanket refusal.
+        assert!(parse_candidate_set("${WORKSPACE_FOLDER_PATHS}").is_empty());
+
+        let reg = SessionRootsRegistry::default();
+        reg.set_candidates("sess-1", "${WORKSPACE_FOLDER_PATHS}");
+        assert!(reg.get_candidates("sess-1").is_none());
+        assert!(
+            reg.is_candidate("sess-1", CANDIDATES[0]),
+            "an unexpanded set must leave the session unconstrained, not deny it"
+        );
+
+        // A partially expanded value keeps the real folders and drops the rest.
+        let mixed = format!("{},${{WORKSPACE_FOLDER_PATHS}}", CANDIDATES[0]);
+        assert_eq!(parse_candidate_set(&mixed), vec![CANDIDATES[0].to_string()]);
     }
 
     #[test]

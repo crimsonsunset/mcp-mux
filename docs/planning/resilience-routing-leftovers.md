@@ -29,9 +29,22 @@ These were deliberately deferred in prior planning docs. They stay frozen until 
 
 None of these are being implemented in this pass. Each entry is enough to start from later without re-digging.
 
-### 1. Empty `${workspaceFolder}` / Cursor Agents window
+### 1. Empty `${workspaceFolder}` — **partially shipped (`efabe48`)**
 
-A present-but-empty `X-Mcpmux-Workspace` header still warn-skips the pin in [`oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) (`[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped`). `set_pinned()` / `remember_pending_workspace()` in [`session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) already normalize and no-op on empty, so the gap is entirely upstream: Cursor's Agents window (or `mcp-remote`'s own `${ENV}` substitution) is not resolving `${workspaceFolder}` before spawn. There is no runtime signal in the gateway that distinguishes an Agents-window session from an editor-window session — only the empty header itself. Next step is a reliable repro of the spawn path (which Cursor surface, whether the literal string `${workspaceFolder}` arrives or gets stripped to empty) before any fix — this is the open question already logged in [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md). Fallback stays the per-repo static header install (`workspace_install.rs`). Do not attempt server-side PID/process-tree inference — already a dead end (TCP transport, no child PID visible to the gateway).
+The spawn-path repro this entry asked for is done. An `env-probe` wrapper captured 282 real `mcp-remote` spawns and settled the open questions:
+
+- **Not an Agents-window problem.** Editor windows fail to substitute `${workspaceFolder}` 29% of the time, Agents windows 4%, across folder counts from zero to five. Overall failure is ~21%. The old attribution in this doc and in the `oauth_middleware` warn was wrong; both are corrected.
+- **The literal reaches `mcp-remote`, which expands it to empty.** Cursor passes `${workspaceFolder}` through unsubstituted; `mcp-remote`'s own `${ENV}` pass finds no such variable and rewrites it to an empty string. That is why the gateway sees present-but-empty rather than a literal.
+- **No fallback signal for the active folder exists.** All 22 Cursor/VS Code child env vars were checked. `CURSOR_WORKSPACE_LABEL` is stale (names the window that started the extension host, frequently a folder absent from the set). `VSCODE_PID` (5 distinct across 282 spawns) and `VSCODE_IPC_HOOK` (2 distinct, and they're Cursor version strings) are app-level, not per-window. `cwd` is always `$HOME`. No `.code-workspace` file backs ad-hoc multi-root windows, which also kills any "bind the workspace file" idea.
+- **`WORKSPACE_FOLDER_PATHS` is sound but imprecise.** The active folder was a member in 212 of 212 resolved multi-folder spawns. Its _position_ identified the active folder in only 70%. Ordering heuristics are therefore unusable: a 30% misroute rate crosses credential boundaries, which is the failure the product exists to prevent.
+
+**Shipped:** the bridge sends the set as `X-Mcpmux-Workspace-Set`, used strictly as a constraint. One-member sets pin (unambiguous); zero-member sets are a clean no-workspace state; multi-member sets only record candidates. `mcpmux_set_workspace_root` now refuses a root the calling window doesn't have open, closing a self-service grant where any approved client could name any path. Three warns report assumption failures (unexpanded template, pin-absent-from-set, ambiguous set) — see [`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md) section 3.
+
+**Still open:** ~16% of spawns (multi-folder window plus failed substitution) remain genuinely unresolvable and cost one `mcpmux_set_workspace_root` call per session. That is inherent, not a gap in the implementation — no signal exists to close it. Two things could: Cursor making substitution reliable, or exposing the active folder as an env var. Until then the per-repo static header install (`workspace_install.rs`) is the only way to be immune, and it should probably become the recommended path for multi-root users rather than a documented fallback.
+
+Do not attempt server-side PID/process-tree inference — a dead end (TCP transport, no child PID visible to the gateway), and now doubly so given `VSCODE_PID` isn't per-window anyway.
+
+**Known gap in the immune path:** `workspace_install.rs` writes the bearer token into a repo-local config and nothing adds a `.gitignore` entry, so `git add .` in a fresh repo commits a gateway access key. Worth fixing before recommending it more loudly. There is also no web-admin parity for the per-repo installer (desktop-only, three Tauri commands).
 
 ### 2. `is_healthy()` heartbeat / liveness probe
 

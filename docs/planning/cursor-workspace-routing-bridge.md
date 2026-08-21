@@ -1,24 +1,38 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
 **Last Updated:** Aug 20, 2026
-**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note. Non-empty header without session id is **held then pinned** (`dcc2977`). Empty `${workspaceFolder}` still open.
+**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note. Non-empty header without session id is **held then pinned** (`dcc2977`). Empty `${workspaceFolder}` **measured and bounded** (`efabe48`); the residual ~16% is inherent, not a gap.
 **Branch:** `dev-rebased`
 
-### Open question (Aug 14, 2026)
+### Resolved question (Aug 20, 2026) — supersedes the Aug 14 open question
 
-Exactly when/why does Cursor's Agents window spawn an `mcp-remote` child
-without resolving `${workspaceFolder}`? Editor windows substitute the
-variable into `--header X-Mcpmux-Workspace:…` at spawn time; some Agents
-sessions arrive with the header present but empty (`workspace_header=""`),
-so `set_pinned` no-ops and the resolver holds at `PendingRoots`.
+The Aug 14 entry asked when and why Cursor spawns an `mcp-remote` child without
+resolving `${workspaceFolder}`, and assumed the Agents window was responsible. A
+282-spawn `env-probe` wrapper answered it, and the assumption was wrong:
 
-Gateway now warns on that empty header (see
-[`oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs))
-and the user-facing fallback is the per-repo static header in
-[`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md).
-No client-side workaround until we have a reliable repro of the spawn
-path (which Cursor surface, which MCP host, whether `${workspaceFolder}`
-is left literal or stripped to empty by `mcp-remote`'s `${ENV}` pass).
+- **Failure is ~21% overall and worse in editor windows** (29%) than Agents
+  windows (4%). It happens at every folder count from zero to five. This is a
+  flaky substitution, not a surface-specific behavior. The doc's earlier claim
+  that "editor windows substitute the variable at spawn time" is false as an
+  absolute.
+- **Cursor emits the literal; `mcp-remote` strips it.** The unresolved
+  `${workspaceFolder}` reaches the child, `mcp-remote`'s own `${ENV}` pass finds
+  no matching variable, and rewrites it to an empty string. That answers the
+  "literal or stripped" half of the question.
+- **No active-folder fallback signal exists.** All 22 Cursor/VS Code child env
+  vars were checked; details and the ruled-out candidates are in
+  [`resilience-routing-leftovers.md`](./resilience-routing-leftovers.md) item 1.
+- **`WORKSPACE_FOLDER_PATHS` is sound as a constraint, useless as a selector.**
+  Active folder present in the set 212/212; position correct only 70%.
+
+**Shipped (`efabe48`):** the set rides along as `X-Mcpmux-Workspace-Set` and is
+used only to collapse one-member sets, bound what `mcpmux_set_workspace_root`
+may declare, and name candidates in refusals. Nothing infers a folder from it.
+
+**Residual:** ~16% of spawns (multi-folder window plus failed substitution) cost
+one `set_workspace_root` call per session. Closing that needs Cursor to either
+make substitution reliable or export the active folder as an env var. The
+per-repo static header install remains the only fully immune path.
 
 ### Phase 1 spike results (Jul 20, 2026)
 
@@ -72,7 +86,9 @@ The existing fix (`apps/desktop/src-tauri/src/commands/workspace_install.rs`) wr
 
 The other obvious escape hatch — the `mcpmux_set_workspace_root` meta tool, which lets an agent self-report its root — trades the per-repo file for a dependency on the LLM actually calling it every session. Not deterministic enough to rely on as the primary mechanism.
 
-Cursor's own docs, however, resolve `${workspaceFolder}` reliably in the `command`/`args`/`env` fields of a stdio server entry — even one declared in the *global* `~/.cursor/mcp.json` — because Cursor spawns a stdio child process fresh per workspace window and substitutes variables at spawn time, not at file-parse time. The known interpolation flakiness (Cursor forum bug reports) is specific to the `headers` field on a native `url`-type (remote) entry, not to `args` on a `command`-type (stdio) entry. That gap is exploitable: route Cursor through a stdio bridge instead of connecting to the gateway's HTTP endpoint directly, and pass the workspace header through the bridge's `args`, where interpolation is the reliable path.
+Cursor's own docs claim `${workspaceFolder}` resolves in the `command`/`args`/`env` fields of a stdio server entry — even one declared in the *global* `~/.cursor/mcp.json` — because Cursor spawns a stdio child fresh per workspace window and substitutes variables at spawn time rather than file-parse time. The documented interpolation flakiness (Cursor forum bug reports) is specific to the `headers` field on a native `url`-type (remote) entry. That gap is what this design exploits: route Cursor through a stdio bridge and pass the workspace header through the bridge's `args`.
+
+**Measured correction (Aug 20, 2026):** `args` interpolation is *more* reliable than the `headers` field, but not reliable. Across 282 real spawns it failed 21% of the time (29% in editor windows, 4% in Agents windows). The design premise holds directionally and the bridge is still the right default, but "reliable" overstated it, and everything downstream has to assume the header can arrive empty. See the resolved question at the top of this doc.
 
 ---
 
@@ -81,9 +97,10 @@ Cursor's own docs, however, resolve `${workspaceFolder}` reliably in the `comman
 | # | Decision | Choice | Rationale |
 | - | -------- | ------ | --------- |
 | 1 | Bridge implementation | **`mcp-remote`** (existing npm package, `npx mcp-remote`), not a first-party McpMux binary | Already solves stdio↔remote-HTTP bridging with a `--header` flag that supports arbitrary custom headers. Building our own binary duplicates it for no gain unless `mcp-remote` proves unreliable in practice (Phase 1 spike decides this). |
-| 2 | Workspace signal | `${workspaceFolder}` passed inline inside a `--header` value in the bridge's `args`, e.g. `--header X-Mcpmux-Workspace:${workspaceFolder}` | This is the documented-reliable interpolation path (`args`/`command`), not the flaky one (`headers` on a native remote entry). No space around the `:` to dodge Cursor's known arg-escaping bug with `npx`. |
+| 2 | Workspace signal | `${workspaceFolder}` passed inline inside a `--header` value in the bridge's `args`, e.g. `--header X-Mcpmux-Workspace:${workspaceFolder}` | The better of the two interpolation paths (`args`/`command`), versus the worse one (`headers` on a native remote entry). No space around the `:` to dodge Cursor's known arg-escaping bug with `npx`. **Measured at 21% failure** (Aug 20), so it can't be the only signal — see decision 6. |
+| 6 | Fallback signal (added Aug 20, 2026) | Also send `${WORKSPACE_FOLDER_PATHS}` as `X-Mcpmux-Workspace-Set`, and treat it purely as a **constraint** | Not a Cursor variable, so it survives to `mcp-remote`, which expands it from the child env — it arrives even when `${workspaceFolder}` didn't. The active folder is always a member (212/212) but its position is right only 70% of the time, so the set may bound and disambiguate, never select. Rejected alternatives: first-entry heuristic (30% credential misroute), `CURSOR_WORKSPACE_LABEL` (stale), per-window process identity (`VSCODE_PID`/`VSCODE_IPC_HOOK` are app-level), FeatureSet union across roots (defeats isolation). |
 | 3 | Auth | Static `mcpk_` API-key header (`Authorization: Bearer mcpk_...`) via a second `--header` flag, not OAuth-through-the-bridge | `mcp-remote` does its own OAuth dance if no static header is given, which is one more auth surface to reason about. The API-key auth path shipped in `upstream-client-mapping-reconciliation.md` Phase 1 exists for exactly this kind of headless/remote-client case. |
-| 4 | Relationship to existing per-repo install | **Keep both** — the global bridge becomes the *recommended* Cursor setup; the existing per-repo `.cursor/mcp.json` header install (`workspace_install.rs`) stays as a fallback for anyone who doesn't want an `npx`/Node dependency in the loop | Don't rip out a working, tested mechanism to replace it with an unverified one. `${workspaceFolder}`-via-`args` needs to be confirmed against real Cursor behavior before it's trusted as the default (Phase 1). |
+| 4 | Relationship to existing per-repo install | **Keep both** — the global bridge is the recommended setup for single-folder windows; the per-repo `.cursor/mcp.json` header install (`workspace_install.rs`) is the recommended setup for multi-root windows, not merely a fallback | Original rationale (don't replace a tested mechanism with an unverified one) held up, and the Aug 20 measurement sharpened the split: the per-repo install writes a literal path with no variable to substitute, so it is the *only* path immune to the 21% flake. Revisit whether the UI should say so. Blocker first: it writes the bearer token into a repo-local file with no `.gitignore` entry. |
 | 5 | Scope of client support | Cursor only — no changes for VS Code, Claude Code, or other clients | Those clients already route correctly via standard `roots` reporting (confirmed in `docs/manual/workspace-header-routing.md`: "VS Code / Claude Code are good controls — they already route correctly via roots"). This is a Cursor-specific spec-compliance gap, not a general McpMux limitation. |
 
 ---
@@ -210,8 +227,10 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 | File | Note |
 | ---- | ---- |
 | [`apps/desktop/src-tauri/src/commands/workspace_install.rs`](../../apps/desktop/src-tauri/src/commands/workspace_install.rs) | The existing per-repo header install this feature supplements, not replaces |
-| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `X-Mcpmux-Workspace` pin is authoritative; Agents Window spike adds pin/clobber info+warn logs |
-| [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; non-empty header without sid is held then pinned; empty header still warn-skips |
+| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `X-Mcpmux-Workspace` pin is authoritative; Agents Window spike adds pin/clobber info+warn logs. Holds the `X-Mcpmux-Workspace-Set` candidate list, collapses one-member sets to a pin, and audits the "active folder is in the set" invariant on every change |
+| [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; non-empty header without sid is held then pinned; empty header still warn-skips. Reads the set header with the same hold-then-apply, and warns when either header arrives as an unexpanded `${…}` template |
+| [`crates/mcpmux-gateway/src/services/meta_tools/set_workspace_root.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/set_workspace_root.rs) | Refuses a declared root that isn't in the caller's folder set — closes the self-service grant where any approved client could name any path |
+| [`apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts`](../../apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts) | Emits `X-Mcpmux-Workspace-Set:${WORKSPACE_FOLDER_PATHS}` alongside the active-folder header |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Resolver resolved log includes `workspace_root` |
 | [`crates/mcpmux-gateway/src/services/feature_set_resolver.rs`](../../crates/mcpmux-gateway/src/services/feature_set_resolver.rs) | Multi-root ambiguity → `PendingRoots` when `get()` returns >1 root (no pin) |
 | [`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs) | Same multi-root gate on bind; fat recoverable error + pre-approval info log |

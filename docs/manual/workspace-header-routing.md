@@ -28,6 +28,16 @@ This avoids maintaining a `.cursor/mcp.json` + `.gitignore` entry in every
 repo. The per-repo install path below (sections A–B) remains a supported
 fallback when you cannot use `npx`/`mcp-remote`.
 
+**Multi-root windows should prefer the per-repo path.** Cursor fails to
+substitute `${workspaceFolder}` in about 21% of bridge spawns, and when the
+window has several folders open there is no sound way to recover which one is
+active (see [`cursor-workspace-bridge.md`](./cursor-workspace-bridge.md)
+Fallback). The per-repo install writes a literal path, so it never flakes.
+
+**Before committing:** the installer writes your gateway bearer token into the
+repo-local config and does **not** add a `.gitignore` entry. Exclude the file
+yourself, or `git add .` will commit an access key.
+
 ## Prerequisites
 
 - `pnpm dev` (desktop app + gateway) running.
