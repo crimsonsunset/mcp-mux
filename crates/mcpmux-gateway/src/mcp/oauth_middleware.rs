@@ -245,7 +245,7 @@ pub async fn mcp_oauth_middleware(
     // client can claim any binding (see FeatureSetResolver trust model). Keyed
     // by the `mcp-session-id` the client echoes on every post-initialize
     // request (the same key the handler stores reported roots under).
-    let (session_id_header, workspace_header) = {
+    let (session_id_header, workspace_header, workspace_set_header) = {
         let headers = request.headers();
         let sid = headers
             .get("mcp-session-id")
@@ -255,7 +255,11 @@ pub async fn mcp_oauth_middleware(
             .get("x-mcpmux-workspace")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        (sid, ws)
+        let ws_set = headers
+            .get("x-mcpmux-workspace-set")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        (sid, ws, ws_set)
     };
     match (&session_id_header, &workspace_header) {
         (_, Some(ws)) if ws.trim().is_empty() => {
@@ -263,8 +267,12 @@ pub async fn mcp_oauth_middleware(
                 trace_id = %trace_id,
                 session_id = session_id_header.as_deref().unwrap_or("<none>"),
                 "[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped \
-                 (Cursor Agents window often spawns mcp-remote without resolving \
-                 ${{workspaceFolder}}; see docs/manual/cursor-workspace-bridge.md Fallback)",
+                 (Cursor did not substitute ${{workspaceFolder}} before spawning \
+                 mcp-remote, which then expanded the unresolved literal to empty). \
+                 Affects editor and Agents windows alike; recover with \
+                 mcpmux_set_workspace_root, or install a per-repo static header to \
+                 avoid substitution entirely — \
+                 see docs/manual/cursor-workspace-bridge.md Fallback",
             );
         }
         (Some(sid), Some(ws)) => {
@@ -284,6 +292,30 @@ pub async fn mcp_oauth_middleware(
             services
                 .session_roots
                 .apply_pending_workspace(&client_id, sid);
+        }
+        _ => {}
+    }
+
+    // The calling window's full folder set (`X-Mcpmux-Workspace-Set`, carrying
+    // Cursor's `WORKSPACE_FOLDER_PATHS`). Recorded as a constraint on which
+    // roots this session may claim, and as the candidate list shown when the
+    // workspace header above failed to resolve. A set of one also pins,
+    // because one candidate cannot be ambiguous. Held across initialize like
+    // the workspace header, since both arrive before `mcp-session-id`.
+    match (&session_id_header, &workspace_set_header) {
+        (_, Some(set)) if set.trim().is_empty() => {}
+        (Some(sid), Some(set)) => {
+            services.session_roots.set_candidates(sid, set);
+        }
+        (None, Some(set)) => {
+            services
+                .session_roots
+                .remember_pending_candidates(&client_id, set);
+        }
+        (Some(sid), None) => {
+            services
+                .session_roots
+                .apply_pending_candidates(&client_id, sid);
         }
         _ => {}
     }

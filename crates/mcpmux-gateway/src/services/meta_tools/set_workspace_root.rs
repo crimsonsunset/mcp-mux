@@ -70,6 +70,24 @@ impl MetaTool for SetWorkspaceRootTool {
             )));
         }
 
+        // A caller may only declare a folder its own window actually has open.
+        // Without this the tool is a self-service grant: any approved client
+        // could name any path and receive that workspace's FeatureSet and
+        // credentials. The candidate set comes from the spawning host's
+        // environment rather than the caller, so it's the stronger claim.
+        if !call.ctx.session_roots.is_candidate(session_id, &normalized) {
+            let candidates = call
+                .ctx
+                .session_roots
+                .get_candidates(session_id)
+                .unwrap_or_default();
+            return Err(MetaToolError::InvalidArgument(format!(
+                "workspace_root `{normalized}` is not open in this window. \
+                 Declare one of: {}",
+                candidates.join(", ")
+            )));
+        }
+
         call.ctx
             .session_roots
             .set(session_id, std::iter::once(normalized.as_str()));

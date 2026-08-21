@@ -85,10 +85,47 @@ pub struct SessionRootsRegistry {
     /// before `mcp-session-id` (initialize). Applied on the first request
     /// that has a session id, or when initialize's response issues one.
     pending_by_client: DashMap<String, String>,
+    /// `session_id -> the full set of folders open in the calling window`,
+    /// sourced from the `X-Mcpmux-Workspace-Set` header (Cursor's
+    /// `WORKSPACE_FOLDER_PATHS`, expanded by `mcp-remote`).
+    ///
+    /// This is a **constraint, never a resolver**. Measurement across 212
+    /// multi-folder spawns found the active folder is always a member of this
+    /// set, but its position within the set identifies the active folder only
+    /// 70% of the time — so no ordering heuristic is safe for a routing
+    /// decision that gates credentials. Two things it is good for:
+    /// collapsing a one-member set to a pin (unambiguous), and rejecting a
+    /// [`set_workspace_root`](super::meta_tools) pin that names a folder the
+    /// calling window doesn't even have open.
+    candidates: DashMap<String, Vec<String>>,
+    /// `client_id -> candidate set` held when `X-Mcpmux-Workspace-Set` arrived
+    /// before `mcp-session-id`, mirroring [`Self::pending_by_client`].
+    pending_candidates_by_client: DashMap<String, Vec<String>>,
     /// Per-session active search index keyed by `(feature_set_ids fingerprint, index)`.
     /// Shared with [`MetaToolContext`](crate::services::meta_tools::MetaToolContext)
     /// so `mcpmux_search_tools` can reuse a session's resolved tool index.
     search_cache: Arc<DashMap<String, (u64, Arc<ToolIndex>)>>,
+}
+
+/// Split an `X-Mcpmux-Workspace-Set` header into normalized folder paths,
+/// sorted and deduped.
+///
+/// ponytail: splits on `,` because that is the delimiter Cursor uses for
+/// `WORKSPACE_FOLDER_PATHS`, so a folder whose own name contains a comma will
+/// shatter into bogus entries. The ceiling is acceptable because the set is
+/// only ever a constraint: a shattered entry can't match a real root, so the
+/// worst case is a pin rejection that falls back to today's behavior rather
+/// than a misroute. Upgrade path is a length-prefixed or JSON-array header if
+/// Cursor ever offers one.
+fn parse_candidate_set(raw_set: &str) -> Vec<String> {
+    let mut parsed: Vec<String> = raw_set
+        .split(',')
+        .map(normalize_workspace_root)
+        .filter(|path| !path.is_empty())
+        .collect();
+    parsed.sort();
+    parsed.dedup();
+    parsed
 }
 
 impl SessionRootsRegistry {
@@ -102,6 +139,8 @@ impl SessionRootsRegistry {
             first_seen: DashMap::new(),
             pinned: DashMap::new(),
             pending_by_client: DashMap::new(),
+            candidates: DashMap::new(),
+            pending_candidates_by_client: DashMap::new(),
             search_cache: Arc::new(DashMap::new()),
         })
     }
@@ -285,6 +324,77 @@ impl SessionRootsRegistry {
         self.pinned.get(session_id).map(|v| v.clone())
     }
 
+    /// Record the calling window's full folder set from the
+    /// `X-Mcpmux-Workspace-Set` header.
+    ///
+    /// A one-member set is unambiguous, so it pins directly — that is the only
+    /// case where this header decides a route. Larger sets are stored as a
+    /// constraint for [`Self::is_candidate`] and for naming candidates in
+    /// refusals; they never select a folder on their own.
+    pub fn set_candidates(&self, session_id: &str, raw_set: &str) {
+        self.store_candidates(session_id, parse_candidate_set(raw_set));
+    }
+
+    fn store_candidates(&self, session_id: &str, parsed: Vec<String>) {
+        if parsed.is_empty() {
+            return;
+        }
+        if let [only] = parsed.as_slice() {
+            // The active folder is always a member of the set, so a set of one
+            // names it outright — no guessing involved.
+            info!(
+                %session_id,
+                workspace_root = %only,
+                "[SessionRoots] single-folder X-Mcpmux-Workspace-Set — pinned without ambiguity",
+            );
+            self.set_pinned(session_id, only);
+        }
+        self.candidates.insert(session_id.to_string(), parsed);
+    }
+
+    /// The calling window's folder set, if the header supplied one.
+    pub fn get_candidates(&self, session_id: &str) -> Option<Vec<String>> {
+        self.candidates.get(session_id).map(|v| v.clone())
+    }
+
+    /// Whether `root` is one of the folders the calling window has open.
+    ///
+    /// `true` when no set was reported — an absent constraint must not block
+    /// clients that don't send the header (every non-Cursor client, and Cursor
+    /// before the bridge config is reinstalled).
+    pub fn is_candidate(&self, session_id: &str, root: &str) -> bool {
+        let Some(candidates) = self.candidates.get(session_id) else {
+            return true;
+        };
+        let normalized = normalize_workspace_root(root);
+        candidates.iter().any(|c| c == &normalized)
+    }
+
+    /// Hold a candidate set for `client_id` until a session id exists,
+    /// mirroring [`Self::remember_pending_workspace`].
+    pub fn remember_pending_candidates(&self, client_id: &str, raw_set: &str) {
+        let parsed = parse_candidate_set(raw_set);
+        if parsed.is_empty() {
+            return;
+        }
+        self.pending_candidates_by_client
+            .insert(client_id.to_string(), parsed);
+    }
+
+    /// Apply a previously remembered candidate set to a session. Returns
+    /// `true` when one was applied.
+    pub fn apply_pending_candidates(&self, client_id: &str, session_id: &str) -> bool {
+        let Some(candidates) = self
+            .pending_candidates_by_client
+            .get(client_id)
+            .map(|value| value.clone())
+        else {
+            return false;
+        };
+        self.store_candidates(session_id, candidates);
+        true
+    }
+
     /// Drop a session's roots — call on client disconnect.
     pub fn remove(&self, session_id: &str) {
         self.map.remove(session_id);
@@ -294,6 +404,7 @@ impl SessionRootsRegistry {
         self.probe_lock.remove(session_id);
         self.first_seen.remove(session_id);
         self.pinned.remove(session_id);
+        self.candidates.remove(session_id);
         self.search_cache.remove(session_id);
     }
 
@@ -609,6 +720,69 @@ mod tests {
         // The unmapped root went; the session survives with its mapped root.
         assert_eq!(dropped.len(), 1);
         assert_eq!(reg.get("sess-mixed"), Some(vec![keep]));
+    }
+
+    /// Paths that survive `normalize_workspace_root` unchanged on this
+    /// platform, so the candidate assertions below don't fight normalization.
+    #[cfg(windows)]
+    const CANDIDATES: [&str; 3] = ["d:\\alpha", "d:\\beta", "d:\\gamma"];
+    #[cfg(not(windows))]
+    const CANDIDATES: [&str; 3] = ["/repos/alpha", "/repos/beta", "/repos/gamma"];
+
+    #[test]
+    fn single_candidate_pins_but_multiple_only_constrain() {
+        let reg = SessionRootsRegistry::default();
+
+        // One folder open is unambiguous — the set is allowed to decide.
+        reg.set_candidates("sess-one", CANDIDATES[0]);
+        assert_eq!(reg.get_pinned("sess-one"), Some(CANDIDATES[0].to_string()));
+
+        // Several folders open must never auto-select, however tempting the
+        // ordering looks: position predicts the active folder only ~70% of
+        // the time, which is a misroute, not a fallback.
+        let many = CANDIDATES.join(",");
+        reg.set_candidates("sess-many", &many);
+        assert!(
+            reg.get_pinned("sess-many").is_none(),
+            "a multi-folder set must not pin any of its members"
+        );
+        assert_eq!(reg.get_candidates("sess-many").unwrap().len(), 3);
+    }
+
+    #[test]
+    fn candidate_set_constrains_declarable_roots() {
+        let reg = SessionRootsRegistry::default();
+        reg.set_candidates("sess-1", &CANDIDATES.join(","));
+
+        assert!(reg.is_candidate("sess-1", CANDIDATES[1]));
+        assert!(
+            !reg.is_candidate("sess-1", "/repos/not-open"),
+            "a folder the window doesn't have open must be refusable"
+        );
+
+        // No set reported (every client that doesn't send the header) stays
+        // permissive — the constraint must not become a new denial path.
+        assert!(reg.is_candidate("sess-unknown", "/repos/anything"));
+    }
+
+    #[test]
+    fn parse_candidate_set_dedupes_and_drops_blanks() {
+        let raw = format!("{a},,{a},  ,{b}", a = CANDIDATES[0], b = CANDIDATES[1]);
+        assert_eq!(
+            parse_candidate_set(&raw),
+            vec![CANDIDATES[0].to_string(), CANDIDATES[1].to_string()]
+        );
+        assert!(parse_candidate_set("  ,  ").is_empty());
+    }
+
+    #[test]
+    fn pending_candidates_apply_when_session_id_arrives() {
+        let reg = SessionRootsRegistry::default();
+        reg.remember_pending_candidates("client-1", CANDIDATES[0]);
+        assert!(reg.get_candidates("sess-new").is_none());
+        assert!(reg.apply_pending_candidates("client-1", "sess-new"));
+        // A held single-folder set still pins once the session id lands.
+        assert_eq!(reg.get_pinned("sess-new"), Some(CANDIDATES[0].to_string()));
     }
 
     #[test]

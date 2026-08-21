@@ -137,12 +137,31 @@ impl MetaTool for BindCurrentWorkspaceTool {
         // when multiple unpinned roots are present (header pin collapses get() to 1).
         let root = match roots.as_slice() {
             [] => {
-                return Err(MetaToolError::InvalidArgument(
-                    "caller did not report any MCP roots; cannot bind — \
-                     call mcpmux_set_workspace_root first to declare your workspace path, \
-                     then retry mcpmux_bind_current_workspace"
-                        .into(),
-                ));
+                // The window's folder set (X-Mcpmux-Workspace-Set) usually
+                // survives even when the active-folder header came through
+                // empty, so name those folders rather than making the caller
+                // guess what to declare.
+                let candidates = call
+                    .session_id
+                    .and_then(|sid| call.ctx.session_roots.get_candidates(sid))
+                    .unwrap_or_default();
+                let known = if candidates.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " This window has these folders open:\n{}\n",
+                        candidates
+                            .iter()
+                            .map(|c| format!("  - {c}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    )
+                };
+                return Err(MetaToolError::InvalidArgument(format!(
+                    "caller did not report any MCP roots; cannot bind.{known} \
+                     Call mcpmux_set_workspace_root to declare the workspace this agent is \
+                     actually working in, then retry mcpmux_bind_current_workspace."
+                )));
             }
             [single] => single.clone(),
             many => {
