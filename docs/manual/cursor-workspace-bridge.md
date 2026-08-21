@@ -30,6 +30,28 @@ constraint on which folder a session may claim, never a way to pick one — see
 **Expected:** Cursor connects via stdio (`npx mcp-remote`), not a direct HTTP URL.
 On first connect, McpMux may show **Name this machine** — approve it.
 
+## 1b. Install the workspace hook
+
+On the same result screen, click **Install workspace hook**. That writes
+`~/.cursor/hooks/mcpmux-workspace-context.js` and merges one `preToolUse` entry
+into `~/.cursor/hooks.json` (backup: `hooks.json.mcpmux-bak`). Unrelated hooks
+(including WakaTime) stay. If `hooks.json` is JSONC, the installer refuses and
+shows a copyable entry.
+
+The hook injects `_mcpmux_context` on `MCP:mcpmux_*` calls when
+`workspace_roots` has exactly one path. The gateway uses that root for that
+`tools/call` only and never writes `pinned` or `window_pins`.
+
+**Expected:** gateway logs
+`call_tool exact workspace context source=cursor_pre_tool_use` with the
+agent's root and `tool_use_id`. Two concurrent agents on one `mcp-session-id`
+should resolve to different bindings. `tools/list` stays the six core meta
+tools when the shared session is still ambiguous.
+
+Cloud Agents do not load `~/.cursor/hooks.json`. They stay on the rootless /
+`mcpmux_set_workspace_root` path. See
+[`cursor-agent-hooks-workspace-hint.md`](../planning/cursor-agent-hooks-workspace-hint.md#cloud-agents-researched-aug-21).
+
 ## 2. Two-window routing
 
 1. Open folder A in one Cursor window, folder B in another.
