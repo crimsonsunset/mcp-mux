@@ -126,3 +126,25 @@ writes a literal path into `.cursor/mcp.json` with no variable to substitute,
 which is why it never flakes. Note that it also writes the bearer token into a
 file inside the repo and does not add a `.gitignore` entry, so exclude it
 yourself before committing.
+
+## How to re-measure
+
+The 21% / 29% / 4% figures above came from a 282-spawn `env-probe` wrap of
+`mcp-remote`. Re-run that after a Cursor update with the committed scripts:
+
+1. `pnpm probe:cursor-env` prints a `~/.cursor/mcp.json` snippet. `command` is
+   `node`; the first arg is the absolute path to
+   [`scripts/cursor-env-probe.mjs`](../../scripts/cursor-env-probe.mjs). Paste
+   it over the existing `mcpmux` entry (keep your real `MCPMUX_API_KEY`).
+2. Reload MCP. Use editor and Agents windows until you have hundreds of
+   spawns. Each spawn appends one record to
+   `$HOME/Desktop/mcpmux-env-probe.log` (override with `MCPMUX_ENV_PROBE_LOG`),
+   then execs `mcp-remote` so the session still works.
+3. `pnpm probe:cursor-env:summary` reprints the Aug 20 cuts: unresolved rate
+   overall and by `CURSOR_AGENT`, folder-count histogram, membership vs
+   `WFP[0]` on resolved multi-folder spawns, unexpanded
+   `${WORKSPACE_FOLDER_PATHS}` count.
+4. Restore the generated bridge config (Connections → Global Cursor setup).
+
+The wrapper logs argv/env/pwd only. It does not contain tokens from the child
+stdio. The Desktop log path is outside the repo; do not copy it in.

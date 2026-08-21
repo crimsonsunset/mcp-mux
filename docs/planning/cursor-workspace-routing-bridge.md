@@ -1,14 +1,19 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
 **Last Updated:** Aug 20, 2026
-**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note. Non-empty header without session id is **held then pinned** (`dcc2977`). Empty `${workspaceFolder}` **measured and bounded** (`efabe48`); the residual ~16% is inherent, not a gap.
+**Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note. Non-empty header without session id is **held then pinned** (`dcc2977`). Empty `${workspaceFolder}` **measured and bounded** (`efabe48`); the residual ~16% is inherent, not a gap. Re-measure via `pnpm probe:cursor-env` / `pnpm probe:cursor-env:summary`.
 **Branch:** `dev-rebased`
 
 ### Resolved question (Aug 20, 2026) — supersedes the Aug 14 open question
 
 The Aug 14 entry asked when and why Cursor spawns an `mcp-remote` child without
 resolving `${workspaceFolder}`, and assumed the Agents window was responsible. A
-282-spawn `env-probe` wrapper answered it, and the assumption was wrong:
+282-spawn env-probe wrapper answered it, and the assumption was wrong. Re-run
+via [`scripts/cursor-env-probe.mjs`](../../scripts/cursor-env-probe.mjs) and
+[`scripts/cursor-env-probe-summary.mjs`](../../scripts/cursor-env-probe-summary.mjs)
+(`pnpm probe:cursor-env` / `pnpm probe:cursor-env:summary`; recipe in
+[`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md) How to
+re-measure):
 
 - **Failure is ~21% overall and worse in editor windows** (29%) than Agents
   windows (4%). It happens at every folder count from zero to five. This is a
@@ -231,6 +236,8 @@ Removes the "hand-assemble JSON" friction so the bridge is actually usable by so
 | [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | `→ MCP` logs `session_id` + `workspace_header`; non-empty header without sid is held then pinned; empty header still warn-skips. Reads the set header with the same hold-then-apply, and warns when either header arrives as an unexpanded `${…}` template |
 | [`crates/mcpmux-gateway/src/services/meta_tools/set_workspace_root.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/set_workspace_root.rs) | Refuses a declared root that isn't in the caller's folder set — closes the self-service grant where any approved client could name any path |
 | [`apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts`](../../apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts) | Emits `X-Mcpmux-Workspace-Set:${WORKSPACE_FOLDER_PATHS}` alongside the active-folder header |
+| [`scripts/cursor-env-probe.mjs`](../../scripts/cursor-env-probe.mjs) | Drop-in Node wrapper that logs argv/env/pwd then execs `mcp-remote`; `pnpm probe:cursor-env` prints the mcp.json swap |
+| [`scripts/cursor-env-probe-summary.mjs`](../../scripts/cursor-env-probe-summary.mjs) | Reprints the Aug 20 study cuts from `$HOME/Desktop/mcpmux-env-probe.log` |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs) | Resolver resolved log includes `workspace_root` |
 | [`crates/mcpmux-gateway/src/services/feature_set_resolver.rs`](../../crates/mcpmux-gateway/src/services/feature_set_resolver.rs) | Multi-root ambiguity → `PendingRoots` when `get()` returns >1 root (no pin) |
 | [`crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/bind_workspace.rs) | Same multi-root gate on bind; fat recoverable error + pre-approval info log |

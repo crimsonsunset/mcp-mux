@@ -31,7 +31,11 @@ None of these are being implemented in this pass. Each entry is enough to start 
 
 ### 1. Empty `${workspaceFolder}` — **partially shipped (`efabe48`)**
 
-The spawn-path repro this entry asked for is done. An `env-probe` wrapper captured 282 real `mcp-remote` spawns and settled the open questions:
+The spawn-path repro this entry asked for is done. An env-probe wrapper captured 282 real `mcp-remote` spawns and settled the open questions. That wrapper is now
+[`scripts/cursor-env-probe.mjs`](../../scripts/cursor-env-probe.mjs) plus
+[`scripts/cursor-env-probe-summary.mjs`](../../scripts/cursor-env-probe-summary.mjs)
+(`pnpm probe:cursor-env` / `pnpm probe:cursor-env:summary`). Recipe:
+[`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md) How to re-measure.
 
 - **Not an Agents-window problem.** Editor windows fail to substitute `${workspaceFolder}` 29% of the time, Agents windows 4%, across folder counts from zero to five. Overall failure is ~21%. The old attribution in this doc and in the `oauth_middleware` warn was wrong; both are corrected.
 - **The literal reaches `mcp-remote`, which expands it to empty.** Cursor passes `${workspaceFolder}` through unsubstituted; `mcp-remote`'s own `${ENV}` pass finds no such variable and rewrites it to an empty string. That is why the gateway sees present-but-empty rather than a literal.
