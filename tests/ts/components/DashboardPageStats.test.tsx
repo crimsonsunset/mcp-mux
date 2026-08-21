@@ -33,7 +33,10 @@ vi.mock('@/lib/api/featureSets', () => ({
 }));
 vi.mock('@/lib/api/gateway', () => ({ getGatewayStatus: mockGatewayStatus }));
 vi.mock('@/lib/api/registry', () => ({ listInstalledServers: mockListInstalled }));
-vi.mock('@/lib/api/workspaceBindings', () => ({ listWorkspaceBindings: mockListBindings }));
+vi.mock('@/lib/api/workspaceBindings', () => ({
+  listWorkspaceBindings: mockListBindings,
+  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
+}));
 vi.mock('@/lib/api/serverManager', () => ({ getServerStatuses: mockServerStatuses }));
 vi.mock('@/stores', () => ({
   useViewSpace: () => ({ id: 'space-1', name: 'My Space' }),

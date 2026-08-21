@@ -37,6 +37,13 @@ fn apply_mode_to_set(
 /// the hit so tools/prompts/resources share one entry.
 type ResolutionCacheKey = (String, Vec<String>);
 
+/// Resolved features plus an invalidation generation so a miss cannot
+/// republish a pre-event snapshot after the listener has already cleared.
+struct ResolutionCache {
+    generation: u64,
+    entries: HashMap<ResolutionCacheKey, Vec<ServerFeature>>,
+}
+
 /// Handles feature set resolution and permission evaluation
 pub struct FeatureResolutionService {
     feature_repo: Arc<dyn ServerFeatureRepository>,
@@ -44,7 +51,7 @@ pub struct FeatureResolutionService {
     prefix_cache: Arc<PrefixCacheService>,
     /// Resolved (allow/exclude + prefix) features, invalidated when
     /// [`DomainEvent::affects_mcp_capabilities`] is true.
-    cache: Arc<RwLock<HashMap<ResolutionCacheKey, Vec<ServerFeature>>>>,
+    cache: Arc<RwLock<ResolutionCache>>,
 }
 
 impl FeatureResolutionService {
@@ -57,7 +64,10 @@ impl FeatureResolutionService {
             feature_repo,
             feature_set_repo,
             prefix_cache,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(RwLock::new(ResolutionCache {
+                generation: 0,
+                entries: HashMap::new(),
+            })),
         }
     }
 
@@ -102,14 +112,17 @@ impl FeatureResolutionService {
     }
 
     async fn invalidate_space(&self, space_id: &str) {
-        self.cache
-            .write()
-            .await
+        let mut cache = self.cache.write().await;
+        cache.generation = cache.generation.wrapping_add(1);
+        cache
+            .entries
             .retain(|(cached_space, _), _| cached_space != space_id);
     }
 
     async fn invalidate_all(&self) {
-        self.cache.write().await.clear();
+        let mut cache = self.cache.write().await;
+        cache.generation = cache.generation.wrapping_add(1);
+        cache.entries.clear();
     }
 
     /// Get all available features for a space (optionally filtered by type)
@@ -152,16 +165,25 @@ impl FeatureResolutionService {
         sorted_ids.sort();
         let key = (space_id.to_string(), sorted_ids);
 
-        if let Some(cached) = self.cache.read().await.get(&key).cloned() {
-            return Ok(Self::apply_type_filter(cached, filter_type));
-        }
+        let generation = {
+            let cache = self.cache.read().await;
+            if let Some(cached) = cache.entries.get(&key).cloned() {
+                return Ok(Self::apply_type_filter(cached, filter_type));
+            }
+            cache.generation
+        };
 
         // ponytail: concurrent misses recompute; single-flight if cold-start
         // stampede shows up.
         let resolved = self
             .resolve_feature_sets_uncached(space_id, feature_set_ids)
             .await?;
-        self.cache.write().await.insert(key, resolved.clone());
+        {
+            let mut cache = self.cache.write().await;
+            if cache.generation == generation {
+                cache.entries.insert(key, resolved.clone());
+            }
+        }
         Ok(Self::apply_type_filter(resolved, filter_type))
     }
 

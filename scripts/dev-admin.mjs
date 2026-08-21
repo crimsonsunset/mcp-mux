@@ -15,7 +15,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, openSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,18 +43,55 @@ const GATEWAY_STABLE_TICKS = 3;
 const GATEWAY_STABLE_INTERVAL_MS = 1_000;
 
 /**
- * Stdio log for a detached `dev:admin` session (same dir as the app log).
+ * Log directory for a detached `dev:admin` session (same dir as the app log).
+ * @returns {string}
+ */
+function detachedLogDir() {
+  const home = os.homedir();
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library/Application Support/com.mcpmux.desktop/logs');
+  }
+  if (process.platform === 'win32') {
+    return path.join(process.env.LOCALAPPDATA ?? home, 'com.mcpmux.desktop', 'logs');
+  }
+  return path.join(home, '.local/share/com.mcpmux.desktop/logs');
+}
+
+/**
+ * Stdio log for a detached `dev:admin` session.
  * @returns {string}
  */
 function detachedStdioLogPath() {
-  const home = os.homedir();
-  if (process.platform === 'darwin') {
-    return path.join(home, 'Library/Application Support/com.mcpmux.desktop/logs/dev-admin.stdio.log');
+  return path.join(detachedLogDir(), 'dev-admin.stdio.log');
+}
+
+/**
+ * PID file for the detached supervisor so `dev:stop` can kill it before ports bind.
+ * @returns {string}
+ */
+function detachedPidPath() {
+  return path.join(detachedLogDir(), 'dev-admin.pid');
+}
+
+/**
+ * Persist the detached supervisor pid for `dev-stop.mjs`.
+ * @param {number} pid
+ */
+function persistDetachedPid(pid) {
+  const pidPath = detachedPidPath();
+  mkdirSync(path.dirname(pidPath), { recursive: true });
+  writeFileSync(pidPath, `${pid}\n`);
+}
+
+/**
+ * Remove the detached supervisor pid file if it exists.
+ */
+function clearDetachedPid() {
+  try {
+    unlinkSync(detachedPidPath());
+  } catch {
+    // already gone
   }
-  if (process.platform === 'win32') {
-    return path.join(process.env.LOCALAPPDATA ?? home, 'com.mcpmux.desktop', 'logs', 'dev-admin.stdio.log');
-  }
-  return path.join(home, '.local/share/com.mcpmux.desktop/logs/dev-admin.stdio.log');
 }
 
 /**
@@ -83,6 +120,7 @@ function detachSelf() {
     stdio: ['ignore', out, out],
     env: { ...process.env, MCPMUX_DEV_DETACHED: '1' },
   });
+  if (child.pid) persistDetachedPid(child.pid);
   child.unref();
   console.log(`[dev-admin] Detached from agent (pid ${child.pid}). stdio → ${logPath}`);
   console.log('[dev-admin] Stop with: pnpm dev:stop');
@@ -254,6 +292,13 @@ async function main() {
   if (shouldDetach()) {
     detachSelf();
     return;
+  }
+
+  if (process.env.MCPMUX_DEV_DETACHED === '1') {
+    persistDetachedPid(process.pid);
+    process.on('exit', () => {
+      clearDetachedPid();
+    });
   }
 
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';

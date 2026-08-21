@@ -139,6 +139,7 @@ vi.mock('@/lib/api/registry', () => ({
 }));
 vi.mock('@/lib/api/workspaceBindings', () => ({
   listWorkspaceBindings: vi.fn().mockResolvedValue([]),
+  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
 }));
 vi.mock('@/lib/api/serverManager', () => ({
   getServerStatuses: vi.fn().mockResolvedValue({}),
