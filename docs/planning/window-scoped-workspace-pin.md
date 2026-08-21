@@ -1,6 +1,6 @@
 # Window-Scoped Workspace Pin
 
-**Last Updated:** Aug 20, 2026
+**Last Updated:** Aug 21, 2026
 **Status:** Phases 1–4 shipped, then patched same night after a field-confirmed cross-window leak on the shared global bridge process (decision 4b). Chosen from a six-option brainstorm as the highest value-per-line fix for the empty-`${workspaceFolder}` residual. Phase 1 load-bearing check passed in-process: unprivileged `netstat2` socket→PID lookup resolves a loopback peer to this process — see "second incident" below for why that check didn't catch the leak.
 **Branch:** `root-resolution`
 **Depends on:** [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) Phases 1–3 (shipped) — this reuses the bridge's `X-Mcpmux-Workspace` / `X-Mcpmux-Workspace-Set` headers and the `set_workspace_root` escape hatch rather than replacing any of them
@@ -22,6 +22,8 @@ Tonight's gateway log, one machine, roughly six Cursor windows:
 | `mcpmux_set_workspace_root` calls | 759 |
 
 759 manual pins for six windows is not 759 ambiguities. It is the same handful of answers re-supplied every time a session churns, because [`SessionRootsRegistry`](../../crates/mcpmux-gateway/src/services/session_roots.rs) keys `pinned` by `session_id` and nothing else. The only coarser key available today is `pending_by_client`, keyed by `client_id` — and `client_id` is per-API-key, not per-window, which is why it collapses six windows into two values. So a pin has exactly one lifetime available to it: the session. Every reconnect, every auth bounce, every `mcp-remote` respawn throws the answer away and asks again.
+
+`apply_pending_workspace` now refuses to apply a parked header that is not a member of the claiming request's `X-Mcpmux-Workspace-Set` (or the session's already-stored candidate set). That stops window A's initialize from pinning window B onto A's folder when they share one access key. An absent set still does not block (same doctrine as `is_candidate`). Re-keying the pending slot by `WindowKey` would close the remaining no-set case; not done here.
 
 ### The dead end that isn't
 
@@ -233,7 +235,7 @@ Closes the ways a remembered pin could outlive its truth.
 
 | File | Note |
 | ---- | ---- |
-| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `pinned` is session-keyed; `pending_by_client` is client-keyed (2 values for 6 windows). The gap this doc fills sits between them |
+| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `pinned` is session-keyed; `pending_by_client` is client-keyed (2 values for 6 windows). `apply_pending_workspace` now refuses a parked path that is not in the claiming window's candidate set. |
 | [`crates/mcpmux-gateway/src/mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | Header hold-then-pin, the empty-header warn, and the set-header constraint all live here — as will the window-key memoization |
 | [`crates/mcpmux-gateway/src/server/mod.rs`](../../crates/mcpmux-gateway/src/server/mod.rs) | `into_make_service_with_connect_info::<SocketAddr>()` is already wired; `restrict_management_to_loopback` is prior art for trusting the peer socket over a spoofable header |
 | [`crates/mcpmux-core/src/domain/workspace_binding.rs`](../../crates/mcpmux-core/src/domain/workspace_binding.rs) | `normalize_workspace_root()` / `expand_home_tilde()` — the shared-filesystem assumption that the HA OS `~/helm` case violates |

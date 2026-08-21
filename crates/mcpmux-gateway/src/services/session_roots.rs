@@ -380,7 +380,19 @@ impl SessionRootsRegistry {
     ///
     /// Returns `true` when a pending path was applied. The pending entry is
     /// kept so a later session from the same client can reuse it.
-    pub fn apply_pending_workspace(&self, client_id: &str, session_id: &str) -> bool {
+    ///
+    /// The pending slot is keyed by `client_id`, and every Cursor window shares
+    /// one access key — so the parked path may belong to a *different* window
+    /// than the session now claiming it. `reported_set` is the claiming
+    /// request's own `X-Mcpmux-Workspace-Set`; together with any set already
+    /// stored for the session it decides membership, and a non-member is
+    /// refused rather than pinned onto the wrong workspace.
+    pub fn apply_pending_workspace(
+        &self,
+        client_id: &str,
+        session_id: &str,
+        reported_set: Option<&str>,
+    ) -> bool {
         let Some(path) = self
             .pending_by_client
             .get(client_id)
@@ -388,6 +400,20 @@ impl SessionRootsRegistry {
         else {
             return false;
         };
+        let reported = reported_set.map(parse_candidate_set).unwrap_or_default();
+        let outside_reported = !reported.is_empty() && !reported.contains(&path);
+        if outside_reported || !self.is_candidate(session_id, &path) {
+            warn!(
+                %session_id,
+                pending_root = %path,
+                reported_candidates = ?reported,
+                session_candidates = ?self.get_candidates(session_id),
+                "[SessionRoots] held X-Mcpmux-Workspace names a folder this window does \
+                 not have open — pin skipped (the value was parked by another window \
+                 sharing this access key)",
+            );
+            return false;
+        }
         self.set_pinned(session_id, &path, PinSource::WorkspaceHeader);
         true
     }
@@ -862,7 +888,7 @@ mod tests {
 
         reg.remember_pending_workspace("client-1", pin_in);
         assert!(reg.get_pinned("sess-new").is_none());
-        assert!(reg.apply_pending_workspace("client-1", "sess-new"));
+        assert!(reg.apply_pending_workspace("client-1", "sess-new", None));
         assert_eq!(reg.get("sess-new"), Some(vec![pin_norm.to_string()]));
 
         reg.set(
@@ -882,8 +908,37 @@ mod tests {
     fn empty_pending_header_does_not_pin() {
         let reg = SessionRootsRegistry::default();
         reg.remember_pending_workspace("client-1", "   ");
-        assert!(!reg.apply_pending_workspace("client-1", "sess-1"));
+        assert!(!reg.apply_pending_workspace("client-1", "sess-1", None));
         assert!(reg.get_pinned("sess-1").is_none());
+    }
+
+    #[test]
+    fn pending_header_from_another_window_does_not_pin() {
+        // Observed live: every Cursor window shares one access key, so window A
+        // parked its own folder in the client-keyed pending slot and window B's
+        // brand-new session claimed it — pinning B onto A's workspace even
+        // though B never had that folder open.
+        let reg = SessionRootsRegistry::default();
+        #[cfg(windows)]
+        let other_window = "d:\\delta";
+        #[cfg(not(windows))]
+        let other_window = "/repos/delta";
+        reg.remember_pending_workspace("client-1", other_window);
+
+        // Refused against the claiming request's own reported set.
+        let reported = CANDIDATES.join(",");
+        assert!(!reg.apply_pending_workspace("client-1", "sess-b", Some(&reported)));
+        assert!(reg.get_pinned("sess-b").is_none());
+
+        // Refused against a set already stored for the session.
+        reg.set_candidates("sess-c", &reported);
+        assert!(!reg.apply_pending_workspace("client-1", "sess-c", None));
+        assert!(reg.get_pinned("sess-c").is_none());
+
+        // A member of the set still pins — the gate is membership, not a block.
+        reg.remember_pending_workspace("client-1", CANDIDATES[0]);
+        assert!(reg.apply_pending_workspace("client-1", "sess-c", Some(&reported)));
+        assert_eq!(reg.get_pinned("sess-c").as_deref(), Some(CANDIDATES[0]));
     }
 
     #[test]

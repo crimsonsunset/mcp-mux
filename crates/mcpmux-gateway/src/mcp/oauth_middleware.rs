@@ -313,9 +313,11 @@ pub async fn mcp_oauth_middleware(
                 .remember_pending_workspace(&client_id, ws);
         }
         (Some(sid), None) => {
-            services
-                .session_roots
-                .apply_pending_workspace(&client_id, sid);
+            services.session_roots.apply_pending_workspace(
+                &client_id,
+                sid,
+                workspace_set_header.as_deref(),
+            );
         }
         _ => {}
     }
