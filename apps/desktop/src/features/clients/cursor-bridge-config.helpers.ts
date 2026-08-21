@@ -98,3 +98,18 @@ export function buildCursorHookFallbackJson(scriptPath: string): string {
     2
   );
 }
+
+/**
+ * Whether this Connections entry is a Cursor client that can use the workspace hook.
+ */
+export function isCursorConnection(client: {
+  client_name: string;
+  client_alias?: string | null;
+  software_id?: string | null;
+}): boolean {
+  const haystack = [client.client_name, client.client_alias, client.software_id]
+    .filter((value): value is string => Boolean(value))
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes('cursor');
+}

@@ -32,11 +32,18 @@ On first connect, McpMux may show **Name this machine** — approve it.
 
 ## 1b. Install the workspace hook
 
-On the same result screen, click **Install workspace hook**. That writes
-`~/.cursor/hooks/mcpmux-workspace-context.js` and merges one `preToolUse` entry
-into `~/.cursor/hooks.json` (backup: `hooks.json.mcpmux-bak`). Unrelated hooks
-(including WakaTime) stay. If `hooks.json` is JSONC, the installer refuses and
-shows a copyable entry.
+Same installer, two surfaces — both write files on the **gateway host**
+(Gondor, in the usual setup), including when you click from the web admin:
+
+1. The register-client result screen after **Generate global config**.
+2. Any Cursor connection's side panel in **Connections** (Gondor Cursor, the
+   global bridge, Rohan Cursor, …). Look for **Workspace hook**.
+
+That writes `~/.cursor/hooks/mcpmux-workspace-context.js` and merges one
+`preToolUse` entry into `~/.cursor/hooks.json` (backup: `hooks.json.mcpmux-bak`).
+Unrelated hooks (including WakaTime) stay. If `hooks.json` is JSONC, the
+installer refuses and shows a copyable entry. Status / install / uninstall are
+`GET|POST /api/v1/cursor-hook` on the admin server, not Tauri-only.
 
 The hook injects `_mcpmux_context` on `MCP:mcpmux_*` calls when
 `workspace_roots` has exactly one path. The gateway uses that root for that
@@ -91,6 +98,7 @@ appear in a healthy two-window run:
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `X-Mcpmux-Workspace-Set arrived unexpanded`         | Cursor mangled `${WORKSPACE_FOLDER_PATHS}` instead of passing it to `mcp-remote`. No candidate set, so routing degrades to pre-set-header behavior.              |
 | `pinned root is absent from X-Mcpmux-Workspace-Set` | The active folder isn't a member of the reported set. This violates the invariant the constraint rests on; `set_workspace_root` will start refusing valid roots. |
+| `held X-Mcpmux-Workspace names a folder this window does not have open` | A pending header parked under the shared access key belonged to a *different* window. Pin skipped rather than applied. |
 | `no pinned root and multiple folders open`          | The 16% case. Expected occasionally; the session needs one `mcpmux_set_workspace_root` call. After that call, Reload MCP should log `inherited workspace pin from window` instead of this warn again. |
 | `inherited workspace pin from window`               | Healthy. This session had no header; the window's previous explicit pin was reused.                                                                              |
 | `window pin is absent from X-Mcpmux-Workspace-Set`  | The remembered folder is not in this session's open set — inheritance skipped rather than misrouting.                                                            |

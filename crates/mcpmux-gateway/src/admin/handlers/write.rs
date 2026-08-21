@@ -822,3 +822,13 @@ pub async fn export_config_to_file(
     .map(ok)
     .map_err(ApiError::from_bridge)
 }
+
+/// Install or update the managed Cursor `preToolUse` hook on this gateway host.
+pub async fn install_cursor_hook() -> Json<Value> {
+    ok(crate::cursor_hook::install().into_json())
+}
+
+/// Remove the managed Cursor `preToolUse` hook from this gateway host.
+pub async fn uninstall_cursor_hook() -> Json<Value> {
+    ok(crate::cursor_hook::uninstall().into_json())
+}

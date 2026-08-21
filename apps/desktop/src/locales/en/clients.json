@@ -216,6 +216,7 @@
     "hookJsoncRefused": "hooks.json is not plain JSON. Copy the entry below into it by hand.",
     "hookManualLabel": "Manual hooks.json entry",
     "hookCopyManual": "Copy hook entry",
-    "hookHint": "Adds a preToolUse hook so concurrent Cursor agents on this global bridge route to the correct workspace without a shared pin."
+    "hookHint": "Adds a preToolUse hook so concurrent Cursor agents route to the correct workspace without a shared pin.",
+    "hookTitle": "Workspace hook"
   }
 }

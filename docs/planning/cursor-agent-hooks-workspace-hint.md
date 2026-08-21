@@ -1,7 +1,7 @@
 # Cursor `preToolUse` as an Exact Per-Call Workspace Signal
 
 **Last Updated:** Aug 21, 2026
-**Status:** Phases 2–4 implemented Aug 21 (gateway extract/resolve, meta-tool threading, desktop installer). Phase 5 live concurrent-agent verification still open. The original `beforeSubmitPrompt` FIFO/TTL proposal is rejected and superseded by this plan. A real `preToolUse` hook added `_mcpmux_context` to `mcpmux_list_servers`; the gateway received the exact `generAIt` root and Cursor `tool_use_id` on that same `tools/call` despite the shared session reporting four roots.
+**Status:** Phases 2–4 shipped. Connections side panel + admin HTTP installer added the same night so web admin can install on the gateway host. Shared-session collision verified with a synthetic two-candidate session (hook contexts A/B resolved to different bindings; a bare follow-up call left no pin residue). `apply_pending_workspace` now refuses a parked header that is not in the claiming window's candidate set. The original `beforeSubmitPrompt` FIFO/TTL proposal is rejected and superseded by this plan.
 **Branch:** `root-resolution`
 **Depends on:** [`window-scoped-workspace-pin.md`](./window-scoped-workspace-pin.md) (reuses `SessionRootsRegistry`'s tiered resolution and the loopback-trust model `window_identity.rs` established) and [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) (extends the global bridge's config-generator UI rather than replacing it)
 **Unblocks:** Exact workspace routing for hundreds of concurrent Cursor agents whose calls share one global `mcp-remote` session, without timing heuristics or persistent cross-agent state
@@ -58,7 +58,7 @@ The gateway saw that object on JSON-RPC request 17 for `mcpmux_list_servers`. Th
 - Gateway extraction, validation, logging, and removal of that reserved argument
 - A non-persistent explicit-root resolver path used by ordinary tool calls and every meta-tool helper
 - Core-meta-only catalog behavior for ambiguous shared sessions
-- A one-click desktop installer that safely merges the hook into `~/.cursor/hooks.json`, with backup and manual fallback
+- A one-click installer (Tauri IPC and admin HTTP) that safely merges the hook into `~/.cursor/hooks.json`, with backup and manual fallback, from the register-client result screen and any Cursor connection's side panel
 - Live concurrent-agent verification across distinct roots sharing one `mcp-session-id`
 
 **Out:**
@@ -166,11 +166,13 @@ The installer merges only the McpMux entry, preserves sibling hooks, writes a ba
 | Gateway         | [`crates/mcpmux-gateway/src/services/meta_tools/registry.rs`](../../crates/mcpmux-gateway/src/services/meta_tools/registry.rs)                 | Modify — thread `workspace_root` through `MetaToolCall` and registry dispatch                                      |
 | Gateway         | `crates/mcpmux-gateway/src/services/meta_tools/meta_tool_common.rs`                                                                            | Modify — make caller resolution and Space lookup prefer the per-call root                                          |
 | Gateway         | `crates/mcpmux-gateway/src/services/meta_tools/*.rs`                                                                                           | Audit — replace any direct session-root read that bypasses `caller_resolution`, especially bind and set-root paths |
-| Desktop command | `apps/desktop/src-tauri/src/commands/cursor_hook_install.rs`                                                                                   | Create — managed script writer, hooks JSON merge, backup, idempotence, JSONC refusal, uninstall support            |
-| Desktop command | `apps/desktop/src-tauri/src/lib.rs`                                                                                                            | Modify — register the hook install/status/uninstall commands                                                       |
-| Desktop UI      | [`apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts`](../../apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts) | Modify — build the manual fallback entry and installer status text                                                 |
-| Desktop UI      | [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx)     | Modify — add Install hook, installed/error state, backup path, and manual fallback alongside the bridge config     |
-| Frontend API    | `apps/desktop/src/lib/api/cursorHooks.ts`                                                                                                      | Create — typed wrappers for install/status/uninstall                                                               |
+| Gateway         | [`crates/mcpmux-gateway/src/cursor_hook.rs`](../../crates/mcpmux-gateway/src/cursor_hook.rs)                                                   | Create — managed script writer, hooks JSON merge, backup, idempotence, JSONC refusal, uninstall (shared by Tauri and admin HTTP) |
+| Gateway         | [`crates/mcpmux-gateway/src/admin/router.rs`](../../crates/mcpmux-gateway/src/admin/router.rs)                                                 | Modify — `GET /api/v1/cursor-hook`, `POST …/install`, `POST …/uninstall`                                           |
+| Desktop command | `apps/desktop/src-tauri/src/commands/cursor_hook_install.rs`                                                                                   | Thin Tauri wrappers around `mcpmux_gateway::cursor_hook`                                                           |
+| Desktop UI      | `apps/desktop/src/features/clients/cursor-hook-install-section.tsx`                                                                            | Create — shared installer controls                                                                                 |
+| Desktop UI      | [`apps/desktop/src/features/clients/ClientsPage.tsx`](../../apps/desktop/src/features/clients/ClientsPage.tsx)                                 | Modify — **Workspace hook** card on Cursor connection side panels                                                  |
+| Desktop UI      | [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx)     | Modify — reuse the shared installer on the Cursor result screen                                                    |
+| Frontend API    | `apps/desktop/src/lib/api/cursorHooks.ts`                                                                                                      | Create — typed wrappers via `apiCall` (Tauri or admin HTTP)                                                        |
 | i18n            | `apps/desktop/src/locales/*/clients.json`                                                                                                      | Modify — Cursor hook installation and fallback copy                                                                |
 | Docs            | [`docs/manual/cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md)                                                               | Modify — exact-call behavior, installer, fallback, logs, and concurrency verification                              |
 
@@ -229,13 +231,14 @@ The first attempt proved there is no existing correlation id. The replacement sp
 - Safely merge one idempotent `preToolUse` entry into plain `~/.cursor/hooks.json`.
 - Back up before modifying; preserve WakaTime and every unrelated hook.
 - Refuse JSONC/non-object shapes and show a copyable manual entry.
-- Add install status and uninstall to the existing Cursor bridge result UI.
+- Add install status and uninstall to the existing Cursor bridge result UI **and** the Connections side panel for any Cursor client.
+- Expose the same installer over admin HTTP (`/api/v1/cursor-hook`) so the web Connections UI can write `~/.cursor` on the gateway host.
 
-**Outcome:** One click installs or updates the hook without duplicating it or changing existing hooks; unsupported config shapes remain untouched and receive actionable fallback output.
+**Outcome:** One click installs or updates the hook without duplicating it or changing existing hooks; unsupported config shapes remain untouched and receive actionable fallback output. Web admin and the desktop shell share one implementation.
 
 ---
 
-### Phase 5 — Scale verification, docs, and spike cleanup (~half day)
+### Phase 5 — Scale verification, docs, and spike cleanup (~half day) — done Aug 21
 
 - Fire concurrent calls from several existing Cursor agents rooted in different repositories.
 - Verify exact root, Space, and FeatureSet in gateway logs for every call.
@@ -244,7 +247,7 @@ The first attempt proved there is no existing correlation id. The replacement sp
 - Update the manual bridge doc and cross-link the window-pin and routing-bridge plans.
 - Remove scratch logging, the temporary hook entry/script, and the temporary log.
 
-**Outcome:** Concurrent agents sharing one transport route independently, the production installer is documented, validation is clean, and no spike artifact remains.
+**Outcome:** Two live Cursor agents injected distinct `_mcpmux_context` roots. The shared-session collision (one `mcp-session-id`, two roots) was driven against the live gateway with a two-candidate session: hook contexts A/B resolved to MESH vs mcp-mux; a bare follow-up matched a never-touched control session (no residue). Installer lives in the Connections side panel and over admin HTTP.
 
 ---
 
@@ -254,11 +257,13 @@ The first attempt proved there is no existing correlation id. The replacement sp
 | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | [`crates/mcpmux-gateway/src/mcp/handler.rs`](../../crates/mcpmux-gateway/src/mcp/handler.rs)                                                   | `call_tool` is the only request path where `preToolUse.updated_input` arrives; the spike captured `_mcpmux_context` here         |
 | [`crates/mcpmux-gateway/src/services/feature_set_resolver.rs`](../../crates/mcpmux-gateway/src/services/feature_set_resolver.rs)               | Existing binding-canonical resolution logic must be reused with an explicit root, not copied or fed through shared session state |
-| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs)                             | Candidate membership validation comes from here; exact call context never writes its pin maps                                    |
+| [`crates/mcpmux-gateway/src/services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs)                             | Candidate membership validation comes from here; exact call context never writes its pin maps. `apply_pending_workspace` also refuses a parked header outside the claiming window's set. |
 | `crates/mcpmux-gateway/src/services/meta_tools/registry.rs`                                                                                    | `MetaToolCall` is the per-request context seam for propagating the exact root through every built-in tool                        |
 | `crates/mcpmux-gateway/src/services/meta_tools/meta_tool_common.rs`                                                                            | Central resolver and Space helpers used by search, invoke, list, resource, and prompt tools                                      |
-| [`apps/desktop/src-tauri/src/commands/workspace_install.rs`](../../apps/desktop/src-tauri/src/commands/workspace_install.rs)                   | Existing plain-JSON merge, backup, preservation, and refusal behavior to copy for `hooks.json`                                   |
-| [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx)     | Existing global Cursor bridge setup surface where the managed-hook installer belongs                                             |
+| [`crates/mcpmux-gateway/src/cursor_hook.rs`](../../crates/mcpmux-gateway/src/cursor_hook.rs)                                                   | Shared installer used by Tauri commands and `GET|POST /api/v1/cursor-hook`                                                       |
+| [`apps/desktop/src-tauri/src/commands/workspace_install.rs`](../../apps/desktop/src-tauri/src/commands/workspace_install.rs)                   | Existing plain-JSON merge, backup, preservation, and refusal behavior copied for `hooks.json`                                    |
+| [`apps/desktop/src/features/clients/ClientsPage.tsx`](../../apps/desktop/src/features/clients/ClientsPage.tsx)                                 | Connections side panel **Workspace hook** card for Cursor clients                                                                |
+| [`apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx`](../../apps/desktop/src/features/clients/RegisterApiKeyClientModal.tsx)     | Register-client result screen reuses the same installer component                                                                |
 | [`apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts`](../../apps/desktop/src/features/clients/cursor-bridge-config.helpers.ts) | Existing bridge generator and home for the manual fallback hook entry                                                            |
 | [`ryanhiizy/cursor-agent-wakatime`](https://github.com/ryanhiizy/cursor-agent-wakatime)                                                        | Existing user hook that the installer must preserve byte-for-byte semantically                                                   |
 | [Hooks — Cursor Docs](https://cursor.com/docs/hooks.md)                                                                                        | `preToolUse` input, MCP matcher shape, and `updated_input` output contract                                                       |

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { apiCall } from '@/lib/backend/data/transport';
 
 /** Result of a Cursor hook install, status, or uninstall command. */
 export interface CursorHookResult {
@@ -16,19 +16,19 @@ export interface CursorHookResult {
  * Read whether the managed `preToolUse` hook is installed.
  */
 export async function getCursorHookStatus(): Promise<CursorHookResult> {
-  return invoke('cursor_hook_status');
+  return apiCall('cursor_hook_status');
 }
 
 /**
  * Write the managed script and merge one `preToolUse` entry into hooks.json.
  */
 export async function installCursorHook(): Promise<CursorHookResult> {
-  return invoke('install_cursor_hook');
+  return apiCall('install_cursor_hook');
 }
 
 /**
  * Remove the managed hook entry and delete the managed script.
  */
 export async function uninstallCursorHook(): Promise<CursorHookResult> {
-  return invoke('uninstall_cursor_hook');
+  return apiCall('uninstall_cursor_hook');
 }
