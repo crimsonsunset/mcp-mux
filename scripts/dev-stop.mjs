@@ -12,6 +12,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const VITE_PORT = 1420;
 const GATEWAY_PORT = Number.parseInt(process.env.MCPMUX_GATEWAY_PORT ?? '45818', 10);
@@ -56,6 +59,78 @@ function pidsOnPort(port) {
 }
 
 /**
+ * PID file written by a detached `dev:admin` supervisor (same dir as the app log).
+ * @returns {string}
+ */
+function detachedPidPath() {
+  const home = os.homedir();
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library/Application Support/com.mcpmux.desktop/logs/dev-admin.pid');
+  }
+  if (process.platform === 'win32') {
+    return path.join(process.env.LOCALAPPDATA ?? home, 'com.mcpmux.desktop', 'logs', 'dev-admin.pid');
+  }
+  return path.join(home, '.local/share/com.mcpmux.desktop/logs/dev-admin.pid');
+}
+
+/**
+ * True when `pid` still exists.
+ * @param {number} pid
+ * @returns {boolean}
+ */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Kill a detached `dev:admin` supervisor before ports are listening.
+ * Uses the process group on Unix so compile-time children die with it.
+ * @returns {boolean} true when a live supervisor was signalled
+ */
+function killDetachedSupervisor() {
+  const pidPath = detachedPidPath();
+  if (!existsSync(pidPath)) return false;
+
+  const raw = readFileSync(pidPath, 'utf8').trim();
+  const pid = Number.parseInt(raw, 10);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    try {
+      unlinkSync(pidPath);
+    } catch {
+      // gone
+    }
+    return false;
+  }
+
+  if (!isPidAlive(pid)) {
+    console.log(`[dev-stop] ${new Date().toISOString()} stale detached pid ${pid} — removing ${pidPath}`);
+    try {
+      unlinkSync(pidPath);
+    } catch {
+      // gone
+    }
+    return false;
+  }
+
+  console.log(`[dev-stop] ${new Date().toISOString()} sending SIGTERM to detached supervisor PID ${pid}`);
+  if (process.platform === 'win32') {
+    killPid(pid);
+  } else {
+    try {
+      process.kill(-pid, 'SIGTERM');
+    } catch {
+      killPid(pid);
+    }
+  }
+  return true;
+}
+
+/**
  * Terminate a PID (best-effort). Uses taskkill on Windows for tree kill.
  * @param {number} pid
  */
@@ -77,11 +152,14 @@ function killPid(pid) {
  */
 function quitMacApp() {
   if (process.platform !== 'darwin') return;
+  console.log(`[dev-stop] ${new Date().toISOString()} asking "McpMux" to quit via osascript`);
   const result = spawnSync('osascript', ['-e', 'tell application "McpMux" to quit'], {
     stdio: 'ignore',
   });
   if (result.status === 0) {
-    console.log('[dev-stop] Asked McpMux.app to quit.');
+    console.log('[dev-stop] "McpMux" accepted the quit request.');
+  } else {
+    console.log(`[dev-stop] "McpMux" quit request returned status ${result.status} (likely not running).`);
   }
 }
 
@@ -95,10 +173,10 @@ function allPortsFree() {
 async function main() {
   quitMacApp();
 
-  let killedAny = false;
+  let killedAny = killDetachedSupervisor();
   for (const port of PORTS) {
     for (const pid of pidsOnPort(port)) {
-      console.log(`[dev-stop] Killing PID ${pid} on :${port}`);
+      console.log(`[dev-stop] ${new Date().toISOString()} sending SIGTERM to PID ${pid} on :${port}`);
       killPid(pid);
       killedAny = true;
     }

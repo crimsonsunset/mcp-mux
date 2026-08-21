@@ -192,10 +192,7 @@ impl EmbeddingWarmer {
             ordered_haystacks.push(haystack);
         }
 
-        let Some(vectors) = self
-            .embeddings
-            .embed_documents(&ordered_haystacks, None)
-        else {
+        let Some(vectors) = self.embeddings.embed_documents(&ordered_haystacks, None) else {
             info!(
                 space_id = %space_id,
                 server_id,

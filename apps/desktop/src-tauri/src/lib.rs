@@ -15,6 +15,8 @@ mod main_window;
 mod services;
 mod state;
 mod tray;
+#[cfg(unix)]
+mod unix_signal;
 
 // Re-export deep link handler
 use commands::oauth::{route_or_buffer_deep_link, PendingInitialDeepLink};
@@ -80,17 +82,11 @@ fn init_tracing() -> tracing_appender::non_blocking::WorkerGuard {
         .expect("Failed to create log file appender");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
 
-    // Environment filter for log levels
-    // RUST_LOG takes precedence, with sensible defaults for our crates
-    // Note: Rust crate names use underscores in tracing (e.g., mcpmux-core → mcpmux_core)
+    // RUST_LOG / .env wins. Default is info; set e.g. RUST_LOG=mcpmux_gateway=debug
+    // to opt a crate back into debug. Crate names use underscores in tracing
+    // (mcpmux-core → mcpmux_core).
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        // Default filter when RUST_LOG is not set
         EnvFilter::new("info")
-            .add_directive("mcpmux_core=debug".parse().unwrap())
-            .add_directive("mcpmux_gateway=debug".parse().unwrap())
-            .add_directive("mcpmux_storage=debug".parse().unwrap())
-            .add_directive("mcpmux_mcp=debug".parse().unwrap())
-            .add_directive("mcpmux_lib=debug".parse().unwrap())
             .add_directive("tauri=info".parse().unwrap())
             .add_directive("tao=warn".parse().unwrap())
             .add_directive("wry=warn".parse().unwrap())
@@ -904,24 +900,8 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     #[cfg(unix)]
                     {
-                        use tokio::signal::unix::{signal, SignalKind};
-                        let mut sigterm = match signal(SignalKind::terminate()) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("[Signal] Failed to install SIGTERM handler: {}", e);
-                                return;
-                            }
-                        };
-                        let mut sigint = match signal(SignalKind::interrupt()) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("[Signal] Failed to install SIGINT handler: {}", e);
-                                return;
-                            }
-                        };
-                        tokio::select! {
-                            _ = sigterm.recv() => info!("[Signal] SIGTERM — requesting exit"),
-                            _ = sigint.recv() => info!("[Signal] SIGINT — requesting exit"),
+                        if !crate::unix_signal::wait_for_term().await {
+                            return;
                         }
                     }
                     #[cfg(windows)]

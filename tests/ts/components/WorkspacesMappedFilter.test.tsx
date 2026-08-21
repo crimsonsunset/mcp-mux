@@ -28,6 +28,7 @@ vi.mock('@/lib/api/workspaceBindings', () => ({
   deleteWorkspaceBinding: vi.fn(),
   getWorkspaceEffectiveFeatures: vi.fn(),
   validateWorkspaceRoot: vi.fn(),
+  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
 }));
 
 vi.mock('@/lib/api/featureSets', () => ({

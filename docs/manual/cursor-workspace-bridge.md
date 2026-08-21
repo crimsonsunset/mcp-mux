@@ -67,6 +67,17 @@ The process should stay up and the gateway should log an incoming MCP session.
 
 ## Fallback
 
-If `${workspaceFolder}` does not resolve correctly in your Cursor version, use the
-per-repo install path documented in
-[`workspace-header-routing.md`](./workspace-header-routing.md) section B.
+Cursor's Agents window sometimes spawns the `mcp-remote` bridge without
+resolving `${workspaceFolder}`. The gateway then sees
+`X-Mcpmux-Workspace` present but empty, skips the pin, and the session
+stays at `PendingRoots` (or routes via the full multi-folder `roots/list`).
+
+Look for this log line:
+
+```
+[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped
+```
+
+When that happens, use the per-repo install path in
+[`workspace-header-routing.md`](./workspace-header-routing.md) section B
+(static `X-Mcpmux-Workspace` header in `.cursor/mcp.json`, no variable).

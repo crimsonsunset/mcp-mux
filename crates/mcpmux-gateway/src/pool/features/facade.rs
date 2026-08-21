@@ -3,10 +3,13 @@
 use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 use crate::pool::instance::McpClient;
 use crate::services::PrefixCacheService;
-use mcpmux_core::{FeatureSetRepository, FeatureType, ServerFeature, ServerFeatureRepository};
+use mcpmux_core::{
+    DomainEvent, FeatureSetRepository, FeatureType, ServerFeature, ServerFeatureRepository,
+};
 
 use super::{
     CachedFeatures, FeatureDiscoveryService, FeatureResolutionService, FeatureRoutingService,
@@ -45,6 +48,12 @@ impl FeatureService {
             resolution,
             routing,
         }
+    }
+
+    /// Subscribe the resolution cache to DomainEvents so capability changes
+    /// drop stale `resolve_feature_sets` entries.
+    pub fn start_resolution_cache_invalidation(&self, event_rx: broadcast::Receiver<DomainEvent>) {
+        self.resolution.clone().start_cache_invalidation(event_rx);
     }
 
     // Delegate to FeatureDiscoveryService

@@ -17,6 +17,7 @@ vi.mock('@/lib/api/workspaceBindings', () => ({
   updateWorkspaceBinding: vi.fn().mockResolvedValue(undefined),
   listWorkspaceBindings: vi.fn().mockResolvedValue([]),
   validateWorkspaceRoot: vi.fn().mockResolvedValue('/home/u/proj'),
+  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
   getWorkspaceEffectiveFeatures: vi.fn().mockResolvedValue({
     workspace_root: '/home/u/proj',
     source: 'unbound',

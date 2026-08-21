@@ -258,6 +258,15 @@ pub async fn mcp_oauth_middleware(
         (sid, ws)
     };
     match (&session_id_header, &workspace_header) {
+        (_, Some(ws)) if ws.trim().is_empty() => {
+            warn!(
+                trace_id = %trace_id,
+                session_id = session_id_header.as_deref().unwrap_or("<none>"),
+                "[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped \
+                 (Cursor Agents window often spawns mcp-remote without resolving \
+                 ${{workspaceFolder}}; see docs/manual/cursor-workspace-bridge.md Fallback)",
+            );
+        }
         (Some(sid), Some(ws)) => {
             services.session_roots.set_pinned(sid, ws);
         }
@@ -270,6 +279,11 @@ pub async fn mcp_oauth_middleware(
         }
         _ => {}
     }
+
+    // Captured before `request` is consumed below — needed to recognize the
+    // spec-correct GET shapes (pre-init SSE, post-timeout reconnect) when
+    // deciding whether to warn on the response status.
+    let http_method = request.method().clone();
 
     // Extract MCP method from body if POST
     let mcp_method = if request.method() == axum::http::Method::POST {
@@ -313,9 +327,17 @@ pub async fn mcp_oauth_middleware(
 
     let response = next.run(request).await;
 
-    // Log errors only
+    // Log errors only — except two rmcp spec-correct shapes that are not
+    // gateway problems: a GET without Mcp-Session-Id (client opening the SSE
+    // stream before initialize) and any request against a session rmcp has
+    // already closed (idle keep-alive timeout or explicit termination). Both
+    // are expected client reconnect behavior. See
+    // docs/planning/aug14-gateway-ops-bugs.md Decision 4.
     let status = response.status();
-    if status.is_server_error() || status.is_client_error() {
+    let is_expected_session_noise = (http_method == axum::http::Method::GET
+        && status == StatusCode::BAD_REQUEST)
+        || status == StatusCode::NOT_FOUND;
+    if (status.is_server_error() || status.is_client_error()) && !is_expected_session_noise {
         warn!(
             trace_id = %trace_id,
             status = %status,

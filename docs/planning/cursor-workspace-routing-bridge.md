@@ -1,8 +1,24 @@
 # Cursor Workspace Routing via Global `mcp-remote` Bridge
 
-**Last Updated:** Jul 28, 2026
+**Last Updated:** Aug 14, 2026
 **Status:** Complete (Phases 1–3) — Agents Window spike **done**; multi-root ambiguity gate covers resolver + bind + list_servers note
 **Branch:** `dev-rebased`
+
+### Open question (Aug 14, 2026)
+
+Exactly when/why does Cursor's Agents window spawn an `mcp-remote` child
+without resolving `${workspaceFolder}`? Editor windows substitute the
+variable into `--header X-Mcpmux-Workspace:…` at spawn time; some Agents
+sessions arrive with the header present but empty (`workspace_header=""`),
+so `set_pinned` no-ops and the resolver holds at `PendingRoots`.
+
+Gateway now warns on that empty header (see
+[`oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs))
+and the user-facing fallback is the per-repo static header in
+[`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md).
+No client-side workaround until we have a reliable repro of the spawn
+path (which Cursor surface, which MCP host, whether `${workspaceFolder}`
+is left literal or stripped to empty by `mcp-remote`'s `${ENV}` pass).
 
 ### Phase 1 spike results (Jul 20, 2026)
 
@@ -24,6 +40,7 @@
 | ------ | ----- | ----- |
 | `session_id` + `workspace_header` on every MCP POST | `oauth_middleware` `→ MCP` | info |
 | Workspace header without `mcp-session-id` (pin skipped) | `oauth_middleware` | warn |
+| Workspace header present but empty (pin skipped) | `oauth_middleware` | warn |
 | First pin / same-session root clobber | `session_roots.set_pinned` | info / warn |
 | `workspace_root` on resolve | `handler` `[FeatureSetResolver] resolved` | info |
 | `x-mcpmux-workspace` / `x-mcpmux-machine-id` in DEBUG request headers | `logging_middleware` | debug |

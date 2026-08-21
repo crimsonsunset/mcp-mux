@@ -30,6 +30,15 @@ use tracing::{debug, info, warn};
 pub fn ensure_contacts_registered() {
     use objc2_contacts::{CNAuthorizationStatus, CNContactStore, CNEntityType};
 
+    // TCC never persists a decision for the unsigned `tauri dev` binary (its
+    // code signature/path changes across rebuilds), so every dev launch
+    // re-prompts and immediately reports Access Denied. Skip in debug builds;
+    // production (signed .app) behavior is unaffected.
+    if cfg!(debug_assertions) {
+        debug!("[Permissions] Contacts: skipping request in debug build");
+        return;
+    }
+
     // SAFETY: `authorizationStatusForEntityType` is a pure read of the
     // system TCC database — no side effects, no main-thread requirement.
     let status =
