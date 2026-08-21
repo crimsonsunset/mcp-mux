@@ -42,6 +42,7 @@ import {
   buildCursorBridgeMcpJson,
   CURSOR_BRIDGE_CLIENT_NAME,
 } from './cursor-bridge-config.helpers';
+import { CursorHookInstallSection } from './cursor-hook-install-section';
 
 /** Sentinel value that reveals the shared "create new machine" sub-form. */
 const NEW_MACHINE_OPTION = '__new__';
@@ -426,6 +427,8 @@ export function RegisterApiKeyClientModal({
                     Done
                   </Button>
                 </div>
+
+                <CursorHookInstallSection boxed />
 
                 <p className="text-xs text-[rgb(var(--muted))]">{t('cursorBridge.fallbackNote')}</p>
               </>

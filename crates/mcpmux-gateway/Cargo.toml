@@ -49,6 +49,7 @@ uuid.workspace = true
 chrono.workspace = true
 dashmap = "6.1"
 parking_lot = "0.12"
+netstat2 = "0.11"
 
 # Crypto for OAuth PKCE
 base64 = "0.22"
@@ -72,6 +73,9 @@ oauth2 = "5"
 # Internal crates (path-only, no version needed)
 mcpmux-core.workspace = true
 mcpmux-storage.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

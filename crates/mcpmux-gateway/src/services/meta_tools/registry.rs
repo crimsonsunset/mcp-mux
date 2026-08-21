@@ -109,6 +109,9 @@ pub struct MetaToolCall<'a> {
     /// header, when the transport carries one. `None` for local/stdio
     /// callers and for tests that don't exercise per-device routing.
     pub request_machine_id: Option<Uuid>,
+    /// Exact workspace root from `_mcpmux_context` on this call, if any.
+    /// Never written into session/window pin maps.
+    pub explicit_workspace_root: Option<String>,
 }
 
 /// Errors a meta tool can surface that map cleanly to `CallToolResult::error`.
@@ -285,7 +288,7 @@ impl MetaToolRegistry {
         session_id: Option<&str>,
         args: Value,
     ) -> Result<CallToolResult, MetaToolError> {
-        self.call_from_device(name, client_id, session_id, args, None)
+        self.call_from_device(name, client_id, session_id, args, None, None)
             .await
     }
 
@@ -300,6 +303,7 @@ impl MetaToolRegistry {
         session_id: Option<&str>,
         args: Value,
         request_machine_id: Option<Uuid>,
+        explicit_workspace_root: Option<String>,
     ) -> Result<CallToolResult, MetaToolError> {
         let tool = self
             .tools
@@ -314,6 +318,7 @@ impl MetaToolRegistry {
             ctx: &self.ctx,
             audit_decision: audit_decision.clone(),
             request_machine_id,
+            explicit_workspace_root,
         };
         let result = tool.call(call).await;
 

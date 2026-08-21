@@ -54,6 +54,18 @@ impl AuthorizationService {
             .await
     }
 
+    /// Per-call explicit-root resolution. Does not read or write session pins.
+    pub async fn resolve_for_workspace_root(
+        &self,
+        workspace_root: &str,
+        client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
+    ) -> Result<ResolvedFeatureSet> {
+        self.resolver
+            .resolve_for_workspace_root(workspace_root, client_id, request_machine_id)
+            .await
+    }
+
     /// Does this session/client resolve to any FeatureSet?
     pub async fn has_access(
         &self,

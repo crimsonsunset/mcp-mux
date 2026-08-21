@@ -795,4 +795,70 @@ impl FeatureSetResolverService {
         );
         Ok(self.unbound(deny_space_id))
     }
+
+    /// Resolve from an explicit per-call workspace root without reading or
+    /// writing [`SessionRootsRegistry`]. Used when Cursor's `preToolUse` hook
+    /// attaches `_mcpmux_context` to this exact `tools/call`.
+    pub async fn resolve_for_workspace_root(
+        &self,
+        workspace_root: &str,
+        client_id: Option<&str>,
+        request_machine_id: Option<Uuid>,
+    ) -> Result<ResolvedFeatureSet> {
+        let default_space_id = match self.space_repo.get_default().await? {
+            Some(s) => s.id,
+            None => {
+                warn!("[FeatureSetResolver] no default space — deny");
+                return Ok(ResolvedFeatureSet {
+                    feature_set_ids: vec![],
+                    space_id: None,
+                    source: ResolutionSource::Deny,
+                });
+            }
+        };
+        let space_lock = match client_id {
+            Some(cid) => self.client_repo.get_locked_space(cid).await?,
+            None => None,
+        };
+        let deny_space_id = Self::unbound_space_id(space_lock, default_space_id);
+        let reported_roots = [workspace_root.to_string()];
+
+        if let Some(binding) = self
+            .find_binding_for_roots(&reported_roots, client_id, request_machine_id)
+            .await?
+        {
+            if Self::binding_matches_space_lock(&binding, space_lock) {
+                debug!(
+                    workspace_root = %binding.workspace_root,
+                    space_id = %binding.space_id,
+                    feature_sets = ?binding.feature_set_ids,
+                    "[FeatureSetResolver] resolved via explicit workspace_root",
+                );
+                return Ok(ResolvedFeatureSet {
+                    feature_set_ids: binding.feature_set_ids,
+                    space_id: Some(binding.space_id),
+                    source: ResolutionSource::WorkspaceBinding,
+                });
+            }
+            debug!(
+                binding_space = %binding.space_id,
+                ?space_lock,
+                "[FeatureSetResolver] explicit-root binding outside locked Space — ignored",
+            );
+        }
+
+        let target_space = if space_lock.is_some() {
+            deny_space_id
+        } else {
+            self.space_for_roots(&reported_roots)
+                .await?
+                .unwrap_or(default_space_id)
+        };
+        debug!(
+            %target_space,
+            workspace_root,
+            "[FeatureSetResolver] explicit workspace_root but no binding matched — Unbound",
+        );
+        Ok(self.unbound(target_space))
+    }
 }

@@ -55,15 +55,7 @@ pub(crate) fn text_result(v: Value) -> CallToolResult {
 /// workspace B just because both sit under the same default-Space-flagged
 /// row in the DB.
 pub(crate) async fn caller_space_id(call: &MetaToolCall<'_>) -> Result<Uuid, MetaToolError> {
-    let resolved = call
-        .ctx
-        .resolver
-        .resolve(
-            call.session_id,
-            Some(call.client_id),
-            call.request_machine_id,
-        )
-        .await?;
+    let resolved = caller_resolution(call).await?;
     if let Some(space_id) = resolved.space_id {
         return Ok(space_id);
     }
@@ -75,9 +67,18 @@ pub(crate) async fn caller_space_id(call: &MetaToolCall<'_>) -> Result<Uuid, Met
 }
 
 /// Full resolver output for the caller — space + binding FS ids + source.
+/// Prefers an exact `_mcpmux_context` root when the handler attached one.
 pub(crate) async fn caller_resolution(
     call: &MetaToolCall<'_>,
 ) -> Result<ResolvedFeatureSet, MetaToolError> {
+    if let Some(root) = call.explicit_workspace_root.as_deref() {
+        return call
+            .ctx
+            .resolver
+            .resolve_for_workspace_root(root, Some(call.client_id), call.request_machine_id)
+            .await
+            .map_err(|e| MetaToolError::Internal(e.to_string()));
+    }
     call.ctx
         .resolver
         .resolve(

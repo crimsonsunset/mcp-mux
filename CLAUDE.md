@@ -66,12 +66,11 @@ pnpm typecheck          # TypeScript type checking (recursive)
 
 ### Rust Crate Architecture
 
-The Cargo workspace has 4 library crates + 1 app crate + 1 test crate:
+The Cargo workspace has 3 library crates + 1 app crate + 1 test crate:
 
 - **mcpmux-core** (`crates/mcpmux-core/`) - Domain layer: entities (Space, InstalledServer, FeatureSet, Client), repository traits, domain services, application services with event emission, and the central EventBus
 - **mcpmux-gateway** (`crates/mcpmux-gateway/`) - Axum HTTP gateway: routes MCP calls to correct servers, manages OAuth 2.1+PKCE token refresh, filters tools/resources/prompts based on FeatureSets, per-client access key auth, server connection pooling
 - **mcpmux-storage** (`crates/mcpmux-storage/`) - SQLite persistence with AES-256-GCM field-level encryption via ring, typed credential rows (per-token encryption), DPAPI key storage on Windows (`keychain_dpapi.rs`), OS keychain on macOS/Linux via keyring crate, zeroize for secure memory clearing
-- **mcpmux-mcp** (`crates/mcpmux-mcp/`) - MCP protocol client management using rmcp SDK
 - **apps/desktop/src-tauri** - Tauri 2 app shell, Tauri commands, system tray, deep-link handler (`mcpmux://`)
 - **tests/rust** - Integration test crate
 

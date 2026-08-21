@@ -1921,6 +1921,7 @@ async fn bind_current_workspace_header_targets_caller_machine_not_gateway_local(
             Some(&f.session_id),
             json!({ "feature_set_id": f.fs_android_id.to_string() }),
             Some(rohan_id),
+            None,
         )
         .await
         .unwrap();
@@ -2004,6 +2005,42 @@ async fn invalid_feature_set_argument_rejected() {
         body.get("error").unwrap().as_str().unwrap(),
         "invalid_argument"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bind_current_workspace_rejects_nonexistent_feature_set() {
+    let f = Fixture::new().await;
+    let input = if cfg!(windows) {
+        "D:\\Projects\\MissingFs\\"
+    } else {
+        "/proj/missing-fs"
+    };
+    f.session_roots.set(&f.session_id, [input]);
+    let before = f.binding_repo.list().await.unwrap().len();
+    let missing = Uuid::new_v4();
+
+    let result = f
+        .call_tool_as_handler_would(
+            "mcpmux_bind_current_workspace",
+            json!({ "feature_set_id": missing.to_string() }),
+        )
+        .await;
+
+    assert!(Fixture::is_error(&result));
+    let body = Fixture::result_json(&result);
+    assert_eq!(
+        body.get("error").unwrap().as_str().unwrap(),
+        "invalid_argument"
+    );
+    let message = body
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    assert!(
+        message.contains("mcpmux_list_feature_sets"),
+        "expected actionable message, got {message}"
+    );
+    assert_eq!(f.binding_repo.list().await.unwrap().len(), before);
 }
 
 // ---------------------------------------------------------------------------

@@ -7,16 +7,19 @@
 
 use axum::{
     body::Body,
+    extract::ConnectInfo,
     http::{header, Request, Response, StatusCode},
     middleware::Next,
     response::IntoResponse,
 };
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::auth::validate_token;
 use crate::logging::TraceContext;
 use crate::server::ServiceContainer;
+use crate::services::{resolve_window_key, PinSource, SessionRootsRegistry};
 
 /// Synthetic client identity used when system-wide inbound auth is disabled and
 /// a connection arrives without a (valid) Bearer token. Routing still prefers
@@ -197,6 +200,14 @@ pub async fn mcp_oauth_middleware(
         let msg = match auth_header.as_deref() {
             None => "Missing Authorization header",
             Some(v) if !v.starts_with("Bearer ") => "Authorization header must use Bearer scheme",
+            // A token still carrying `${...}` was never issued by anyone — the
+            // client's env substitution didn't run. Observed after a Cursor MCP
+            // respawn, where `mcp-remote` sends the literal `${MCPMUX_API_KEY}`
+            // and Cursor then reports only a connection timeout. Naming it makes
+            // that one grep instead of an investigation.
+            Some(v) if v.contains("${") => {
+                "Authorization header contains an unexpanded ${...} template"
+            }
             _ => "Invalid token",
         };
         warn!(trace_id = %trace_id, "{}", msg);
@@ -245,7 +256,11 @@ pub async fn mcp_oauth_middleware(
     // client can claim any binding (see FeatureSetResolver trust model). Keyed
     // by the `mcp-session-id` the client echoes on every post-initialize
     // request (the same key the handler stores reported roots under).
-    let (session_id_header, workspace_header) = {
+    let peer_addr = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0);
+    let (session_id_header, workspace_header, workspace_set_header) = {
         let headers = request.headers();
         let sid = headers
             .get("mcp-session-id")
@@ -255,29 +270,105 @@ pub async fn mcp_oauth_middleware(
             .get("x-mcpmux-workspace")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        (sid, ws)
+        let ws_set = headers
+            .get("x-mcpmux-workspace-set")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        (sid, ws, ws_set)
     };
+    if let Some(sid) = session_id_header.as_deref() {
+        attach_window_identity(&services, sid, peer_addr);
+    }
+    let mut empty_workspace_header = false;
     match (&session_id_header, &workspace_header) {
-        (_, Some(ws)) if ws.trim().is_empty() => {
+        // Neither the editor nor mcp-remote expanded the template, so the
+        // literal reached us. Distinct from the empty case below: it means
+        // mcp-remote's own `${ENV}` substitution changed behavior, since today
+        // it rewrites an unknown variable to an empty string.
+        (_, Some(ws)) if ws.contains("${") => {
             warn!(
                 trace_id = %trace_id,
                 session_id = session_id_header.as_deref().unwrap_or("<none>"),
-                "[SessionRoots] X-Mcpmux-Workspace present but empty — pin skipped \
-                 (Cursor Agents window often spawns mcp-remote without resolving \
-                 ${{workspaceFolder}}; see docs/manual/cursor-workspace-bridge.md Fallback)",
+                workspace_header = %ws,
+                "[SessionRoots] X-Mcpmux-Workspace arrived as an unexpanded template — \
+                 pin skipped rather than pinning a literal",
             );
         }
+        (_, Some(ws)) if ws.trim().is_empty() => {
+            empty_workspace_header = true;
+        }
         (Some(sid), Some(ws)) => {
-            services.session_roots.set_pinned(sid, ws);
+            services
+                .session_roots
+                .set_pinned(sid, ws, PinSource::WorkspaceHeader);
         }
         (None, Some(ws)) => {
-            warn!(
+            info!(
                 trace_id = %trace_id,
                 workspace_header = %ws,
-                "[SessionRoots] X-Mcpmux-Workspace present without mcp-session-id — pin skipped",
+                "[SessionRoots] X-Mcpmux-Workspace held until mcp-session-id exists",
+            );
+            services
+                .session_roots
+                .remember_pending_workspace(&client_id, ws);
+        }
+        (Some(sid), None) => {
+            services.session_roots.apply_pending_workspace(
+                &client_id,
+                sid,
+                workspace_set_header.as_deref(),
             );
         }
         _ => {}
+    }
+
+    // The calling window's full folder set (`X-Mcpmux-Workspace-Set`, carrying
+    // Cursor's `WORKSPACE_FOLDER_PATHS`). Recorded as a constraint on which
+    // roots this session may claim, and as the candidate list shown when the
+    // workspace header above failed to resolve. A set of one also pins,
+    // because one candidate cannot be ambiguous. Held across initialize like
+    // the workspace header, since both arrive before `mcp-session-id`.
+    match (&session_id_header, &workspace_set_header) {
+        // The bridge config assumes Cursor leaves `${WORKSPACE_FOLDER_PATHS}`
+        // alone (it isn't a Cursor variable) so mcp-remote expands it from the
+        // child environment. This warn is how that assumption reports failure:
+        // the set is dropped rather than parsed, so routing degrades to the
+        // pre-set-header behavior instead of misrouting.
+        (_, Some(set)) if set.contains("${") => {
+            warn!(
+                trace_id = %trace_id,
+                session_id = session_id_header.as_deref().unwrap_or("<none>"),
+                workspace_set_header = %set,
+                "[SessionRoots] X-Mcpmux-Workspace-Set arrived unexpanded — no candidate \
+                 set for this session; check that WORKSPACE_FOLDER_PATHS is present in \
+                 the mcp-remote child environment",
+            );
+        }
+        (_, Some(set)) if set.trim().is_empty() => {}
+        (Some(sid), Some(set)) => {
+            services.session_roots.set_candidates(sid, set);
+        }
+        (None, Some(set)) => {
+            services
+                .session_roots
+                .remember_pending_candidates(&client_id, set);
+        }
+        (Some(sid), None) => {
+            services
+                .session_roots
+                .apply_pending_candidates(&client_id, sid);
+        }
+        _ => {}
+    }
+
+    if let Some(sid) = session_id_header.as_deref() {
+        resolve_window_pin(
+            &services,
+            sid,
+            empty_workspace_header,
+            workspace_set_header.as_deref(),
+            &trace_id,
+        );
     }
 
     // Captured before `request` is consumed below — needed to recognize the
@@ -302,6 +393,12 @@ pub async fn mcp_oauth_middleware(
                     space = %&space_id.to_string()[..8],
                     session_id = session_id_header.as_deref().unwrap_or("<none>"),
                     workspace_header = workspace_header.as_deref().unwrap_or("<absent>"),
+                    window_key = session_id_header
+                        .as_deref()
+                        .and_then(|sid| services.session_roots.window_key_for(sid))
+                        .map(|key| key.to_string())
+                        .as_deref()
+                        .unwrap_or("<none>"),
                     method = method.as_deref().unwrap_or("-"),
                     "→ MCP"
                 );
@@ -327,6 +424,30 @@ pub async fn mcp_oauth_middleware(
 
     let response = next.run(request).await;
 
+    if let Some(sid) = response
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+    {
+        attach_window_identity(&services, sid, peer_addr);
+        if let Some(ws) = workspace_header
+            .as_deref()
+            .filter(|value| !value.trim().is_empty() && !value.contains("${"))
+        {
+            services
+                .session_roots
+                .set_pinned(sid, ws, PinSource::WorkspaceHeader);
+        }
+        resolve_window_pin(
+            &services,
+            sid,
+            empty_workspace_header,
+            workspace_set_header.as_deref(),
+            &trace_id,
+        );
+    }
+
     // Log errors only — except two rmcp spec-correct shapes that are not
     // gateway problems: a GET without Mcp-Session-Id (client opening the SSE
     // stream before initialize) and any request against a session rmcp has
@@ -348,6 +469,64 @@ pub async fn mcp_oauth_middleware(
     }
 
     response
+}
+
+/// Map the peer socket to a window key once per session and remember it.
+fn attach_window_identity(services: &ServiceContainer, session_id: &str, peer: Option<SocketAddr>) {
+    if services.session_roots.window_key_for(session_id).is_some() {
+        return;
+    }
+    let Some(peer) = peer else {
+        return;
+    };
+    let Some(key) = resolve_window_key(peer) else {
+        return;
+    };
+    info!(
+        %session_id,
+        window_key = %key,
+        peer = %peer,
+        "[SessionRoots] window identity from peer socket",
+    );
+    services.session_roots.attach_window(session_id, key);
+}
+
+/// Promote an explicit session pin to the window, or inherit a remembered one.
+///
+/// An empty header is a failed substitution, not "reuse the last pin." Drop
+/// the session claim and skip window inherit so a sibling window on the
+/// shared `mcp-session-id` cannot keep resolving through the previous root.
+/// A one-member set on *this* request is a stronger claim than the empty
+/// active-folder header and must keep the SingleCandidate pin.
+fn resolve_window_pin(
+    services: &ServiceContainer,
+    session_id: &str,
+    empty_workspace_header: bool,
+    workspace_set_header: Option<&str>,
+    trace_id: &str,
+) {
+    let same_request_single_set = workspace_set_header
+        .is_some_and(SessionRootsRegistry::set_header_is_single_folder);
+    if empty_workspace_header && !same_request_single_set {
+        services.session_roots.forget_empty_header_claim(session_id);
+        warn!(
+            trace_id = %trace_id,
+            session_id,
+            "[SessionRoots] X-Mcpmux-Workspace present but empty — pin cleared \
+             (Cursor did not substitute ${{workspaceFolder}} before spawning \
+             mcp-remote, which then expanded the unresolved literal to empty). \
+             Affects editor and Agents windows alike; recover with \
+             mcpmux_set_workspace_root, or install a per-repo static header to \
+             avoid substitution entirely — \
+             see docs/manual/cursor-workspace-bridge.md Fallback",
+        );
+        return;
+    }
+    if services.session_roots.session_pin(session_id).is_some() {
+        services.session_roots.promote_pin_to_window(session_id);
+        return;
+    }
+    services.session_roots.inherit_window_pin(session_id);
 }
 
 /// Generate unauthorized response with RFC 9728 protected-resource discovery.

@@ -242,8 +242,7 @@ mcp-mux/
 ├── crates/
 │   ├── mcpmux-core/       # Domain logic
 │   ├── mcpmux-gateway/    # HTTP gateway, OAuth, routing
-│   ├── mcpmux-storage/    # SQLite + encryption + OS keychain
-│   └── mcpmux-mcp/        # MCP protocol
+│   └── mcpmux-storage/    # SQLite + encryption + OS keychain
 ├── packages/ui/           # Shared UI components
 └── tests/                 # Unit, integration, E2E tests
 ```

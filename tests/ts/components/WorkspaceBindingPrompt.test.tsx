@@ -12,25 +12,28 @@ const { workspaceHandlers } = vi.hoisted(() => ({
   workspaceHandlers: new Map<string, (payload: unknown) => void>(),
 }));
 
-vi.mock('@/lib/api/workspaceBindings', () => ({
-  createWorkspaceBinding: vi.fn(),
-  updateWorkspaceBinding: vi.fn().mockResolvedValue(undefined),
-  listWorkspaceBindings: vi.fn().mockResolvedValue([]),
-  validateWorkspaceRoot: vi.fn().mockResolvedValue('/home/u/proj'),
-  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
-  getWorkspaceEffectiveFeatures: vi.fn().mockResolvedValue({
-    workspace_root: '/home/u/proj',
-    source: 'unbound',
-    binding_id: null,
-    space_id: 's1',
-    space_name: 'Default',
-    feature_sets: [{ id: 'fs1', name: 'Starter', feature_set_type: 'starter' }],
-    tools: [],
-    prompts: [],
-    resources: [],
-    server_totals: {},
-  }),
-}));
+vi.mock('@/lib/api/workspaceBindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/workspaceBindings')>();
+  return {
+    ...actual,
+    createWorkspaceBinding: vi.fn(),
+    updateWorkspaceBinding: vi.fn().mockResolvedValue(undefined),
+    listWorkspaceBindings: vi.fn().mockResolvedValue([]),
+    validateWorkspaceRoot: vi.fn().mockResolvedValue('/home/u/proj'),
+    getWorkspaceEffectiveFeatures: vi.fn().mockResolvedValue({
+      workspace_root: '/home/u/proj',
+      source: 'unbound',
+      binding_id: null,
+      space_id: 's1',
+      space_name: 'Default',
+      feature_sets: [{ id: 'fs1', name: 'Starter', feature_set_type: 'starter' }],
+      tools: [],
+      prompts: [],
+      resources: [],
+      server_totals: {},
+    }),
+  };
+});
 
 vi.mock('@/lib/api/spaces', () => ({
   listSpaces: vi.fn().mockResolvedValue([{ id: 's1', name: 'Default', is_default: true }]),

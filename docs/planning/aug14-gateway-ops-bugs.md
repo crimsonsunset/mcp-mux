@@ -1,7 +1,7 @@
 # Aug 14 Gateway Ops Bugs
 
 **Last Updated:** Aug 21, 2026
-**Status:** Implemented — Phases 1-4 shipped on this branch (SIGTERM root cause: Cursor Helper reaping the agent tree; `dev:admin` now detaches)
+**Status:** Implemented — Phases 1-4 shipped via [PR #10](https://github.com/crimsonsunset/mcp-mux/pull/10) (SIGTERM root cause: Cursor Helper reaping the agent tree; `dev:admin` now detaches). Connection-reliability follow-on lives in [`backend-connection-resilience.md`](./backend-connection-resilience.md).
 **Branch:** `docs/aug14-gateway-ops-bugs` (off `dev-rebased`)
 **Depends on:** `cursor-workspace-routing-bridge.md` (empty-header / Agents Window), `search-tools-perf.md` (`resolve_feature_sets` hot path), `7ac5dc1` (filesystem multi-root disambiguation)
 **Unblocks:** Quieter logs, a process that stays up, fewer false "gateway is dead" signals, and a clean connect set on boot
@@ -29,15 +29,16 @@ These stay on the branch. They are not the dig targets.
 
 Severity is "how much it hurts today," not "how hard to fix."
 
-### B1. Empty `${workspaceFolder}` header (Agents window)
+### B1. Empty `${workspaceFolder}` header
 
 **Severity:** High (wrong or stuck routing)
-**Status:** Telemetry shipped; no client-side fix
-**Symptom:** Cursor Agents window (and some other spawn paths) send `X-Mcpmux-Workspace` present but empty. `set_pinned` no-ops. Session falls through to multi-folder `roots/list` → `PendingRoots` or the wrong space.
-**Evidence:** 477 empty-header warns in ~40 min of new-binary uptime. Session `896e45f3…` fires it on every `tools/list` / `prompts/list` / `resources/list`.
-**Likely cause:** Cursor leaves `${workspaceFolder}` unresolved; `mcp-remote` then treats `${…}` as an env var and substitutes empty.
-**Related:** [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) Open question (Aug 14). Fallback is per-repo static header in [`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md).
-**Decision already made:** no auto-disambiguation, no agent-facing UI, no client workaround this pass. Dig is "when/why + is the warn too loud."
+**Status:** Root-caused and bounded (`efabe48`); residual ~16% is inherent
+**Symptom:** Cursor sends `X-Mcpmux-Workspace` present but empty. `set_pinned` no-ops. Session falls through to multi-folder `roots/list` → `PendingRoots` or the wrong space.
+**Evidence:** 477 empty-header warns in ~40 min of new-binary uptime. Session `896e45f3…` fires it on every `tools/list` / `prompts/list` / `resources/list`. A later 282-spawn `env-probe` put the substitution failure at 21% overall.
+**Cause (confirmed):** Cursor leaves `${workspaceFolder}` unresolved; `mcp-remote` treats `${…}` as an env var and substitutes empty.
+**Correction:** this was filed as an Agents-window bug. It isn't. Editor windows fail at 29%, Agents windows at 4%. The `oauth_middleware` warn that blamed the Agents window has been reworded.
+**Related:** [`cursor-workspace-routing-bridge.md`](./cursor-workspace-routing-bridge.md) resolved question (Aug 20) and [`resilience-routing-leftovers.md`](./resilience-routing-leftovers.md) item 1. Fully immune path is the per-repo static header in [`cursor-workspace-bridge.md`](../manual/cursor-workspace-bridge.md).
+**Decision:** still no auto-disambiguation — a first-entry heuristic on `WORKSPACE_FOLDER_PATHS` would misroute 30% of the time. The window's folder set is now carried as a constraint instead, which bounds `set_workspace_root` rather than guessing.
 
 ### B2. Empty-header warn is per-request, not per-session
 

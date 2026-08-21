@@ -25,17 +25,20 @@ const {
   clearUnmappedReportedRootsMock: vi.fn(),
 }));
 
-vi.mock('@/lib/api/workspaceBindings', () => ({
-  listWorkspaceBindings: listWorkspaceBindingsMock,
-  listReportedWorkspaceRoots: listReportedWorkspaceRootsMock,
-  clearUnmappedReportedRoots: clearUnmappedReportedRootsMock,
-  createWorkspaceBinding: vi.fn(),
-  updateWorkspaceBinding: vi.fn(),
-  deleteWorkspaceBinding: vi.fn(),
-  getWorkspaceEffectiveFeatures: vi.fn(),
-  validateWorkspaceRoot: vi.fn(),
-  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
-}));
+vi.mock('@/lib/api/workspaceBindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/workspaceBindings')>();
+  return {
+    ...actual,
+    listWorkspaceBindings: listWorkspaceBindingsMock,
+    listReportedWorkspaceRoots: listReportedWorkspaceRootsMock,
+    clearUnmappedReportedRoots: clearUnmappedReportedRootsMock,
+    createWorkspaceBinding: vi.fn(),
+    updateWorkspaceBinding: vi.fn(),
+    deleteWorkspaceBinding: vi.fn(),
+    getWorkspaceEffectiveFeatures: vi.fn(),
+    validateWorkspaceRoot: vi.fn(),
+  };
+});
 
 vi.mock('@/lib/api/featureSets', () => ({
   listFeatureSets: vi.fn().mockResolvedValue([]),

@@ -10,7 +10,6 @@ description = "Integration tests for McpMux"
 mcpmux-core = { path = "../../crates/mcpmux-core" }
 mcpmux-gateway = { path = "../../crates/mcpmux-gateway", features = ["test-utils"] }
 mcpmux-storage = { path = "../../crates/mcpmux-storage" }
-mcpmux-mcp = { path = "../../crates/mcpmux-mcp" }
 
 # Async runtime
 tokio = { version = "1.42", features = ["full", "test-util", "macros"] }

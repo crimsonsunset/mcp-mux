@@ -11,6 +11,7 @@
 pub mod admin;
 pub mod auth;
 pub mod consumers;
+pub mod cursor_hook;
 pub mod logging;
 pub mod mcp;
 pub mod oauth;

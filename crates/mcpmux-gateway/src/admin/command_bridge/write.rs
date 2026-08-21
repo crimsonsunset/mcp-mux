@@ -21,6 +21,7 @@ use crate::admin::command_bridge::read::{
     to_workspace_appearance_response, to_workspace_binding_response,
 };
 use crate::admin::command_bridge::space::{self, UpdateSpaceInput};
+use crate::services::ServerVersionProbeService;
 
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
@@ -1020,20 +1021,34 @@ pub async fn save_server_inputs(
             body.env_overrides,
             body.args_append,
             body.extra_headers,
-            None,
-            None,
+            body.update_policy.map(|p| UpdatePolicy::from_db_str(&p)),
+            body.pinned_version,
         )
         .await?;
+
+    let installed = if body.display_name_override.is_some() {
+        ctx.services
+            .server()
+            .set_display_name_override(space_uuid, &id, body.display_name_override)
+            .await?
+    } else {
+        installed
+    };
     as_json(installed)
 }
 
 pub async fn set_server_display_name(
-    _ctx: &AdminBridgeCtx,
-    _id: String,
-    _body: SetServerDisplayNameBody,
+    ctx: &AdminBridgeCtx,
+    id: String,
+    body: SetServerDisplayNameBody,
 ) -> Result<Value> {
-    // ponytail: set_display_name_override lands in Phase 6
-    Err(anyhow!("Server display name override not yet available"))
+    let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let installed = ctx
+        .services
+        .server()
+        .set_display_name_override(space_uuid, &id, body.display_name)
+        .await?;
+    as_json(installed)
 }
 
 pub async fn set_server_oauth_connected(
@@ -1049,9 +1064,20 @@ pub async fn set_server_oauth_connected(
     Ok(json!({ "ok": true }))
 }
 
-pub async fn clone_server(_ctx: &AdminBridgeCtx, _body: CloneServerBody) -> Result<Value> {
-    // ponytail: clone_server lands in Phase 6
-    Err(anyhow!("Server cloning not yet available"))
+pub async fn clone_server(ctx: &AdminBridgeCtx, body: CloneServerBody) -> Result<Value> {
+    let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let installed = ctx
+        .services
+        .server()
+        .clone_server(
+            space_uuid,
+            &body.source_server_id,
+            &body.suffix,
+            body.alias.as_deref(),
+            body.display_name.as_deref(),
+        )
+        .await?;
+    as_json(installed)
 }
 
 // --- Gateway writes (delegated) ---
@@ -1221,19 +1247,40 @@ pub async fn revoke_oauth_client_feature_set(
         .await
 }
 
+fn version_probe(ctx: &AdminBridgeCtx) -> ServerVersionProbeService {
+    ServerVersionProbeService::new(
+        ctx.installed_server_repository.clone(),
+        ctx.settings_repository.clone(),
+        ctx.services.event_bus.clone(),
+    )
+}
+
 /// Probe npm/PyPI for a single installed server package update.
 pub async fn check_server_version(
-    _ctx: &AdminBridgeCtx,
-    _body: ServerConnectionBody,
+    ctx: &AdminBridgeCtx,
+    body: ServerConnectionBody,
 ) -> Result<Value> {
-    // ponytail: version probing lands in Phase 5
-    Err(anyhow!("Server version checking not yet available"))
+    let result = version_probe(ctx)
+        .probe_server(&body.space_id, &body.server_id)
+        .await?;
+    Ok(json!({
+        "spaceId": result.space_id,
+        "serverId": result.server_id,
+        "currentVersion": result.current_version,
+        "latestVersion": result.latest_version,
+        "updateAvailable": result.update_available,
+        "checkedAt": result.checked_at.to_rfc3339(),
+    }))
 }
 
 /// Probe all notify/auto package-managed servers for available updates.
-pub async fn check_all_server_versions(_ctx: &AdminBridgeCtx) -> Result<Value> {
-    // ponytail: version probing lands in Phase 5
-    Err(anyhow!("Server version checking not yet available"))
+pub async fn check_all_server_versions(ctx: &AdminBridgeCtx) -> Result<Value> {
+    let summary = version_probe(ctx).probe_all().await?;
+    Ok(json!({
+        "checked": summary.checked,
+        "updatesAvailable": summary.updates_available,
+        "checkedAt": summary.checked_at.to_rfc3339(),
+    }))
 }
 
 const META_TOOLS_REQUIRE_APPROVAL_KEY: &str = "meta_tools.require_approval";

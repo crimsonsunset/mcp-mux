@@ -98,6 +98,8 @@ impl ServiceFactory {
             connection_service.clone(),
             feature_service.clone(),
             token_service.clone(),
+            deps.installed_server_repo.clone(),
+            deps.state_dir.clone(),
         ));
 
         // RoutingService - handles request dispatch

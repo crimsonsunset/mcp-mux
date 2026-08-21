@@ -230,6 +230,32 @@ impl McpMuxGatewayHandler {
         Ok((space_id, resolved.feature_set_ids))
     }
 
+    /// `call_tool` routing: a valid `_mcpmux_context.workspace_root` wins
+    /// for this invocation only. List handlers keep using [`Self::resolve_routing`].
+    async fn resolve_call_routing(
+        &self,
+        session_id: Option<&str>,
+        client_id: &str,
+        request_machine_id: Option<uuid::Uuid>,
+        explicit_root: Option<&str>,
+    ) -> Result<(uuid::Uuid, Vec<String>), McpError> {
+        let Some(root) = explicit_root else {
+            return self
+                .resolve_routing(session_id, client_id, request_machine_id)
+                .await;
+        };
+        let resolved = self
+            .services
+            .authorization_service
+            .resolve_for_workspace_root(root, Some(client_id), request_machine_id)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to resolve: {e}"), None))?;
+        let space_id = resolved.space_id.ok_or_else(|| {
+            McpError::internal_error("No space resolved (no default space configured)", None)
+        })?;
+        Ok((space_id, resolved.feature_set_ids))
+    }
+
     /// On-demand `roots/list` probe for sessions that initialized as
     /// roots-capable but have no roots yet — typically because the first
     /// `list_roots()` from `on_initialized` raced this request, or its
@@ -824,7 +850,7 @@ impl ServerHandler for McpMuxGatewayHandler {
 
     async fn call_tool(
         &self,
-        params: CallToolRequestParams,
+        mut params: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let oauth_ctx = self
@@ -840,6 +866,23 @@ impl ServerHandler for McpMuxGatewayHandler {
 
         let session_id_owned = extract_session_id(&context.extensions);
         let session_id = session_id_owned.as_deref();
+
+        let mut arguments = params.arguments.take().unwrap_or_default();
+        let call_ctx = super::mcpmux_context::take_mcpmux_context(
+            &mut arguments,
+            session_id,
+            &self.services.session_roots,
+        )
+        .map_err(|e| McpError::invalid_params(e, None))?;
+        if let Some(ctx) = &call_ctx {
+            info!(
+                workspace_root = %ctx.workspace_root,
+                tool_use_id = ctx.tool_use_id.as_deref().unwrap_or(""),
+                session_id = session_id.unwrap_or(""),
+                source = "cursor_pre_tool_use",
+                "call_tool exact workspace context"
+            );
+        }
 
         // Bridge the init race on the call side too: a tools/call can land
         // while a roots-capable session is still PendingRoots (client
@@ -859,10 +902,11 @@ impl ServerHandler for McpMuxGatewayHandler {
         // (may differ from oauth_ctx.space_id). Needed both to gate the
         // per-Space meta tools below and to route a normal tool call.
         let (space_id, feature_set_ids) = self
-            .resolve_routing(
+            .resolve_call_routing(
                 session_id,
                 &oauth_ctx.client_id,
                 oauth_ctx.request_machine_id,
+                call_ctx.as_ref().map(|c| c.workspace_root.as_str()),
             )
             .await?;
 
@@ -878,10 +922,6 @@ impl ServerHandler for McpMuxGatewayHandler {
             // Note: client_id is the OAuth client identity (a URL for DCR-
             // registered clients like Claude, a UUID for others). The meta-
             // tool registry treats it as an opaque string identity key.
-            let args: serde_json::Value = params
-                .arguments
-                .map(|a| serde_json::to_value(a).unwrap_or(serde_json::Value::Null))
-                .unwrap_or(serde_json::Value::Null);
             return match self
                 .services
                 .meta_tool_registry
@@ -889,8 +929,9 @@ impl ServerHandler for McpMuxGatewayHandler {
                     &params.name,
                     &oauth_ctx.client_id,
                     session_id,
-                    args,
+                    serde_json::Value::Object(arguments),
                     oauth_ctx.request_machine_id,
+                    call_ctx.as_ref().map(|c| c.workspace_root.clone()),
                 )
                 .await
             {
@@ -1004,7 +1045,7 @@ impl ServerHandler for McpMuxGatewayHandler {
                 space_id,
                 &feature_set_ids,
                 &params.name,
-                serde_json::to_value(params.arguments.unwrap_or_default()).unwrap_or_default(),
+                serde_json::Value::Object(arguments),
             )
             .await
             .map_err(|e| McpError::internal_error(format!("Tool call failed: {}", e), None))?;

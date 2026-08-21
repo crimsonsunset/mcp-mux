@@ -18,10 +18,10 @@ const { validateMock } = vi.hoisted(() => ({
 // `@tauri-apps/plugin-dialog` is mocked globally in setup.ts (open: vi.fn()).
 // We reconfigure that shared mock per-test via vi.importMock (a static import
 // of this mocked-only package isn't Vite-resolvable from the test).
-vi.mock('@/lib/api/workspaceBindings', () => ({
-  validateWorkspaceRoot: validateMock,
-  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
-}));
+vi.mock('@/lib/api/workspaceBindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/workspaceBindings')>();
+  return { ...actual, validateWorkspaceRoot: validateMock };
+});
 vi.mock('@/lib/api/featureSets', () => ({
   isStarterFeatureSet: (fs: { feature_set_type: string }) =>
     fs.feature_set_type === 'starter' || fs.feature_set_type === 'default',

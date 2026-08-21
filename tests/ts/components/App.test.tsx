@@ -137,10 +137,13 @@ vi.mock('@/lib/api/featureSets', () => ({
 vi.mock('@/lib/api/registry', () => ({
   listInstalledServers: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('@/lib/api/workspaceBindings', () => ({
-  listWorkspaceBindings: vi.fn().mockResolvedValue([]),
-  isIdBinding: (binding: { binding_type?: string }) => binding.binding_type === 'id',
-}));
+vi.mock('@/lib/api/workspaceBindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/workspaceBindings')>();
+  return {
+    ...actual,
+    listWorkspaceBindings: vi.fn().mockResolvedValue([]),
+  };
+});
 vi.mock('@/lib/api/serverManager', () => ({
   getServerStatuses: vi.fn().mockResolvedValue({}),
 }));

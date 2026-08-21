@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use mcpmux_core::{
     AppSettingsRepository, ApplicationServices, FeatureSetRepository, GatewayPortService,
-    MachineRepository, ServerDiscoveryService, ServerFeatureRepository, ServerLogManager,
-    SpaceBaseDirRepository, SpaceBuiltinConfigRepository, SpaceService,
+    InstalledServerRepository, MachineRepository, ServerDiscoveryService, ServerFeatureRepository,
+    ServerLogManager, SpaceBaseDirRepository, SpaceBuiltinConfigRepository, SpaceService,
     WorkspaceAppearanceRepository, WorkspaceBindingRepository,
 };
 use mcpmux_storage::InboundClientRepository;
@@ -35,6 +35,7 @@ pub struct AdminBridgeCtx {
     pub gateway_port_service: Arc<GatewayPortService>,
     pub server_discovery: Arc<ServerDiscoveryService>,
     pub settings_repository: Arc<dyn AppSettingsRepository>,
+    pub installed_server_repository: Arc<dyn InstalledServerRepository>,
     pub workspace_binding_repository: Arc<dyn WorkspaceBindingRepository>,
     pub machine_repository: Arc<dyn MachineRepository>,
     pub inbound_client_repository: Arc<InboundClientRepository>,

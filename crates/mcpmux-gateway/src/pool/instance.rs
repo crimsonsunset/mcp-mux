@@ -484,3 +484,41 @@ impl ServerInstance {
         }
     }
 }
+
+#[cfg(test)]
+mod record_stats_tests {
+    use super::{InstanceKey, ServerInstance, TransportType};
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    fn test_instance() -> ServerInstance {
+        ServerInstance::new(
+            InstanceKey::stdio(Uuid::new_v4(), "echo", &[], &HashMap::new()),
+            "echo".into(),
+            TransportType::Stdio,
+        )
+    }
+
+    #[test]
+    fn record_failure_increments_consecutive_failures_without_flipping_state() {
+        let instance = test_instance();
+        let before = instance.state();
+        instance.record_failure("mcp error -32000: connection closed");
+        let stats = instance.stats.read();
+        assert_eq!(stats.consecutive_failures, 1);
+        assert_eq!(
+            stats.last_error.as_deref(),
+            Some("mcp error -32000: connection closed")
+        );
+        drop(stats);
+        assert_eq!(instance.state(), before);
+    }
+
+    #[test]
+    fn record_success_increments_requests_served() {
+        let instance = test_instance();
+        instance.record_success();
+        instance.record_success();
+        assert_eq!(instance.stats.read().requests_served, 2);
+    }
+}

@@ -515,6 +515,7 @@ pub async fn start_admin_server_if_enabled(
         gateway_port_service: app_state.gateway_port_service.clone(),
         server_discovery: app_state.server_discovery.clone(),
         settings_repository: app_state.settings_repository.clone(),
+        installed_server_repository: app_state.installed_server_repository.clone(),
         workspace_binding_repository: app_state.workspace_binding_repository.clone(),
         machine_repository: Arc::new(SqliteMachineRepository::new(app_state.database())),
         inbound_client_repository: Arc::new(mcpmux_storage::InboundClientRepository::new(

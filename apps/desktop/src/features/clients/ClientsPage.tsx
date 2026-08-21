@@ -28,6 +28,7 @@ import {
   Globe,
   ShieldOff,
   KeyRound,
+  LocateFixed,
 } from 'lucide-react';
 import { ConnectIDEs } from '@/components/ConnectIDEs';
 import type { GatewayStatus, OAuthClient } from '@/lib/api/gateway';
@@ -42,6 +43,8 @@ import {
 } from '@/lib/api/gateway';
 import { RegisterApiKeyClientModal } from './RegisterApiKeyClientModal';
 import { ClientApiKeysSection } from './ClientApiKeysSection';
+import { CursorHookInstallSection } from './cursor-hook-install-section';
+import { isCursorConnection } from './cursor-bridge-config.helpers';
 import {
   isStarterFeatureSet,
   listFeatureSetsBySpace,
@@ -754,6 +757,20 @@ function SidePanel({
             </div>
           </div>
         </section>
+
+        {isCursorConnection(client) && (
+          <section className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--background))] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--accent))]/10">
+                <LocateFixed className="h-5 w-5 text-[rgb(var(--accent))]" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-3">
+                <p className="text-sm font-semibold">{t('cursorBridge.hookTitle')}</p>
+                <CursorHookInstallSection />
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Per-client grants only matter for clients that explicitly do
             NOT declare the MCP `roots` capability — Claude.ai web,

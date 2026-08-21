@@ -747,3 +747,8 @@ pub async fn get_config_paths(State(_state): State<AdminState>) -> Result<Json<V
         .map(ok)
         .map_err(ApiError::from_bridge)
 }
+
+/// Status of the managed Cursor `preToolUse` hook on this gateway host.
+pub async fn cursor_hook_status() -> Json<Value> {
+    ok(crate::cursor_hook::status().into_json())
+}

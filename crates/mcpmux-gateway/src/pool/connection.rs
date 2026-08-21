@@ -48,6 +48,13 @@ pub enum ConnectionResult {
     },
 }
 
+impl ConnectionResult {
+    /// True when the attempt produced a live connection (new or reused).
+    pub fn is_connected(&self) -> bool {
+        matches!(self, Self::Connected { .. })
+    }
+}
+
 /// Connection Service handles server connection lifecycle
 pub struct ConnectionService {
     token_service: Arc<TokenService>,
@@ -452,10 +459,11 @@ impl ConnectionService {
         Ok(())
     }
 
-    /// Reconnect after OAuth completes
+    /// Reconnect after OAuth completes.
     ///
-    /// Uses the stored server URL and tokens from OAuth registration
-    /// to reconnect without needing the original transport config.
+    /// Uses the stored server URL and tokens from OAuth registration.
+    /// Stdio instances return [`ConnectionResult::Failed`] — they have no
+    /// OAuth URL that is a valid transport. Use [`PoolService::reconnect_fresh`].
     pub async fn reconnect_after_oauth(
         &self,
         space_id: Uuid,
@@ -463,6 +471,12 @@ impl ConnectionService {
         instance: &Arc<ServerInstance>,
         feature_service: &FeatureService,
     ) -> ConnectionResult {
+        if instance.transport_type == TransportType::Stdio {
+            return ConnectionResult::Failed {
+                error: "stdio cannot reconnect via OAuth; use reconnect_fresh".to_string(),
+            };
+        }
+
         info!(
             "[ConnectionService] Reconnecting {}/{} after OAuth",
             space_id, server_id
@@ -490,20 +504,9 @@ impl ConnectionService {
 
         instance.mark_connecting();
 
-        // Create transport config with the stored URL, preserving transport type
-        let config = match instance.transport_type {
-            TransportType::Http => ResolvedTransport::Http {
-                url: server_url.clone(),
-                headers: std::collections::HashMap::new(),
-            },
-            TransportType::Stdio => {
-                // Should not happen for OAuth, but fallback to Http if somehow we got here
-                warn!("[ConnectionService] Unexpected STDIO transport for OAuth reconnection, defaulting to HTTP");
-                ResolvedTransport::Http {
-                    url: server_url.clone(),
-                    headers: std::collections::HashMap::new(),
-                }
-            }
+        let config = ResolvedTransport::Http {
+            url: server_url.clone(),
+            headers: std::collections::HashMap::new(),
         };
 
         // Create transport with credential repositories (will inject OAuth token via CredentialStore)

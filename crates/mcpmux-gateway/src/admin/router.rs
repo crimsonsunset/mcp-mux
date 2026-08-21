@@ -435,6 +435,15 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/v1/config-export/export",
             post(write::export_config_to_file),
+        )
+        .route("/api/v1/cursor-hook", get(read::cursor_hook_status))
+        .route(
+            "/api/v1/cursor-hook/install",
+            post(write::install_cursor_hook),
+        )
+        .route(
+            "/api/v1/cursor-hook/uninstall",
+            post(write::uninstall_cursor_hook),
         );
 
     #[cfg(any(test, feature = "test-utils"))]

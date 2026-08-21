@@ -2,6 +2,7 @@ import { appSettingsRoutes } from './app-settings.routes';
 import { builtinsRoutes } from './builtins.routes';
 import { catalogRoutes } from './catalog.routes';
 import { configExportRoutes } from './config-export.routes';
+import { cursorHookRoutes } from './cursor-hooks.routes';
 import { gatewayRoutes } from './gateway.routes';
 import { machinesRoutes } from './machines.routes';
 import { permissionsRoutes } from './permissions.routes';
@@ -21,6 +22,7 @@ const COMMAND_ROUTES = {
   ...workspacesRoutes,
   ...appSettingsRoutes,
   ...configExportRoutes,
+  ...cursorHookRoutes,
 };
 
 /**

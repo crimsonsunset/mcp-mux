@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use mcpmux_core::{normalize_workspace_root, WorkspaceBinding, WorkspaceBindingRepository};
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::meta_tool_common::{
@@ -52,6 +52,7 @@ struct BindToolResultInput<'a> {
     session_id: Option<&'a str>,
     client_id: &'a str,
     request_machine_id: Option<Uuid>,
+    explicit_workspace_root: Option<&'a str>,
     binding_id: Uuid,
     workspace_root: &'a str,
     feature_set_id: Uuid,
@@ -60,17 +61,25 @@ struct BindToolResultInput<'a> {
     machine_id: Option<Uuid>,
 }
 
+/// Build the bind JSON body, scoring `active` against the hook root when present.
 async fn bind_tool_result(input: BindToolResultInput<'_>) -> Result<CallToolResult, MetaToolError> {
     let fs_id_str = input.feature_set_id.to_string();
-    let resolved = input
-        .resolver
-        .resolve(
-            input.session_id,
-            Some(input.client_id),
-            input.request_machine_id,
-        )
-        .await
-        .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+    let resolved = if let Some(root) = input.explicit_workspace_root {
+        input
+            .resolver
+            .resolve_for_workspace_root(root, Some(input.client_id), input.request_machine_id)
+            .await
+    } else {
+        input
+            .resolver
+            .resolve(
+                input.session_id,
+                Some(input.client_id),
+                input.request_machine_id,
+            )
+            .await
+    }
+    .map_err(|e| MetaToolError::Internal(e.to_string()))?;
     let active = resolved.feature_set_ids.iter().any(|id| id == &fs_id_str);
 
     let mut body = json!({
@@ -133,52 +142,82 @@ impl MetaTool for BindCurrentWorkspaceTool {
             .session_id
             .and_then(|sid| call.ctx.session_roots.get(sid))
             .unwrap_or_default();
-        // Same gate as FeatureSetResolver PendingRoots: never first-root-wins
-        // when multiple unpinned roots are present (header pin collapses get() to 1).
-        let root = match roots.as_slice() {
-            [] => {
-                return Err(MetaToolError::InvalidArgument(
-                    "caller did not report any MCP roots; cannot bind — \
-                     call mcpmux_set_workspace_root first to declare your workspace path, \
-                     then retry mcpmux_bind_current_workspace"
-                        .into(),
-                ));
-            }
-            [single] => single.clone(),
-            many => {
-                info!(
-                    session_id = ?call.session_id,
-                    client_id = %call.client_id,
-                    root_count = many.len(),
-                    reported_roots = ?many,
-                    feature_set_id = %fs_id,
-                    "[meta_tools] bind_current_workspace refused — multiple unpinned roots"
-                );
-                let listed = many
-                    .iter()
-                    .map(|r| format!("  - {r}"))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                return Err(MetaToolError::InvalidArgument(format!(
-                    "cannot bind: {} workspace roots reported and none is pinned, so which \
+        // Exact call context (Cursor preToolUse) names the bind target even
+        // when the shared session still reports multiple unpinned roots.
+        let root = if let Some(explicit) = call.explicit_workspace_root.as_deref() {
+            explicit.to_string()
+        } else {
+            match roots.as_slice() {
+                [] => {
+                    // The window's folder set (X-Mcpmux-Workspace-Set) usually
+                    // survives even when the active-folder header came through
+                    // empty, so name those folders rather than making the caller
+                    // guess what to declare.
+                    let candidates = call
+                        .session_id
+                        .and_then(|sid| call.ctx.session_roots.get_candidates(sid))
+                        .unwrap_or_default();
+                    let known = if candidates.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            " This window has these folders open:\n{}\n",
+                            candidates
+                                .iter()
+                                .map(|c| format!("  - {c}"))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        )
+                    };
+                    return Err(MetaToolError::InvalidArgument(format!(
+                        "caller did not report any MCP roots; cannot bind.{known} \
+                     Call mcpmux_set_workspace_root to declare the workspace this agent is \
+                     actually working in, then retry mcpmux_bind_current_workspace."
+                    )));
+                }
+                [single] => single.clone(),
+                many => {
+                    info!(
+                        session_id = ?call.session_id,
+                        client_id = %call.client_id,
+                        root_count = many.len(),
+                        reported_roots = ?many,
+                        feature_set_id = %fs_id,
+                        "[meta_tools] bind_current_workspace refused — multiple unpinned roots"
+                    );
+                    let listed = many
+                        .iter()
+                        .map(|r| format!("  - {r}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    return Err(MetaToolError::InvalidArgument(format!(
+                        "cannot bind: {} workspace roots reported and none is pinned, so which \
                      folder to mutate is ambiguous. Reported roots:\n{listed}\n\
                      Call mcpmux_set_workspace_root with exactly one of those paths (the \
                      workspace this agent is actually working in), then retry \
                      mcpmux_bind_current_workspace with the same feature_set_id. A correct \
                      X-Mcpmux-Workspace header pin also collapses this.",
-                    many.len(),
-                )));
+                        many.len(),
+                    )));
+                }
             }
         };
         let normalized = normalize_workspace_root(&root);
 
-        let fs_name = call
-            .ctx
-            .feature_set_repo
-            .get(&fs_id.to_string())
-            .await?
-            .map(|fs| fs.name)
-            .unwrap_or_else(|| fs_id.to_string());
+        let fs_name = match call.ctx.feature_set_repo.get(&fs_id.to_string()).await? {
+            Some(fs) => fs.name,
+            None => {
+                warn!(
+                    feature_set_id = %fs_id,
+                    space_id = %space_id,
+                    "[meta_tools] bind_current_workspace rejected — feature_set_id does not exist"
+                );
+                return Err(MetaToolError::InvalidArgument(format!(
+                    "feature_set_id '{fs_id}' does not exist — call mcpmux_list_feature_sets \
+                     to obtain a valid id"
+                )));
+            }
+        };
 
         let binding_repo = call.ctx.binding_repo.clone();
         let fs_id_str = fs_id.to_string();
@@ -200,12 +239,13 @@ impl MetaTool for BindCurrentWorkspaceTool {
                     session_id: call.session_id,
                     client_id: call.client_id,
                     request_machine_id: call.request_machine_id,
+                    explicit_workspace_root: call.explicit_workspace_root.as_deref(),
                     binding_id: existing.id,
                     workspace_root: &normalized,
                     feature_set_id: fs_id,
-                    feature_set_ids: existing.feature_set_ids,
                     already_bound: true,
                     machine_id,
+                    feature_set_ids: existing.feature_set_ids,
                 })
                 .await;
             }
@@ -227,6 +267,7 @@ impl MetaTool for BindCurrentWorkspaceTool {
         let session_id_owned = call.session_id.map(str::to_owned);
         let caller_client_id_for_response = caller_client_id.clone();
         let request_machine_id = call.request_machine_id;
+        let explicit_root = call.explicit_workspace_root.clone();
         info!(
             session_id = ?call.session_id,
             client_id = %call.client_id,
@@ -329,6 +370,7 @@ impl MetaTool for BindCurrentWorkspaceTool {
                     session_id: session_id_owned.as_deref(),
                     client_id: &caller_client_id_for_response,
                     request_machine_id,
+                    explicit_workspace_root: explicit_root.as_deref(),
                     binding_id,
                     workspace_root: &normalized,
                     feature_set_id: fs_id,

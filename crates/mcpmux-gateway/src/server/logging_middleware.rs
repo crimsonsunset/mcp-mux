@@ -47,6 +47,7 @@ fn redact_headers_compact(headers: &axum::http::HeaderMap) -> String {
                     | "mcp-protocol-version"
                     | "last-event-id"
                     | "x-mcpmux-workspace"
+                    | "x-mcpmux-workspace-set"
                     | "x-mcpmux-machine-id"
             )
         })

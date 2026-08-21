@@ -4,12 +4,16 @@
 //! the static registry definition and user-specific installation settings.
 
 use super::ResolvedTransport;
+use crate::pool::ConnectionContext;
 use crate::services::package_version::{is_floating_npm_tag, is_valid_semver};
-use mcpmux_core::{InstalledServer, TransportConfig as RegistryConfig, UpdatePolicy};
+use mcpmux_core::{
+    InstalledServer, InstalledServerRepository, TransportConfig as RegistryConfig, UpdatePolicy,
+};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
+use uuid::Uuid;
 
 const MCP_STATE_DIR_ENV: &str = "MCP_STATE_DIR";
 
@@ -41,6 +45,42 @@ fn merge_input_defaults(
         }
     }
     merged
+}
+
+/// Re-resolve transport from DB and build an auto-reconnect [`ConnectionContext`].
+///
+/// Shared by gateway-internal `reconnect_fresh` and admin `retry_connection`.
+/// Does not enable the server or touch `ServerManager` — callers that need
+/// UI/state updates wrap this themselves.
+pub async fn resolve_auto_connection_context(
+    installed_repo: &dyn InstalledServerRepository,
+    state_dir: Option<&Path>,
+    space_id: Uuid,
+    server_id: &str,
+) -> Result<ConnectionContext, String> {
+    let space_id_str = space_id.to_string();
+    let installed = installed_repo
+        .get_by_server_id(&space_id_str, server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {space_id}/{server_id}"))?;
+
+    let server_definition = installed
+        .get_definition()
+        .ok_or_else(|| format!("Server {server_id} has no cached definition"))?;
+
+    let transport = build_transport_config(
+        &server_definition.transport,
+        &installed,
+        state_dir,
+        TransportResolutionOptions::default(),
+    );
+
+    Ok(ConnectionContext::auto(
+        space_id,
+        server_id.to_string(),
+        transport,
+    ))
 }
 
 /// Build transport config from registry transport and installed server
