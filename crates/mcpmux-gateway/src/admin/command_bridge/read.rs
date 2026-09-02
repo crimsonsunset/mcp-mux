@@ -824,12 +824,7 @@ pub async fn is_clone_id_available(
     as_json(
         ctx.services
             .server()
-            .is_clone_id_available(
-                space_uuid,
-                &source_server_id,
-                &suffix,
-                server_id.as_deref(),
-            )
+            .is_clone_id_available(space_uuid, &source_server_id, &suffix, server_id.as_deref())
             .await?,
     )
 }

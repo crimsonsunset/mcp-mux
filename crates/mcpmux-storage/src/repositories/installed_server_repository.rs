@@ -578,9 +578,7 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
         new_server_id: &str,
     ) -> Result<()> {
         let db = self.db.lock().await;
-        db.transaction(|conn| {
-            rename_server_id_in_tx(conn, space_id, old_server_id, new_server_id)
-        })
+        db.transaction(|conn| rename_server_id_in_tx(conn, space_id, old_server_id, new_server_id))
     }
 }
 
@@ -677,8 +675,8 @@ fn rename_server_id_in_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpmux_core::{Credential, CredentialType, CredentialRepository};
     use crate::repositories::SqliteCredentialRepository;
+    use mcpmux_core::{Credential, CredentialRepository, CredentialType};
 
     async fn create_test_space(db: &Arc<Mutex<Database>>, space_id: &Uuid) {
         let db_lock = db.lock().await;
@@ -741,7 +739,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(repo.get_by_server_id(&space, "slack-s2h-foj").await.unwrap().is_none());
+        assert!(repo
+            .get_by_server_id(&space, "slack-s2h-foj")
+            .await
+            .unwrap()
+            .is_none());
         let renamed = repo
             .get_by_server_id(&space, "slack-foj")
             .await

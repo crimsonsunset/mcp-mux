@@ -59,12 +59,7 @@ pub async fn is_clone_id_available(
     let space_uuid = uuid::Uuid::parse_str(&space_id).map_err(|e| e.to_string())?;
 
     service
-        .is_clone_id_available(
-            space_uuid,
-            &source_server_id,
-            &suffix,
-            server_id.as_deref(),
-        )
+        .is_clone_id_available(space_uuid, &source_server_id, &suffix, server_id.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

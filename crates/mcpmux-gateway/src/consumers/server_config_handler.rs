@@ -71,7 +71,10 @@ impl ServerConfigUpdatedHandler {
                 space_id,
                 old_server_id,
                 new_server_id,
-            } => self.handle_renamed(space_id, &old_server_id, &new_server_id).await,
+            } => {
+                self.handle_renamed(space_id, &old_server_id, &new_server_id)
+                    .await
+            }
             _ => Ok(()),
         }
     }
@@ -313,7 +316,8 @@ mod tests {
             new_server_id: &str,
         ) -> mcpmux_core::repository::RepoResult<()> {
             let mut servers = self.servers.lock().unwrap();
-            if let Some(mut server) = servers.remove(&(space_id.to_string(), old_server_id.to_string()))
+            if let Some(mut server) =
+                servers.remove(&(space_id.to_string(), old_server_id.to_string()))
             {
                 server.server_id = new_server_id.to_string();
                 servers.insert((space_id.to_string(), new_server_id.to_string()), server);

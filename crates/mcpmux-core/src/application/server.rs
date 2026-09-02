@@ -1009,7 +1009,10 @@ mod tests {
                 if let Some(obj) = value.as_object_mut() {
                     obj.insert("id".into(), serde_json::Value::String(new_server_id.into()));
                     if obj.get("name").and_then(|v| v.as_str()) == Some(old_server_id) {
-                        obj.insert("name".into(), serde_json::Value::String(new_server_id.into()));
+                        obj.insert(
+                            "name".into(),
+                            serde_json::Value::String(new_server_id.into()),
+                        );
                     }
                 }
                 servers[index].cached_definition = serde_json::to_string(&value).ok();
@@ -1284,24 +1287,16 @@ mod tests {
 
         let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
         let cloned = service
-            .clone_server(
-                space_id,
-                "slack-s2h",
-                "foj",
-                None,
-                None,
-                Some("slack-foj"),
-            )
+            .clone_server(space_id, "slack-s2h", "foj", None, None, Some("slack-foj"))
             .await
             .expect("explicit id clone");
 
         assert_eq!(cloned.server_id, "slack-foj");
         assert_eq!(cloned.cloned_from.as_deref(), Some("slack-s2h"));
-        assert!(
-            repo.get_by_server_id(&space_id.to_string(), "slack-s2h-foj")
-                .await
-                .is_none()
-        );
+        assert!(repo
+            .get_by_server_id(&space_id.to_string(), "slack-s2h-foj")
+            .await
+            .is_none());
     }
 
     #[tokio::test]
@@ -1360,14 +1355,7 @@ mod tests {
 
         let service = ServerAppService::new(repo, None, None, event_bus.sender());
         let err = service
-            .clone_server(
-                space_id,
-                "slack-s2h",
-                "foj",
-                None,
-                None,
-                Some("slack-foj"),
-            )
+            .clone_server(space_id, "slack-s2h", "foj", None, None, Some("slack-foj"))
             .await
             .expect_err("collision");
         assert!(err.to_string().contains("already exists"));
@@ -1409,11 +1397,10 @@ mod tests {
             .expect("rename");
 
         assert_eq!(renamed.server_id, "slack-foj");
-        assert!(
-            repo.get_by_server_id(&space_id.to_string(), "slack-s2h-foj")
-                .await
-                .is_none()
-        );
+        assert!(repo
+            .get_by_server_id(&space_id.to_string(), "slack-s2h-foj")
+            .await
+            .is_none());
         let dependent = repo
             .get_by_server_id(&space_id.to_string(), "slack-s2h-foj-extra")
             .await
