@@ -818,12 +818,18 @@ pub async fn is_clone_id_available(
     space_id: String,
     source_server_id: String,
     suffix: String,
+    server_id: Option<String>,
 ) -> Result<Value> {
     let space_uuid = Uuid::parse_str(&space_id)?;
     as_json(
         ctx.services
             .server()
-            .is_clone_id_available(space_uuid, &source_server_id, &suffix)
+            .is_clone_id_available(
+                space_uuid,
+                &source_server_id,
+                &suffix,
+                server_id.as_deref(),
+            )
             .await?,
     )
 }

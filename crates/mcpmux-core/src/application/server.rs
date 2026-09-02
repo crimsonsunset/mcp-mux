@@ -9,8 +9,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::domain::{
-    config::UserServerEntry, DomainEvent, InstallationSource, InstalledServer, ServerDefinition,
-    ServerSource, UpdatePolicy,
+    builtin_server, config::UserServerEntry, DomainEvent, InstallationSource, InstalledServer,
+    ServerDefinition, ServerSource, UpdatePolicy,
 };
 use crate::event_bus::EventSender;
 use crate::repository::{CredentialRepository, InstalledServerRepository, ServerFeatureRepository};
@@ -178,6 +178,77 @@ impl ServerAppService {
         Ok(())
     }
 
+    /// Rename an installed server's `server_id` and every store of that string.
+    ///
+    /// Emits: `ServerRenamed`
+    pub async fn rename_server(
+        &self,
+        space_id: Uuid,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> Result<InstalledServer> {
+        let space_id_str = space_id.to_string();
+        let new_server_id = UserServerEntry::normalize_server_id(new_server_id);
+        if new_server_id.is_empty() {
+            return Err(anyhow!("Server ID cannot be empty"));
+        }
+        if new_server_id == old_server_id {
+            return Err(anyhow!("New server ID is unchanged after normalize"));
+        }
+        if builtin_server(old_server_id).is_some() || builtin_server(&new_server_id).is_some() {
+            return Err(anyhow!("Built-in servers cannot be renamed"));
+        }
+
+        let server = self
+            .server_repo
+            .get_by_server_id(&space_id_str, old_server_id)
+            .await?
+            .ok_or_else(|| anyhow!("Server not installed"))?;
+
+        if self
+            .server_repo
+            .get_by_server_id(&space_id_str, &new_server_id)
+            .await?
+            .is_some()
+        {
+            return Err(anyhow!("Server ID already exists in this space"));
+        }
+
+        self.server_repo
+            .rename_server_id(&space_id_str, old_server_id, &new_server_id)
+            .await?;
+
+        if let InstallationSource::UserConfig { file_path } = &server.source {
+            if let Err(e) = Self::rename_in_config_file(file_path, old_server_id, &new_server_id) {
+                warn!(
+                    old_server_id = old_server_id,
+                    new_server_id = %new_server_id,
+                    file = %file_path.display(),
+                    error = %e,
+                    "Failed to rename server key in config file"
+                );
+            }
+        }
+
+        info!(
+            space_id = %space_id,
+            old_server_id = old_server_id,
+            new_server_id = %new_server_id,
+            "[ServerAppService] Renamed server"
+        );
+
+        self.event_sender.emit(DomainEvent::ServerRenamed {
+            space_id,
+            old_server_id: old_server_id.to_string(),
+            new_server_id: new_server_id.clone(),
+        });
+
+        self.server_repo
+            .get_by_server_id(&space_id_str, &new_server_id)
+            .await?
+            .ok_or_else(|| anyhow!("Renamed server missing after commit"))
+    }
+
     /// Remove a server entry from a JSON config file
     fn remove_from_config_file(file_path: &std::path::Path, server_id: &str) -> Result<()> {
         // Read current config
@@ -207,6 +278,48 @@ impl ServerAppService {
         std::fs::write(file_path, new_content)
             .map_err(|e| anyhow!("Failed to write config file: {}", e))?;
 
+        Ok(())
+    }
+
+    /// Rename an `mcpServers` key in a JSON config file.
+    fn rename_in_config_file(
+        file_path: &std::path::Path,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> Result<()> {
+        let content = std::fs::read_to_string(file_path)
+            .map_err(|e| anyhow!("Failed to read config file: {}", e))?;
+        let mut config: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| anyhow!("Failed to parse config: {}", e))?;
+        let servers = config
+            .get_mut("mcpServers")
+            .and_then(|v| v.as_object_mut())
+            .ok_or_else(|| anyhow!("Config file missing mcpServers object"))?;
+
+        let matching_key = servers
+            .keys()
+            .find(|key| UserServerEntry::normalize_server_id(key) == old_server_id)
+            .cloned();
+        let Some(matching_key) = matching_key else {
+            return Ok(());
+        };
+        if matching_key == new_server_id {
+            return Ok(());
+        }
+        if servers.contains_key(new_server_id) {
+            return Err(anyhow!(
+                "Config file already has an entry for '{}'",
+                new_server_id
+            ));
+        }
+        if let Some(entry) = servers.remove(&matching_key) {
+            servers.insert(new_server_id.to_string(), entry);
+        }
+
+        let new_content = serde_json::to_string_pretty(&config)
+            .map_err(|e| anyhow!("Failed to serialize config: {}", e))?;
+        std::fs::write(file_path, new_content)
+            .map_err(|e| anyhow!("Failed to write config file: {}", e))?;
         Ok(())
     }
 
@@ -454,6 +567,9 @@ impl ServerAppService {
 
     /// Clone an existing installed server into a new server ID with the given suffix.
     ///
+    /// `server_id_override`, when set, is normalized and used as the install ID.
+    /// When omitted, the ID is `{source}-{suffix}` (legacy callers).
+    ///
     /// Emits: `ServerInstalled`
     pub async fn clone_server(
         &self,
@@ -462,9 +578,11 @@ impl ServerAppService {
         suffix: &str,
         alias_override: Option<&str>,
         display_name_override: Option<&str>,
+        server_id_override: Option<&str>,
     ) -> Result<InstalledServer> {
         let space_id_str = space_id.to_string();
-        let new_server_id = Self::derive_clone_server_id(source_server_id, suffix)?;
+        let new_server_id =
+            Self::resolve_clone_server_id(source_server_id, suffix, server_id_override)?;
 
         let source = self
             .server_repo
@@ -486,6 +604,9 @@ impl ServerAppService {
             .ok_or_else(|| anyhow!("Source server has no cached definition"))?;
 
         let normalized_suffix = UserServerEntry::normalize_server_id(suffix);
+        if normalized_suffix.is_empty() {
+            return Err(anyhow!("Clone suffix cannot be empty"));
+        }
         let alias = alias_override
             .map(UserServerEntry::normalize_alias)
             .unwrap_or_else(|| normalized_suffix.clone());
@@ -529,15 +650,20 @@ impl ServerAppService {
         Ok(server)
     }
 
-    /// Return whether a suffixed clone ID is available in the given space.
+    /// Return whether a clone ID is available in the given space.
+    ///
+    /// When `server_id` is set, that exact (normalized) ID is checked.
+    /// Otherwise the ID is derived from `{source}-{suffix}`.
     pub async fn is_clone_id_available(
         &self,
         space_id: Uuid,
         source_server_id: &str,
         suffix: &str,
+        server_id: Option<&str>,
     ) -> Result<bool> {
         let space_id_str = space_id.to_string();
-        let new_server_id = match Self::derive_clone_server_id(source_server_id, suffix) {
+        let new_server_id = match Self::resolve_clone_server_id(source_server_id, suffix, server_id)
+        {
             Ok(id) => id,
             Err(_) => return Ok(false),
         };
@@ -572,7 +698,7 @@ impl ServerAppService {
 
         for suffix in DEFAULT_SUFFIXES {
             if self
-                .is_clone_id_available(space_id, source_server_id, suffix)
+                .is_clone_id_available(space_id, source_server_id, suffix, None)
                 .await?
             {
                 return Ok((*suffix).to_string());
@@ -582,7 +708,7 @@ impl ServerAppService {
         for index in 2..100 {
             let suffix = index.to_string();
             if self
-                .is_clone_id_available(space_id, source_server_id, &suffix)
+                .is_clone_id_available(space_id, source_server_id, &suffix, None)
                 .await?
             {
                 return Ok(suffix);
@@ -601,6 +727,22 @@ impl ServerAppService {
 
         let composite = format!("{base_server_id}-{normalized_suffix}");
         Ok(UserServerEntry::normalize_server_id(&composite))
+    }
+
+    /// Resolve the install ID for a clone: explicit override wins, else `{source}-{suffix}`.
+    fn resolve_clone_server_id(
+        base_server_id: &str,
+        suffix: &str,
+        server_id_override: Option<&str>,
+    ) -> Result<String> {
+        if let Some(explicit) = server_id_override {
+            let normalized = UserServerEntry::normalize_server_id(explicit);
+            if normalized.is_empty() {
+                return Err(anyhow!("Clone server ID cannot be empty"));
+            }
+            return Ok(normalized);
+        }
+        Self::derive_clone_server_id(base_server_id, suffix)
     }
 
     /// Update OAuth connected status
@@ -836,6 +978,54 @@ mod tests {
             }
             Ok(())
         }
+
+        async fn rename_server_id(
+            &self,
+            space_id: &str,
+            old_server_id: &str,
+            new_server_id: &str,
+        ) -> crate::repository::RepoResult<()> {
+            let mut servers = self.servers.write().await;
+            apply_in_memory_rename(&mut servers, space_id, old_server_id, new_server_id)
+        }
+    }
+
+    /// In-memory stand-in for the SQLite rename transaction (installed row + cloned_from).
+    fn apply_in_memory_rename(
+        servers: &mut Vec<InstalledServer>,
+        space_id: &str,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> crate::repository::RepoResult<()> {
+        let Some(index) = servers
+            .iter()
+            .position(|s| s.space_id == space_id && s.server_id == old_server_id)
+        else {
+            anyhow::bail!("Server not installed");
+        };
+
+        if let Some(raw) = servers[index].cached_definition.clone() {
+            if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(obj) = value.as_object_mut() {
+                    obj.insert("id".into(), serde_json::Value::String(new_server_id.into()));
+                    if obj.get("name").and_then(|v| v.as_str()) == Some(old_server_id) {
+                        obj.insert("name".into(), serde_json::Value::String(new_server_id.into()));
+                    }
+                }
+                servers[index].cached_definition = serde_json::to_string(&value).ok();
+            }
+        }
+        if servers[index].server_name.as_deref() == Some(old_server_id) {
+            servers[index].server_name = Some(new_server_id.to_string());
+        }
+        servers[index].server_id = new_server_id.to_string();
+
+        for server in servers.iter_mut() {
+            if server.space_id == space_id && server.cloned_from.as_deref() == Some(old_server_id) {
+                server.cloned_from = Some(new_server_id.to_string());
+            }
+        }
+        Ok(())
     }
 
     fn user_space_http_definition(server_id: &str) -> ServerDefinition {
@@ -911,7 +1101,7 @@ mod tests {
         let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
 
         let cloned = service
-            .clone_server(space_id, "posthog-personal", "mesh", None, None)
+            .clone_server(space_id, "posthog-personal", "mesh", None, None, None)
             .await
             .expect("clone should succeed");
 
@@ -956,14 +1146,14 @@ mod tests {
 
         assert!(
             !service
-                .is_clone_id_available(space_id, "posthog-personal", "work")
+                .is_clone_id_available(space_id, "posthog-personal", "work", None)
                 .await
                 .unwrap(),
             "suffix already installed must not be available"
         );
         assert!(
             service
-                .is_clone_id_available(space_id, "posthog-personal", "mesh")
+                .is_clone_id_available(space_id, "posthog-personal", "mesh", None)
                 .await
                 .unwrap(),
             "unused suffix must be available"
@@ -1079,5 +1269,204 @@ mod tests {
             cleared.display_name_override, None,
             "whitespace-only value clears the override"
         );
+    }
+
+    #[tokio::test]
+    async fn clone_server_explicit_id_wins() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("slack-s2h");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h").with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
+        let cloned = service
+            .clone_server(
+                space_id,
+                "slack-s2h",
+                "foj",
+                None,
+                None,
+                Some("slack-foj"),
+            )
+            .await
+            .expect("explicit id clone");
+
+        assert_eq!(cloned.server_id, "slack-foj");
+        assert_eq!(cloned.cloned_from.as_deref(), Some("slack-s2h"));
+        assert!(
+            repo.get_by_server_id(&space_id.to_string(), "slack-s2h-foj")
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn clone_server_omitted_id_still_derives() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("slack-s2h");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h").with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
+        let cloned = service
+            .clone_server(space_id, "slack-s2h", "foj", None, None, None)
+            .await
+            .expect("derived id clone");
+
+        assert_eq!(cloned.server_id, "slack-s2h-foj");
+    }
+
+    #[tokio::test]
+    async fn clone_server_empty_id_errors() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("slack-s2h");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h").with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo, None, None, event_bus.sender());
+        let err = service
+            .clone_server(space_id, "slack-s2h", "foj", None, None, Some("___"))
+            .await
+            .expect_err("empty after normalize");
+        assert!(err.to_string().contains("cannot be empty"));
+    }
+
+    #[tokio::test]
+    async fn clone_server_explicit_id_collision_errors() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("slack-s2h");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h").with_definition(&definition),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-foj").with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo, None, None, event_bus.sender());
+        let err = service
+            .clone_server(
+                space_id,
+                "slack-s2h",
+                "foj",
+                None,
+                None,
+                Some("slack-foj"),
+            )
+            .await
+            .expect_err("collision");
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn rename_server_updates_row_cloned_from_definition_and_config() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let mut rx = event_bus.subscribe();
+        let definition = user_space_http_definition("slack-s2h-foj");
+        let config_path = std::env::temp_dir().join(format!("mcpmux-rename-{space_id}.json"));
+        std::fs::write(
+            &config_path,
+            r#"{"mcpServers":{"slack-s2h-foj":{"command":"npx"}}}"#,
+        )
+        .unwrap();
+
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h-foj")
+                .with_definition(&definition)
+                .with_source(InstallationSource::UserConfig {
+                    file_path: config_path.clone(),
+                }),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h-foj-extra")
+                .with_definition(&definition)
+                .with_cloned_from("slack-s2h-foj"),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo.clone(), None, None, event_bus.sender());
+        let renamed = service
+            .rename_server(space_id, "slack-s2h-foj", "slack-foj")
+            .await
+            .expect("rename");
+
+        assert_eq!(renamed.server_id, "slack-foj");
+        assert!(
+            repo.get_by_server_id(&space_id.to_string(), "slack-s2h-foj")
+                .await
+                .is_none()
+        );
+        let dependent = repo
+            .get_by_server_id(&space_id.to_string(), "slack-s2h-foj-extra")
+            .await
+            .expect("dependent");
+        assert_eq!(dependent.cloned_from.as_deref(), Some("slack-foj"));
+        let def = renamed.get_definition().expect("definition");
+        assert_eq!(def.id, "slack-foj");
+
+        let config: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        let servers = config["mcpServers"].as_object().unwrap();
+        assert!(servers.contains_key("slack-foj"));
+        assert!(!servers.contains_key("slack-s2h-foj"));
+        let _ = std::fs::remove_file(&config_path);
+
+        let event = rx.try_recv().expect("ServerRenamed event");
+        assert!(matches!(
+            event,
+            DomainEvent::ServerRenamed {
+                ref old_server_id,
+                ref new_server_id,
+                ..
+            } if old_server_id == "slack-s2h-foj" && new_server_id == "slack-foj"
+        ));
+    }
+
+    #[tokio::test]
+    async fn rename_server_collision_and_empty_errors() {
+        let space_id = Uuid::new_v4();
+        let repo = Arc::new(InMemoryInstalledServerRepository::new());
+        let event_bus = EventBus::new();
+        let definition = user_space_http_definition("slack-s2h-foj");
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-s2h-foj")
+                .with_definition(&definition),
+        )
+        .await;
+        repo.seed(
+            InstalledServer::new(space_id.to_string(), "slack-foj").with_definition(&definition),
+        )
+        .await;
+
+        let service = ServerAppService::new(repo, None, None, event_bus.sender());
+        let collision = service
+            .rename_server(space_id, "slack-s2h-foj", "slack-foj")
+            .await
+            .expect_err("collision");
+        assert!(collision.to_string().contains("already exists"));
+
+        let empty = service
+            .rename_server(space_id, "slack-s2h-foj", "___")
+            .await
+            .expect_err("empty");
+        assert!(empty.to_string().contains("cannot be empty"));
     }
 }

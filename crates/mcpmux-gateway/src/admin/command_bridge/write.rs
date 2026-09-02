@@ -210,6 +210,13 @@ pub struct CloneServerBody {
     pub suffix: String,
     pub alias: Option<String>,
     pub display_name: Option<String>,
+    pub server_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameServerBody {
+    pub space_id: String,
+    pub new_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1090,8 +1097,35 @@ pub async fn clone_server(ctx: &AdminBridgeCtx, body: CloneServerBody) -> Result
             &body.suffix,
             body.alias.as_deref(),
             body.display_name.as_deref(),
+            body.server_id.as_deref(),
         )
         .await?;
+    as_json(installed)
+}
+
+pub async fn rename_server(
+    ctx: &AdminBridgeCtx,
+    id: String,
+    body: RenameServerBody,
+) -> Result<Value> {
+    let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let installed = ctx
+        .services
+        .server()
+        .rename_server(space_uuid, &id, &body.new_id)
+        .await?;
+    if let Err(e) = ctx
+        .server_log_manager
+        .rename_logs(&body.space_id, &id, &installed.server_id)
+        .await
+    {
+        tracing::warn!(
+            old_server_id = %id,
+            new_server_id = %installed.server_id,
+            error = %e,
+            "Failed to rename server logs"
+        );
+    }
     as_json(installed)
 }
 

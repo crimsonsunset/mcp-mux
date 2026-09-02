@@ -80,6 +80,7 @@ pub struct CloneAvailabilityQuery {
     pub space_id: String,
     pub source_server_id: String,
     pub suffix: String,
+    pub server_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -643,6 +644,7 @@ pub async fn is_clone_id_available(
         query.space_id,
         query.source_server_id,
         query.suffix,
+        query.server_id,
     )
     .await
     .map(ok)

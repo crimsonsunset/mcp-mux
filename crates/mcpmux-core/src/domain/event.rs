@@ -196,6 +196,16 @@ pub enum DomainEvent {
     /// A server was uninstalled from a space
     ServerUninstalled { space_id: Uuid, server_id: String },
 
+    /// An installed server's `server_id` was renamed in place.
+    ///
+    /// `old_server_id` is dead after commit. Pool consumers should evict the
+    /// old key and reconnect under `new_server_id` when the row is enabled.
+    ServerRenamed {
+        space_id: Uuid,
+        old_server_id: String,
+        new_server_id: String,
+    },
+
     /// Server configuration was updated (inputs, env, etc.)
     ServerConfigUpdated { space_id: Uuid, server_id: String },
 
@@ -447,6 +457,7 @@ impl DomainEvent {
             Self::SpaceDeleted { .. } => "space_deleted",
             Self::ServerInstalled { .. } => "server_installed",
             Self::ServerUninstalled { .. } => "server_uninstalled",
+            Self::ServerRenamed { .. } => "server_renamed",
             Self::ServerConfigUpdated { .. } => "server_config_updated",
             Self::ServerEnabled { .. } => "server_enabled",
             Self::ServerDisabled { .. } => "server_disabled",
@@ -512,6 +523,8 @@ impl DomainEvent {
             // list_changed.
             Self::SpaceDeleted { .. } => true,
             Self::FeatureSetDeleted { .. } => true,
+            // Qualified tool names (`{server_id}_{tool}`) change with the id.
+            Self::ServerRenamed { .. } => true,
             // WorkspaceNeedsBinding is a UI prompt — doesn't itself change what
             // tools a client sees, just invites the user to configure.
             // All other events don't affect MCP capabilities
@@ -527,6 +540,7 @@ impl DomainEvent {
             | Self::SpaceDeleted { space_id }
             | Self::ServerInstalled { space_id, .. }
             | Self::ServerUninstalled { space_id, .. }
+            | Self::ServerRenamed { space_id, .. }
             | Self::ServerConfigUpdated { space_id, .. }
             | Self::ServerEnabled { space_id, .. }
             | Self::ServerDisabled { space_id, .. }
@@ -568,6 +582,10 @@ impl DomainEvent {
             Self::ServerInstalled { server_id, .. }
             | Self::ServerUninstalled { server_id, .. }
             | Self::ServerConfigUpdated { server_id, .. }
+            | Self::ServerRenamed {
+                new_server_id: server_id,
+                ..
+            }
             | Self::ServerEnabled { server_id, .. }
             | Self::ServerDisabled { server_id, .. }
             | Self::ServerVersionChecked { server_id, .. }

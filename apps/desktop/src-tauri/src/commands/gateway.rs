@@ -544,6 +544,19 @@ fn map_domain_event_to_ui(event: &DomainEvent) -> (&'static str, serde_json::Val
                 "server_id": server_id,
             }),
         ),
+        DomainEvent::ServerRenamed {
+            space_id,
+            old_server_id,
+            new_server_id,
+        } => (
+            "server-changed",
+            serde_json::json!({
+                "action": "renamed",
+                "space_id": space_id,
+                "server_id": new_server_id,
+                "old_server_id": old_server_id,
+            }),
+        ),
         DomainEvent::ServerConfigUpdated {
             space_id,
             server_id,

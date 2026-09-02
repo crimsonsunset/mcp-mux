@@ -225,6 +225,7 @@ const P6_WRITE_ROUTES: Array<{
   { command: 'check_server_version', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: `/api/v1/servers/${encodeURIComponent(SERVER_ID)}/updates/check` },
   { command: 'logout_server', args: { spaceId: SPACE_ID, serverId: SERVER_ID }, method: 'POST', path: '/api/v1/servers/connections/logout' },
   { command: 'clone_server', args: { spaceId: SPACE_ID, sourceServerId: SERVER_ID, suffix: 'work' }, method: 'POST', path: '/api/v1/servers/clones' },
+  { command: 'rename_server', args: { id: SERVER_ID, spaceId: SPACE_ID, newId: 'slack-foj' }, method: 'PUT', path: `/api/v1/servers/${SERVER_ID}/rename` },
   { command: 'create_feature_set', args: { input: { name: 'Set', space_id: SPACE_ID } }, method: 'POST', path: '/api/v1/feature-sets' },
   { command: 'update_feature_set', args: { id: FEATURE_SET_ID, input: { name: 'Set' } }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}` },
   { command: 'delete_feature_set', args: { id: FEATURE_SET_ID }, method: 'DELETE', path: `/api/v1/feature-sets/${FEATURE_SET_ID}` },

@@ -14,8 +14,9 @@ use crate::admin::command_bridge::write::{
     DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody,
     InstallServerBody, LogRetentionBody, MetaToolApprovalBody, MetaToolRevokeBody,
     MetaToolsEnabledBody, MetaToolsRequireApprovalBody, OAuthClientUpdateBody, OAuthGrantBody,
-    SaveServerInputsBody, SaveSpaceConfigBody, ServerConnectionBody, ServerUpdateSettingsBody,
-    SetClientMachineIdBody, SetLocalMachineIdBody, SetMembersBody, SetServerDisplayNameBody,
+    RenameServerBody, SaveServerInputsBody, SaveSpaceConfigBody, ServerConnectionBody,
+    ServerUpdateSettingsBody, SetClientMachineIdBody, SetLocalMachineIdBody, SetMembersBody,
+    SetServerDisplayNameBody,
     SetServerEnabledBody, SetServerOAuthConnectedBody, SpaceBaseDirBody, StartupSettingsBody,
     UninstallServerBody, UpdateChannelBody, UpdateFeatureSetBody, UpdateMachineBody,
     UpdateServerInConfigBody, UploadIconBody, WorkspaceAppearanceBody, WorkspaceBindingBody,
@@ -233,6 +234,17 @@ pub async fn set_server_display_name(
     Json(body): Json<SetServerDisplayNameBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::set_server_display_name(&state.bridge, id, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn rename_server(
+    State(state): State<AdminState>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameServerBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::rename_server(&state.bridge, id, body)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

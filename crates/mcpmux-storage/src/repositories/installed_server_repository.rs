@@ -570,4 +570,223 @@ impl InstalledServerRepository for SqliteInstalledServerRepository {
         )?;
         Ok(())
     }
+
+    async fn rename_server_id(
+        &self,
+        space_id: &str,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        db.transaction(|conn| {
+            rename_server_id_in_tx(conn, space_id, old_server_id, new_server_id)
+        })
+    }
+}
+
+/// Rewrite `cached_definition` JSON so `id` (and a name that was just the old id) follow the rename.
+fn rewrite_cached_definition_ids(
+    cached_definition: Option<String>,
+    old_server_id: &str,
+    new_server_id: &str,
+) -> Option<String> {
+    let raw = cached_definition?;
+    let mut value: Value = serde_json::from_str(&raw).ok()?;
+    let obj = value.as_object_mut()?;
+    obj.insert("id".into(), Value::String(new_server_id.to_string()));
+    if obj.get("name").and_then(|v| v.as_str()) == Some(old_server_id) {
+        obj.insert("name".into(), Value::String(new_server_id.to_string()));
+    }
+    serde_json::to_string(&value).ok()
+}
+
+/// One-transaction rename of every SQLite store of `server_id` in a space.
+fn rename_server_id_in_tx(
+    conn: &rusqlite::Connection,
+    space_id: &str,
+    old_server_id: &str,
+    new_server_id: &str,
+) -> Result<()> {
+    let (server_name, cached_definition): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT server_name, cached_definition FROM installed_servers
+             WHERE space_id = ?1 AND server_id = ?2",
+            params![space_id, old_server_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| anyhow::anyhow!("Server not installed"))?;
+
+    let next_name = match server_name.as_deref() {
+        Some(name) if name == old_server_id => Some(new_server_id.to_string()),
+        other => other.map(str::to_string),
+    };
+    let next_definition =
+        rewrite_cached_definition_ids(cached_definition, old_server_id, new_server_id);
+
+    conn.execute(
+        "UPDATE installed_servers
+         SET server_id = ?3, server_name = ?4, cached_definition = ?5, updated_at = ?6
+         WHERE space_id = ?1 AND server_id = ?2",
+        params![
+            space_id,
+            old_server_id,
+            new_server_id,
+            next_name,
+            next_definition,
+            Utc::now().to_rfc3339(),
+        ],
+    )?;
+
+    conn.execute(
+        "UPDATE installed_servers
+         SET cloned_from = ?3, updated_at = ?4
+         WHERE space_id = ?1 AND cloned_from = ?2",
+        params![
+            space_id,
+            old_server_id,
+            new_server_id,
+            Utc::now().to_rfc3339()
+        ],
+    )?;
+
+    let now = Utc::now().to_rfc3339();
+    for sql in [
+        "UPDATE credentials SET server_id = ?3, updated_at = ?4
+         WHERE space_id = ?1 AND server_id = ?2",
+        "UPDATE outbound_oauth_clients SET server_id = ?3, updated_at = ?4
+         WHERE space_id = ?1 AND server_id = ?2",
+        "UPDATE feature_sets SET server_id = ?3, updated_at = ?4
+         WHERE space_id = ?1 AND server_id = ?2",
+        "UPDATE space_builtin_servers SET server_id = ?3, updated_at = ?4
+         WHERE space_id = ?1 AND server_id = ?2",
+        "UPDATE space_builtin_tools SET server_id = ?3, updated_at = ?4
+         WHERE space_id = ?1 AND server_id = ?2",
+    ] {
+        conn.execute(sql, params![space_id, old_server_id, new_server_id, now])?;
+    }
+
+    conn.execute(
+        "UPDATE server_features SET server_id = ?3 WHERE space_id = ?1 AND server_id = ?2",
+        params![space_id, old_server_id, new_server_id],
+    )?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpmux_core::{Credential, CredentialType, CredentialRepository};
+    use crate::repositories::SqliteCredentialRepository;
+
+    async fn create_test_space(db: &Arc<Mutex<Database>>, space_id: &Uuid) {
+        let db_lock = db.lock().await;
+        db_lock
+            .connection()
+            .execute(
+                "INSERT INTO spaces (id, name, created_at, updated_at)
+                 VALUES (?, 'Test', datetime('now'), datetime('now'))",
+                params![space_id.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn rename_server_id_updates_related_tables_in_one_transaction() {
+        let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
+        let key = crate::crypto::generate_master_key().unwrap();
+        let encryptor = Arc::new(FieldEncryptor::new(&key).unwrap());
+        let repo = SqliteInstalledServerRepository::new(db.clone(), encryptor.clone());
+        let cred_repo = SqliteCredentialRepository::new(db.clone(), encryptor);
+
+        let space_id = Uuid::new_v4();
+        create_test_space(&db, &space_id).await;
+        let space = space_id.to_string();
+
+        let mut source = InstalledServer::new(&space, "slack-s2h-foj");
+        source.cached_definition =
+            Some(r#"{"id":"slack-s2h-foj","name":"slack-s2h-foj"}"#.to_string());
+        repo.install(&source).await.unwrap();
+
+        let mut dependent = InstalledServer::new(&space, "other-clone");
+        dependent.cloned_from = Some("slack-s2h-foj".to_string());
+        repo.install(&dependent).await.unwrap();
+
+        cred_repo
+            .save(&Credential::api_key(space_id, "slack-s2h-foj", "secret"))
+            .await
+            .unwrap();
+
+        {
+            let db_lock = db.lock().await;
+            let conn = db_lock.connection();
+            conn.execute(
+                "INSERT INTO server_features
+                 (id, space_id, server_id, feature_type, feature_name, discovered_at, last_seen_at)
+                 VALUES (?1, ?2, ?3, 'tool', 'post', datetime('now'), datetime('now'))",
+                params![Uuid::new_v4().to_string(), space, "slack-s2h-foj"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO feature_sets
+                 (id, name, space_id, feature_set_type, server_id, created_at, updated_at)
+                 VALUES (?1, 'All slack', ?2, 'server-all', 'slack-s2h-foj', datetime('now'), datetime('now'))",
+                params![Uuid::new_v4().to_string(), space],
+            )
+            .unwrap();
+        }
+
+        repo.rename_server_id(&space, "slack-s2h-foj", "slack-foj")
+            .await
+            .unwrap();
+
+        assert!(repo.get_by_server_id(&space, "slack-s2h-foj").await.unwrap().is_none());
+        let renamed = repo
+            .get_by_server_id(&space, "slack-foj")
+            .await
+            .unwrap()
+            .expect("renamed row");
+        let def: Value = serde_json::from_str(renamed.cached_definition.as_ref().unwrap()).unwrap();
+        assert_eq!(def["id"], "slack-foj");
+        assert_eq!(def["name"], "slack-foj");
+
+        let dependent = repo
+            .get_by_server_id(&space, "other-clone")
+            .await
+            .unwrap()
+            .expect("dependent");
+        assert_eq!(dependent.cloned_from.as_deref(), Some("slack-foj"));
+
+        let cred = cred_repo
+            .get(&space_id, "slack-foj", &CredentialType::ApiKey)
+            .await
+            .unwrap();
+        assert!(cred.is_some());
+        assert!(cred_repo
+            .get(&space_id, "slack-s2h-foj", &CredentialType::ApiKey)
+            .await
+            .unwrap()
+            .is_none());
+
+        let db_lock = db.lock().await;
+        let feature_count: i64 = db_lock
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM server_features WHERE space_id = ?1 AND server_id = ?2",
+                params![space, "slack-foj"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(feature_count, 1);
+        let fs_count: i64 = db_lock
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM feature_sets WHERE space_id = ?1 AND server_id = ?2",
+                params![space, "slack-foj"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fs_count, 1);
+    }
 }

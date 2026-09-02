@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 /// `display_name` (optional) is stored as `display_name_override` so the user-supplied
 /// label survives later definition refreshes (e.g. user-config sync). When omitted, the
 /// auto `"Source (suffix)"` label on the cached definition is used as fallback.
+/// `server_id` (optional) overrides the derived `{source}-{suffix}` install key.
 #[tauri::command]
 pub async fn clone_server(
     app_service: State<'_, Arc<RwLock<Option<ServerAppService>>>>,
@@ -19,6 +20,7 @@ pub async fn clone_server(
     suffix: String,
     alias: Option<String>,
     display_name: Option<String>,
+    server_id: Option<String>,
 ) -> Result<InstalledServer, String> {
     let service_lock = app_service.read().await;
     let service = service_lock
@@ -34,6 +36,7 @@ pub async fn clone_server(
             &suffix,
             alias.as_deref(),
             display_name.as_deref(),
+            server_id.as_deref(),
         )
         .await
         .map_err(|e| e.to_string())
@@ -46,6 +49,7 @@ pub async fn is_clone_id_available(
     space_id: String,
     source_server_id: String,
     suffix: String,
+    server_id: Option<String>,
 ) -> Result<bool, String> {
     let service_lock = app_service.read().await;
     let service = service_lock
@@ -55,7 +59,12 @@ pub async fn is_clone_id_available(
     let space_uuid = uuid::Uuid::parse_str(&space_id).map_err(|e| e.to_string())?;
 
     service
-        .is_clone_id_available(space_uuid, &source_server_id, &suffix)
+        .is_clone_id_available(
+            space_uuid,
+            &source_server_id,
+            &suffix,
+            server_id.as_deref(),
+        )
         .await
         .map_err(|e| e.to_string())
 }

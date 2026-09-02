@@ -997,6 +997,15 @@ mod tests {
         ) -> mcpmux_core::repository::RepoResult<()> {
             Ok(())
         }
+
+        async fn rename_server_id(
+            &self,
+            _space_id: &str,
+            _old_server_id: &str,
+            _new_server_id: &str,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
     }
 
     pub(crate) fn build_pool(repo: Arc<dyn InstalledServerRepository>) -> PoolService {

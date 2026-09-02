@@ -128,6 +128,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/servers/{id}/display-name",
             put(write::set_server_display_name),
         )
+        .route("/api/v1/servers/{id}/rename", put(write::rename_server))
         .route(
             "/api/v1/servers/{id}/oauth-connected",
             put(write::set_server_oauth_connected),

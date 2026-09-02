@@ -26,7 +26,7 @@ import {
   FoldVertical,
   Search,
 } from 'lucide-react';
-import { Button, SearchField } from '@mcpmux/ui';
+import { Button, SearchField, useConfirm } from '@mcpmux/ui';
 import { ServerActionMenu } from './ServerActionMenu';
 import {
   isPackageManagedTransport,
@@ -77,6 +77,8 @@ import { canEditServerDefinition } from '@/components/server-definition-modal.he
 import { SourceBadge } from '@/components/SourceBadge';
 import type { ClonedInstalledServer } from '@/lib/api/serverClone';
 import { listCloneDependents } from '@/lib/api/serverClone';
+import { renameServer } from '@/lib/api/registry';
+import { normalizeServerId, pendingServerRename } from '@/lib/api/serverClone';
 
 /** Server view model extended with optional clone lineage from the backend. */
 type ServerViewModelWithClone = ServerViewModel;
@@ -320,6 +322,10 @@ interface ConfigModalState {
   displayName: string;
   /** Display name when the modal opened — used to detect changes on save. */
   initialDisplayName: string;
+  /** Editable install key. Save no-ops when it matches `initialServerId`. */
+  serverId: string;
+  /** Server ID when the modal opened. */
+  initialServerId: string;
   /** Per-server update policy override. */
   updatePolicy: UpdatePolicy;
   initialUpdatePolicy: UpdatePolicy;
@@ -356,6 +362,7 @@ export function ServersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const gatewayControl = useGatewayControl();
+  const { confirm: confirmRename, ConfirmDialogElement: RenameConfirmDialog } = useConfirm();
   // Bottom toast notifications
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [configModal, setConfigModal] = useState<ConfigModalState>({
@@ -369,6 +376,8 @@ export function ServersPage() {
     defaultParamsStrategy: 'fill',
     displayName: '',
     initialDisplayName: '',
+    serverId: '',
+    initialServerId: '',
     updatePolicy: 'notify',
     initialUpdatePolicy: 'notify',
     pinnedVersion: '',
@@ -600,7 +609,11 @@ export function ServersPage() {
       }
       
       // Reload server list when a server is installed or uninstalled
-      if (payload.action === 'installed' || payload.action === 'uninstalled') {
+      if (
+        payload.action === 'installed' ||
+        payload.action === 'uninstalled' ||
+        payload.action === 'renamed'
+      ) {
         console.log('[ServersPage] Server lifecycle event:', payload.action, payload.server_id);
         void loadData();
       }
@@ -923,6 +936,8 @@ export function ServersPage() {
         defaultParamsStrategy: server.default_params_strategy ?? 'fill',
         displayName: initialDisplayName,
         initialDisplayName,
+        serverId: server.id,
+        initialServerId: server.id,
         updatePolicy: server.update_policy ?? 'notify',
         initialUpdatePolicy: server.update_policy ?? 'notify',
         pinnedVersion: server.pinned_version ?? '',
@@ -1006,6 +1021,8 @@ export function ServersPage() {
       defaultParamsStrategy: server.default_params_strategy ?? 'fill',
       displayName: initialDisplayName,
       initialDisplayName,
+      serverId: server.id,
+      initialServerId: server.id,
       updatePolicy: initialUpdatePolicy,
       initialUpdatePolicy,
       pinnedVersion: initialPinnedVersion,
@@ -1069,11 +1086,31 @@ export function ServersPage() {
     showToast(t('toast.accountCreated'), 'success');
   };
 
+  /**
+   * Persist config-modal fields. A changed Server ID is confirmed, then
+   * renamed transactionally before the rest of the save uses the new id.
+   */
   const handleSaveConfig = async () => {
     if (!configModal.server) return;
 
     const server = configModal.server;
-    const serverId = server.id;
+    const renameTo = pendingServerRename(configModal.initialServerId, configModal.serverId);
+    if (!normalizeServerId(configModal.serverId)) {
+      showToast(t('configModal.serverIdRequired'), 'error');
+      return;
+    }
+    if (renameTo) {
+      const confirmed = await confirmRename({
+        title: t('configModal.renameConfirmTitle'),
+        message: t('configModal.renameConfirmMessage', { oldId: configModal.initialServerId }),
+        confirmLabel: t('configModal.renameConfirm'),
+        variant: 'danger',
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+    const serverId = renameTo ?? configModal.initialServerId;
     const shouldEnable = configModal.enableOnSave ?? false;
     const trimmedPinnedVersion = configModal.pinnedVersion.trim();
 
@@ -1091,6 +1128,10 @@ export function ServersPage() {
     setActionLoading(`config-${serverId}`);
     try {
       const { saveServerInputs } = await import('@/lib/api/registry');
+
+      if (renameTo) {
+        await renameServer(configModal.initialServerId, viewSpace?.id ?? '', renameTo);
+      }
 
       const trimmedDisplayName = configModal.displayName.trim();
       const trimmedInitial = configModal.initialDisplayName.trim();
@@ -1146,6 +1187,8 @@ export function ServersPage() {
         defaultParamsStrategy: 'fill',
         displayName: '',
         initialDisplayName: '',
+        serverId: '',
+        initialServerId: '',
         updatePolicy: 'notify',
         initialUpdatePolicy: 'notify',
         pinnedVersion: '',
@@ -1199,6 +1242,8 @@ export function ServersPage() {
       defaultParamsStrategy: 'fill',
       displayName: '',
       initialDisplayName: '',
+      serverId: '',
+      initialServerId: '',
       updatePolicy: 'notify',
       initialUpdatePolicy: 'notify',
       pinnedVersion: '',
@@ -1576,6 +1621,7 @@ export function ServersPage() {
   return (
     <div data-testid="servers-page">
       {gatewayControl.ConfirmDialogElement}
+      {RenameConfirmDialog}
       {uninstallClonesDialog && (
         <UninstallSourceWithClonesDialog
           open
@@ -2233,6 +2279,29 @@ export function ServersPage() {
                   placeholder={configModal.server.name}
                   className="input w-full"
                   data-testid="config-display-name"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="config-server-id"
+                  className="block text-sm font-medium text-[rgb(var(--foreground))] mb-1"
+                >
+                  {t('configModal.serverId')}
+                </label>
+                <p className="text-xs text-[rgb(var(--muted))] mb-2">
+                  {t('configModal.serverIdDesc')}
+                </p>
+                <input
+                  id="config-server-id"
+                  type="text"
+                  value={configModal.serverId}
+                  onChange={(e) =>
+                    setConfigModal({ ...configModal, serverId: e.target.value })
+                  }
+                  placeholder={configModal.initialServerId}
+                  className="input w-full font-mono"
+                  data-testid="config-server-id"
                 />
               </div>
 
