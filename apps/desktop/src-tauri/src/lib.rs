@@ -338,6 +338,32 @@ pub fn run() {
             let event_bus = mcpmux_core::create_shared_event_bus();
             let event_sender = event_bus.sender();
 
+            // Associate existing local clones with their git origin so the
+            // Projects page groups the same repo across machines without a
+            // manual refresh. Background: git probes are fail-open and can
+            // sit on a timeout per folder.
+            {
+                let binding_repo = app_state.workspace_binding_repository.clone();
+                let app_handle_for_git = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let updated = mcpmux_gateway::services::backfill_missing_git_remotes(
+                        binding_repo.as_ref(),
+                    )
+                    .await;
+                    if updated == 0 {
+                        return;
+                    }
+                    info!(
+                        updated,
+                        "[Startup] backfilled git remotes on workspace bindings"
+                    );
+                    let _ = app_handle_for_git.emit(
+                        "workspace-binding-changed",
+                        serde_json::json!({ "workspace_root": "" }),
+                    );
+                });
+            }
+
             let server_app_service = mcpmux_core::ServerAppService::new(
                 app_state.installed_server_repository.clone(),
                 Some(app_state.server_feature_repository_core.clone()),
@@ -974,6 +1000,7 @@ pub fn run() {
             commands::set_server_oauth_connected,
             commands::save_server_inputs,
             commands::set_server_display_name,
+            commands::rename_server,
             commands::clone_server,
             commands::is_clone_id_available,
             commands::suggest_clone_suffix,
@@ -1031,6 +1058,7 @@ pub fn run() {
             commands::is_workspace_binding_prompt_dismissed,
             commands::delete_workspace_binding,
             commands::validate_workspace_root,
+            commands::detect_workspace_git_remote,
             commands::get_workspace_effective_features,
             // Per-workspace MCP client config install (X-Mcpmux-Workspace header)
             commands::list_workspace_install_clients,

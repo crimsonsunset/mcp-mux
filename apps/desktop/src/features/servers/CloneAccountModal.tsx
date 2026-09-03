@@ -12,6 +12,7 @@ import {
   deriveCloneAlias,
   deriveCloneServerId,
   isCloneIdAvailable,
+  normalizeServerId,
   suggestCloneSuffix,
   type ClonedInstalledServer,
 } from '@/lib/api/serverClone';
@@ -38,6 +39,8 @@ export function CloneAccountModal({
   const { t } = useTranslation(['servers', 'common']);
   const [suffix, setSuffix] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [serverId, setServerId] = useState('');
+  const [serverIdTouched, setServerIdTouched] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,10 +53,12 @@ export function CloneAccountModal({
     ? t('cloneModal.displayNamePlaceholder', { name: sourceServer.name, suffix: trimmedSuffix })
     : t('cloneModal.displayNamePlaceholderDefault', { name: sourceServer.name });
 
-  const previewId = deriveCloneServerId(sourceServer.id, suffix);
+  const derivedId = deriveCloneServerId(sourceServer.id, suffix);
+  const normalizedId = normalizeServerId(serverId);
   const previewAlias = deriveCloneAlias(suffix);
   const hasSuffix = suffix.trim().length > 0;
-  const hasCollision = hasSuffix && isAvailable === false;
+  const hasValidId = normalizedId.length > 0;
+  const hasCollision = hasValidId && isAvailable === false;
   const sourceHeaderKeys =
     sourceServer.transport.type === 'http'
       ? Object.keys(sourceServer.extra_headers ?? {}).filter((key) => key.trim())
@@ -65,6 +70,10 @@ export function CloneAccountModal({
     }
 
     let cancelled = false;
+
+    setServerIdTouched(false);
+    setDisplayName('');
+    setSubmitError(null);
 
     const loadSuggestion = async () => {
       setIsLoadingSuggestion(true);
@@ -94,7 +103,13 @@ export function CloneAccountModal({
   }, [open, spaceId, sourceServer.id]);
 
   useEffect(() => {
-    if (!open || !hasSuffix) {
+    if (!serverIdTouched) {
+      setServerId(derivedId);
+    }
+  }, [derivedId, serverIdTouched]);
+
+  useEffect(() => {
+    if (!open || !hasValidId) {
       setIsAvailable(null);
       setIsChecking(false);
       return;
@@ -105,7 +120,12 @@ export function CloneAccountModal({
 
     const timer = setTimeout(async () => {
       try {
-        const available = await isCloneIdAvailable(spaceId, sourceServer.id, suffix);
+        const available = await isCloneIdAvailable(
+          spaceId,
+          sourceServer.id,
+          suffix,
+          normalizedId
+        );
         if (!cancelled) {
           setIsAvailable(available);
         }
@@ -124,13 +144,13 @@ export function CloneAccountModal({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [open, spaceId, sourceServer.id, suffix, hasSuffix]);
+  }, [open, spaceId, sourceServer.id, suffix, normalizedId, hasValidId]);
 
   /**
-   * Submit the clone request.
+   * Submit the clone with the current suffix, display name, and final server ID.
    */
   const handleSubmit = useCallback(async () => {
-    if (!hasSuffix || hasCollision || isChecking) {
+    if (!hasSuffix || !hasValidId || hasCollision || isChecking) {
       return;
     }
 
@@ -143,7 +163,8 @@ export function CloneAccountModal({
         sourceServer.id,
         suffix,
         undefined,
-        trimmedDisplayName.length > 0 ? trimmedDisplayName : undefined
+        trimmedDisplayName.length > 0 ? trimmedDisplayName : undefined,
+        normalizedId
       );
       onCloned(cloned);
       onClose();
@@ -154,8 +175,10 @@ export function CloneAccountModal({
     }
   }, [
     hasSuffix,
+    hasValidId,
     hasCollision,
     isChecking,
+    normalizedId,
     spaceId,
     sourceServer.id,
     suffix,
@@ -169,7 +192,12 @@ export function CloneAccountModal({
   }
 
   const canSubmit =
-    hasSuffix && !hasCollision && !isChecking && !isSubmitting && !isLoadingSuggestion;
+    hasSuffix &&
+    hasValidId &&
+    !hasCollision &&
+    !isChecking &&
+    !isSubmitting &&
+    !isLoadingSuggestion;
 
   return (
     <div
@@ -239,18 +267,10 @@ export function CloneAccountModal({
               value={suffix}
               onChange={(e) => setSuffix(e.target.value)}
               placeholder={t('cloneModal.accountLabelPlaceholder')}
-              className={`input w-full ${hasCollision ? 'border-[rgb(var(--error))]' : ''}`}
+              className="input w-full"
               disabled={isLoadingSuggestion || isSubmitting}
               data-testid="clone-suffix-input"
             />
-            {hasCollision && (
-              <p
-                className="mt-1 text-xs text-[rgb(var(--error))]"
-                data-testid="clone-collision-error"
-              >
-                {t('cloneModal.collisionError')}
-              </p>
-            )}
           </div>
 
           <div>
@@ -274,14 +294,39 @@ export function CloneAccountModal({
             </div>
           </div>
 
+          <div>
+            <label
+              htmlFor="clone-server-id"
+              className="mb-1 block text-sm font-medium text-[rgb(var(--foreground))]"
+            >
+              {t('cloneModal.serverId')}
+            </label>
+            <p className="mb-2 text-xs text-[rgb(var(--muted))]">{t('cloneModal.serverIdDesc')}</p>
+            <input
+              id="clone-server-id"
+              type="text"
+              value={serverId}
+              onChange={(e) => {
+                setServerIdTouched(true);
+                setServerId(e.target.value);
+              }}
+              placeholder={derivedId || t('cloneModal.serverIdPlaceholder')}
+              className={`input w-full font-mono ${hasCollision ? 'border-[rgb(var(--error))]' : ''}`}
+              disabled={isSubmitting}
+              data-testid="clone-server-id-input"
+            />
+            {hasCollision && (
+              <p
+                className="mt-1 text-xs text-[rgb(var(--error))]"
+                data-testid="clone-collision-error"
+              >
+                {t('cloneModal.collisionError')}
+              </p>
+            )}
+          </div>
+
           {hasSuffix && (
             <div className="space-y-2 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-dim))] p-3">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-[rgb(var(--muted))]">{t('cloneModal.serverId')}</span>
-                <code className="font-mono text-xs text-[rgb(var(--foreground))]">
-                  {previewId || '—'}
-                </code>
-              </div>
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="text-[rgb(var(--muted))]">{t('cloneModal.toolPrefix')}</span>
                 <code className="font-mono text-xs text-[rgb(var(--foreground))]">

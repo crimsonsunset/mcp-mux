@@ -195,3 +195,39 @@ pub async fn set_server_display_name(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Rename an installed server's `server_id` across every store of that string.
+#[tauri::command]
+pub async fn rename_server(
+    state: State<'_, AppState>,
+    app_service: State<'_, Arc<RwLock<Option<ServerAppService>>>>,
+    id: String,
+    space_id: String,
+    new_id: String,
+) -> Result<InstalledServer, String> {
+    let service_lock = app_service.read().await;
+    let service = service_lock
+        .as_ref()
+        .ok_or("ServerAppService not initialized")?;
+
+    let space_uuid = uuid::Uuid::parse_str(&space_id).map_err(|e| e.to_string())?;
+    let renamed = service
+        .rename_server(space_uuid, &id, &new_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Err(e) = state
+        .server_log_manager
+        .rename_logs(&space_id, &id, &renamed.server_id)
+        .await
+    {
+        tracing::warn!(
+            old_server_id = %id,
+            new_server_id = %renamed.server_id,
+            error = %e,
+            "Failed to rename server logs"
+        );
+    }
+
+    Ok(renamed)
+}

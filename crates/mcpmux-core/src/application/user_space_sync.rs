@@ -611,6 +611,15 @@ mod tests {
             }
             Ok(())
         }
+
+        async fn rename_server_id(
+            &self,
+            _space_id: &str,
+            _old_server_id: &str,
+            _new_server_id: &str,
+        ) -> crate::repository::RepoResult<()> {
+            Ok(())
+        }
     }
 
     async fn write_config_file(json: &str) -> (tempfile::TempDir, std::path::PathBuf) {

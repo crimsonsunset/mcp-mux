@@ -96,6 +96,7 @@ export const serversRoutes: Record<string, RouteHandler> = {
       suffix: args.suffix,
       alias: args.alias,
       display_name: args.displayName,
+      server_id: args.serverId,
     },
   }),
   is_clone_id_available: (args) => ({
@@ -104,7 +105,13 @@ export const serversRoutes: Record<string, RouteHandler> = {
       spaceId: args.spaceId,
       sourceServerId: args.sourceServerId,
       suffix: args.suffix,
+      serverId: args.serverId,
     })}`,
+  }),
+  rename_server: (args) => ({
+    method: 'PUT',
+    path: `/api/v1/servers/${encodeURIComponent(String(args.id))}/rename`,
+    body: { space_id: args.spaceId, new_id: args.newId },
   }),
   suggest_clone_suffix: (args) => ({
     method: 'GET',

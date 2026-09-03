@@ -85,6 +85,17 @@ export async function setServerOAuthConnected(
   return apiCall<void>('set_server_oauth_connected', { id, connected, spaceId });
 }
 
+/**
+ * Rename an installed server's `server_id` across every store of that string.
+ */
+export async function renameServer(
+  id: string,
+  spaceId: string,
+  newId: string
+): Promise<InstalledServerState> {
+  return apiCall<InstalledServerState>('rename_server', { id, spaceId, newId });
+}
+
 /** Save input values for a server. */
 export async function saveServerInputs(
   id: string,

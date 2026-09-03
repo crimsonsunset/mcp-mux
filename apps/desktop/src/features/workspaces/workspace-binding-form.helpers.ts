@@ -22,6 +22,18 @@ export function normalizeIcon(icon: string | null | undefined): string | null {
 }
 
 /**
+ * Render FeatureSet names as one display line (`a + b + c`).
+ * Sorted A–Z so the same set always reads the same across machines.
+ * Drops empty/missing names; returns '' so callers can fall back to a placeholder.
+ */
+export function formatFsList(names: string[]): string {
+  return names
+    .filter((n) => n.length > 0)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    .join(' + ');
+}
+
+/**
  * Last path segment of a workspace root, normalized for cross-platform matching.
  */
 export function folderName(root: string): string {
@@ -33,6 +45,26 @@ export function folderName(root: string): string {
  * Bindings on other machines (or scopes) that can seed a new create-from-live row.
  * Same folder name is enough; identical absolute paths count when machine differs.
  */
+/**
+ * Grouping key for cross-machine project cards. Manual link wins over git remote.
+ */
+export function projectKey(binding: WorkspaceBinding): string | null {
+  return binding.project_link_id || binding.git_remote_url || null;
+}
+
+/**
+ * Path-type bindings the user can manually link to, excluding `excludeId`.
+ */
+export function findLinkableBindings(
+  allBindings: WorkspaceBinding[],
+  excludeId: string | undefined,
+): WorkspaceBinding[] {
+  return allBindings.filter((binding) => {
+    if (binding.id === excludeId) return false;
+    return binding.binding_type !== 'id';
+  });
+}
+
 export function findAdoptableSiblingBindings(
   allBindings: WorkspaceBinding[],
   workspaceRoot: string,

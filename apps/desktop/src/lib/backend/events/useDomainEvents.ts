@@ -88,10 +88,11 @@ export interface SpaceChangedPayload extends DomainEventPayload {
 
 /** Server lifecycle event payloads */
 export interface ServerChangedPayload extends DomainEventPayload {
-  action: 'installed' | 'uninstalled' | 'config_updated' | 'enabled' | 'disabled';
+  action: 'installed' | 'uninstalled' | 'renamed' | 'config_updated' | 'enabled' | 'disabled';
   space_id: string;
   server_id: string;
   server_name?: string;
+  old_server_id?: string;
 }
 
 /** Server package update probe payload */

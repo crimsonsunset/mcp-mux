@@ -62,15 +62,32 @@ impl ServerConfigUpdatedHandler {
 
     /// Handle one domain event, reconnecting the pool instance when applicable.
     async fn handle_event(&self, event: DomainEvent) -> anyhow::Result<()> {
-        let DomainEvent::ServerConfigUpdated {
-            space_id,
-            server_id,
-        } = event
-        else {
-            return Ok(());
-        };
+        match event {
+            DomainEvent::ServerConfigUpdated {
+                space_id,
+                server_id,
+            } => self.handle_config_updated(space_id, &server_id).await,
+            DomainEvent::ServerRenamed {
+                space_id,
+                old_server_id,
+                new_server_id,
+            } => {
+                self.handle_renamed(space_id, &old_server_id, &new_server_id)
+                    .await
+            }
+            _ => Ok(()),
+        }
+    }
 
-        self.handle_config_updated(space_id, &server_id).await
+    /// Evict the old pool key, then reconnect under the new id when enabled.
+    async fn handle_renamed(
+        &self,
+        space_id: Uuid,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> anyhow::Result<()> {
+        self.pool_service.remove_instance(space_id, old_server_id);
+        self.handle_config_updated(space_id, new_server_id).await
     }
 
     /// Reconnect an enabled server from current DB config after a write.
@@ -291,6 +308,22 @@ mod tests {
         ) -> mcpmux_core::repository::RepoResult<()> {
             Ok(())
         }
+
+        async fn rename_server_id(
+            &self,
+            space_id: &str,
+            old_server_id: &str,
+            new_server_id: &str,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            let mut servers = self.servers.lock().unwrap();
+            if let Some(mut server) =
+                servers.remove(&(space_id.to_string(), old_server_id.to_string()))
+            {
+                server.server_id = new_server_id.to_string();
+                servers.insert((space_id.to_string(), new_server_id.to_string()), server);
+            }
+            Ok(())
+        }
     }
 
     /// Minimal stdio definition whose command does not exist on disk.
@@ -365,5 +398,30 @@ mod tests {
             .expect("handler");
 
         assert!(pool.get_instance(space_id, server_id).is_some());
+    }
+
+    #[tokio::test]
+    async fn renamed_server_evicts_old_pool_key() {
+        let space_id = Uuid::new_v4();
+        let old_id = "slack-s2h-foj";
+        let new_id = "slack-foj";
+        let installed = InstalledServer::new(space_id.to_string(), new_id)
+            .with_definition(&stdio_definition(new_id))
+            .with_enabled(true);
+        let repo = MapInstalledRepo::with(installed);
+        let pool = Arc::new(PoolService::new_test_with_repo(repo.clone()));
+        pool.insert_test_instance(space_id, old_id);
+        assert_eq!(pool.stats().total_instances, 1);
+
+        let handler = ServerConfigUpdatedHandler::new(repo, pool.clone(), None);
+        handler
+            .handle_renamed(space_id, old_id, new_id)
+            .await
+            .expect("rename handler");
+
+        assert!(
+            pool.get_instance(space_id, old_id).is_none(),
+            "old pool key must be gone after rename"
+        );
     }
 }

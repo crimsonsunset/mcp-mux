@@ -26,7 +26,8 @@ export async function cloneServer(
   sourceServerId: string,
   suffix: string,
   alias?: string,
-  displayName?: string
+  displayName?: string,
+  serverId?: string
 ): Promise<ClonedInstalledServer> {
   return apiCall<ClonedInstalledServer>('clone_server', {
     spaceId,
@@ -34,21 +35,27 @@ export async function cloneServer(
     suffix,
     alias: alias ?? null,
     displayName: displayName ?? null,
+    serverId: serverId ?? null,
   });
 }
 
 /**
- * Return whether a suffixed clone ID is available in the given space.
+ * Return whether a clone ID is available in the given space.
+ *
+ * When `serverId` is set, that exact (normalized) ID is checked.
+ * Otherwise the ID is derived from `{source}-{suffix}`.
  */
 export async function isCloneIdAvailable(
   spaceId: string,
   sourceServerId: string,
-  suffix: string
+  suffix: string,
+  serverId?: string
 ): Promise<boolean> {
   return apiCall<boolean>('is_clone_id_available', {
     spaceId,
     sourceServerId,
     suffix,
+    serverId: serverId ?? null,
   });
 }
 
@@ -102,4 +109,15 @@ export function deriveCloneServerId(baseServerId: string, suffix: string): strin
  */
 export function deriveCloneAlias(suffix: string): string {
   return normalizeServerId(suffix).replace(/_/g, '-');
+}
+
+/**
+ * Return the normalized ID to rename to, or null when empty/unchanged.
+ */
+export function pendingServerRename(currentId: string, typedId: string): string | null {
+  const next = normalizeServerId(typedId);
+  if (!next || next === currentId) {
+    return null;
+  }
+  return next;
 }

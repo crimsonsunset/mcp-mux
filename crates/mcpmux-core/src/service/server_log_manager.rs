@@ -142,6 +142,44 @@ impl ServerLogManager {
         Ok(())
     }
 
+    /// Move on-disk logs and close writers so the next append uses the new id.
+    pub async fn rename_logs(
+        &self,
+        space_id: &str,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> Result<()> {
+        let old_key = format!("{space_id}/{old_server_id}");
+        let new_key = format!("{space_id}/{new_server_id}");
+        {
+            let mut writers = self.writers.write().await;
+            writers.remove(&old_key);
+            writers.remove(&new_key);
+        }
+
+        let old_dir = self
+            .config
+            .base_dir
+            .join(space_id)
+            .join(Self::sanitize_server_id(old_server_id));
+        let new_dir = self
+            .config
+            .base_dir
+            .join(space_id)
+            .join(Self::sanitize_server_id(new_server_id));
+        if old_dir.exists() && old_dir != new_dir {
+            if new_dir.exists() {
+                tokio::fs::remove_dir_all(&new_dir)
+                    .await
+                    .context("Failed to clear existing renamed log directory")?;
+            }
+            tokio::fs::rename(&old_dir, &new_dir)
+                .await
+                .context("Failed to rename log directory")?;
+        }
+        Ok(())
+    }
+
     /// Get log file path for a server
     pub fn get_log_file(&self, space_id: &str, server_id: &str) -> PathBuf {
         let safe_server_id = Self::sanitize_server_id(server_id);

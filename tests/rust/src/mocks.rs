@@ -245,6 +245,15 @@ impl InstalledServerRepository for MockInstalledServerRepository {
         }
         Ok(())
     }
+
+    async fn rename_server_id(
+        &self,
+        _space_id: &str,
+        _old_server_id: &str,
+        _new_server_id: &str,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
 }
 
 // ============================================================================

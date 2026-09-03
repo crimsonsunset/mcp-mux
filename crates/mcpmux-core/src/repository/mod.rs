@@ -140,6 +140,19 @@ pub trait InstalledServerRepository: Send + Sync {
         current_version: Option<String>,
         version_checked_at: DateTime<Utc>,
     ) -> RepoResult<()>;
+
+    /// Rename `server_id` for one install and every row that stores that string.
+    ///
+    /// Implementations that share a SQLite connection must do this in one
+    /// transaction (installed row, cached definition, `cloned_from`,
+    /// credentials, outbound OAuth, features, feature-set `server-all`
+    /// bundles, builtin overrides).
+    async fn rename_server_id(
+        &self,
+        space_id: &str,
+        old_server_id: &str,
+        new_server_id: &str,
+    ) -> RepoResult<()>;
 }
 
 /// ServerFeature repository trait

@@ -128,6 +128,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/servers/{id}/display-name",
             put(write::set_server_display_name),
         )
+        .route("/api/v1/servers/{id}/rename", put(write::rename_server))
         .route(
             "/api/v1/servers/{id}/oauth-connected",
             put(write::set_server_oauth_connected),
@@ -278,6 +279,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/v1/workspaces/validate-root",
             get(read::validate_workspace_root),
+        )
+        .route(
+            "/api/v1/workspaces/detect-git-remote",
+            get(read::detect_workspace_git_remote),
         )
         .route(
             "/api/v1/workspaces/effective-features",

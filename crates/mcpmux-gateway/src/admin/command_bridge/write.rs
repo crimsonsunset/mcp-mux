@@ -6,10 +6,10 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use mcpmux_core::{
-    normalize_optional_metadata, validate_workspace_root as validate_workspace_root_path,
-    AppSettingsService, Client, DomainEvent, FeatureSet, FeatureSetMember, Machine, MemberMode,
-    MemberType, ServerSource, UpdatePolicy, WorkspaceAppearance, WorkspaceBinding,
-    WorkspaceRootValidation,
+    normalize_optional_metadata, resolve_persisted_override,
+    validate_workspace_root as validate_workspace_root_path, AppSettingsService, Client,
+    DomainEvent, FeatureSet, FeatureSetMember, Machine, MemberMode, MemberType, ServerSource,
+    UpdatePolicy, WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -21,7 +21,7 @@ use crate::admin::command_bridge::read::{
     to_workspace_appearance_response, to_workspace_binding_response,
 };
 use crate::admin::command_bridge::space::{self, UpdateSpaceInput};
-use crate::services::ServerVersionProbeService;
+use crate::services::{apply_detected_git_remote, ServerVersionProbeService};
 
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
@@ -86,6 +86,10 @@ pub struct WorkspaceBindingBody {
     pub feature_set_ids: Vec<String>,
     pub client_id: Option<String>,
     pub machine_id: Option<String>,
+    #[serde(default)]
+    pub git_remote_url: Option<String>,
+    #[serde(default)]
+    pub project_link_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,6 +210,13 @@ pub struct CloneServerBody {
     pub suffix: String,
     pub alias: Option<String>,
     pub display_name: Option<String>,
+    pub server_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameServerBody {
+    pub space_id: String,
+    pub new_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -761,6 +772,9 @@ pub async fn create_workspace_binding(
     binding.icon = resolve_binding_icon(ctx, &normalized, &body.icon, None).await?;
     binding.client_id = body.client_id.clone();
     binding.machine_id = parse_optional_machine_id(body.machine_id.as_deref())?;
+    binding.git_remote_url = resolve_persisted_override(body.git_remote_url.as_deref(), None);
+    binding.project_link_id = resolve_persisted_override(body.project_link_id.as_deref(), None);
+    apply_detected_git_remote(&mut binding).await;
 
     ctx.workspace_binding_repository.create(&binding).await?;
     clear_appearance_for_bound_root(ctx, &normalized).await?;
@@ -804,6 +818,14 @@ pub async fn update_workspace_binding(
         machine_id,
         label,
         icon,
+        git_remote_url: resolve_persisted_override(
+            body.git_remote_url.as_deref(),
+            existing.git_remote_url.clone(),
+        ),
+        project_link_id: resolve_persisted_override(
+            body.project_link_id.as_deref(),
+            existing.project_link_id.clone(),
+        ),
         space_id,
         feature_set_ids,
         created_at: existing.created_at,
@@ -1075,8 +1097,35 @@ pub async fn clone_server(ctx: &AdminBridgeCtx, body: CloneServerBody) -> Result
             &body.suffix,
             body.alias.as_deref(),
             body.display_name.as_deref(),
+            body.server_id.as_deref(),
         )
         .await?;
+    as_json(installed)
+}
+
+pub async fn rename_server(
+    ctx: &AdminBridgeCtx,
+    id: String,
+    body: RenameServerBody,
+) -> Result<Value> {
+    let space_uuid = Uuid::parse_str(&body.space_id)?;
+    let installed = ctx
+        .services
+        .server()
+        .rename_server(space_uuid, &id, &body.new_id)
+        .await?;
+    if let Err(e) = ctx
+        .server_log_manager
+        .rename_logs(&body.space_id, &id, &installed.server_id)
+        .await
+    {
+        tracing::warn!(
+            old_server_id = %id,
+            new_server_id = %installed.server_id,
+            error = %e,
+            "Failed to rename server logs"
+        );
+    }
     as_json(installed)
 }
 

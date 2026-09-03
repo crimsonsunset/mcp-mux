@@ -80,6 +80,7 @@ pub struct CloneAvailabilityQuery {
     pub space_id: String,
     pub source_server_id: String,
     pub suffix: String,
+    pub server_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -401,6 +402,15 @@ pub async fn validate_workspace_root(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn detect_workspace_git_remote(
+    Query(query): Query<ValidateRootQuery>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::detect_workspace_git_remote(query.path)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_workspace_effective_features(
     State(state): State<AdminState>,
     Query(query): Query<EffectiveFeaturesQuery>,
@@ -634,6 +644,7 @@ pub async fn is_clone_id_available(
         query.space_id,
         query.source_server_id,
         query.suffix,
+        query.server_id,
     )
     .await
     .map(ok)
