@@ -10,6 +10,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod auth_default;
 pub mod consumers;
 pub mod cursor_hook;
 pub mod logging;

@@ -257,6 +257,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::get_starter_tool_summary),
         )
         .route(
+            "/api/v1/settings/gateway-auth-disabled",
+            get(read::get_gateway_auth_disabled),
+        )
+        .route(
             "/api/v1/settings/starter-auto-include",
             get(read::get_starter_auto_include_default)
                 .put(write::set_starter_auto_include_default),

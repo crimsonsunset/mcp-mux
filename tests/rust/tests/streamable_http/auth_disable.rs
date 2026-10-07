@@ -322,3 +322,18 @@ async fn origin_guard_applies_when_auth_is_required_too() {
         reqwest::StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn origin_guard_covers_cors_preflight() {
+    // The OPTIONS shortcut must not let a web page's preflight through.
+    let h = Harness::start(true).await;
+    let status = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, &h.url)
+        .header("origin", "https://evil.example")
+        .header("access-control-request-method", "POST")
+        .send()
+        .await
+        .expect("request")
+        .status();
+    assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
+}

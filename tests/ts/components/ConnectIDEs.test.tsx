@@ -21,6 +21,9 @@ const mockedAddCursor = vi.mocked(addToCursor);
 describe('ConnectIDEs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === 'get_gateway_auth_disabled' ? false : undefined
+    );
   });
 
   it('should render the card title', () => {

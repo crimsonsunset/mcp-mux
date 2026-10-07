@@ -22,6 +22,7 @@ const P4_READ_ROUTES: Array<{
     method: 'GET',
     path: `/api/v1/gateway/status?spaceId=${SPACE_ID}`,
   },
+  { command: 'get_gateway_auth_disabled', method: 'GET', path: '/api/v1/settings/gateway-auth-disabled' },
   {
     command: 'probe_gateway_start',
     args: { port: 45818 },
