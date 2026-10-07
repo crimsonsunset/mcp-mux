@@ -16,6 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+use super::origin_guard::is_allowed_origin;
 use crate::auth::validate_token;
 use crate::logging::TraceContext;
 use crate::server::ServiceContainer;
@@ -35,17 +36,41 @@ pub async fn mcp_oauth_middleware(
     mut request: Request<Body>,
     next: Next,
 ) -> Response<Body> {
-    // Skip auth for OPTIONS (CORS preflight)
-    if request.method() == axum::http::Method::OPTIONS {
-        return next.run(request).await;
-    }
-
     // Get or create trace context from upstream middleware
     let trace_id = request
         .extensions()
         .get::<TraceContext>()
         .map(|ctx| ctx.trace_id.clone())
         .unwrap_or_else(|| "??????".to_string());
+
+    // Keep web pages out: a browser tab can reach localhost, and it marks its
+    // requests with an `Origin` header native MCP clients never send. Checked
+    // before auth so it holds whether or not access keys are required.
+    if let Some(origin) = request.headers().get(header::ORIGIN) {
+        let public_base_url = services.gateway_state.read().await.public_base_url.clone();
+        let allowed = origin
+            .to_str()
+            .is_ok_and(|o| is_allowed_origin(o, public_base_url.as_deref()));
+        if !allowed {
+            warn!(
+                trace_id = %trace_id,
+                origin = ?origin,
+                "Blocked a browser request from a web page"
+            );
+            return (
+                StatusCode::FORBIDDEN,
+                "McpMux only accepts connections from apps on this computer; \
+                 requests from web pages are blocked.",
+            )
+                .into_response();
+        }
+    }
+
+    // Skip auth for OPTIONS (CORS preflight), after the origin check above so
+    // a web page's preflight is refused too.
+    if request.method() == axum::http::Method::OPTIONS {
+        return next.run(request).await;
+    }
 
     // Advertise the address the client actually reached us on (or the configured
     // public base URL) so a gateway bound to 0.0.0.0 returns a resource-metadata

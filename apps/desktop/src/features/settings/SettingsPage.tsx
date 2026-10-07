@@ -1356,9 +1356,10 @@ export function SettingsPage() {
                 <div>
                   <label className="text-sm font-medium">Disable authentication</label>
                   <p className="mt-1 text-xs text-[rgb(var(--muted))]">
-                    Let local apps connect with no access key — just the URL and a workspace
-                    header. Quickest setup, but any app on this machine can then reach the
-                    gateway.
+                    Let apps on this computer connect with no access key — just the URL. This is
+                    the default while the gateway is only reachable from this computer. Websites
+                    in your browser are blocked either way. Opening the gateway to your network or
+                    a public URL turns authentication back on, unless you switch it off here.
                   </p>
                 </div>
               </div>

@@ -13,6 +13,7 @@ import opencodeIconDark from '@/assets/client-icons/opencode-dark.svg';
 import { addToVscode, addToCursor } from '@/lib/api/clientInstall';
 import { ClientBrandIcon } from './ClientBrandIcon';
 import { isTauri } from '@/lib/backend/shell';
+import { useGatewayAuthRequired } from '@/hooks/useGatewayAuthRequired';
 
 type GridAction = 'deep_link' | 'copy_command' | 'copy_config';
 
@@ -47,6 +48,7 @@ interface ConnectIDEsGridProps {
  */
 export function ConnectIDEsGrid({ gatewayUrl, gatewayRunning }: ConnectIDEsGridProps) {
   const { t } = useTranslation('common');
+  const authRequired = useGatewayAuthRequired();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -180,7 +182,11 @@ export function ConnectIDEsGrid({ gatewayUrl, gatewayRunning }: ConnectIDEsGridP
                 data-testid="client-popover"
               >
                 <p className="text-xs font-semibold mb-1 relative">{name}</p>
-                <p className="text-[11px] leading-snug text-[rgb(var(--muted))] mb-2.5">{nextStep}</p>
+                <p className="text-[11px] leading-snug text-[rgb(var(--muted))] mb-2.5">{nextStep}{' '}
+                  {authRequired === false
+                    ? t('connectIdes.finishNoApproval')
+                    : t('connectIdes.finishApproval')}
+                </p>
 
                 {entry.action === 'deep_link' ? (
                   <Button
@@ -237,6 +243,7 @@ interface ConnectIDEsProps {
  */
 export function ConnectIDEs({ gatewayUrl, gatewayRunning }: ConnectIDEsProps) {
   const { t } = useTranslation('common');
+  const authRequired = useGatewayAuthRequired();
 
   return (
     <Card>
@@ -246,7 +253,10 @@ export function ConnectIDEs({ gatewayUrl, gatewayRunning }: ConnectIDEsProps) {
             <CardTitle>{t('connectIdes.title')}</CardTitle>
             <CardDescription>
               <span className="font-medium">{t('connectIdes.descriptionPrefix')}</span>{' '}
-              {t('connectIdes.description')}
+              {t('connectIdes.description')}{' '}
+              {authRequired === false
+                ? t('connectIdes.descriptionNoKey')
+                : t('connectIdes.descriptionApproval')}
             </CardDescription>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-[rgb(var(--muted))]">

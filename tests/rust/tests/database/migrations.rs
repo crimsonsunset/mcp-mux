@@ -329,3 +329,63 @@ fn test_044_upgrade_of_an_unused_install_gets_auto_starter() {
     let db = reapply_044(&path, "");
     assert!(starter_auto_include(&db));
 }
+
+fn auth_disabled_setting(db: &Database) -> Option<String> {
+    db.connection()
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'gateway.auth_disabled'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+}
+
+/// Reopen `path` with migration 045 un-applied, after `seed` ran against the
+/// pre-045 schema.
+fn reapply_045(path: &std::path::Path, seed: &str) -> Database {
+    {
+        let db = Database::open(path).expect("open");
+        db.connection()
+            .execute_batch(&format!(
+                "DELETE FROM schema_migrations WHERE version >= 45;
+                 DELETE FROM app_settings WHERE key = 'gateway.auth_disabled';
+                 {seed}"
+            ))
+            .expect("roll back to pre-045 and seed");
+    }
+    Database::open(path).expect("reopen")
+}
+
+const SEED_INSTALLED_SERVER: &str =
+    "INSERT INTO installed_servers (id, space_id, server_id, created_at, updated_at)
+     SELECT 'inst-1', id, 'community.memory', datetime('now'), datetime('now')
+       FROM spaces WHERE is_default = 1;";
+
+/// An install already in use keeps requiring auth after the default flips.
+#[test]
+fn test_045_upgrade_pins_auth_for_an_install_in_use() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = reapply_045(&dir.path().join("mcpmux.db"), SEED_INSTALLED_SERVER);
+    assert_eq!(auth_disabled_setting(&db).as_deref(), Some("false"));
+}
+
+/// An auth choice the user already made survives the upgrade.
+#[test]
+fn test_045_upgrade_preserves_an_explicit_auth_choice() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let seed = format!(
+        "{SEED_INSTALLED_SERVER}
+         INSERT INTO app_settings (key, value, updated_at)
+         VALUES ('gateway.auth_disabled', 'true', datetime('now'));"
+    );
+    let db = reapply_045(&dir.path().join("mcpmux.db"), &seed);
+    assert_eq!(auth_disabled_setting(&db).as_deref(), Some("true"));
+}
+
+/// An unused install gets the new default (no stored value).
+#[test]
+fn test_045_upgrade_of_an_unused_install_gets_the_new_default() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = reapply_045(&dir.path().join("mcpmux.db"), "");
+    assert_eq!(auth_disabled_setting(&db), None);
+}

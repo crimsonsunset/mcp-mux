@@ -721,6 +721,15 @@ pub async fn get_auto_install_updates(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_gateway_auth_disabled(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_gateway_auth_disabled(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_starter_auto_include_default(
     State(state): State<AdminState>,
 ) -> Result<Json<Value>, ApiError> {

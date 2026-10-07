@@ -968,6 +968,12 @@ pub async fn get_starter_auto_include_default(ctx: &AdminBridgeCtx) -> Result<Va
     as_json(stored.as_deref() != Some("false"))
 }
 
+/// Whether inbound MCP auth is off right now: an explicit choice, or the
+/// default (off while only this machine can reach the gateway).
+pub async fn get_gateway_auth_disabled(ctx: &AdminBridgeCtx) -> Result<Value> {
+    as_json(crate::auth_default::effective_auth_disabled(&ctx.settings_repository).await)
+}
+
 /// What a Space's Starter grants right now, counted with the gateway's own
 /// resolver so the number matches what a mapped client actually sees.
 pub async fn get_starter_tool_summary(ctx: &AdminBridgeCtx, space_id: String) -> Result<Value> {
