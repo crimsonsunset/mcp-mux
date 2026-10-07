@@ -140,8 +140,8 @@ pub(crate) async fn shutdown_gateway_handle(mut handle: mcpmux_gateway::GatewayS
 /// a fresh client connection automatically draws the user's eye to the
 /// mcpmux app instead of the dialog rendering invisibly under another
 /// window.
-const GATEWAY_PUBLIC_BASE_URL_KEY: &str = "gateway.public_base_url";
-const GATEWAY_NETWORK_ACCESS_KEY: &str = "gateway.network_access_enabled";
+const GATEWAY_PUBLIC_BASE_URL_KEY: &str = mcpmux_gateway::auth_default::PUBLIC_BASE_URL_KEY;
+const GATEWAY_NETWORK_ACCESS_KEY: &str = mcpmux_gateway::auth_default::NETWORK_ACCESS_KEY;
 
 pub(crate) fn normalize_public_base_url(raw: &str) -> Result<Option<String>, String> {
     let trimmed = raw.trim();
@@ -233,28 +233,11 @@ pub(crate) async fn load_network_access(app_state: &AppState) -> bool {
     load_network_access_from_repo(&app_state.settings_repository).await
 }
 
-/// Whether inbound auth is off. An explicit choice in Settings wins. With no
-/// choice stored, auth is off while only this machine can reach the gateway
-/// (loopback bind, no public URL), and back on as soon as the gateway is opened
-/// to a network or a public URL. Web pages on this machine are kept out by the
-/// gateway's Origin guard.
+/// Whether inbound auth is off — see `mcpmux_gateway::auth_default`.
 pub(crate) async fn load_gateway_auth_disabled_from_repo(
     settings_repository: &Arc<dyn mcpmux_core::AppSettingsRepository>,
 ) -> bool {
-    let stored = settings_repository
-        .get(GATEWAY_AUTH_DISABLED_KEY)
-        .await
-        .ok()
-        .flatten();
-    match stored {
-        Some(value) => value == "true",
-        None => {
-            !load_network_access_from_repo(settings_repository).await
-                && load_public_base_url_from_repo(settings_repository)
-                    .await
-                    .is_none()
-        }
-    }
+    mcpmux_gateway::auth_default::effective_auth_disabled(settings_repository).await
 }
 
 /// Load the persisted inbound-auth toggle for the running app instance.
@@ -1387,7 +1370,7 @@ pub async fn reset_gateway_port(app_state: State<'_, AppState>) -> Result<(), St
 /// `"true"`/`"false"`; missing means "off while the gateway is loopback-only"
 /// (see `load_gateway_auth_disabled_from_repo`). Migration 045 pins existing
 /// installs to `"false"` so the upgrade keeps their auth.
-pub const GATEWAY_AUTH_DISABLED_KEY: &str = "gateway.auth_disabled";
+pub const GATEWAY_AUTH_DISABLED_KEY: &str = mcpmux_gateway::auth_default::AUTH_DISABLED_KEY;
 
 /// Whether inbound MCP authentication is disabled — connections are accepted
 /// without an access key. Reports the effective value: an explicit choice, or

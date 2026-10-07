@@ -44,11 +44,6 @@ pub async fn mcp_oauth_middleware(
     mut request: Request<Body>,
     next: Next,
 ) -> Response<Body> {
-    // Skip auth for OPTIONS (CORS preflight)
-    if request.method() == axum::http::Method::OPTIONS {
-        return next.run(request).await;
-    }
-
     // Get or create trace context from upstream middleware
     let trace_id = request
         .extensions()
@@ -77,6 +72,12 @@ pub async fn mcp_oauth_middleware(
             )
                 .into_response();
         }
+    }
+
+    // Skip auth for OPTIONS (CORS preflight), after the origin check above so
+    // a web page's preflight is refused too.
+    if request.method() == axum::http::Method::OPTIONS {
+        return next.run(request).await;
     }
 
     // Advertise the address the client actually reached us on (or the configured

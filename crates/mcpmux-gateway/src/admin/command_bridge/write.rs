@@ -1253,6 +1253,9 @@ pub async fn set_gateway_public_url(
     if let Some(gateway_state) = ctx.gateway_writes.gateway_state().await {
         let mut state = gateway_state.write().await;
         state.set_public_base_url(stored.clone());
+        drop(state);
+        crate::auth_default::refresh_live_auth_default(&ctx.settings_repository, &gateway_state)
+            .await;
     }
 
     Ok(json!({
