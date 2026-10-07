@@ -24,7 +24,11 @@
     "noDescription": "No description provided.",
     "members_one": "{{count}} member",
     "members_other": "{{count}} members",
-    "configure": "Configure"
+    "configure": "Configure",
+    "autoTitle": "Grants every tool from every server in this Space. New servers show up on their own. Edit it to pick tools yourself.",
+    "autoAll": "All tools · automatic",
+    "autoCount_one": "All {{count}} tool · automatic",
+    "autoCount_other": "All {{count}} tools · automatic"
   },
   "createModal": {
     "title": "Create Feature Set",
@@ -83,5 +87,21 @@
     "deleteTitle": "Delete feature set",
     "deleteMessage": "Delete \"{{name}}\"? This cannot be undone.",
     "deleteLabel": "Delete"
+  },
+  "auto": {
+    "title": "Include every server's tools",
+    "onHint": "On. Servers you add later show up here on their own. Change the selection below and save to pick tools yourself.",
+    "offHint": "Off. This set grants only the tools selected below. Turn on to include every server, now and later.",
+    "confirmTitle": "Include every server's tools?",
+    "confirmMessage": "\"{{name}}\" will grant every tool, prompt, and resource from every server in this Space, including servers you add later. Your current selection is replaced.",
+    "confirmLabel": "Include everything",
+    "toastOnTitle": "Every tool, automatically",
+    "toastOnBody": "\"{{name}}\" now includes every server's tools.",
+    "toastOffTitle": "You pick the tools now",
+    "toastOffBody": "\"{{name}}\" keeps its current tools. Change the selection below.",
+    "toastFailed": "Failed to update",
+    "warningTitle": "{{count}} tools selected, more than the {{threshold}} AI apps handle well",
+    "warningBody": "Everything still works, but apps get slower and less accurate. Untick what this set doesn't need, or ask your AI app to build a focused set:",
+    "saveLeavesAuto": "Saving switches this set to your own selection."
   }
 }

@@ -248,6 +248,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "workspace_binding_project_link",
         sql: include_str!("migrations/043_workspace_binding_project_link.sql"),
     },
+    Migration {
+        version: 44,
+        name: "onboarding_defaults",
+        sql: include_str!("migrations/044_onboarding_defaults.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

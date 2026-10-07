@@ -40,6 +40,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Zap,
 } from 'lucide-react';
 import {
   useAppStore,
@@ -99,6 +100,7 @@ import {
   listWorkspaceBindings,
   deleteWorkspaceBinding,
 } from '@/lib/api/workspaceBindings';
+import { getStarterAutoIncludeDefault, setStarterAutoIncludeDefault } from '@/lib/api/featureSets';
 
 interface GatewayPublicUrlSettings {
   configuredPublicBaseUrl: string | null;
@@ -170,6 +172,8 @@ export function SettingsPage() {
   // opens an unmapped folder. On by default.
   const [mappingPromptEnabled, setMappingPromptEnabled] = useState(true);
   const [savingMappingPrompt, setSavingMappingPrompt] = useState(false);
+  const [starterAutoInclude, setStarterAutoInclude] = useState(true);
+  const [savingStarterAuto, setSavingStarterAuto] = useState(false);
 
   // System-wide inbound auth toggle. When disabled, local apps connect to the
   // gateway with no access key — used by the one-click per-workspace install.
@@ -513,6 +517,47 @@ export function SettingsPage() {
       setMappingPromptEnabled(prev);
     } finally {
       setSavingMappingPrompt(false);
+    }
+  };
+
+  // Load the Starter auto-include switch on mount.
+  useEffect(() => {
+    getStarterAutoIncludeDefault()
+      .then(setStarterAutoInclude)
+      .catch((err) => console.error('Failed to load Starter auto-include setting:', err));
+  }, []);
+
+  /**
+   * Flip the Starter auto-include default for every Space. Turning it on
+   * replaces hand-picked Starter tools, so it asks first.
+   * @param enabled - The new switch value.
+   */
+  const updateStarterAutoInclude = async (enabled: boolean) => {
+    if (
+      enabled &&
+      !(await confirm({
+        title: t('starterAuto.confirmTitle'),
+        message: t('starterAuto.confirmMessage'),
+        confirmLabel: t('starterAuto.confirmLabel'),
+      }))
+    ) {
+      return;
+    }
+    const prev = starterAutoInclude;
+    setStarterAutoInclude(enabled);
+    setSavingStarterAuto(true);
+    try {
+      await setStarterAutoIncludeDefault(enabled);
+      success(
+        t('toast.settingsSaved'),
+        enabled ? t('toast.starterAutoOnHint') : t('toast.starterAutoOffHint')
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      error(t('toast.failedToSaveSetting'), msg);
+      setStarterAutoInclude(prev);
+    } finally {
+      setSavingStarterAuto(false);
     }
   };
 
@@ -1257,8 +1302,7 @@ export function SettingsPage() {
                   <label className="text-sm font-medium">Ask to map new folders</label>
                   <p className="mt-1 text-xs text-[rgb(var(--muted))]">
                     When a connected app opens a folder you haven't mapped, show a prompt to give
-                    it a specific feature set. The folder already works with your default Starter
-                    set either way.
+                    it a specific feature set. Unmapped folders get no tools until you map them.
                   </p>
                 </div>
               </div>
@@ -1267,6 +1311,22 @@ export function SettingsPage() {
                 onCheckedChange={updateMappingPrompt}
                 disabled={savingMappingPrompt}
                 data-testid="workspace-mapping-prompt-switch"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <Zap className="mt-0.5 h-5 w-5 flex-shrink-0 text-[rgb(var(--muted))]" />
+                <div>
+                  <label className="text-sm font-medium">{t('starterAuto.label')}</label>
+                  <p className="mt-1 text-xs text-[rgb(var(--muted))]">{t('starterAuto.hint')}</p>
+                </div>
+              </div>
+              <Switch
+                checked={starterAutoInclude}
+                onCheckedChange={updateStarterAutoInclude}
+                disabled={savingStarterAuto}
+                data-testid="starter-auto-include-switch"
               />
             </div>
           </CardContent>

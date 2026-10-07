@@ -61,6 +61,13 @@ const P4_READ_ROUTES: Array<{
   { command: 'get_client', args: { id: CLIENT_ID }, method: 'GET', path: `/api/v1/clients/${CLIENT_ID}` },
   { command: 'list_feature_sets', method: 'GET', path: '/api/v1/feature-sets' },
   {
+    command: 'get_starter_tool_summary',
+    args: { spaceId: SPACE_ID },
+    method: 'GET',
+    path: `/api/v1/spaces/${SPACE_ID}/starter-tool-summary`,
+  },
+  { command: 'get_starter_auto_include_default', method: 'GET', path: '/api/v1/settings/starter-auto-include' },
+  {
     command: 'list_feature_sets_by_space',
     args: { spaceId: SPACE_ID },
     method: 'GET',
@@ -232,6 +239,8 @@ const P6_WRITE_ROUTES: Array<{
   { command: 'add_feature_set_member', args: { featureSetId: FEATURE_SET_ID, input: { member_type: 'feature', member_id: FEATURE_ID } }, method: 'POST', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members` },
   { command: 'remove_feature_set_member', args: { featureSetId: FEATURE_SET_ID, memberId: FEATURE_ID }, method: 'DELETE', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members/${FEATURE_ID}` },
   { command: 'set_feature_set_members', args: { featureSetId: FEATURE_SET_ID, members: [] }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members` },
+  { command: 'set_feature_set_auto_include', args: { featureSetId: FEATURE_SET_ID, enabled: false }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/auto-include` },
+  { command: 'set_starter_auto_include_default', args: { enabled: true }, method: 'PUT', path: '/api/v1/settings/starter-auto-include' },
   { command: 'create_client', args: { input: { name: 'C', client_type: 'custom' } }, method: 'POST', path: '/api/v1/clients' },
   { command: 'delete_client', args: { id: CLIENT_ID }, method: 'DELETE', path: `/api/v1/clients/${CLIENT_ID}` },
   { command: 'init_preset_clients', method: 'POST', path: '/api/v1/clients/init-presets' },
