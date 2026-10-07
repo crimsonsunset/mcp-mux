@@ -44,9 +44,9 @@ export function StarterOverThresholdWarning({
           Your Starter bundle has {plural(summary.tool_count, 'tool')}, which is a lot
         </p>
         <p className="mt-0.5 text-xs leading-relaxed text-amber-800 dark:text-amber-200">
-          Everything still works, but past {summary.threshold} tools AI apps get slower and pick the
-          wrong tool more often, and some apps cap how many they load. Give each project just what
-          it needs. Ask your AI app:
+          Everything still works, but past {summary.threshold} tools McpMux's tool search gets noisier
+          and AI apps pick the wrong tool more often. Give each project just what it needs. Ask your
+          AI app:
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
           <MuxPromptCode testId={`${testId}-copy`} />
@@ -82,7 +82,7 @@ export function StarterToolsCard({ summary }: DashboardCardProps) {
   if (summary.tool_count === 0) return null;
 
   const detail = summary.auto_include
-    ? 'Every tool from every server, automatically. New servers show up on their own.'
+    ? 'Every tool from every server, found through McpMux. New servers show up on their own.'
     : 'The tools you picked for your Starter bundle.';
   return (
     <button

@@ -521,6 +521,14 @@ pub async fn add_feature_set_member(
         ));
     }
 
+    if feature_set.auto_include {
+        // Adding to an auto set switches it to manual, keeping what it granted.
+        ctx.feature_set_repository
+            .set_auto_include(&feature_set_id, false)
+            .await?;
+        feature_set = get_feature_set_with_members(ctx, &feature_set_id).await?;
+    }
+
     let member_type = parse_member_type(&body.member_type);
     let mode = parse_member_mode(body.mode.as_deref());
 
@@ -595,7 +603,22 @@ pub async fn set_feature_set_members(
             surfaced: input.surfaced.unwrap_or(false),
         })
         .collect();
+    // An explicit list is a manual selection, even an empty one.
+    feature_set.auto_include = false;
     save_feature_set(ctx, feature_set).await
+}
+
+/// Tell the live gateway a FeatureSet changed so cached resolutions drop and
+/// connected clients get `list_changed`. Best effort, like the Tauri commands.
+async fn notify_feature_set_modified(ctx: &AdminBridgeCtx, feature_set: &FeatureSet) {
+    let space_id = feature_set.space_id.as_deref().unwrap_or("default");
+    if let Err(e) = ctx
+        .gateway_writes
+        .notify_feature_set_modified(space_id, &feature_set.id)
+        .await
+    {
+        tracing::warn!("[FeatureSet] Failed to emit notifications: {e}");
+    }
 }
 
 /// Switch a FeatureSet into or out of auto mode (every server's tools).
@@ -609,6 +632,7 @@ pub async fn set_feature_set_auto_include(
         .set_auto_include(&feature_set_id, body.enabled)
         .await?;
     let feature_set = get_feature_set_with_members(ctx, &feature_set_id).await?;
+    notify_feature_set_modified(ctx, &feature_set).await;
     Ok(to_feature_set_response(feature_set))
 }
 
@@ -633,6 +657,7 @@ pub async fn set_starter_auto_include_default(
             ctx.feature_set_repository
                 .set_auto_include(&starter.id, body.enabled)
                 .await?;
+            notify_feature_set_modified(ctx, &starter).await;
         }
     }
     as_json(body.enabled)

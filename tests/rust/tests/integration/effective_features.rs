@@ -425,10 +425,9 @@ async fn removing_a_tool_from_auto_starter_keeps_the_rest() {
 }
 
 /// The "grant nothing by default" off-switch: the Starter is builtin and can't
-/// be deleted, but an operator can switch it to manual and EMPTY it. An empty
-/// Starter still resolves (source `SpaceDefault`), but yields zero effective
-/// tools — so unmapped folders see nothing until they're either bound or the
-/// Starter is populated.
+/// be deleted, but an operator can switch it to manual and EMPTY it. Unmapped
+/// sessions resolve as `Unbound` with no feature sets whatever the Starter
+/// holds, so they see nothing until they're bound to a set.
 #[tokio::test(flavor = "multi_thread")]
 async fn empty_starter_grants_nothing_to_unbound_session() {
     let ctx = Ctx::new().await;
