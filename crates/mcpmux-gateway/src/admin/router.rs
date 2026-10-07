@@ -249,6 +249,19 @@ pub fn build_admin_router(state: AdminState) -> Router {
             post(write::add_feature_set_member).put(write::set_feature_set_members),
         )
         .route(
+            "/api/v1/feature-sets/{id}/auto-include",
+            put(write::set_feature_set_auto_include),
+        )
+        .route(
+            "/api/v1/spaces/{space_id}/starter-tool-summary",
+            get(read::get_starter_tool_summary),
+        )
+        .route(
+            "/api/v1/settings/starter-auto-include",
+            get(read::get_starter_auto_include_default)
+                .put(write::set_starter_auto_include_default),
+        )
+        .route(
             "/api/v1/feature-sets/{id}/members/{member_id}",
             delete(write::remove_feature_set_member),
         )

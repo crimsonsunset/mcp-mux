@@ -32,6 +32,8 @@ import {
   isStarterFeatureSet,
 } from '@/lib/api/featureSets';
 import { useViewSpace } from '@/stores';
+import { StarterOverThresholdWarning } from '@/components/StarterToolsNotice';
+import { useStarterToolSummary } from '@/hooks/useStarterToolSummary';
 import { FeatureSetPanel } from './FeatureSetPanel';
 import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
 
@@ -67,6 +69,7 @@ export function FeatureSetsPage() {
   const { t } = useTranslation(['featuresets', 'common']);
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
   const viewSpace = useViewSpace();
+  const { summary: starterSummary } = useStarterToolSummary(viewSpace?.id);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -260,6 +263,17 @@ export function FeatureSetsPage() {
         </div>
       </div>
 
+      {starterSummary?.over_threshold && viewSpace && (
+        <div className="flex-shrink-0 px-8 pt-6">
+          <div className="max-w-[2000px] mx-auto">
+            <StarterOverThresholdWarning
+              summary={starterSummary}
+              testId="featuresets-starter-warning"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Feature-set model explainer */}
       <div className="flex-shrink-0 px-8 pt-6">
         <div className="max-w-[2000px] mx-auto flex items-start gap-3 p-4 rounded-xl border border-emerald-200/70 dark:border-emerald-800/40 bg-gradient-to-r from-emerald-50/60 to-transparent dark:from-emerald-900/15">
@@ -368,7 +382,20 @@ export function FeatureSetsPage() {
                       </p>
 
                       <div className="flex items-center justify-between gap-3 text-xs text-[rgb(var(--muted))] border-t border-[rgb(var(--border-subtle))] pt-4">
-                        <span>{t('card.members', { count: fs.members?.length || 0 })}</span>
+                        {fs.auto_include ? (
+                          <span
+                            className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400"
+                            title={t('card.autoTitle')}
+                            data-testid={`featureset-auto-${fs.id}`}
+                          >
+                            <Zap className="h-3 w-3" />
+                            {isStarter && starterSummary
+                              ? t('card.autoCount', { count: starterSummary.tool_count })
+                              : t('card.autoAll')}
+                          </span>
+                        ) : (
+                          <span>{t('card.members', { count: fs.members?.length || 0 })}</span>
+                        )}
                         <span className="hidden md:flex items-center gap-1 hover:text-primary-500 transition-colors flex-shrink-0">
                           {t('card.configure')} <Settings className="h-3 w-3" />
                         </span>

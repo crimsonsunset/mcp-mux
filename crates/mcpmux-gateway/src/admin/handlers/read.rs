@@ -721,6 +721,25 @@ pub async fn get_auto_install_updates(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_starter_auto_include_default(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_starter_auto_include_default(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn get_starter_tool_summary(
+    State(state): State<AdminState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_starter_tool_summary(&state.bridge, space_id)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_update_channel(State(state): State<AdminState>) -> Result<Json<Value>, ApiError> {
     bridge::get_update_channel(&state.bridge)
         .await

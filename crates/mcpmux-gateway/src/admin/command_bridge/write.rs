@@ -10,6 +10,7 @@ use mcpmux_core::{
     validate_workspace_root as validate_workspace_root_path, AppSettingsService, Client,
     DomainEvent, FeatureSet, FeatureSetMember, Machine, MemberMode, MemberType, ServerSource,
     UpdatePolicy, WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
+    STARTER_AUTO_INCLUDE_SETTING_KEY,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -595,6 +596,46 @@ pub async fn set_feature_set_members(
         })
         .collect();
     save_feature_set(ctx, feature_set).await
+}
+
+/// Switch a FeatureSet into or out of auto mode (every server's tools).
+/// Turning it off keeps what the set granted as an explicit list to edit.
+pub async fn set_feature_set_auto_include(
+    ctx: &AdminBridgeCtx,
+    feature_set_id: String,
+    body: AutoIncludeBody,
+) -> Result<Value> {
+    ctx.feature_set_repository
+        .set_auto_include(&feature_set_id, body.enabled)
+        .await?;
+    let feature_set = get_feature_set_with_members(ctx, &feature_set_id).await?;
+    Ok(to_feature_set_response(feature_set))
+}
+
+/// Flip the Settings switch and apply it to every Space's Starter right away.
+pub async fn set_starter_auto_include_default(
+    ctx: &AdminBridgeCtx,
+    body: AutoIncludeBody,
+) -> Result<Value> {
+    ctx.settings_repository
+        .set(STARTER_AUTO_INCLUDE_SETTING_KEY, &body.enabled.to_string())
+        .await?;
+
+    for space in ctx.space_service.list().await? {
+        let Some(starter) = ctx
+            .feature_set_repository
+            .get_starter_for_space(&space.id.to_string())
+            .await?
+        else {
+            continue;
+        };
+        if starter.auto_include != body.enabled {
+            ctx.feature_set_repository
+                .set_auto_include(&starter.id, body.enabled)
+                .await?;
+        }
+    }
+    as_json(body.enabled)
 }
 
 // --- Clients ---
@@ -1365,6 +1406,11 @@ pub struct BuiltinToolEnabledBody {
 #[derive(Debug, Deserialize)]
 pub struct MetaToolsRequireApprovalBody {
     pub required: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AutoIncludeBody {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]

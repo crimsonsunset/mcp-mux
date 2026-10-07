@@ -285,16 +285,18 @@ async fn unbound_session_returns_no_tools() {
 
     // Put one tool in the default Space's Starter FS — unbound sessions must
     // NOT see it (Starter is no longer the silent fallback).
-    let starter = ctx
+    let mut starter = ctx
         .fs_repo
         .get_starter_for_space(&ctx.space_id_str)
         .await
         .unwrap()
         .expect("default Space has a Starter FS");
-    ctx.fs_repo
-        .add_feature_member(&starter.id, &ctx.gh_issue_id, MemberMode::Include)
-        .await
-        .unwrap();
+    starter.auto_include = false;
+    starter.members = vec![FeatureSetMember::include_feature(
+        &starter.id,
+        &ctx.gh_issue_id,
+    )];
+    ctx.fs_repo.update(&starter).await.unwrap();
 
     let root = if cfg!(windows) {
         "d:\\work\\unmapped"
@@ -314,13 +316,12 @@ async fn unbound_session_returns_no_tools() {
     assert!(ctx.effective_tools("sess").await.is_empty());
 }
 
-/// Unbound sessions get zero effective tools even when the Starter FS is
-/// populated — deny by default is independent of Starter membership.
+/// The seeded Starter is in auto mode, but an unmapped folder is still
+/// `Unbound`: deny by default does not depend on the Starter's mode.
 #[tokio::test(flavor = "multi_thread")]
-async fn empty_starter_grants_nothing_to_unbound_session() {
+async fn auto_starter_does_not_open_unbound_sessions() {
     let ctx = Ctx::new().await;
 
-    // Sanity-check the precondition: the seeded Starter has no members.
     let starter = ctx
         .fs_repo
         .get_starter_for_space(&ctx.space_id_str)
@@ -328,12 +329,127 @@ async fn empty_starter_grants_nothing_to_unbound_session() {
         .unwrap()
         .expect("default Space has a Starter FS");
     assert!(
-        ctx.fs_repo
-            .get_feature_members(&starter.id)
+        starter.auto_include,
+        "a new Space's Starter starts in auto mode"
+    );
+
+    let root = if cfg!(windows) {
+        "d:\\work\\unmapped-auto"
+    } else {
+        "/work/unmapped-auto"
+    };
+    ctx.session_roots.set("sess", [root]);
+    ctx.session_roots.set_roots_capable("sess", true);
+
+    let resolved = ctx
+        .resolver
+        .resolve(Some("sess"), None, None)
+        .await
+        .unwrap();
+    assert_eq!(resolved.source, ResolutionSource::Unbound);
+    assert!(resolved.feature_set_ids.is_empty());
+    assert!(ctx.effective_tools("sess").await.is_empty());
+}
+
+/// A folder mapped to an auto Starter sees every tool from every server.
+#[tokio::test(flavor = "multi_thread")]
+async fn auto_starter_grants_every_tool_to_mapped_session() {
+    let ctx = Ctx::new().await;
+    let starter = ctx
+        .fs_repo
+        .get_starter_for_space(&ctx.space_id_str)
+        .await
+        .unwrap()
+        .expect("default Space has a Starter FS");
+
+    let root = if cfg!(windows) {
+        "d:\\work\\mapped-auto"
+    } else {
+        "/work/mapped-auto"
+    };
+    ctx.session_roots.set("sess", [root]);
+    ctx.session_roots.set_roots_capable("sess", true);
+    ctx.bind("sess", root, &starter.id).await;
+
+    assert_eq!(
+        ctx.effective_tools("sess").await,
+        vec![
+            "create_issue".to_string(),
+            "deploy".to_string(),
+            "list_repos".to_string()
+        ],
+    );
+}
+
+/// An edit on an auto Starter (here: removing one tool, as `@mux` or the
+/// daemon would) switches it to a manual selection that keeps everything else
+/// it granted, rather than collapsing it to the single edited tool.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_a_tool_from_auto_starter_keeps_the_rest() {
+    let ctx = Ctx::new().await;
+    let starter = ctx
+        .fs_repo
+        .get_starter_for_space(&ctx.space_id_str)
+        .await
+        .unwrap()
+        .expect("default Space has a Starter FS");
+
+    ctx.fs_repo
+        .remove_feature_member(&starter.id, &ctx.gh_issue_id)
+        .await
+        .unwrap();
+
+    let starter = ctx
+        .fs_repo
+        .get(&starter.id)
+        .await
+        .unwrap()
+        .expect("Starter still exists");
+    assert!(
+        !starter.auto_include,
+        "an edit switches the Starter to manual"
+    );
+
+    let root = if cfg!(windows) {
+        "d:\\work\\unmapped-edit"
+    } else {
+        "/work/unmapped-edit"
+    };
+    ctx.session_roots.set("sess", [root]);
+    ctx.session_roots.set_roots_capable("sess", true);
+    ctx.bind("sess", root, &starter.id).await;
+    assert_eq!(
+        ctx.effective_tools("sess").await,
+        vec!["deploy".to_string(), "list_repos".to_string()],
+    );
+}
+
+/// The "grant nothing by default" off-switch: the Starter is builtin and can't
+/// be deleted, but an operator can switch it to manual and EMPTY it. An empty
+/// Starter still resolves (source `SpaceDefault`), but yields zero effective
+/// tools — so unmapped folders see nothing until they're either bound or the
+/// Starter is populated.
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_starter_grants_nothing_to_unbound_session() {
+    let ctx = Ctx::new().await;
+
+    // Manual selection of nothing (what saving an empty Starter in the UI does).
+    let mut starter = ctx
+        .fs_repo
+        .get_starter_for_space(&ctx.space_id_str)
+        .await
+        .unwrap()
+        .expect("default Space has a Starter FS");
+    starter.auto_include = false;
+    starter.members = vec![];
+    ctx.fs_repo.update(&starter).await.unwrap();
+    assert!(
+        !ctx.fs_repo
+            .get(&starter.id)
             .await
             .unwrap()
-            .is_empty(),
-        "seeded Starter should start empty",
+            .unwrap()
+            .auto_include
     );
 
     let root = if cfg!(windows) {
