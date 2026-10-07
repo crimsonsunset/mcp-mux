@@ -334,6 +334,21 @@ pub async fn add_feature_set_member(
         ));
     }
 
+    if feature_set.auto_include {
+        // Adding to an auto set switches it to manual, keeping what it granted.
+        state
+            .feature_set_repository
+            .set_auto_include(&feature_set_id, false)
+            .await
+            .map_err(|e| e.to_string())?;
+        feature_set = state
+            .feature_set_repository
+            .get_with_members(&feature_set_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("Feature set not found")?;
+    }
+
     let member_type = match input.member_type.as_str() {
         "feature_set" => MemberType::FeatureSet,
         _ => MemberType::Feature,
@@ -652,8 +667,8 @@ pub struct StarterToolSummary {
 }
 
 /// Summarize the Space's Starter for the onboarding/tool-count UI. Counts
-/// tools with the gateway's own resolver, so the number matches what an
-/// unmapped client actually gets.
+/// tools with the gateway's own resolver, so the number matches what a
+/// client mapped to the Starter actually gets. Unmapped clients get nothing.
 #[tauri::command]
 pub async fn get_starter_tool_summary(
     space_id: String,

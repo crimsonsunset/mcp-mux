@@ -90,7 +90,7 @@
   },
   "auto": {
     "title": "Include every server's tools",
-    "onHint": "On. Servers you add later show up here on their own. Change the selection below and save to pick tools yourself.",
+    "onHint": "On. Apps find these through McpMux search. Servers you add later show up here on their own. Change the selection below and save to pick tools yourself.",
     "offHint": "Off. This set grants only the tools selected below. Turn on to include every server, now and later.",
     "confirmTitle": "Include every server's tools?",
     "confirmMessage": "\"{{name}}\" will grant every tool, prompt, and resource from every server in this Space, including servers you add later. Your current selection is replaced.",
@@ -101,7 +101,7 @@
     "toastOffBody": "\"{{name}}\" keeps its current tools. Change the selection below.",
     "toastFailed": "Failed to update",
     "warningTitle": "{{count}} tools selected, more than the {{threshold}} AI apps handle well",
-    "warningBody": "Everything still works, but apps get slower and less accurate. Untick what this set doesn't need, or ask your AI app to build a focused set:",
+    "warningBody": "Everything still works, but McpMux's tool search gets noisier and apps pick the wrong tool more often. Untick what this set doesn't need, or ask your AI app to build a focused set:",
     "saveLeavesAuto": "Saving switches this set to your own selection."
   }
 }

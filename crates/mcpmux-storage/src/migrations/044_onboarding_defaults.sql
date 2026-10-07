@@ -22,4 +22,6 @@ UPDATE feature_sets
    AND NOT EXISTS (
        SELECT 1 FROM feature_set_members m WHERE m.feature_set_id = feature_sets.id
    )
-   AND NOT EXISTS (SELECT 1 FROM installed_servers);
+   AND NOT EXISTS (SELECT 1 FROM installed_servers)
+   AND NOT EXISTS (SELECT 1 FROM inbound_clients)
+   AND NOT EXISTS (SELECT 1 FROM workspace_bindings);

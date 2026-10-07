@@ -193,6 +193,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
   const toggleSurfaced = (featureId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     if (!isConfigurable || !selectedFeatureIds.has(featureId)) return;
+    setSelectionEdited(true);
     setSurfacedFeatureIds((prev) => {
       const next = new Set(prev);
       if (next.has(featureId)) {
