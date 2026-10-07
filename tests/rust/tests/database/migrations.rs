@@ -304,6 +304,22 @@ fn test_044_upgrade_keeps_an_existing_installs_starter() {
     assert!(!starter_auto_include(&db));
 }
 
+/// An install with a client but no server yet is in use too: a server added
+/// later must not start flowing to its mappings.
+#[test]
+fn test_044_upgrade_keeps_the_starter_when_only_a_client_exists() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(
+        &path,
+        "INSERT INTO inbound_clients (client_id, registration_type, client_name, redirect_uris,
+                                      grant_types, response_types, token_endpoint_auth_method,
+                                      created_at, updated_at)
+         VALUES ('c1', 'dcr', 'Client', '[]', '[]', '[]', 'none', datetime('now'), datetime('now'));",
+    );
+    assert!(!starter_auto_include(&db));
+}
+
 /// An install that was never used (no servers, no clients) upgrades like a
 /// fresh one.
 #[test]

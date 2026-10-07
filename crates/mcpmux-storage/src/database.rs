@@ -798,7 +798,8 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 42);
+        let latest = MIGRATIONS.iter().map(|m| m.version).max().unwrap();
+        assert_eq!(version, latest);
 
         let v16_name: String = db
             .conn
