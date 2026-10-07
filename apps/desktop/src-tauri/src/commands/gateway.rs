@@ -233,17 +233,28 @@ pub(crate) async fn load_network_access(app_state: &AppState) -> bool {
     load_network_access_from_repo(&app_state.settings_repository).await
 }
 
-/// Load the persisted inbound-auth toggle (`gateway.auth_disabled`).
+/// Whether inbound auth is off. An explicit choice in Settings wins. With no
+/// choice stored, auth is off while only this machine can reach the gateway
+/// (loopback bind, no public URL), and back on as soon as the gateway is opened
+/// to a network or a public URL. Web pages on this machine are kept out by the
+/// gateway's Origin guard.
 pub(crate) async fn load_gateway_auth_disabled_from_repo(
     settings_repository: &Arc<dyn mcpmux_core::AppSettingsRepository>,
 ) -> bool {
-    settings_repository
+    let stored = settings_repository
         .get(GATEWAY_AUTH_DISABLED_KEY)
         .await
         .ok()
-        .flatten()
-        .map(|value| value == "true")
-        .unwrap_or(false)
+        .flatten();
+    match stored {
+        Some(value) => value == "true",
+        None => {
+            !load_network_access_from_repo(settings_repository).await
+                && load_public_base_url_from_repo(settings_repository)
+                    .await
+                    .is_none()
+        }
+    }
 }
 
 /// Load the persisted inbound-auth toggle for the running app instance.
@@ -1139,7 +1150,8 @@ pub async fn start_gateway(
     let feature_set_resolver = server.feature_set_resolver();
 
     // Seed the system-wide inbound-auth toggle into the running gateway from
-    // persisted settings (default: auth required). Live changes go through
+    // persisted settings (default: off while loopback-only, see
+    // `load_gateway_auth_disabled_from_repo`). Live changes go through
     // `set_gateway_auth_disabled`.
     if load_gateway_auth_disabled(&app_state).await {
         gw_state.write().await.set_auth_disabled(true);
@@ -1372,20 +1384,17 @@ pub async fn reset_gateway_port(app_state: State<'_, AppState>) -> Result<(), St
 }
 
 /// App-settings key for the system-wide inbound-auth toggle. Stored as
-/// `"true"`/`"false"`; missing means auth is required (the secure default).
+/// `"true"`/`"false"`; missing means "off while the gateway is loopback-only"
+/// (see `load_gateway_auth_disabled_from_repo`). Migration 045 pins existing
+/// installs to `"false"` so the upgrade keeps their auth.
 pub const GATEWAY_AUTH_DISABLED_KEY: &str = "gateway.auth_disabled";
 
 /// Whether inbound MCP authentication is disabled — connections are accepted
-/// without an access key (localhost-only convenience). Default **false** (auth
-/// required).
+/// without an access key. Reports the effective value: an explicit choice, or
+/// the default (off while only this machine can reach the gateway).
 #[tauri::command]
 pub async fn get_gateway_auth_disabled(app_state: State<'_, AppState>) -> Result<bool, String> {
-    let stored = app_state
-        .settings_repository
-        .get(GATEWAY_AUTH_DISABLED_KEY)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(stored.map(|v| v == "true").unwrap_or(false))
+    Ok(load_gateway_auth_disabled(&app_state).await)
 }
 
 /// Enable/disable system-wide inbound auth. Persists the setting AND mirrors it
@@ -2123,10 +2132,55 @@ mod gateway_auth_settings_tests {
     }
 
     #[tokio::test]
-    async fn auth_remains_required_when_disable_setting_is_missing() {
+    async fn auth_is_off_by_default_on_a_loopback_only_gateway() {
         let repository = settings_repo();
 
+        assert!(load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn default_turns_auth_back_on_when_network_access_is_enabled() {
+        let repository = settings_repo();
+        repository
+            .set(super::GATEWAY_NETWORK_ACCESS_KEY, "true")
+            .await
+            .unwrap();
+
         assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn default_turns_auth_back_on_when_a_public_url_is_set() {
+        let repository = settings_repo();
+        repository
+            .set(
+                super::GATEWAY_PUBLIC_BASE_URL_KEY,
+                "https://mux.example.com",
+            )
+            .await
+            .unwrap();
+
+        assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn explicit_choice_wins_over_the_default() {
+        let repository = settings_repo();
+        repository
+            .set(GATEWAY_AUTH_DISABLED_KEY, "false")
+            .await
+            .unwrap();
+        assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+
+        repository
+            .set(super::GATEWAY_NETWORK_ACCESS_KEY, "true")
+            .await
+            .unwrap();
+        repository
+            .set(GATEWAY_AUTH_DISABLED_KEY, "true")
+            .await
+            .unwrap();
+        assert!(load_gateway_auth_disabled_from_repo(&repository).await);
     }
 
     #[tokio::test]
