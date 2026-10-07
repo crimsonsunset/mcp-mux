@@ -244,5 +244,9 @@
     "machineNameRequired": "Enter a machine name",
     "continue": "Continue",
     "pickMachine": "Pick a machine first"
+  },
+  "muxHint": {
+    "title": "Or let your AI map this folder",
+    "body": "Open the project in your AI app and start a message with @mux. It looks at the project, picks just the tools it needs into a FeatureSet, and maps it to the folder. You approve each change with one click."
   }
 }

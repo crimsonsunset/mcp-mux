@@ -198,6 +198,10 @@ fn test_new_schema_objects_exist_after_migration() {
         column_exists(&db, "inbound_clients", "locked_space_id"),
         "migration 038 must add inbound_clients.locked_space_id"
     );
+    assert!(
+        column_exists(&db, "feature_sets", "auto_include"),
+        "migration 044 must add feature_sets.auto_include"
+    );
 }
 
 #[test]
@@ -222,8 +226,14 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
                  DROP INDEX IF EXISTS idx_wb_id_machine;
                  DROP INDEX IF EXISTS idx_workspace_bindings_binding_type;
                  DROP INDEX IF EXISTS idx_inbound_clients_locked_space_id;
+                 DROP INDEX IF EXISTS idx_workspace_bindings_git_remote;
+                 DROP INDEX IF EXISTS idx_workspace_bindings_project_link;
+                 ALTER TABLE workspace_bindings DROP COLUMN project_link_id;
+                 ALTER TABLE workspace_bindings DROP COLUMN git_remote_url;
                  ALTER TABLE workspace_bindings DROP COLUMN binding_type;
-                 ALTER TABLE inbound_clients DROP COLUMN locked_space_id;",
+                 ALTER TABLE inbound_clients DROP COLUMN client_icon;
+                 ALTER TABLE inbound_clients DROP COLUMN locked_space_id;
+                 ALTER TABLE feature_sets DROP COLUMN auto_include;",
             )
             .expect("roll schema back to pre-036");
         assert!(
@@ -240,4 +250,82 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
     );
     assert!(column_exists(&db, "workspace_bindings", "binding_type"));
     assert!(column_exists(&db, "inbound_clients", "locked_space_id"));
+    assert!(column_exists(&db, "feature_sets", "auto_include"));
+}
+
+fn starter_auto_include(db: &Database) -> bool {
+    db.connection()
+        .query_row(
+            "SELECT auto_include FROM feature_sets WHERE feature_set_type = 'starter' LIMIT 1",
+            [],
+            |r| r.get::<_, i32>(0),
+        )
+        .expect("default Space has a Starter")
+        == 1
+}
+
+/// Reopen `path` with migration 044 un-applied, after `seed` ran against the
+/// pre-044 schema — i.e. what an upgrade from the previous release sees.
+fn reapply_044(path: &std::path::Path, seed: &str) -> Database {
+    {
+        let db = Database::open(path).expect("open");
+        db.connection()
+            .execute_batch(&format!(
+                "DELETE FROM schema_migrations WHERE version >= 44;
+                 ALTER TABLE feature_sets DROP COLUMN auto_include;
+                 {seed}"
+            ))
+            .expect("roll back to pre-044 and seed");
+    }
+    Database::open(path).expect("reopen")
+}
+
+/// A brand-new install starts in "install, connect, use" mode: the Starter
+/// includes every server's tools.
+#[test]
+fn test_044_fresh_install_gets_auto_starter() {
+    let db = Database::open_in_memory().expect("open");
+    assert!(starter_auto_include(&db));
+}
+
+/// Upgrading an install that's in use keeps today's behavior: its Starter
+/// selection is left alone (an empty Starter may be a deliberate "grant
+/// nothing").
+#[test]
+fn test_044_upgrade_keeps_an_existing_installs_starter() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(
+        &path,
+        "INSERT INTO installed_servers (id, space_id, server_id, created_at, updated_at)
+         SELECT 'inst-1', id, 'community.memory', datetime('now'), datetime('now')
+           FROM spaces WHERE is_default = 1;",
+    );
+    assert!(!starter_auto_include(&db));
+}
+
+/// An install with a client but no server yet is in use too: a server added
+/// later must not start flowing to its mappings.
+#[test]
+fn test_044_upgrade_keeps_the_starter_when_only_a_client_exists() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(
+        &path,
+        "INSERT INTO inbound_clients (client_id, registration_type, client_name, redirect_uris,
+                                      grant_types, response_types, token_endpoint_auth_method,
+                                      created_at, updated_at)
+         VALUES ('c1', 'dcr', 'Client', '[]', '[]', '[]', 'none', datetime('now'), datetime('now'));",
+    );
+    assert!(!starter_auto_include(&db));
+}
+
+/// An install that was never used (no servers, no clients) upgrades like a
+/// fresh one.
+#[test]
+fn test_044_upgrade_of_an_unused_install_gets_auto_starter() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(&path, "");
+    assert!(starter_auto_include(&db));
 }

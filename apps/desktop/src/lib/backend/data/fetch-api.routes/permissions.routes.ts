@@ -59,6 +59,24 @@ export const permissionsRoutes: Record<string, RouteHandler> = {
     path: `/api/v1/feature-sets/${encodeURIComponent(String(args.featureSetId))}/members`,
     body: { members: args.members },
   }),
+  set_feature_set_auto_include: (args) => ({
+    method: 'PUT',
+    path: `/api/v1/feature-sets/${encodeURIComponent(String(args.featureSetId))}/auto-include`,
+    body: { enabled: args.enabled },
+  }),
+  get_starter_tool_summary: (args) => ({
+    method: 'GET',
+    path: `/api/v1/spaces/${encodeURIComponent(String(args.spaceId))}/starter-tool-summary`,
+  }),
+  get_starter_auto_include_default: () => ({
+    method: 'GET',
+    path: '/api/v1/settings/starter-auto-include',
+  }),
+  set_starter_auto_include_default: (args) => ({
+    method: 'PUT',
+    path: '/api/v1/settings/starter-auto-include',
+    body: { enabled: args.enabled },
+  }),
   get_oauth_clients: () => ({ method: 'GET', path: '/api/v1/oauth/clients' }),
   get_oauth_client_grants: (args) => ({
     method: 'GET',

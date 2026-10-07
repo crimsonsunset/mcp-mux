@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -9,12 +10,15 @@ use mcpmux_core::{
     validate_workspace_root as validate_workspace_root_path, AppSettingsService, ConfigExporter,
     ConfigFormat, FeatureSet, FeatureSetMember, FeatureType, LogLevel, MemberMode, MemberType,
     ResolvedServer, ResolvedTransport, TransportConfig, WorkspaceRootValidation,
+    STARTER_AUTO_INCLUDE_SETTING_KEY, TOOL_COUNT_WARNING_THRESHOLD,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::admin::bridge_context::AdminBridgeCtx;
 use crate::admin::command_bridge::space::{self, SpaceBridgeCtx};
+use crate::pool::FeatureService;
+use crate::services::PrefixCacheService;
 
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
@@ -54,6 +58,7 @@ pub(crate) fn to_feature_set_response(feature_set: FeatureSet) -> Value {
         "server_id": feature_set.server_id,
         "is_builtin": feature_set.is_builtin,
         "is_deleted": feature_set.is_deleted,
+        "auto_include": feature_set.auto_include,
         "members": feature_set
             .members
             .iter()
@@ -951,6 +956,51 @@ pub async fn get_workspace_mapping_prompt_enabled(ctx: &AdminBridgeCtx) -> Resul
         .get(WORKSPACE_MAPPING_PROMPT_KEY)
         .await?;
     as_json(mapping_prompt_enabled_from(stored.as_deref()))
+}
+
+/// Whether new and existing Starters include every server's tools by default.
+/// Missing means on.
+pub async fn get_starter_auto_include_default(ctx: &AdminBridgeCtx) -> Result<Value> {
+    let stored = ctx
+        .settings_repository
+        .get(STARTER_AUTO_INCLUDE_SETTING_KEY)
+        .await?;
+    as_json(stored.as_deref() != Some("false"))
+}
+
+/// What a Space's Starter grants right now, counted with the gateway's own
+/// resolver so the number matches what a mapped client actually sees.
+pub async fn get_starter_tool_summary(ctx: &AdminBridgeCtx, space_id: String) -> Result<Value> {
+    let Some(starter) = ctx
+        .feature_set_repository
+        .get_starter_for_space(&space_id)
+        .await?
+    else {
+        return Ok(Value::Null);
+    };
+
+    let features = FeatureService::new(
+        ctx.server_feature_repository.clone(),
+        ctx.feature_set_repository.clone(),
+        Arc::new(PrefixCacheService::new()),
+    );
+    let tools = features
+        .get_tools_for_grants(&space_id, std::slice::from_ref(&starter.id))
+        .await?;
+    let server_count = tools
+        .iter()
+        .map(|tool| tool.server_id.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+
+    Ok(json!({
+        "feature_set_id": starter.id,
+        "auto_include": starter.auto_include,
+        "tool_count": tools.len(),
+        "server_count": server_count,
+        "threshold": TOOL_COUNT_WARNING_THRESHOLD,
+        "over_threshold": tools.len() > TOOL_COUNT_WARNING_THRESHOLD,
+    }))
 }
 
 pub async fn get_update_channel(ctx: &AdminBridgeCtx) -> Result<Value> {

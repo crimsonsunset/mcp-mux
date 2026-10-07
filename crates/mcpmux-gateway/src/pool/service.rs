@@ -892,6 +892,14 @@ mod tests {
         ) -> mcpmux_core::repository::RepoResult<Vec<mcpmux_core::FeatureSetMember>> {
             Ok(vec![])
         }
+
+        async fn set_auto_include(
+            &self,
+            _feature_set_id: &str,
+            _enabled: bool,
+        ) -> mcpmux_core::repository::RepoResult<()> {
+            Ok(())
+        }
     }
 
     struct StubInstalledRepo;

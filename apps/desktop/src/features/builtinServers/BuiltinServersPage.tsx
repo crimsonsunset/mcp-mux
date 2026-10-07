@@ -26,6 +26,7 @@ import {
 import { isTauri } from '@/lib/backend/data/transport';
 import { MetaToolAuditLog, MetaToolGrantsPanel } from '@/features/metaTools';
 import { useViewSpace, useDefaultSpace } from '@/stores';
+import { MuxPromptCode } from '@/components/MuxPrompt';
 
 const SERVER_ICONS: Record<string, React.ReactNode> = {
   'tool-optimization': <Sparkles className="h-5 w-5" />,
@@ -272,11 +273,8 @@ export function BuiltinServersPage() {
                     <code className="rounded bg-[rgb(var(--surface))] px-1 py-0.5 font-mono text-[11px]">
                       @mux
                     </code>{' '}
-                    so it knows to drive these tools — e.g.{' '}
-                    <span className="italic">
-                      “@mux build a minimal toolset for this repo”
-                    </span>
-                    . Reads are silent; writes ask for your approval.
+                    so it knows to drive these tools — e.g. <MuxPromptCode />. Reads are silent;
+                    writes ask for your approval.
                   </p>
                   <div
                     className={`overflow-hidden rounded-xl border border-[rgb(var(--border))] transition-opacity ${

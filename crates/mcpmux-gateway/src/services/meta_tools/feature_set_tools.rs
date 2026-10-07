@@ -23,8 +23,11 @@ impl MetaTool for ListFeatureSetsTool {
     fn description(&self) -> &'static str {
         "List every FeatureSet defined in the caller's resolved Space — \
          built-ins and custom. Each entry carries `id`, `name`, `description`, \
-         `type`, `is_builtin`, and `status` (`active` when bound to this \
-         workspace, `inactive` when available to bind). To activate capability, \
+         `type`, `is_builtin`, `auto_include` (true = the set grants every tool \
+         from every server in the Space, with no explicit members; editing it \
+         switches it to an explicit list), and `status` (`active` when bound \
+         to this workspace, `inactive` when available to bind). To activate \
+         capability, \
          call mcpmux_bind_current_workspace with an inactive entry's `id`."
     }
 
@@ -62,6 +65,7 @@ impl MetaTool for ListFeatureSetsTool {
                     "description": fs.description,
                     "type": fs.feature_set_type,
                     "is_builtin": fs.is_builtin,
+                    "auto_include": fs.auto_include,
                     "status": status,
                 })
             })

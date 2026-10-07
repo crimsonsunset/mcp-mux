@@ -248,6 +248,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "workspace_binding_project_link",
         sql: include_str!("migrations/043_workspace_binding_project_link.sql"),
     },
+    Migration {
+        version: 44,
+        name: "onboarding_defaults",
+        sql: include_str!("migrations/044_onboarding_defaults.sql"),
+    },
 ];
 
 /// SQLite database wrapper.
@@ -788,7 +793,8 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 42);
+        let latest = MIGRATIONS.iter().map(|m| m.version).max().unwrap();
+        assert_eq!(version, latest);
 
         let v16_name: String = db
             .conn
