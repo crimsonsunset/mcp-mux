@@ -15,6 +15,7 @@ import { useViewSpace, useSetPendingSettingsSection } from '@/stores';
 import { useNavigate } from '@/hooks/use-navigate.hook';
 import { useGatewayControl } from '@/features/gateway/useGatewayControl';
 import { useGatewayEvents } from '@/hooks/useDomainEvents';
+import { useGatewayAuthRequired } from '@/hooks/useGatewayAuthRequired';
 import {
   getGatewayStatus,
   listOAuthClients,
@@ -50,6 +51,7 @@ export function ConnectionCard() {
     running: false,
     url: null,
   });
+  const authRequired = useGatewayAuthRequired();
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -284,7 +286,10 @@ export function ConnectionCard() {
               {t('connectionCard.connectHeading')}
             </p>
             <p className="text-xs text-[rgb(var(--muted))] mt-0.5">
-              {t('connectionCard.connectDesc')}
+              {t('connectionCard.connectDesc')}{' '}
+              {authRequired === false
+                ? t('connectionCard.connectDescNoKey')
+                : t('connectionCard.connectDescApproval')}
             </p>
           </div>
           <ConnectIDEsGrid gatewayUrl={displayUrl} gatewayRunning={status.running} />

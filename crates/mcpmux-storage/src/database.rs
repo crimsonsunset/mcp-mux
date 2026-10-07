@@ -253,6 +253,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "onboarding_defaults",
         sql: include_str!("migrations/044_onboarding_defaults.sql"),
     },
+    Migration {
+        version: 45,
+        name: "pin_inbound_auth",
+        sql: include_str!("migrations/045_pin_inbound_auth.sql"),
+    },
 ];
 
 /// SQLite database wrapper.

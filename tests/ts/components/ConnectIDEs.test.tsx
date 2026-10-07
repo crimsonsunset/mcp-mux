@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { invoke } from '@tauri-apps/api/core';
 import { renderWithI18n } from '../render-with-i18n.helpers';
 
 vi.mock('../../../apps/desktop/src/lib/api/clientInstall', () => ({
@@ -202,5 +203,35 @@ describe('ConnectIDEs', () => {
       <ConnectIDEs gatewayUrl="http://localhost:45818" gatewayRunning={true} />
     );
     expect(screen.getByText('http://localhost:45818')).toBeInTheDocument();
+  });
+
+  it('tells the user apps connect right away when no access key is required', async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === 'get_gateway_auth_disabled' ? true : undefined
+    );
+    renderWithI18n(<ConnectIDEs gatewayUrl="http://localhost:45818" gatewayRunning={true} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/connects right away — no access key needed/i)).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId('client-icon-claude-code'));
+    expect(screen.getByTestId('client-popover')).toHaveTextContent('no approval step');
+  });
+
+  it('keeps the approval step in the instructions when auth is required', async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === 'get_gateway_auth_disabled' ? false : undefined
+    );
+    renderWithI18n(<ConnectIDEs gatewayUrl="http://localhost:45818" gatewayRunning={true} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/ends with an approval prompt/i)).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId('client-icon-claude-code'));
+    expect(screen.getByTestId('client-popover')).toHaveTextContent(
+      'Approve it on this page when it connects.'
+    );
   });
 });
