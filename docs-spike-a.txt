@@ -1,0 +1,2 @@
+a
+/private/tmp/spike-wt/a
