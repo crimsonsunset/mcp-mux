@@ -353,6 +353,11 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       maxInstances: 1,
+      // WebdriverIO 9 asks for BiDi (`webSocketUrl`) by default. The
+      // WebKitWebDriver in Ubuntu 24.04's webkit2gtk-driver predates BiDi
+      // (added in WebKitGTK 2.46) and rejects the session. Stay on classic
+      // WebDriver. https://github.com/tauri-apps/tauri/issues/15415
+      'wdio:enforceWebDriverClassic': true,
       'tauri:options': {
         application: APP_PATH,
       },

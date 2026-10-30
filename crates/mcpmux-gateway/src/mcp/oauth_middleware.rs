@@ -523,6 +523,7 @@ fn attach_process_identity(
     is_proxied: bool,
     client_instance: Option<&str>,
 ) {
+    services.session_roots.touch_last_request(session_id);
     if let Some(instance) = client_instance {
         services
             .session_roots
