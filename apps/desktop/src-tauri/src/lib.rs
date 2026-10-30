@@ -236,22 +236,12 @@ pub fn run() {
     );
     info!("Logs directory: {}", logs_dir.display());
 
-    let builder = tauri::Builder::default();
-
-    // Skipped under the WebDriver E2E harness (`MCPMUX_E2E_TEST`). WebView2 on
-    // Windows spawns child processes with the parent's argv, each one trips the
-    // single-instance mutex and exits, and msedgedriver reports that as
-    // "session not created: Chrome instance exited". The harness already kills
-    // stale instances before each spec, so the guard buys nothing there.
-    let builder = if std::env::var("MCPMUX_E2E_TEST").is_ok() {
-        info!("MCPMUX_E2E_TEST set: single-instance guard disabled");
-        builder
-    } else {
+    tauri::Builder::default()
         // single_instance MUST be registered BEFORE deep_link so its `deep-link`
         // feature can forward cold-start URLs (Windows argv[1]) through the
         // deep_link plugin's on_open_url handler. Registering deep_link first
         // orphans the initial URL — no on_open_url fires, no consent popup.
-        builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Fires when a SECOND instance is launched (e.g. browser deep link
             // click while mcpmux is already running). The `deep-link` feature
             // on this plugin hands argv off to the deep_link plugin's
@@ -271,9 +261,6 @@ pub fn run() {
 
             main_window::show_main_window(app);
         }))
-    };
-
-    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())

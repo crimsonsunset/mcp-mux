@@ -372,9 +372,10 @@ jobs:
     # refuses to install chromium there. Unpin after a Playwright bump that
     # lists ubuntu26.04 as supported.
     runs-on: ubuntu-24.04
-    # The suite is stale (see TODO below) and retries twice on one worker, so a
-    # bad run can sit for the 6h default. Cap it.
-    timeout-minutes: 20
+    # The suite is stale (see TODO below): 123 tests, one worker, two retries.
+    # It did not finish in 20 minutes. Cap it so a bad run cannot sit for the
+    # 6h default.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
