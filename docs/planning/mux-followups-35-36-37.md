@@ -1,7 +1,7 @@
 # Mux follow-ups: idle reap, migration test, clippy
 
 **Last Updated:** Oct 30, 2026
-**Status:** Implemented, PR open
+**Status:** #36 and #37 shipped. #35's idle reap shipped in PR 20 and was reverted (see "#35 reverted" below).
 **Branch:** `fix/35-session-reap-migration-clippy`
 **Issues:** [fellowship#35](https://github.com/crimsonsunset/fellowship/issues/35), [#36](https://github.com/crimsonsunset/fellowship/issues/36), [#37](https://github.com/crimsonsunset/fellowship/issues/37)
 **Depends on:** [`same-root-supersede-window-gate.md`](./same-root-supersede-window-gate.md) (#27, shipped)
@@ -36,13 +36,25 @@ Three leftovers from #27, one branch.
 
 **#37.** CI `cargo clippy --workspace -- -D warnings` on stable 1.99 fails with `clippy::double_must_use`, emitted by `async-trait` 0.1.89. Local 1.97 is clean, so this never showed up here. `rust-test` is skipped behind `rust-check`, which is why #36's failure and a stale `assert_eq!(version, 42)` in `database.rs` (migrations now go to 43) are not in CI yet.
 
+## #35 reverted
+
+The idle sweep below (Decisions 1 to 3, Phase 2) merged in PR 20 and was reverted before it reached the installed app.
+
+**Why it was wrong.** The rule drops an identity-less session when a sibling exists and its last request is older than 2 minutes. A live but quiet chief meets that definition exactly. If `hermes mcp test mux` connects while chief has been idle for 2 minutes, the probe is the "sibling", chief is the "stale leftover", and eviction calls `session_roots.remove(chief)`, which wipes `roots_capable`. That is the #27 failure again. Chief is idle often: 9 of 60 gaps between its tool calls in the Oct 29 to 30 logs exceed 2 minutes, and the longest is about 12.8 hours. Dead and idle-but-live sessions are indistinguishable without a transport signal, which is what rmcp does not give us.
+
+**What it cost to find.** The unit tests passed because they exercise the rule alone. The failure needs the combination of an idle session and a second connection, which is the live QA step that was never run before merge.
+
+**State after the revert.** Back to #27 behavior. An identity-less client's reconnect leaves one stale `list_changed` fanout entry (about 6 per day for chief) until the gateway restarts. Routing is never affected. #36 and #37 are unaffected.
+
+**What would make this safe.** A signal that a session is dead, not just quiet: a per-process id from the client, or a transport close that rmcp reports reliably.
+
 ## Decisions
 
 | # | Decision | Choice | Rationale |
 | - | -------- | ------ | --------- |
-| 1 | #35 eviction | Drop an identity-less session only when another session of the same client and root exists and this one's last request is older than 2 minutes | A successor plus silence is a reconnect. Two sessions both touched inside the window (chief and `hermes mcp test`) both stay. A lone idle chief is kept. |
-| 2 | #35 clock | `SessionRootsRegistry` stamps `last_request` from the OAuth middleware, which already sees `mcp-session-id` on every request. Cleared in `remove` | The notifier is not on `ServiceContainer`. No new type. |
-| 3 | #35 trigger | Same check in `register_session` and in `reap_dead_sessions` | Register catches a successor hours later. Fanout catches one that was still fresh at register time and then went quiet. No timer. |
+| 1 | #35 eviction (**reverted**) | Drop an identity-less session only when another session of the same client and root exists and this one's last request is older than 2 minutes | See "#35 reverted". |
+| 2 | #35 clock (**reverted**) | `SessionRootsRegistry` stamped `last_request` from the OAuth middleware | Only existed for the sweep. |
+| 3 | #35 trigger (**reverted**) | Same check in `register_session` and in `reap_dead_sessions` | Only existed for the sweep. |
 | 4 | #36 | Fix the test's rollback, do not edit migration 039 | Shipped DBs are fine. The ledger and the file disagree only because the test undoes half the schema. |
 | 5 | #37 | `cargo update -p async-trait` to 0.1.92 | Upstream 0.1.92 release notes: resolve `double_must_use` in generated code. The workspace constraint is already `0.1`. An allow would have to be copied onto every crate. Pinning CI to 1.97 hides it from anyone on 1.99. |
 | 6 | Stale version assert | Bump `assert_eq!(version, 42)` to the current max (43) in the same PR | Otherwise `rust-test` goes red the moment #37 unblocks it. |
@@ -50,7 +62,7 @@ Three leftovers from #27, one branch.
 ## Scope
 
 **In:**
-- `last_request` map, touch from middleware, idle sweep of identity-less same-client-and-root sessions, unit tests for the pure "is this one stale" helper
+- ~~`last_request` map, touch from middleware, idle sweep of identity-less same-client-and-root sessions, unit tests for the pure "is this one stale" helper~~ (reverted)
 - Rollback batch in the migration integration test extended through 043
 - `async-trait` lockfile bump
 - Schema-version assert bumped to 43
@@ -63,29 +75,10 @@ Three leftovers from #27, one branch.
 | Making 039/043 idempotent | Not a production bug. Test-only drift |
 | Pinning the CI toolchain | Decision 5 |
 
-## Architecture
-
-```
-request ─► oauth middleware
-             touch_last_request(session_id)     // Instant::now, every request
-
-register_session / reap_dead_sessions
-             for each other session, same client_id + same non-empty root:
-               both lack process identity
-               AND a sibling session exists
-               AND last_request older than 2 min (missing stamp = not stale)
-             → sessions.remove + session_roots.remove
-```
-
-Identity-bearing sessions are unchanged: same-process reconnects still supersede immediately (#27).
-
-## Files to modify
+## Files modified (after the revert)
 
 | File | Change |
 | ---- | ------ |
-| [`services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `last_request` map, `touch_last_request`, clear in `remove` |
-| [`mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | Call `touch_last_request` next to `attach_process_identity` |
-| [`consumers/mcp_notifier.rs`](../../crates/mcpmux-gateway/src/consumers/mcp_notifier.rs) | Idle sweep helper + call sites, tests |
 | [`tests/rust/tests/database/migrations.rs`](../../tests/rust/tests/database/migrations.rs) | Drop the 043 indexes, then the 039 and 043 columns, in the rollback batch. 041 is `CREATE TABLE IF NOT EXISTS`, so it re-runs |
 | [`crates/mcpmux-storage/src/database.rs`](../../crates/mcpmux-storage/src/database.rs) | Expected schema version 42 → 43 |
 | `Cargo.lock` | `async-trait` 0.1.89 → 0.1.92 |
@@ -100,12 +93,10 @@ Identity-bearing sessions are unchanged: same-process reconnects still supersede
 
 **Outcome:** The older-database test reopens cleanly. `database.rs` expects version 43. `Cargo.lock` has `async-trait` 0.1.92.
 
-### Phase 2: Idle reap (#35)
-- [x] `touch_last_request` from `attach_process_identity`, so both the request and the initialize response stamp it
-- [x] Sweep from `register_session` and `reap_dead_sessions`
-- [x] `is_idle_identityless` covers recent sibling, past-ttl sibling, missing stamp, no sibling, and a session that has an identity
+### Phase 2: Idle reap (#35), reverted
+Implemented and merged in PR 20, then reverted. See "#35 reverted" above. It never reached the installed app.
 
-**Outcome:** Chief's dead reconnect is eligible for removal two minutes after it stops sending, and a live probe does not take chief with it.
+**Outcome:** None. #35 stays a documented limit of #27: a reconnect from a client with no process identity leaves one stale fanout entry until restart.
 
 ### Phase 3: Reconcile
 - [x] This doc matches the diff, including the index drop the plan did not name up front

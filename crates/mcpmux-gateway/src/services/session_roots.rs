@@ -126,10 +126,6 @@ pub struct SessionRootsRegistry {
     /// per-process id. Tunneled clients have no usable `WindowKey`, so this
     /// is how their reconnects are told apart from a second live process.
     client_instance: DashMap<String, String>,
-    /// `session_id -> last request` that carried this id. Stamped from the
-    /// OAuth middleware. Used to drop a quiet identity-less session once a
-    /// sibling for the same client and root exists (fellowship#35).
-    last_request: DashMap<String, Instant>,
     /// Sessions whose current request sent an empty `X-Mcpmux-Workspace`.
     /// `get` / `window_pin_for_session` skip the remembered window pin so a
     /// sibling window on the shared `mcp-session-id` cannot keep A's folder.
@@ -214,7 +210,6 @@ impl SessionRootsRegistry {
             window_pins: DashMap::new(),
             session_window: DashMap::new(),
             client_instance: DashMap::new(),
-            last_request: DashMap::new(),
             inherit_suppressed: DashMap::new(),
         })
     }
@@ -490,17 +485,6 @@ impl SessionRootsRegistry {
         self.client_instance.get(session_id).map(|v| v.clone())
     }
 
-    /// Stamp that `session_id` just sent a request.
-    pub fn touch_last_request(&self, session_id: &str) {
-        self.last_request
-            .insert(session_id.to_string(), Instant::now());
-    }
-
-    /// When this session last sent a request, if it has since this process started.
-    pub fn last_request(&self, session_id: &str) -> Option<Instant> {
-        self.last_request.get(session_id).map(|t| *t)
-    }
-
     /// Copy this session's explicit pin onto its window, if both exist and
     /// the pin is attributable to that one window.
     ///
@@ -748,7 +732,6 @@ impl SessionRootsRegistry {
         self.search_cache.remove(session_id);
         self.inherit_suppressed.remove(session_id);
         self.client_instance.remove(session_id);
-        self.last_request.remove(session_id);
         if let Some((_, key)) = self.session_window.remove(session_id) {
             let still_used = self
                 .session_window
