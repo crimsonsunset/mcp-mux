@@ -11,7 +11,9 @@
 
 | Field | Value |
 |---|---|
-| Gate | 5 (shipped) |
+| Gate | 6 (CI diagnosed, no bot review) |
+| PRs | [mcp-mux#19](https://github.com/crimsonsunset/mcp-mux/pull/19) · [karakeep-sync#40](https://github.com/crimsonsunset/karakeep-sync/pull/40) |
+| CI | mux: base-blocked, `clippy::double_must_use` from `async_trait` in `mcpmux-core` on stable 1.99 ([fellowship#37](https://github.com/crimsonsunset/fellowship/issues/37)) · karakeep: `test.yml` didn't trigger, local mirror green |
 | Ticket | fellowship#27 |
 | Branch | fix/27-supersede-live-session-inactive · fix/39-mux-client-instance-header |
 | Repos | mcp-mux, karakeep-sync |
@@ -83,6 +85,7 @@ Rejected: re-stamping `roots_capable` per request (treats the symptom, chief sti
 | Re-stamping `roots_capable` per request | Decision 1; not needed once live sessions aren't evicted |
 | Dedup for Hermes reconnects | [fellowship#35](https://github.com/crimsonsunset/fellowship/issues/35) (Decision 7) |
 | Migration 39 test failure | Already red on main, [fellowship#36](https://github.com/crimsonsunset/fellowship/issues/36) |
+| CI clippy `double_must_use` | Red on every PR since at least #14 (Oct 7), not this diff, [fellowship#37](https://github.com/crimsonsunset/fellowship/issues/37) |
 
 ## Deploy order
 
