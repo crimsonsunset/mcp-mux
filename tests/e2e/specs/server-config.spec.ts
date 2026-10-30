@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
 
 /**
  * E2E tests for the server configuration modal's custom input fields:
@@ -7,6 +8,10 @@ import { DashboardPage } from '../pages';
  * - Environment Variables (all server types)
  * - HTTP Headers (http servers only)
  */
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Server Configuration Modal - Custom Inputs', () => {
   test.beforeEach(async ({ page }) => {

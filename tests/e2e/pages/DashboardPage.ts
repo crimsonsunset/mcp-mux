@@ -12,20 +12,21 @@ export class DashboardPage extends BasePage {
   readonly featureSetsCard: Locator;
   readonly clientsCard: Locator;
   readonly activeSpaceCard: Locator;
-  readonly connectIDEsSection: Locator;
+  readonly workspacesCard: Locator;
   readonly clientGrid: Locator;
 
   constructor(page: Page) {
     super(page);
     this.heading = page.getByRole('heading', { name: 'Dashboard' });
-    this.gatewayStatus = page.locator('text=Gateway:').first();
-    this.gatewayToggleButton = page.getByRole('button', { name: /Start|Stop/ });
-    this.serverCountCard = page.locator('text=My Servers').first();
-    this.featureSetsCard = page.locator('text=Bundles').first();
-    this.clientsCard = page.locator('text=Clients').first();
-    this.activeSpaceCard = page.locator('text=Active Space').first();
-    this.connectIDEsSection = page.locator('text=Connect Your IDEs');
-    this.clientGrid = page.locator('[data-testid="client-grid"]');
+    // Test ids come from ConnectionCard and DashboardStatCards.
+    this.gatewayStatus = page.getByTestId('connection-status-text');
+    this.gatewayToggleButton = page.getByTestId('gateway-toggle-btn');
+    this.serverCountCard = page.getByTestId('stat-servers');
+    this.featureSetsCard = page.getByTestId('stat-featuresets');
+    this.clientsCard = page.getByTestId('stat-clients');
+    this.activeSpaceCard = page.getByTestId('stat-active-space');
+    this.workspacesCard = page.getByTestId('stat-workspaces');
+    this.clientGrid = page.getByTestId('client-grid');
   }
 
   async navigate() {
@@ -35,7 +36,7 @@ export class DashboardPage extends BasePage {
 
   async isGatewayRunning(): Promise<boolean> {
     const text = await this.gatewayStatus.textContent();
-    return text?.includes('Running') ?? false;
+    return text?.includes('running') ?? false;
   }
 
   async toggleGateway() {
@@ -45,14 +46,12 @@ export class DashboardPage extends BasePage {
   }
 
   async getServerCount(): Promise<string> {
-    const card = this.page.locator('text=Connected / Installed').locator('..');
-    const countText = await card.locator('.text-3xl').textContent();
-    return countText || '0/0';
+    return (await this.page.getByTestId('stat-servers-value').textContent()) || '0/0';
   }
 
   async copyConfig() {
     // Open JSON config popover and click copy
-    await this.page.locator('[data-testid="client-icon-copy-config"]').click();
-    await this.page.locator('[data-testid="copy-config-btn"]').click();
+    await this.page.getByTestId('client-icon-copy-config').click();
+    await this.page.getByTestId('copy-config-btn').click();
   }
 }

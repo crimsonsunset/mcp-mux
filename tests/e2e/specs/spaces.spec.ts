@@ -1,10 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage, SpacesPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
 
 // Helper to click Spaces in sidebar (avoids space switcher button)
 async function goToSpaces(page: import('@playwright/test').Page) {
   await page.locator('nav button:has-text("Spaces")').last().click();
 }
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Spaces Page', () => {
   test('should display the Workspaces heading', async ({ page }) => {
@@ -49,18 +54,18 @@ test.describe('Space Switcher', () => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     
-    // Dashboard should show active space card
-    const activeSpaceCard = page.locator('text=Active Space').first();
-    await expect(activeSpaceCard).toBeVisible();
+    // Dashboard shows the viewed Space as a stat tile.
+    await expect(dashboard.activeSpaceCard).toBeVisible();
+    await expect(page.getByTestId('stat-active-space-value')).toContainText('Personal');
   });
 
   test('should display active space info', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
-    
-    // Active space card should have content
-    const spaceCard = page.locator('text=Active Space').first().locator('xpath=ancestor::div[contains(@class, "rounded")]');
-    await expect(spaceCard.first()).toBeVisible();
+
+    // The tile carries the Space name and the total count ("1 Space total").
+    await expect(dashboard.activeSpaceCard).toContainText('Personal');
+    await expect(dashboard.activeSpaceCard).toContainText('1 Space total');
   });
 });
 

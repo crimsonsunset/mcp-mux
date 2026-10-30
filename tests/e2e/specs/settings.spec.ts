@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Settings', () => {
   test('should display settings heading', async ({ page }) => {
@@ -50,17 +55,18 @@ test.describe('Settings', () => {
     await expect(page.locator('html')).toHaveClass(/dark/);
   });
 
-  test.describe('Software Updates', () => {
-    test('should display update checker section', async ({ page }) => {
+  // In the browser the app renders AboutSection; the Software Updates card
+  // (UpdateChecker) is desktop-only (`isTauri()` in SettingsPage).
+  test.describe('About (web mode)', () => {
+    test('should display the about section instead of the update checker', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
       await page.locator('nav button:has-text("Settings")').click();
 
-      // Check for update checker card
-      await expect(page.getByTestId('update-checker')).toBeVisible();
-      await expect(page.getByText('Software Updates')).toBeVisible();
-      await expect(page.getByText(/Keep your application up to date/)).toBeVisible();
+      await expect(page.getByTestId('about-section')).toBeVisible();
+      await expect(page.getByText('About McpMux')).toBeVisible();
+      await expect(page.getByTestId('update-checker')).toHaveCount(0);
     });
 
     test('should display current version', async ({ page }) => {
@@ -69,21 +75,18 @@ test.describe('Settings', () => {
 
       await page.locator('nav button:has-text("Settings")').click();
 
-      // Check current version is displayed
-      await expect(page.getByTestId('current-version')).toBeVisible();
-      await expect(page.getByTestId('current-version')).toContainText('v');
+      // The mocked backend reports 0.0.0-e2e.
+      await expect(page.getByTestId('current-version')).toContainText('v0.0.0-e2e');
     });
 
-    test('should have check for updates button', async ({ page }) => {
+    test('should not offer desktop-only update controls', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
       await page.locator('nav button:has-text("Settings")').click();
+      await expect(page.getByTestId('about-section')).toBeVisible();
 
-      const checkButton = page.getByTestId('check-updates-btn');
-      await expect(checkButton).toBeVisible();
-      await expect(checkButton).toHaveText(/Check for Updates/);
-      await expect(checkButton).toBeEnabled();
+      await expect(page.getByTestId('check-updates-btn')).toHaveCount(0);
     });
 
     // Skip in web mode - requires Tauri API
@@ -161,15 +164,15 @@ test.describe('Settings', () => {
       await expect(logsPath).not.toContainText('Loading...');
     });
 
-    test('should have open logs folder button', async ({ page }) => {
+    test('should not offer the open-logs button in the browser', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
       await page.locator('nav button:has-text("Settings")').click();
 
-      const openButton = page.getByTestId('open-logs-btn');
-      await expect(openButton).toBeVisible();
-      await expect(openButton).toContainText('Open Logs Folder');
+      // "Open Logs Folder" needs the desktop shell, so web mode omits it.
+      await expect(page.getByTestId('log-retention-select')).toBeVisible();
+      await expect(page.getByTestId('open-logs-btn')).toHaveCount(0);
     });
 
     test('should show description text', async ({ page }) => {
@@ -191,7 +194,7 @@ test.describe('Settings', () => {
 
       // Verify sections appear in expected order
       const sections = [
-        page.getByText('Software Updates'),
+        page.getByText('About McpMux'),
         page.getByText('Startup & System Tray'),
         page.getByText('Appearance'),
         page.locator('h3:has-text("Logs"), h2:has-text("Logs")').first(),

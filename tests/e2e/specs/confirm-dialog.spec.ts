@@ -1,10 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
 
 // Helper to click Spaces in sidebar (avoids space switcher button)
 async function goToSpaces(page: import('@playwright/test').Page) {
   await page.locator('nav button:has-text("Spaces")').last().click();
 }
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('ConfirmDialog – Spaces', () => {
   test('should show confirm dialog when clicking delete on a non-default space', async ({ page }) => {

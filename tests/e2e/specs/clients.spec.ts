@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage, ClientsPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Connections Page', () => {
   test('should display the Connections heading', async ({ page }) => {
@@ -19,49 +24,39 @@ test.describe('Connections Page', () => {
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
 
-    // Routing is configured in Workspaces, not per-client.
-    await expect(
-      page.getByRole('button', { name: /^Workspaces$/ })
-    ).toBeVisible();
+    // Routing is configured in Projects (workspace bindings), not per-client.
+    // The callout lives in the side panel, so open a card first.
+    await page.locator('[data-testid^="client-card-"]').first().click();
+    await expect(page.getByText('Routing is workspace-driven')).toBeVisible();
+    await expect(page.getByTestId('client-open-workspaces-btn')).toBeVisible();
   });
 
   test('should show description text', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
-    
-    const description = page.locator('text=/connected|AI|client/i');
-    // Description about clients should be visible
+
+    await expect(page.getByText(/Approved AI clients\./)).toBeVisible();
   });
 
-  test('should show empty state or client list', async ({ page }) => {
+  test('should show the client list, not the empty state', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
-    
-    const emptyState = page.locator('text=/No clients|no.*connected/i');
-    const clientItems = page.locator('[class*="rounded"][class*="border"]');
-    
-    const hasEmpty = await emptyState.isVisible().catch(() => false);
-    const clientCount = await clientItems.count();
-    
-    // Either empty state or clients should be shown
-    expect(hasEmpty || clientCount > 0).toBeTruthy();
+
+    // The mock registers one approved client.
+    await expect(page.locator('[data-testid^="client-card-"]')).toHaveCount(1);
+    await expect(page.getByText("Let's hook up your first IDE")).toHaveCount(0);
   });
 
-  test('should display client cards if clients exist', async ({ page }) => {
+  test('should display the client card with its name', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
-    
-    const clientCards = page.locator('[class*="rounded"][class*="border"]');
-    const count = await clientCards.count();
-    
-    if (count > 0) {
-      // First client card should have content
-      const firstCard = clientCards.first();
-      await expect(firstCard).toBeVisible();
-    }
+
+    const card = page.getByTestId('client-card-client-e2e');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('E2E Client');
   });
 });
 
@@ -71,15 +66,10 @@ test.describe('Connection Details', () => {
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
 
-    const clientCards = page.locator('[data-testid^="client-card-"]');
-    const count = await clientCards.count();
-
-    if (count > 0) {
-      // Each card surfaces "Last seen …" — pure observability (no routing bits).
-      const firstCard = clientCards.first();
-      await expect(firstCard).toBeVisible();
-      await expect(firstCard).toContainText(/Last seen/);
-    }
+    // Each card surfaces "Last seen …" — pure observability (no routing bits).
+    const firstCard = page.locator('[data-testid^="client-card-"]').first();
+    await expect(firstCard).toBeVisible();
+    await expect(firstCard).toContainText(/Last seen/);
   });
 
   test('should route routing config to Workspaces from the side panel', async ({
@@ -89,22 +79,17 @@ test.describe('Connection Details', () => {
     await dashboard.navigate();
     await page.locator('nav button:has-text("Clients")').click();
 
-    const clientCards = page.locator('[data-testid^="client-card-"]');
-    const count = await clientCards.count();
+    await page.locator('[data-testid^="client-card-"]').first().click();
 
-    if (count > 0) {
-      await clientCards.first().click();
+    // The side panel's "routing is workspace-driven" callout exposes a
+    // button that sends the user to Projects.
+    await expect(page.getByTestId('client-open-workspaces-btn')).toBeVisible();
 
-      // The side panel's "routing is workspace-driven" callout exposes a
-      // button that sends the user to Workspaces.
-      await expect(page.getByRole('button', { name: /Open Workspaces/ })).toBeVisible();
-
-      // Legacy per-client controls MUST NOT be present any more.
-      await expect(page.locator('text=Quick Settings')).toHaveCount(0);
-      await expect(page.locator('text=Connection Mode')).toHaveCount(0);
-      await expect(page.locator('text=Effective Features')).toHaveCount(0);
-      await expect(page.locator('text=Advanced Permissions')).toHaveCount(0);
-    }
+    // Legacy per-client controls MUST NOT be present any more.
+    await expect(page.locator('text=Quick Settings')).toHaveCount(0);
+    await expect(page.locator('text=Connection Mode')).toHaveCount(0);
+    await expect(page.locator('text=Effective Features')).toHaveCount(0);
+    await expect(page.locator('text=Advanced Permissions')).toHaveCount(0);
   });
 });
 

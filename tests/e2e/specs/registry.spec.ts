@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage, RegistryPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Registry/Discover Page', () => {
   test('should display the Discover Servers heading', async ({ page }) => {
