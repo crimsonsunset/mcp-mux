@@ -160,6 +160,31 @@ fn is_same_process_reconnect(
     new_process.is_some() && new_process == old_process && old_root == Some(new_root)
 }
 
+/// How long an identity-less session may sit quiet while a sibling for the
+/// same client and root is also connected, before the quiet one is dropped.
+///
+/// Two live processes that cannot send `X-Mcpmux-Client-Instance` (chief and
+/// `hermes mcp test`) both keep getting requests, so neither ages out. A
+/// reconnect's old session stops sending and is removed on the next register
+/// or fanout once this elapses. A missing stamp is not stale: the session may
+/// still be inside `initialize`.
+const IDENTITYLESS_IDLE: Duration = Duration::from_secs(120);
+
+/// Whether `candidate` is a quiet leftover: no process identity, some other
+/// session shares its client and root, and its last request is at least `ttl`
+/// old.
+fn is_idle_identityless(
+    has_identity: bool,
+    has_sibling: bool,
+    last_request_age: Option<Duration>,
+    ttl: Duration,
+) -> bool {
+    if has_identity || !has_sibling {
+        return false;
+    }
+    last_request_age.is_some_and(|age| age >= ttl)
+}
+
 impl MCPNotifier {
     pub fn new(
         feature_set_resolver: Arc<FeatureSetResolverService>,
@@ -256,6 +281,26 @@ impl MCPNotifier {
         let roots = self.feature_set_resolver.session_roots();
         for stale in &superseded {
             roots.remove(stale);
+        }
+
+        // A tunneled client with no process identity cannot be superseded at
+        // register time (that evicted a still-live sibling, fellowship#27).
+        // Drop only the ones that have already gone quiet.
+        let idle = self.collect_idle_identityless(Instant::now());
+        if !idle.is_empty() {
+            let mut sessions = self.sessions.write();
+            for sid in &idle {
+                sessions.remove(sid);
+            }
+            drop(sessions);
+            for sid in &idle {
+                roots.remove(sid);
+            }
+            info!(
+                %session_id,
+                idle = idle.len(),
+                "[MCPNotifier] reaped quiet identity-less sessions"
+            );
         }
 
         if !superseded.is_empty() {
@@ -532,7 +577,7 @@ impl MCPNotifier {
     /// about to iterate; this mutates `self.sessions` and the
     /// `feature_set_resolver`'s session registry.
     fn reap_dead_sessions(&self, snapshot: &[(String, Arc<Peer<RoleServer>>)]) -> Vec<String> {
-        let dead: Vec<String> = snapshot
+        let mut dead: Vec<String> = snapshot
             .iter()
             .filter_map(|(sid, peer)| {
                 if peer.is_transport_closed() {
@@ -542,6 +587,9 @@ impl MCPNotifier {
                 }
             })
             .collect();
+        dead.extend(self.collect_idle_identityless(Instant::now()));
+        dead.sort();
+        dead.dedup();
         if dead.is_empty() {
             return dead;
         }
@@ -559,9 +607,58 @@ impl MCPNotifier {
         }
         info!(
             reaped = dead.len(),
-            "[MCPNotifier] 🧹 reaped dead sessions (transport closed)"
+            "[MCPNotifier] 🧹 reaped dead sessions (transport closed or identity-less idle)"
         );
         dead
+    }
+
+    /// Identity-less sessions that share a client and root with some other
+    /// session and have not sent a request within [`IDENTITYLESS_IDLE`].
+    fn collect_idle_identityless(&self, now: Instant) -> Vec<String> {
+        struct Row {
+            session_id: String,
+            client_id: String,
+            root: Option<Vec<String>>,
+            has_identity: bool,
+            last_request: Option<Instant>,
+        }
+
+        let roots = self.feature_set_resolver.session_roots();
+        let rows: Vec<Row> = {
+            let sessions = self.sessions.read();
+            sessions
+                .iter()
+                .map(|(sid, entry)| Row {
+                    session_id: sid.clone(),
+                    client_id: entry.client_id.clone(),
+                    root: roots.get(sid).map(sorted_roots),
+                    has_identity: process_identity(
+                        roots.client_instance_for(sid),
+                        roots.window_key_for(sid),
+                    )
+                    .is_some(),
+                    last_request: roots.last_request(sid),
+                })
+                .collect()
+        };
+
+        rows.iter()
+            .filter(|row| {
+                let Some(root) = row.root.as_ref().filter(|r| !r.is_empty()) else {
+                    return false;
+                };
+                let has_sibling = rows.iter().any(|other| {
+                    other.session_id != row.session_id
+                        && other.client_id == row.client_id
+                        && other.root.as_ref() == Some(root)
+                });
+                let age = row
+                    .last_request
+                    .map(|then| now.saturating_duration_since(then));
+                is_idle_identityless(row.has_identity, has_sibling, age, IDENTITYLESS_IDLE)
+            })
+            .map(|row| row.session_id.clone())
+            .collect()
     }
 
     /// Start listening to domain events and notifying peers
@@ -1462,6 +1559,21 @@ mod tests {
         assert!(!is_same_process_reconnect(Some(&r), None, Some(&r), None));
         assert!(!is_same_process_reconnect(Some(&r), p, Some(&r), None));
         assert!(!is_same_process_reconnect(Some(&r), None, Some(&r), p));
+    }
+
+    #[test]
+    fn idle_identityless_sibling_is_stale_only_past_ttl() {
+        let ttl = Duration::from_secs(120);
+        assert!(!is_idle_identityless(
+            false,
+            true,
+            Some(Duration::from_secs(30)),
+            ttl
+        ));
+        assert!(is_idle_identityless(false, true, Some(ttl), ttl));
+        assert!(!is_idle_identityless(false, true, None, ttl));
+        assert!(!is_idle_identityless(false, false, Some(ttl), ttl));
+        assert!(!is_idle_identityless(true, true, Some(ttl), ttl));
     }
 
     #[test]

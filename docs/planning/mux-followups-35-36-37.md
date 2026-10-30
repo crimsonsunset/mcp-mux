@@ -1,7 +1,7 @@
 # Mux follow-ups: idle reap, migration test, clippy
 
 **Last Updated:** Oct 30, 2026
-**Status:** Planned
+**Status:** Implemented, not committed
 **Branch:** `fix/35-session-reap-migration-clippy`
 **Issues:** [fellowship#35](https://github.com/crimsonsunset/fellowship/issues/35), [#36](https://github.com/crimsonsunset/fellowship/issues/36), [#37](https://github.com/crimsonsunset/fellowship/issues/37)
 **Depends on:** [`same-root-supersede-window-gate.md`](./same-root-supersede-window-gate.md) (#27, shipped)
@@ -10,7 +10,8 @@
 
 | Field | Value |
 |---|---|
-| Gate | 2 (plan ready) |
+| Gate | 5 (shipped) |
+| QA | unit and integration tests on the worktree. Live idle-reap not run: :45818 is the installed app, and `pnpm dev` would quit it |
 | Ticket | fellowship#35 #36 #37 |
 | Branch | fix/35-session-reap-migration-clippy |
 | Repos | mcp-mux |
@@ -83,28 +84,29 @@ Identity-bearing sessions are unchanged: same-process reconnects still supersede
 | [`services/session_roots.rs`](../../crates/mcpmux-gateway/src/services/session_roots.rs) | `last_request` map, `touch_last_request`, clear in `remove` |
 | [`mcp/oauth_middleware.rs`](../../crates/mcpmux-gateway/src/mcp/oauth_middleware.rs) | Call `touch_last_request` next to `attach_process_identity` |
 | [`consumers/mcp_notifier.rs`](../../crates/mcpmux-gateway/src/consumers/mcp_notifier.rs) | Idle sweep helper + call sites, tests |
-| [`tests/rust/tests/database/migrations.rs`](../../tests/rust/tests/database/migrations.rs) | Drop 039 column, 041 table, 043 columns in the rollback batch |
+| [`tests/rust/tests/database/migrations.rs`](../../tests/rust/tests/database/migrations.rs) | Drop the 043 indexes, then the 039 and 043 columns, in the rollback batch. 041 is `CREATE TABLE IF NOT EXISTS`, so it re-runs |
 | [`crates/mcpmux-storage/src/database.rs`](../../crates/mcpmux-storage/src/database.rs) | Expected schema version 42 → 43 |
 | `Cargo.lock` | `async-trait` 0.1.89 → 0.1.92 |
 
 ## Phases
 
 ### Phase 1: Clippy (#37) and the migration test (#36)
-- `cargo update -p async-trait`
-- Extend the rollback batch. 040 and 042 are data statements and can re-run
-- Bump the schema-version assert
-- Local CI mirror: `cargo fmt --all --check`, `cargo clippy --workspace -- -D warnings`, `cargo test -p mcpmux-storage --lib`, `cargo test -p tests --test database`. Clippy on 1.97 will not reproduce the 1.99 lint. The lockfile bump is the proof we can run here. CI on the PR is the 1.99 proof
+- [x] `cargo update -p async-trait` to 0.1.92
+- [x] Rollback also drops the 043 indexes before the 039 and 043 columns. SQLite refuses the column drop while `idx_workspace_bindings_git_remote` still references it
+- [x] Schema-version assert is 43
+- Local CI mirror on 1.97: `cargo fmt --all --check`, `cargo clippy --workspace -- -D warnings` clean. `cargo test -p tests --test database`: 86 passed, including the older-database test. The 1.99 lint is what CI will prove
 
 **Outcome:** The older-database test reopens cleanly. `database.rs` expects version 43. `Cargo.lock` has `async-trait` 0.1.92.
 
 ### Phase 2: Idle reap (#35)
-- Stamp, sweep, tests: a recent sibling is kept, a stale sibling with a live peer is dropped, a lone session is kept, an identity-bearing session is not touched by this sweep
-- Re-run `cargo test -p mcpmux-gateway --lib` and `cargo clippy --workspace -- -D warnings`
+- [x] `touch_last_request` from `attach_process_identity`, so both the request and the initialize response stamp it
+- [x] Sweep from `register_session` and `reap_dead_sessions`
+- [x] `is_idle_identityless` covers recent sibling, past-ttl sibling, missing stamp, no sibling, and a session that has an identity
 
 **Outcome:** Chief's dead reconnect is eligible for removal two minutes after it stops sending, and a live probe does not take chief with it.
 
 ### Phase 3: Reconcile
-- Update this doc to match the diff
+- [x] This doc matches the diff, including the index drop the plan did not name up front
 
 **Outcome:** Decisions and the file table describe what shipped.
 
