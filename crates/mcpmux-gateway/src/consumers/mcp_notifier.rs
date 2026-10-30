@@ -26,7 +26,7 @@ use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
 use crate::pool::FeatureService;
-use crate::services::{EmbeddingWarmer, FeatureSetResolverService};
+use crate::services::{EmbeddingWarmer, FeatureSetResolverService, WindowKey};
 
 /// MCP Notifier — sends `list_changed` notifications to connected sessions.
 ///
@@ -124,6 +124,42 @@ fn sorted_roots(mut roots: Vec<String>) -> Vec<String> {
     roots
 }
 
+/// The calling process for a session: the client-asserted
+/// `X-Mcpmux-Client-Instance` when sent, else the loopback peer's window key.
+/// Prefixed so an instance value can never collide with a PID.
+fn process_identity(instance: Option<String>, window: Option<WindowKey>) -> Option<String> {
+    instance
+        .map(|value| format!("instance:{value}"))
+        .or_else(|| window.map(|key| format!("pid:{}", key.pid())))
+}
+
+/// Whether an existing session is a stale predecessor of a newly-registering
+/// one from the same OAuth client: same non-empty root set AND the same known
+/// process identity (see [`process_identity`]).
+///
+/// The process check is what separates "one client reconnecting" from "two
+/// live processes sharing one client id and one root" (fellowship#27: a Hermes
+/// agent plus `hermes mcp test mux` in the same container, both behind the
+/// Cloudflare tunnel). Evicting the second case wipes the live session's
+/// registry state and misroutes it.
+///
+/// ponytail: no identity on either side means no supersede. A tunneled client
+/// that doesn't send `X-Mcpmux-Client-Instance` never dedupes, so its
+/// reconnects linger in fanout until `reap_dead_sessions` sees a closed
+/// transport. Clients that reconnect often (karakeep-sync) send the header;
+/// Hermes can't (its gateway and CLI share one env), which is fellowship#35.
+fn is_same_process_reconnect(
+    new_root: Option<&[String]>,
+    new_process: Option<&str>,
+    old_root: Option<&[String]>,
+    old_process: Option<&str>,
+) -> bool {
+    let Some(new_root) = new_root.filter(|r| !r.is_empty()) else {
+        return false;
+    };
+    new_process.is_some() && new_process == old_process && old_root == Some(new_root)
+}
+
 impl MCPNotifier {
     pub fn new(
         feature_set_resolver: Arc<FeatureSetResolverService>,
@@ -194,14 +230,15 @@ impl MCPNotifier {
         client_id: String,
         peer: Arc<Peer<RoleServer>>,
     ) {
-        // A new session for the SAME (client_id, workspace root) supersedes any
-        // prior one. The mcp-remote bridge opens a fresh `mcp-session-id` on
-        // every reconnect but always targets one workspace root, so without
-        // this its stale sessions pile up — rmcp doesn't flip
-        // `is_transport_closed()` for them, so lazy reaping never removes them
-        // and every list_changed fans out to all of them (the 24-sessions-for-
-        // one-bridge-client amplification). Distinct roots — real multi-window
-        // editors — never match here, so they're preserved.
+        // A new session from the SAME process (client instance or window key) for the same
+        // (client_id, workspace root) supersedes any prior one. The mcp-remote
+        // bridge opens a fresh `mcp-session-id` on every reconnect but always
+        // targets one workspace root, so without this its stale sessions pile
+        // up — rmcp doesn't flip `is_transport_closed()` for them, so lazy
+        // reaping never removes them and every list_changed fans out to all of
+        // them (the 24-sessions-for-one-bridge-client amplification). Distinct
+        // roots (multi-window editors) and distinct processes sharing one
+        // client + root (a live agent plus a CLI probe) are preserved.
         let superseded = self.collect_superseded_sessions(&session_id, &client_id);
 
         let total_sessions = {
@@ -238,7 +275,8 @@ impl MCPNotifier {
     }
 
     /// Find prior sessions the newly-registering one supersedes: same OAuth
-    /// `client_id` AND same resolved workspace root.
+    /// `client_id`, same resolved workspace root, AND same calling process.
+    /// See [`is_same_process_reconnect`] for the match rule.
     ///
     /// Returns empty when the new session has no known root yet — clients that
     /// route via probed MCP `roots` (rather than the `X-Mcpmux-Workspace`
@@ -247,9 +285,9 @@ impl MCPNotifier {
     fn collect_superseded_sessions(&self, new_session_id: &str, client_id: &str) -> Vec<String> {
         let roots = self.feature_set_resolver.session_roots();
         let new_root = roots.get(new_session_id).map(sorted_roots);
-        let Some(new_root) = new_root.filter(|r| !r.is_empty()) else {
-            return Vec::new();
-        };
+        let process_of =
+            |sid: &str| process_identity(roots.client_instance_for(sid), roots.window_key_for(sid));
+        let new_process = process_of(new_session_id);
 
         let same_client: Vec<String> = {
             let sessions = self.sessions.read();
@@ -262,7 +300,14 @@ impl MCPNotifier {
 
         same_client
             .into_iter()
-            .filter(|sid| roots.get(sid).map(sorted_roots).as_deref() == Some(new_root.as_slice()))
+            .filter(|sid| {
+                is_same_process_reconnect(
+                    new_root.as_deref(),
+                    new_process.as_deref(),
+                    roots.get(sid).map(sorted_roots).as_deref(),
+                    process_of(sid).as_deref(),
+                )
+            })
             .collect()
     }
 
@@ -1370,5 +1415,64 @@ impl MCPNotifier {
                 "[MCPNotifier] failed resources/list_changed"
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn root(path: &str) -> Vec<String> {
+        vec![path.to_string()]
+    }
+
+    #[test]
+    fn instance_wins_over_window_and_never_collides_with_a_pid() {
+        let w = Some(WindowKey::from_pid(42));
+        assert_eq!(process_identity(None, w).as_deref(), Some("pid:42"));
+        assert_eq!(
+            process_identity(Some("42".into()), w).as_deref(),
+            Some("instance:42")
+        );
+        assert_eq!(process_identity(None, None), None);
+    }
+
+    #[test]
+    fn same_process_same_root_supersedes() {
+        let r = root("/workspace/a");
+        let p = Some("instance:abc");
+        assert!(is_same_process_reconnect(Some(&r), p, Some(&r), p));
+    }
+
+    #[test]
+    fn different_process_same_root_is_kept() {
+        let r = root("/workspace/hermes-chief");
+        assert!(!is_same_process_reconnect(
+            Some(&r),
+            Some("instance:gateway"),
+            Some(&r),
+            Some("instance:cli-probe"),
+        ));
+    }
+
+    #[test]
+    fn missing_process_is_kept() {
+        let r = root("/workspace/hermes-chief");
+        let p = Some("pid:7");
+        assert!(!is_same_process_reconnect(Some(&r), None, Some(&r), None));
+        assert!(!is_same_process_reconnect(Some(&r), p, Some(&r), None));
+        assert!(!is_same_process_reconnect(Some(&r), None, Some(&r), p));
+    }
+
+    #[test]
+    fn different_or_unknown_root_is_kept() {
+        let p = Some("pid:42");
+        let a = root("/workspace/a");
+        let b = root("/workspace/b");
+        let empty: Vec<String> = Vec::new();
+        assert!(!is_same_process_reconnect(Some(&a), p, Some(&b), p));
+        assert!(!is_same_process_reconnect(Some(&a), p, None, p));
+        assert!(!is_same_process_reconnect(None, p, Some(&a), p));
+        assert!(!is_same_process_reconnect(Some(&empty), p, Some(&empty), p));
     }
 }
