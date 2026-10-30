@@ -122,6 +122,10 @@ pub struct SessionRootsRegistry {
     /// `session_id -> window_key` so session teardown and pin promotion can
     /// both find the window without redoing the socket lookup.
     session_window: DashMap<String, WindowKey>,
+    /// `session_id -> X-Mcpmux-Client-Instance` value: a client-asserted
+    /// per-process id. Tunneled clients have no usable `WindowKey`, so this
+    /// is how their reconnects are told apart from a second live process.
+    client_instance: DashMap<String, String>,
     /// Sessions whose current request sent an empty `X-Mcpmux-Workspace`.
     /// `get` / `window_pin_for_session` skip the remembered window pin so a
     /// sibling window on the shared `mcp-session-id` cannot keep A's folder.
@@ -205,6 +209,7 @@ impl SessionRootsRegistry {
             search_cache: Arc::new(DashMap::new()),
             window_pins: DashMap::new(),
             session_window: DashMap::new(),
+            client_instance: DashMap::new(),
             inherit_suppressed: DashMap::new(),
         })
     }
@@ -467,6 +472,19 @@ impl SessionRootsRegistry {
         self.session_window.get(session_id).map(|key| *key)
     }
 
+    /// Record the client-asserted process id (`X-Mcpmux-Client-Instance`).
+    /// The first value wins: one session belongs to one process.
+    pub fn attach_client_instance(&self, session_id: &str, instance: &str) {
+        self.client_instance
+            .entry(session_id.to_string())
+            .or_insert_with(|| instance.to_string());
+    }
+
+    /// The client-asserted process id for this session, if any.
+    pub fn client_instance_for(&self, session_id: &str) -> Option<String> {
+        self.client_instance.get(session_id).map(|v| v.clone())
+    }
+
     /// Copy this session's explicit pin onto its window, if both exist and
     /// the pin is attributable to that one window.
     ///
@@ -713,6 +731,7 @@ impl SessionRootsRegistry {
         self.candidates.remove(session_id);
         self.search_cache.remove(session_id);
         self.inherit_suppressed.remove(session_id);
+        self.client_instance.remove(session_id);
         if let Some((_, key)) = self.session_window.remove(session_id) {
             let still_used = self
                 .session_window

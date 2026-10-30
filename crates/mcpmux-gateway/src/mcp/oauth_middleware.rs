@@ -27,6 +27,14 @@ use crate::services::{resolve_window_key, PinSource, SessionRootsRegistry};
 /// `client_grants` fallback (which finds none) → Space default.
 const ANONYMOUS_CLIENT_ID: &str = "mcpmux-anonymous";
 
+/// Client-asserted per-process id. Sessions sharing one value are one process
+/// reconnecting, so a newer one supersedes the older (see `MCPNotifier`).
+const CLIENT_INSTANCE_HEADER: &str = "x-mcpmux-client-instance";
+
+/// Upper bound on an accepted `X-Mcpmux-Client-Instance` value; longer values
+/// are ignored rather than stored.
+const MAX_CLIENT_INSTANCE_LEN: usize = 128;
+
 /// OAuth middleware for MCP endpoints using rmcp
 ///
 /// Extracts Bearer token → Verifies JWT → Resolves space → Injects OAuthContext
@@ -260,6 +268,14 @@ pub async fn mcp_oauth_middleware(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|info| info.0);
+    let is_proxied = is_proxied_request(request.headers());
+    let client_instance_header = request
+        .headers()
+        .get(CLIENT_INSTANCE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && v.len() <= MAX_CLIENT_INSTANCE_LEN && !v.contains("${"))
+        .map(str::to_owned);
     let (session_id_header, workspace_header, workspace_set_header) = {
         let headers = request.headers();
         let sid = headers
@@ -277,7 +293,13 @@ pub async fn mcp_oauth_middleware(
         (sid, ws, ws_set)
     };
     if let Some(sid) = session_id_header.as_deref() {
-        attach_window_identity(&services, sid, peer_addr);
+        attach_process_identity(
+            &services,
+            sid,
+            peer_addr,
+            is_proxied,
+            client_instance_header.as_deref(),
+        );
     }
     let mut empty_workspace_header = false;
     match (&session_id_header, &workspace_header) {
@@ -430,7 +452,13 @@ pub async fn mcp_oauth_middleware(
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty())
     {
-        attach_window_identity(&services, sid, peer_addr);
+        attach_process_identity(
+            &services,
+            sid,
+            peer_addr,
+            is_proxied,
+            client_instance_header.as_deref(),
+        );
         if let Some(ws) = workspace_header
             .as_deref()
             .filter(|value| !value.trim().is_empty() && !value.contains("${"))
@@ -469,6 +497,41 @@ pub async fn mcp_oauth_middleware(
     }
 
     response
+}
+
+/// Whether the request came through a reverse proxy or tunnel.
+///
+/// A tunnel such as cloudflared terminates on loopback, so the peer socket's
+/// owning PID is the tunnel's, shared by every remote client behind it
+/// (fellowship#27). Cloudflare always adds `Cf-Ray` / `Cf-Connecting-Ip`;
+/// generic proxies add `X-Forwarded-For`. Local `mcp-remote` sends none.
+fn is_proxied_request(headers: &axum::http::HeaderMap) -> bool {
+    ["cf-ray", "cf-connecting-ip", "x-forwarded-for"]
+        .iter()
+        .any(|name| headers.contains_key(*name))
+}
+
+/// Record what identifies the calling process for this session.
+///
+/// The client-asserted `X-Mcpmux-Client-Instance` is stored when present. The
+/// peer-socket window key is attached only for direct (non-proxied) requests,
+/// because behind a tunnel it names the tunnel, not the client.
+fn attach_process_identity(
+    services: &ServiceContainer,
+    session_id: &str,
+    peer: Option<SocketAddr>,
+    is_proxied: bool,
+    client_instance: Option<&str>,
+) {
+    if let Some(instance) = client_instance {
+        services
+            .session_roots
+            .attach_client_instance(session_id, instance);
+    }
+    if is_proxied {
+        return;
+    }
+    attach_window_identity(services, session_id, peer);
 }
 
 /// Map the peer socket to a window key once per session and remember it.
@@ -551,4 +614,20 @@ fn unauthorized_response(base_url: &str, message: &str) -> Response<Body> {
         axum::Json(body),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn proxy_headers_mark_request_as_proxied() {
+        assert!(!is_proxied_request(&HeaderMap::new()));
+        for name in ["cf-ray", "cf-connecting-ip", "x-forwarded-for"] {
+            let mut headers = HeaderMap::new();
+            headers.insert(name, HeaderValue::from_static("1"));
+            assert!(is_proxied_request(&headers), "{name} should mark proxied");
+        }
+    }
 }
