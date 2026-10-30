@@ -10,7 +10,9 @@
 
 | Field | Value |
 |---|---|
-| Gate | 5 (shipped) |
+| Gate | 6 (CI diagnosed, no bot review) |
+| PR | [mcp-mux#20](https://github.com/crimsonsunset/mcp-mux/pull/20) |
+| CI | rust-check pass, ts-check pass, rust-test ubuntu and mac pass. e2e-web failed in Install Playwright browsers: Playwright does not support chromium on ubuntu26.04-x64. Not this diff. windows rust-test, build, and e2e-desktop were still running at the 15 minute cap |
 | QA | unit and integration tests on the worktree. Live idle-reap not run: :45818 is the installed app, and `pnpm dev` would quit it |
 | Ticket | fellowship#35 #36 #37 |
 | Branch | fix/35-session-reap-migration-clippy |
