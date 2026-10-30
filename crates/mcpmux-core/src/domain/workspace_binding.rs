@@ -1022,12 +1022,18 @@ mod tests {
             .trim_end_matches(['/', '\\'])
             .to_string();
 
+        // Expected values go through the normalizer too: on Windows it
+        // lowercases and switches to backslashes, so the raw home dir joined
+        // with `/` never matches.
         assert_eq!(
             normalize_workspace_root("~/Desktop/proj"),
-            format!("{home_str}/Desktop/proj")
+            normalize_workspace_root(&format!("{home_str}/Desktop/proj"))
         );
         // Bare `~` alone expands to the home dir itself.
-        assert_eq!(normalize_workspace_root("~"), home_str);
+        assert_eq!(
+            normalize_workspace_root("~"),
+            normalize_workspace_root(&home_str)
+        );
     }
 
     #[test]

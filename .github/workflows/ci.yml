@@ -368,7 +368,10 @@ jobs:
   e2e-web:
     needs: [ts-check]
     if: "!contains(github.event.head_commit.message, '[skip e2e]')"
-    runs-on: ubuntu-latest
+    # ponytail: pinned because ubuntu-latest is 26.04 and Playwright 1.58
+    # refuses to install chromium there. Unpin after a Playwright bump that
+    # lists ubuntu26.04 as supported.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

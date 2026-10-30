@@ -24,10 +24,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ponytail: `os` stays the gating/artifact key; `runner` pins the
+          # image. ubuntu-latest is 26.04, where the E2E apt cache restored
+          # empty and webkit2gtk-driver (WebKitWebDriver) never installed.
+          # Unpin once 26.04 is verified to ship it.
           - os: ubuntu-latest
+            runner: ubuntu-24.04
           - os: windows-latest
+            runner: windows-latest
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -231,12 +237,17 @@ jobs:
       # Remove malformed/empty JUnit XMLs that crash dorny/test-reporter.
       # This can happen when tauri-driver crashes mid-spec and the JUnit
       # reporter writes incomplete XML (missing testsuites or test names).
+      # A spec that never got a session writes `<testsuite tests="1" ...>`
+      # with no name attribute, and dorny calls `.name.trim()` on it.
       - name: Sanitize JUnit XML reports
         if: always()
         run: |
           for f in test-results/e2e-desktop-results-*/reports/*.xml; do
             [ -f "$f" ] || continue
-            if ! grep -q '<testsuites' "$f" 2>/dev/null; then
+            malformed=false
+            grep -q '<testsuites' "$f" || malformed=true
+            grep -Eq '<testsuite[ >]' "$f" && ! grep -Eq '<testsuite [^>]*name=' "$f" && malformed=true
+            if [ "$malformed" = true ]; then
               echo "Removing malformed JUnit XML: $f"
               rm "$f"
             fi
@@ -250,6 +261,8 @@ jobs:
           path: test-results/e2e-desktop-results-ubuntu-latest/**/*.xml
           reporter: java-junit
           fail-on-error: false
+          # Every spec can be dropped above when the driver never starts.
+          fail-on-empty: false
 
       - name: 'Report: E2E Desktop Tests (Windows)'
         uses: dorny/test-reporter@v2
@@ -259,3 +272,4 @@ jobs:
           path: test-results/e2e-desktop-results-windows-latest/**/*.xml
           reporter: java-junit
           fail-on-error: false
+          fail-on-empty: false
