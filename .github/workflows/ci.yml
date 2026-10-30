@@ -402,8 +402,12 @@ jobs:
       # the IA redesign and is being replaced (tauri-playwright spike on
       # spike/playwright-e2e). Non-blocking until that lands so it doesn't gate
       # PRs on pre-existing failures; results still surface via the report below.
+      # Step timeout, not just the job one: 123 tests x 3 attempts x ~31s
+      # timeouts does not finish, and a job-level timeout fails the whole job
+      # where continue-on-error cannot help.
       - name: Run web-only E2E tests
         continue-on-error: true
+        timeout-minutes: 30
         run: pnpm test:e2e:web --project=chromium
 
       - name: Upload E2E web test results
@@ -422,6 +426,8 @@ jobs:
           path: tests/e2e/reports/junit.xml
           reporter: java-junit
           fail-on-error: false
+          # Playwright is killed by the step timeout before it writes junit.xml.
+          fail-on-empty: false
 
   # ─────────────────────────────────────────────────────────────
   # E2E Tests (Desktop app with WebDriver - Linux/Windows)
