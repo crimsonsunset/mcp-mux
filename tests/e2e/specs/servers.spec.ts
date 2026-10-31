@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('My Servers Page', () => {
   test('should display the My Servers heading', async ({ page }) => {
@@ -19,12 +24,11 @@ test.describe('My Servers Page', () => {
     
     await page.locator('nav button:has-text("My Servers")').click();
     
-    // Gateway status should be visible - either running or stopped
-    const runningBanner = page.locator('text=Gateway Running');
-    const stoppedBanner = page.locator('text=Gateway Stopped');
-    const isRunning = await runningBanner.isVisible().catch(() => false);
-    const isStopped = await stoppedBanner.isVisible().catch(() => false);
-    expect(isRunning || isStopped).toBeTruthy();
+    // The status chip carries its state in `data-state`; the mock says running.
+    const chip = page.getByTestId('gateway-status-chip');
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute('data-state', 'running');
+    await expect(chip).toContainText('Gateway Running');
   });
 
   test('should show server page content', async ({ page }) => {

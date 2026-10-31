@@ -1,9 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage, RegistryPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
 
 /**
  * End-to-end user flow tests that simulate real user journeys
  */
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Complete User Flows', () => {
   test('should complete first-time setup flow', async ({ page }) => {
@@ -118,17 +123,16 @@ test.describe('Dashboard Interactions', () => {
     await expect(dashboard.featureSetsCard).toBeVisible();
     await expect(dashboard.clientsCard).toBeVisible();
     await expect(dashboard.activeSpaceCard).toBeVisible();
+    await expect(dashboard.workspacesCard).toBeVisible();
   });
 
-  test('should show connect IDEs section', async ({ page }) => {
+  test('should show the IDE connect grid', async ({ page }) => {
     const dashboard = new DashboardPage(page);
     await dashboard.navigate();
 
-    // Connect IDEs section should be present
-    await expect(page.locator('text=Connect Your IDEs')).toBeVisible();
-
-    // Client grid should be present
-    await expect(page.locator('[data-testid="client-grid"]')).toBeVisible();
+    // The grid lives inside the gateway ConnectionCard; there is no
+    // separate "Connect Your IDEs" heading any more.
+    await expect(dashboard.clientGrid).toBeVisible();
   });
 });
 

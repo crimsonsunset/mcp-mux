@@ -1,38 +1,42 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage, RegistryPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('Post-Action User Guidance', () => {
   test.describe('My Servers empty state', () => {
-    test('should show Discover MCP Servers button when no servers installed', async ({ page }) => {
+    test('should offer Discover from the empty-state Add server menu', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
       await page.locator('nav button:has-text("My Servers")').click();
       await expect(page.getByRole('heading', { name: 'My Servers' })).toBeVisible();
 
-      // Check for empty state with discover button
-      const emptyState = page.locator('text=No servers installed');
-      if (await emptyState.isVisible().catch(() => false)) {
-        const discoverBtn = page.locator('[data-testid="discover-servers-btn"]');
-        await expect(discoverBtn).toBeVisible();
-        await expect(discoverBtn).toHaveText('Discover MCP Servers');
-      }
+      // The mock has no installed servers, so the empty state is guaranteed.
+      const emptyState = page.getByTestId('servers-empty-state');
+      await expect(emptyState).toContainText('No servers installed');
+
+      // The toolbar has its own trigger; scope to the empty state's.
+      await emptyState.getByTestId('add-server-menu-trigger').click();
+      await expect(page.getByTestId('add-server-option-discover')).toBeVisible();
     });
 
-    test('should navigate to Discover page when clicking Discover button in empty state', async ({ page }) => {
+    test('should navigate to Discover page from the empty-state Add server menu', async ({ page }) => {
       const dashboard = new DashboardPage(page);
       await dashboard.navigate();
 
       await page.locator('nav button:has-text("My Servers")').click();
+      const emptyState = page.getByTestId('servers-empty-state');
+      await expect(emptyState).toBeVisible();
 
-      const emptyState = page.locator('text=No servers installed');
-      if (await emptyState.isVisible().catch(() => false)) {
-        const discoverBtn = page.locator('[data-testid="discover-servers-btn"]');
-        await discoverBtn.click();
+      await emptyState.getByTestId('add-server-menu-trigger').click();
+      await page.getByTestId('add-server-option-discover').click();
 
-        // Should now be on the Discover page
-        await expect(page.getByRole('heading', { name: 'Discover Servers' })).toBeVisible();
-      }
+      // Should now be on the Discover page
+      await expect(page.getByRole('heading', { name: 'Discover Servers' })).toBeVisible();
     });
   });
 

@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages';
+import { mockAdminApi } from '../helpers/admin-api-mock';
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminApi(page);
+});
 
 test.describe('FeatureSets Page', () => {
   test('should display the FeatureSets heading', async ({ page }) => {
