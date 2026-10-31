@@ -215,6 +215,30 @@ jobs:
             tests/e2e/videos/
           retention-days: 7
 
+      # The app's own log. On Windows every spec fails with "Chrome instance
+      # exited" and nothing in the wdio output says why mcpmux.exe died, so
+      # the app log is the only place the reason can be. The harness clears
+      # the db, cache and spaces but not logs/.
+      # https://github.com/crimsonsunset/fellowship/issues/44
+      - name: Resolve app log dir
+        if: always()
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "APP_LOG_DIR=$(cygpath -w "$LOCALAPPDATA")\\com.mcpmux.desktop\\logs" >> "$GITHUB_ENV"
+          else
+            echo "APP_LOG_DIR=$HOME/.local/share/com.mcpmux.desktop/logs" >> "$GITHUB_ENV"
+          fi
+
+      - name: Upload app logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-desktop-app-logs-${{ matrix.os }}
+          path: ${{ env.APP_LOG_DIR }}
+          if-no-files-found: warn
+          retention-days: 7
+
   # Publish E2E Desktop test results with separate checks per OS
   e2e-report:
     needs: [e2e-desktop]

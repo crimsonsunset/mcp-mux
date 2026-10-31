@@ -368,10 +368,7 @@ jobs:
   e2e-web:
     needs: [ts-check]
     if: "!contains(github.event.head_commit.message, '[skip e2e]')"
-    # ponytail: pinned because ubuntu-latest is 26.04 and Playwright 1.58
-    # refuses to install chromium there. Unpin after a Playwright bump that
-    # lists ubuntu26.04 as supported.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # The suite is stale (see TODO below): 123 tests, one worker, two retries.
     # It did not finish in 20 minutes. Cap it so a bad run cannot sit for the
     # 6h default.
