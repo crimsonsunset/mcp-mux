@@ -41,6 +41,7 @@ struct Fixture {
     binding_repo: Arc<dyn WorkspaceBindingRepository>,
     fs_repo: Arc<dyn FeatureSetRepository>,
     client_repo: Arc<InboundClientRepository>,
+    db: Arc<Mutex<Database>>,
     machine_repo: SqliteMachineRepository,
     base_dir_repo: Arc<dyn SpaceBaseDirRepository>,
     space_id: Uuid,
@@ -104,6 +105,7 @@ impl Fixture {
             binding_repo,
             fs_repo,
             client_repo,
+            db,
             machine_repo,
             base_dir_repo,
             space_id,
@@ -1533,4 +1535,173 @@ async fn effective_machine_id_prefers_header_then_client_then_local() {
         f.resolver.effective_machine_id(None, None).await.unwrap(),
         None,
     );
+}
+
+// ---------------------------------------------------------------------------
+// Tokenless (anonymous) connections are confined to the default Space
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn anonymous_connection_cannot_route_into_another_space() {
+    use mcpmux_gateway::services::ANONYMOUS_CLIENT_ID;
+
+    let f = Fixture::new().await;
+    let other_base = if cfg!(windows) { "d:\\other" } else { "/other" };
+    let (other_space, other_starter) = f.make_space_with_base_dir("Other", other_base).await;
+    let inside_other = if cfg!(windows) {
+        "d:\\other\\proj"
+    } else {
+        "/other/proj"
+    };
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(inside_other),
+            other_space,
+            other_starter,
+        ))
+        .await
+        .unwrap();
+
+    // A header naming the folder that is mapped in the other Space: ignored, not routed.
+    f.session_roots
+        .set_pinned("anon-1", inside_other, PinSource::WorkspaceHeader);
+    let r = f
+        .resolver
+        .resolve(Some("anon-1"), Some(ANONYMOUS_CLIENT_ID), None)
+        .await
+        .unwrap();
+    assert_eq!(r.space_id, Some(f.space_id));
+    assert!(
+        r.feature_set_ids.is_empty(),
+        "denied by default, never the other Space's tools: {r:?}"
+    );
+
+    // Roots under the other Space's base directory: still the default Space.
+    f.session_roots
+        .set("anon-2", vec![normalize_workspace_root(inside_other)]);
+    let r = f
+        .resolver
+        .resolve(Some("anon-2"), Some(ANONYMOUS_CLIENT_ID), None)
+        .await
+        .unwrap();
+    assert_eq!(r.space_id, Some(f.space_id));
+}
+
+#[tokio::test]
+async fn anonymous_connection_still_uses_default_space_bindings() {
+    use mcpmux_gateway::services::ANONYMOUS_CLIENT_ID;
+
+    let f = Fixture::new().await;
+    f.binding_repo
+        .create(&WorkspaceBinding::new(
+            normalize_workspace_root(test_root()),
+            f.space_id,
+            f.fs_a_id.clone(),
+        ))
+        .await
+        .unwrap();
+    f.session_roots
+        .set_pinned("anon", test_root(), PinSource::WorkspaceHeader);
+    let r = f
+        .resolver
+        .resolve(Some("anon"), Some(ANONYMOUS_CLIENT_ID), None)
+        .await
+        .unwrap();
+    assert_eq!(r.source, ResolutionSource::WorkspaceBinding);
+    assert_eq!(r.space_id, Some(f.space_id));
+    assert_eq!(r.feature_set_ids, vec![f.fs_a_id.clone()]);
+}
+
+#[tokio::test]
+async fn confined_space_covers_locked_and_anonymous_callers() {
+    use mcpmux_gateway::services::ANONYMOUS_CLIENT_ID;
+
+    let f = Fixture::new().await;
+    let other_base = if cfg!(windows) { "d:\\other" } else { "/other" };
+    let (other_space, _) = f.make_space_with_base_dir("Other", other_base).await;
+
+    assert_eq!(
+        f.resolver
+            .confined_space(None, ANONYMOUS_CLIENT_ID)
+            .await
+            .unwrap(),
+        Some(f.space_id)
+    );
+
+    f.make_client("locked-x").await;
+    f.client_repo
+        .set_locked_space("locked-x", Some(other_space))
+        .await
+        .unwrap();
+    assert_eq!(
+        f.resolver.confined_space(None, "locked-x").await.unwrap(),
+        Some(other_space)
+    );
+
+    f.make_client("free-x").await;
+    assert_eq!(
+        f.resolver.confined_space(None, "free-x").await.unwrap(),
+        None
+    );
+}
+
+/// Confinement fails closed: a client locked to a Space id that doesn't
+/// parse is denied rather than routed as an unconfined client, and the
+/// meta-tools treat it as an error rather than "any Space".
+#[tokio::test]
+async fn client_locked_to_an_invalid_space_is_denied() {
+    let f = Fixture::new().await;
+    f.make_client("locked-bad").await;
+    // The repo only accepts a Uuid, so corrupt the column directly (an old or
+    // hand-edited row).
+    f.db.lock()
+        .await
+        .connection()
+        .execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             UPDATE inbound_clients SET locked_space_id = 'not-a-space-id'
+             WHERE client_id = 'locked-bad';",
+        )
+        .unwrap();
+
+    let r = f
+        .resolver
+        .resolve(Some("s-bad"), Some("locked-bad"), None)
+        .await
+        .unwrap();
+    assert_eq!(r.source, ResolutionSource::Deny);
+    assert_eq!(r.space_id, None);
+    assert!(r.feature_set_ids.is_empty());
+
+    assert!(f
+        .resolver
+        .confined_space(Some("s-bad"), "locked-bad")
+        .await
+        .is_err());
+}
+
+/// A tokenless caller is confined to the default Space; with no default
+/// Space there is nothing it may use, which is an error, not "any Space".
+#[tokio::test]
+async fn tokenless_caller_without_a_default_space_is_not_unconfined() {
+    use mcpmux_gateway::services::ANONYMOUS_CLIENT_ID;
+
+    let f = Fixture::new().await;
+    assert_eq!(
+        f.resolver
+            .confined_space(None, ANONYMOUS_CLIENT_ID)
+            .await
+            .unwrap(),
+        Some(f.space_id)
+    );
+
+    let mut default = f.space_repo.get(&f.space_id).await.unwrap().unwrap();
+    default.is_default = false;
+    f.space_repo.update(&default).await.unwrap();
+    assert!(f.space_repo.get_default().await.unwrap().is_none());
+    assert!(f
+        .resolver
+        .confined_space(None, ANONYMOUS_CLIENT_ID)
+        .await
+        .is_err());
 }

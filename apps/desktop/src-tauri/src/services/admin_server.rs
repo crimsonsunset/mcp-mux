@@ -265,9 +265,11 @@ impl GatewayRuntime for DesktopGatewayRuntime {
         Ok(json!(broker
             .list_always_allow()
             .into_iter()
-            .map(|(client_id, tool_name)| json!({
+            .map(|(client_id, tool_name, action, space_id)| json!({
                 "client_id": client_id,
                 "tool_name": tool_name,
+                "action": action,
+                "space_id": space_id,
             }))
             .collect::<Vec<_>>()))
     }

@@ -45,6 +45,7 @@ pub(crate) struct Fixture {
     db: Arc<Mutex<Database>>,
     #[allow(dead_code)]
     client_repo: Arc<dyn InboundMcpClientRepository>,
+    space_repo: Arc<dyn SpaceRepository>,
     pub(crate) feature_set_repo: Arc<dyn FeatureSetRepository>,
     pub(crate) server_feature_repo: Arc<dyn ServerFeatureRepository>,
     pub(crate) binding_repo: Arc<dyn WorkspaceBindingRepository>,
@@ -299,6 +300,7 @@ impl Fixture {
             broker,
             db,
             client_repo,
+            space_repo,
             feature_set_repo,
             server_feature_repo,
             binding_repo,
@@ -313,6 +315,15 @@ impl Fixture {
             event_rx,
             server_manager,
         }
+    }
+
+    /// The machine seeded by [`Self::new_with_local_machine`], if any.
+    async fn resolver_local_machine(&self) -> Option<Uuid> {
+        let machines = SqliteMachineRepository::new(self.db.clone())
+            .list()
+            .await
+            .unwrap();
+        machines.first().map(|machine| machine.id)
     }
 
     /// Insert a machine catalog row for multi-device bind tests.
@@ -2747,4 +2758,166 @@ async fn diagnose_surfaces_missing_required_inputs() {
         .unwrap();
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0].as_str().unwrap(), "github_token");
+}
+
+// ---------------------------------------------------------------------------
+// Space confinement for workspace binding (upstream #266, on the fork's bind tool)
+// ---------------------------------------------------------------------------
+
+/// A folder already mapped in `other` as a global (unscoped) binding, so a bind into
+/// the caller's Space would move it.
+async fn map_folder_in_other_space(f: &Fixture, other: &mcpmux_core::Space) -> String {
+    let root = if cfg!(windows) {
+        "D:\\Projects\\Work"
+    } else {
+        "/proj/work"
+    };
+    let normalized = normalize_workspace_root(root);
+    f.space_repo.create(other).await.unwrap();
+    f.session_roots.set(&f.session_id, [root]);
+    let existing = WorkspaceBinding::new_multi(normalized.clone(), other.id, vec![]);
+    f.binding_repo.create(&existing).await.unwrap();
+    normalized
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confined_callers_cannot_move_a_workspace_out_of_another_space() {
+    use mcpmux_gateway::services::ANONYMOUS_CLIENT_ID;
+
+    let f = Fixture::new().await;
+    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
+    let work = mcpmux_core::Space::new("Work");
+    let root = map_folder_in_other_space(&f, &work).await;
+
+    let locked = Client::new("Locked", "test-type");
+    f.client_repo.create(&locked).await.unwrap();
+    InboundClientRepository::new(f.db.clone())
+        .set_locked_space(&locked.id.to_string(), Some(f.space_id))
+        .await
+        .unwrap();
+
+    for caller in [ANONYMOUS_CLIENT_ID.to_string(), locked.id.to_string()] {
+        let err = f
+            .registry
+            .call(
+                "mcpmux_bind_current_workspace",
+                &caller,
+                Some(&f.session_id),
+                json!({ "feature_set_id": f.fs_android_id.to_string() }),
+            )
+            .await
+            .unwrap_err()
+            .into_call_tool_result();
+        assert_eq!(
+            Fixture::result_json(&err)["error"].as_str(),
+            Some("invalid_argument"),
+            "{caller}"
+        );
+    }
+
+    let in_work = f.binding_repo.list_for_space(&work.id).await.unwrap();
+    assert_eq!(in_work.len(), 1, "the binding stays in Work");
+    assert_eq!(in_work[0].workspace_root, root);
+    assert!(f
+        .binding_repo
+        .list_for_space(&f.space_id)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn machine_scoped_bind_cannot_silently_move_a_folder_between_spaces() {
+    use mcpmux_gateway::services::ANONYMOUS_CLIENT_ID;
+
+    let f = Fixture::new_with_local_machine("Gondor").await;
+    f.attach_auto_publisher(ApprovalDecision::AllowOnce);
+    let work = mcpmux_core::Space::new("Work");
+    let root = if cfg!(windows) {
+        "D:\\Projects\\Machine"
+    } else {
+        "/proj/machine"
+    };
+    f.space_repo.create(&work).await.unwrap();
+    f.session_roots.set(&f.session_id, [root]);
+    let machine_id = f
+        .resolver_local_machine()
+        .await
+        .expect("the fixture seeds a local machine");
+    let existing = WorkspaceBinding::new_machine_scoped_multi(
+        normalize_workspace_root(root),
+        work.id,
+        machine_id,
+        vec![],
+    );
+    f.binding_repo.create(&existing).await.unwrap();
+
+    let err = f
+        .registry
+        .call(
+            "mcpmux_bind_current_workspace",
+            ANONYMOUS_CLIENT_ID,
+            Some(&f.session_id),
+            json!({ "feature_set_id": f.fs_android_id.to_string() }),
+        )
+        .await
+        .unwrap_err()
+        .into_call_tool_result();
+    assert_eq!(
+        Fixture::result_json(&err)["error"].as_str(),
+        Some("invalid_argument")
+    );
+
+    let stored = f.binding_repo.get(&existing.id).await.unwrap().unwrap();
+    assert_eq!(stored.space_id, work.id, "the folder stayed in Work");
+    assert!(stored.feature_set_ids.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn approval_payload_names_the_target_space() {
+    let f = Fixture::new().await;
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = seen.clone();
+    let responder = f.broker.clone();
+    let publisher: ApprovalPublisher = Arc::new(move |req| {
+        record
+            .lock()
+            .unwrap()
+            .push((req.payload.space_id, req.payload.space_name.clone()));
+        let broker = responder.clone();
+        async move {
+            tokio::spawn(async move {
+                broker.respond(
+                    &req.request_id,
+                    &req.client_id,
+                    &req.payload.tool_name,
+                    ApprovalDecision::AllowOnce,
+                );
+            });
+            true
+        }
+        .boxed()
+    });
+    f.broker.set_publisher(publisher).await;
+    f.session_roots.set(
+        &f.session_id,
+        [if cfg!(windows) {
+            "D:\\Projects\\Named"
+        } else {
+            "/proj/named"
+        }],
+    );
+
+    let res = f
+        .call_tool_as_handler_would(
+            "mcpmux_bind_current_workspace",
+            json!({ "feature_set_id": f.fs_android_id.to_string() }),
+        )
+        .await;
+    assert!(!Fixture::is_error(&res), "{res:?}");
+
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].0, Some(f.space_id));
+    assert!(seen[0].1.is_some(), "the dialog gets the Space's name");
 }

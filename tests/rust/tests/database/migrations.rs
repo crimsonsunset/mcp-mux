@@ -420,12 +420,18 @@ fn auth_disabled_setting(db: &Database) -> Option<String> {
 
 /// Reopen `path` with migration 045 un-applied, after `seed` ran against the
 /// pre-045 schema.
+///
+/// Rolling the ledger back past 046 and 047 re-runs them, and both are bare
+/// `ADD COLUMN`, so their columns have to go too (same trap as `reapply_044`).
 fn reapply_045(path: &std::path::Path, seed: &str) -> Database {
     {
         let db = Database::open(path).expect("open");
         db.connection()
             .execute_batch(&format!(
                 "DELETE FROM schema_migrations WHERE version >= 45;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;
                  DELETE FROM app_settings WHERE key = 'gateway.auth_disabled';
                  {seed}"
             ))

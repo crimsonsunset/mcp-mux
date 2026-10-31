@@ -90,6 +90,11 @@ export const appSettingsRoutes: Record<string, RouteHandler> = {
   revoke_meta_tool_grant: (args) => ({
     method: 'POST',
     path: '/api/v1/meta-tools/grants/revoke',
-    body: { client_id: args.clientId, tool_name: args.toolName },
+    body: {
+      client_id: args.clientId,
+      tool_name: args.toolName,
+      action: args.action ?? null,
+      space_id: args.spaceId ?? null,
+    },
   }),
 };

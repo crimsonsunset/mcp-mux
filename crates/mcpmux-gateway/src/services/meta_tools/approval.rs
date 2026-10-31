@@ -10,7 +10,7 @@ mod approval_broker;
 mod approval_types;
 
 pub use approval_broker::{
-    ApprovalBroker, ApprovalDecision, ApprovalPublisher, ApprovalScope, ResolutionNotifier,
-    META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
+    ApprovalBroker, ApprovalDecision, ApprovalPublisher, ApprovalScope, GrantKey,
+    ResolutionNotifier, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use approval_types::{ApprovalPayload, ApprovalRequest};

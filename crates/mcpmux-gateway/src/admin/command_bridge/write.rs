@@ -237,6 +237,10 @@ pub struct MetaToolApprovalBody {
 pub struct MetaToolRevokeBody {
     pub client_id: String,
     pub tool_name: String,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub space_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1327,7 +1331,7 @@ pub async fn revoke_meta_tool_grant(
     body: MetaToolRevokeBody,
 ) -> Result<Value> {
     ctx.gateway_writes
-        .revoke_meta_tool_grant(body.client_id, body.tool_name)
+        .revoke_meta_tool_grant(body.client_id, body.tool_name, body.action, body.space_id)
         .await
 }
 

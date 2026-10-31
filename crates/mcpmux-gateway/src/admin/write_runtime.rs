@@ -58,7 +58,13 @@ pub trait GatewayWriteRuntime: Send + Sync {
         tool_name: String,
         decision: String,
     ) -> Result<Value>;
-    async fn revoke_meta_tool_grant(&self, client_id: String, tool_name: String) -> Result<Value>;
+    async fn revoke_meta_tool_grant(
+        &self,
+        client_id: String,
+        tool_name: String,
+        action: Option<String>,
+        space_id: Option<String>,
+    ) -> Result<Value>;
     async fn update_oauth_client(
         &self,
         client_id: String,
@@ -324,6 +330,8 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
         &self,
         _client_id: String,
         _tool_name: String,
+        _action: Option<String>,
+        _space_id: Option<String>,
     ) -> Result<Value> {
         Err(gateway_write_unavailable())
     }
@@ -492,6 +500,8 @@ impl GatewayWriteRuntime for StubGatewayWriteRuntime {
         &self,
         _client_id: String,
         _tool_name: String,
+        _action: Option<String>,
+        _space_id: Option<String>,
     ) -> Result<Value> {
         Err(gateway_not_running())
     }

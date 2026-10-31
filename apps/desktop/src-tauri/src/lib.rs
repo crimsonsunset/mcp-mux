@@ -611,6 +611,7 @@ pub fn run() {
                 let spaces_dir = app_state.spaces_dir().to_path_buf();
                 let installed_repo = app_state.installed_server_repository.clone();
                 let event_sender_for_sync = event_bus.sender();
+                let space_repo = app_state.runtime().repositories.space.clone();
                 let app_handle_for_watcher = app.handle().clone();
 
                 // Use the well-known default space UUID
@@ -629,6 +630,7 @@ pub fn run() {
                                 .with_event_sender(event_sender_for_sync),
                         ),
                         default_space_id,
+                        space_repo,
                         services::SpaceFileWatcherEmitters {
                             on_success: Some(Arc::new(
                                 move |space_id: &str, result: &mcpmux_core::application::SyncResult| {

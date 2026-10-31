@@ -23,10 +23,9 @@ use crate::server::ServiceContainer;
 use crate::services::{resolve_window_key, PinSource, SessionRootsRegistry};
 
 /// Synthetic client identity used when system-wide inbound auth is disabled and
-/// a connection arrives without a (valid) Bearer token. Routing still prefers
-/// the `X-Mcpmux-Workspace` header → binding; this id only feeds the rootless
-/// `client_grants` fallback (which finds none) → Space default.
-const ANONYMOUS_CLIENT_ID: &str = "mcpmux-anonymous";
+/// a connection arrives without a (valid) Bearer token. The resolver confines it
+/// to the default Space.
+use crate::services::ANONYMOUS_CLIENT_ID;
 
 /// Client-asserted per-process id. Sessions sharing one value are one process
 /// reconnecting, so a newer one supersedes the older (see `MCPNotifier`).

@@ -124,7 +124,7 @@
 //! report `roots` reliably (e.g. Cursor multiplexing one MCP host across
 //! windows): the header always wins over a stale or absent reported root.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -146,6 +146,14 @@ use super::session_roots::SessionRootsRegistry;
 /// `roots/list` round-trip (typically sub-second) so the grace only ever
 /// catches clients that declared `roots` but never actually report one.
 const DEFAULT_PENDING_ROOTS_GRACE: Duration = Duration::from_secs(5);
+
+/// Client id used for connections accepted without a token while inbound auth
+/// is disabled. Every such connection shares it.
+pub const ANONYMOUS_CLIENT_ID: &str = "mcpmux-anonymous";
+
+/// Sessions remembered for the tokenless-binding warning before the set is
+/// cleared (bounds memory; a repeat warning after that is harmless).
+const MAX_WARNED_SESSIONS: usize = 1024;
 
 /// Why the resolver picked the FS(es) it picked (or didn't pick any).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -233,6 +241,9 @@ pub struct FeatureSetResolverService {
     /// This install's registered machine id (`gateway.local_machine_id`).
     /// When set, Tier 1 prefers machine-scoped bindings before global fallbacks.
     local_machine_id: Arc<RwLock<Option<Uuid>>>,
+    /// Sessions already warned that, being tokenless, their workspace binding
+    /// in another Space is ignored. Keeps that warning to once per session.
+    warned_tokenless_sessions: Mutex<std::collections::HashSet<String>>,
 }
 
 impl FeatureSetResolverService {
@@ -254,6 +265,7 @@ impl FeatureSetResolverService {
             space_base_dir_repo,
             pending_grace: DEFAULT_PENDING_ROOTS_GRACE,
             local_machine_id: Arc::new(RwLock::new(local_machine_id)),
+            warned_tokenless_sessions: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -407,6 +419,29 @@ impl FeatureSetResolverService {
         Ok(None)
     }
 
+    /// The one Space a caller may see and change through the meta-tools, or
+    /// `None` when it may target any Space. Tokenless callers are confined to
+    /// the default Space, clients locked to a Space to that Space, and
+    /// base-dir-scoped workspaces to their Space. Fails closed: a tokenless
+    /// caller with no default Space, or a client locked to a Space id that
+    /// doesn't parse, is an error rather than unconfined.
+    pub async fn confined_space(
+        &self,
+        session_id: Option<&str>,
+        client_id: &str,
+    ) -> Result<Option<Uuid>> {
+        if client_id == ANONYMOUS_CLIENT_ID {
+            return match self.space_repo.get_default().await? {
+                Some(space) => Ok(Some(space.id)),
+                None => anyhow::bail!("there is no default space for tokenless connections"),
+            };
+        }
+        if let Some(locked) = self.client_repo.get_locked_space(client_id).await? {
+            return Ok(Some(locked));
+        }
+        self.scoped_space_for_session(session_id).await
+    }
+
     /// The Space a session is scoped to by base directory — its reported root
     /// sits under that Space's base dir — or `None` when it isn't base-dir
     /// scoped (no session, no roots, or no matching base dir). The meta-tools
@@ -453,6 +488,26 @@ impl FeatureSetResolverService {
         space_lock.unwrap_or(fallback)
     }
 
+    /// Tell the user, once per session, that a tokenless connection's folder
+    /// is mapped in a Space it can't reach.
+    fn warn_tokenless_binding_ignored(&self, session_id: &str, workspace_root: &str) {
+        let mut warned = self
+            .warned_tokenless_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if warned.len() >= MAX_WARNED_SESSIONS {
+            warned.clear();
+        }
+        if warned.insert(session_id.to_string()) {
+            warn!(
+                workspace_root = %workspace_root,
+                "[FeatureSetResolver] tokenless connection: this folder is mapped in a \
+                 non-default Space, which tokenless apps can't reach — using the default \
+                 Space. Register an API-key client for this folder to use its Space.",
+            );
+        }
+    }
+
     /// Borrow the session-roots registry. The notifier uses this to GC
     /// dead sessions out of the registry when reaping the corresponding
     /// peer entries — keeping both stores in sync.
@@ -488,8 +543,27 @@ impl FeatureSetResolverService {
 
         // Tier 0 — Space lock narrows all subsequent tiers to one Space.
         // It never grants tools by itself; no in-Space match still → Unbound.
+        // Tokenless callers (inbound auth disabled) share one anonymous identity
+        // that nobody approved, so they are confined to the default Space the
+        // same way: the workspace header and roots can pick a FeatureSet there,
+        // never another Space's tools or credentials.
         let space_lock = match client_id {
-            Some(cid) => self.client_repo.get_locked_space(cid).await?,
+            Some(ANONYMOUS_CLIENT_ID) => Some(default_space_id),
+            Some(cid) => match self.client_repo.get_locked_space(cid).await {
+                Ok(lock) => lock,
+                Err(e) => {
+                    // Never fall through to unconfined resolution.
+                    warn!(
+                        client_id = %cid,
+                        "[FeatureSetResolver] unreadable Space lock; deny: {e}",
+                    );
+                    return Ok(ResolvedFeatureSet {
+                        feature_set_ids: vec![],
+                        space_id: None,
+                        source: ResolutionSource::Deny,
+                    });
+                }
+            },
             None => None,
         };
         let deny_space_id = Self::unbound_space_id(space_lock, default_space_id);
@@ -597,11 +671,15 @@ impl FeatureSetResolverService {
                             source: ResolutionSource::WorkspaceBinding,
                         });
                     }
-                    debug!(
-                        binding_space = %binding.space_id,
-                        ?space_lock,
-                        "[FeatureSetResolver] path binding outside locked Space — ignored",
-                    );
+                    if client_id == Some(ANONYMOUS_CLIENT_ID) {
+                        self.warn_tokenless_binding_ignored(sid, &binding.workspace_root);
+                    } else {
+                        debug!(
+                            binding_space = %binding.space_id,
+                            ?space_lock,
+                            "[FeatureSetResolver] path binding outside locked Space — ignored",
+                        );
+                    }
                 }
                 // Tier 1b: had roots, no binding (or binding outside lock).
                 if roots_capable_known == Some(false) {
@@ -817,7 +895,21 @@ impl FeatureSetResolverService {
             }
         };
         let space_lock = match client_id {
-            Some(cid) => self.client_repo.get_locked_space(cid).await?,
+            Some(ANONYMOUS_CLIENT_ID) => Some(default_space_id),
+            Some(cid) => match self.client_repo.get_locked_space(cid).await {
+                Ok(lock) => lock,
+                Err(e) => {
+                    warn!(
+                        client_id = %cid,
+                        "[FeatureSetResolver] unreadable Space lock; deny: {e}",
+                    );
+                    return Ok(ResolvedFeatureSet {
+                        feature_set_ids: vec![],
+                        space_id: None,
+                        source: ResolutionSource::Deny,
+                    });
+                }
+            },
             None => None,
         };
         let deny_space_id = Self::unbound_space_id(space_lock, default_space_id);

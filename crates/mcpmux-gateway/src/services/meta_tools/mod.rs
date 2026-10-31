@@ -45,7 +45,8 @@ mod token_budget;
 
 pub use approval::{
     ApprovalBroker, ApprovalDecision, ApprovalPayload, ApprovalPublisher, ApprovalRequest,
-    ApprovalScope, ResolutionNotifier, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
+    ApprovalScope, GrantKey, ResolutionNotifier, META_TOOL_APPROVAL_EVENT,
+    META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use bind_workspace::BindCurrentWorkspaceTool;
 pub use diagnose_server::DiagnoseServerTool;

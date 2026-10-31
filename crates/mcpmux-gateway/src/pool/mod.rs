@@ -43,6 +43,7 @@ pub use oauth::{
 // SOLID Services
 pub use connection::{ConnectionResult, ConnectionService};
 pub use features::{CachedFeatures, FeatureService, InactiveDiscoveryEntry};
+pub(crate) use routing::match_feature;
 pub use routing::{
     format_direct_call_redirect, format_direct_fetch_prompt_redirect, format_direct_read_redirect,
     format_invoke_permission_denied, format_server_bound_offline_error,
