@@ -7,6 +7,10 @@ export const gatewayRoutes: Record<string, RouteHandler> = {
     method: 'GET',
     path: `/api/v1/gateway/status${buildQuery({ spaceId: args.spaceId })}`,
   }),
+  get_gateway_auth_disabled: () => ({
+    method: 'GET',
+    path: '/api/v1/settings/gateway-auth-disabled',
+  }),
   probe_gateway_start: (args) => ({
     method: 'GET',
     path: `/api/v1/gateway/probe-start${buildQuery({ port: args.port })}`,
