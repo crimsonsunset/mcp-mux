@@ -1,10 +1,11 @@
 //! Write admin REST handlers delegating to command bridge functions.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::read::ServerLogScopeQuery;
 use crate::admin::command_bridge::read as read_bridge;
 use crate::admin::command_bridge::space::UpdateSpaceInput;
 use crate::admin::command_bridge::write as bridge;
@@ -608,8 +609,9 @@ pub async fn set_meta_tools_enabled(
 pub async fn clear_server_logs(
     State(state): State<AdminState>,
     Path(server_id): Path<String>,
+    Query(query): Query<ServerLogScopeQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::clear_server_logs(&state.bridge, server_id)
+    bridge::clear_server_logs(&state.bridge, server_id, query.space_id)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

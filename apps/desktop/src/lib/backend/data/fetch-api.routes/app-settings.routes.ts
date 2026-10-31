@@ -19,13 +19,16 @@ export const appSettingsRoutes: Record<string, RouteHandler> = {
   get_server_logs: (args) => ({
     method: 'GET',
     path: `/api/v1/logs/server/${encodeURIComponent(String(args.serverId))}${buildQuery({
+      spaceId: args.spaceId,
       limit: args.limit,
       levelFilter: args.levelFilter,
     })}`,
   }),
   get_server_log_file: (args) => ({
     method: 'GET',
-    path: `/api/v1/logs/server/${encodeURIComponent(String(args.serverId))}/file`,
+    path: `/api/v1/logs/server/${encodeURIComponent(String(args.serverId))}/file${buildQuery({
+      spaceId: args.spaceId,
+    })}`,
   }),
   get_log_retention_days: () => ({ method: 'GET', path: '/api/v1/logs/retention-days' }),
   update_startup_settings: (args) => ({
@@ -64,7 +67,9 @@ export const appSettingsRoutes: Record<string, RouteHandler> = {
   }),
   clear_server_logs: (args) => ({
     method: 'DELETE',
-    path: `/api/v1/logs/server/${encodeURIComponent(String(args.serverId))}`,
+    path: `/api/v1/logs/server/${encodeURIComponent(String(args.serverId))}${buildQuery({
+      spaceId: args.spaceId,
+    })}`,
   }),
   set_log_retention_days: (args) => ({
     method: 'PUT',

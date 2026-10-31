@@ -1061,6 +1061,7 @@ async fn registry_catalog(
                 Some(mcpmux_core::domain::AuthConfig::None) => "none",
                 Some(mcpmux_core::domain::AuthConfig::ApiKey { .. }) => "api_key",
                 Some(mcpmux_core::domain::AuthConfig::OptionalApiKey { .. }) => "optional_api_key",
+                Some(mcpmux_core::domain::AuthConfig::Basic { .. }) => "basic",
                 Some(mcpmux_core::domain::AuthConfig::Oauth) => "oauth",
             };
             let source = match &s.source {

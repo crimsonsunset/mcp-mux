@@ -688,23 +688,15 @@ pub async fn get_logs_path(ctx: &AdminBridgeCtx) -> Result<Value> {
 pub async fn get_server_logs(
     ctx: &AdminBridgeCtx,
     server_id: String,
+    space_id: String,
     limit: Option<usize>,
     level_filter: Option<String>,
 ) -> Result<Value> {
-    let default_space = ctx
-        .space_service
-        .get_default()
-        .await?
-        .ok_or_else(|| anyhow!("No default space found"))?;
+    let space_id = Uuid::parse_str(&space_id)?.to_string();
     let level = level_filter.and_then(|value| LogLevel::parse(&value));
     let logs = ctx
         .server_log_manager
-        .read_logs(
-            &default_space.id.to_string(),
-            &server_id,
-            limit.unwrap_or(100),
-            level,
-        )
+        .read_logs(&space_id, &server_id, limit.unwrap_or(100), level)
         .await?;
     let mapped = logs
         .into_iter()
@@ -721,15 +713,13 @@ pub async fn get_server_logs(
     Ok(Value::Array(mapped))
 }
 
-pub async fn get_server_log_file(ctx: &AdminBridgeCtx, server_id: String) -> Result<Value> {
-    let default_space = ctx
-        .space_service
-        .get_default()
-        .await?
-        .ok_or_else(|| anyhow!("No default space found"))?;
-    let path = ctx
-        .server_log_manager
-        .get_log_file(&default_space.id.to_string(), &server_id);
+pub async fn get_server_log_file(
+    ctx: &AdminBridgeCtx,
+    server_id: String,
+    space_id: String,
+) -> Result<Value> {
+    let space_id = Uuid::parse_str(&space_id)?.to_string();
+    let path = ctx.server_log_manager.get_log_file(&space_id, &server_id);
     as_json(path.to_string_lossy().to_string())
 }
 

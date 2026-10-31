@@ -11,7 +11,14 @@
     "expandAllTitle": "Expand all connected servers",
     "collapseAll": "Collapse all",
     "collapseAllTitle": "Collapse all servers",
-    "searchPlaceholder": "Search servers or tools…"
+    "searchPlaceholder": "Search servers or tools…",
+    "sortLabel": "Sort",
+    "sort": {
+      "recent": "Recently added",
+      "name": "Name (A–Z)",
+      "activeFirst": "Active first",
+      "inactiveFirst": "Inactive first"
+    }
   },
   "empty": {
     "noneInstalled": "No servers installed",
@@ -40,7 +47,8 @@
     "oauth": "🔐 OAuth",
     "apiKey": "🔑 API Key",
     "apiKeyOptional": "🔑 API Key (Optional)",
-    "required": "Auth Required"
+    "required": "Auth Required",
+    "basic": "🔑 Username & Password"
   },
   "features": {
     "tools": "{{count}} tools",

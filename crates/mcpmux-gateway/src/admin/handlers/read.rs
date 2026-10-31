@@ -48,8 +48,15 @@ pub struct IconPathQuery {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerLogsQuery {
+    pub space_id: String,
     pub limit: Option<usize>,
     pub level_filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerLogScopeQuery {
+    pub space_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -540,17 +547,24 @@ pub async fn get_server_logs(
     Path(server_id): Path<String>,
     Query(query): Query<ServerLogsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_server_logs(&state.bridge, server_id, query.limit, query.level_filter)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
+    bridge::get_server_logs(
+        &state.bridge,
+        server_id,
+        query.space_id,
+        query.limit,
+        query.level_filter,
+    )
+    .await
+    .map(ok)
+    .map_err(ApiError::from_bridge)
 }
 
 pub async fn get_server_log_file(
     State(state): State<AdminState>,
     Path(server_id): Path<String>,
+    Query(query): Query<ServerLogScopeQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_server_log_file(&state.bridge, server_id)
+    bridge::get_server_log_file(&state.bridge, server_id, query.space_id)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

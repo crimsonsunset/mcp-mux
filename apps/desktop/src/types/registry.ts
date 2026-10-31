@@ -81,6 +81,7 @@ export type AuthConfig =
   | { type: 'none' }
   | { type: 'api_key'; instructions: string | null }
   | { type: 'optional_api_key'; instructions: string | null }
+  | { type: 'basic'; instructions: string | null }
   | { type: 'oauth' };
 
 /** Installation source - tracks how the server was installed */

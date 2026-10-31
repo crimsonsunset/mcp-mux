@@ -1019,14 +1019,14 @@ pub async fn set_meta_tools_enabled(ctx: &AdminBridgeCtx, enabled: bool) -> Resu
 
 // --- Logs ---
 
-pub async fn clear_server_logs(ctx: &AdminBridgeCtx, server_id: String) -> Result<Value> {
-    let default_space = ctx
-        .space_service
-        .get_default()
-        .await?
-        .ok_or_else(|| anyhow!("No default space found"))?;
+pub async fn clear_server_logs(
+    ctx: &AdminBridgeCtx,
+    server_id: String,
+    space_id: String,
+) -> Result<Value> {
+    let space_id = Uuid::parse_str(&space_id)?.to_string();
     ctx.server_log_manager
-        .clear_logs(&default_space.id.to_string(), &server_id)
+        .clear_logs(&space_id, &server_id)
         .await?;
     Ok(json!({ "ok": true }))
 }
