@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Route, Switch, Redirect, useLocation } from 'wouter';
-import { Sun, Moon, Download, X } from 'lucide-react';
+import { Sun, Moon, Download, X, AlertTriangle, Layers } from 'lucide-react';
 import { AppShell, Sidebar, SidebarItem, SidebarSection } from '@mcpmux/ui';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { isTauri, performWindowControl } from '@/lib/backend/shell';
@@ -11,6 +11,7 @@ import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { StaleBuildBanner } from '@/components/StaleBuildBanner';
 import { ViewerIdentityModal, ViewerIdentityStatusItem } from '@/components/ViewerIdentity';
 import { ViewerIdentityProvider } from '@/hooks/use-viewer-identity.hook';
+import { MuxStatusChip } from '@/components/MuxPrompt';
 import { useDataSync } from '@/hooks/useDataSync';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { startMetaToolActivityListener } from '@/stores/metaToolActivityStore';
@@ -40,6 +41,7 @@ import { MetaToolApprovalDialog } from '@/features/metaTools';
 import { useGatewayEvents } from '@/hooks/useDomainEvents';
 import { getVersion } from '@/lib/api/app';
 import { checkForUpdate, getAutoInstallUpdates } from '@/lib/updates';
+import { useStarterToolSummary } from '@/hooks/useStarterToolSummary';
 
 /** McpMux title-bar icon — miniature cat icon */
 function McpMuxGlyph({ className }: { className?: string }) {
@@ -186,6 +188,9 @@ function AppContent() {
     capture('page_viewed', { page: navItemFromPath(location) });
   }, [location]);
 
+  // Starter tool count for the status bar (warns past the size threshold).
+  const { summary: starterSummary } = useStarterToolSummary(viewSpace?.id);
+
   const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
   const loadGatewayUrl = useCallback(async () => {
     try {
@@ -291,6 +296,31 @@ function AppContent() {
           })}
         </span>
         <ViewerIdentityStatusItem />
+        {starterSummary && (
+          <button
+            type="button"
+            onClick={() => navigate('featuresets')}
+            className={`flex items-center gap-1 transition-colors hover:text-[rgb(var(--foreground))] ${
+              starterSummary.over_threshold ? 'text-amber-600 dark:text-amber-400' : ''
+            }`}
+            title={
+              starterSummary.over_threshold
+                ? `Your Starter bundle has ${starterSummary.tool_count} tools, more than the ${starterSummary.threshold} AI apps handle well. Click to slim it down.`
+                : `Folders you map to your Starter bundle can use these tools through McpMux${
+                    starterSummary.auto_include ? ' (every server, automatically)' : ''
+                  }.`
+            }
+            data-testid="statusbar-starter-tools"
+          >
+            {starterSummary.over_threshold ? (
+              <AlertTriangle className="h-3 w-3" />
+            ) : (
+              <Layers className="h-3 w-3" />
+            )}
+            {starterSummary.tool_count} tool{starterSummary.tool_count === 1 ? '' : 's'}
+          </button>
+        )}
+        <MuxStatusChip />
       </div>
       {appVersion && (
         <span className="opacity-70" data-testid="statusbar-version">

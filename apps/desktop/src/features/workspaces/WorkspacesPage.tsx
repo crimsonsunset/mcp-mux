@@ -87,6 +87,7 @@ import { FormField } from './workspace-binding-form.component';
 import { formatFsList, projectKey } from './workspace-binding-form.helpers';
 import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
 import { useViewerIdentity } from '@/hooks/use-viewer-identity.hook';
+import { MuxPromptBanner } from '@/components/MuxPrompt';
 
 /**
  * Workspaces page.
@@ -566,6 +567,12 @@ export function WorkspacesPage() {
                 {t('actions.newBinding')}
               </Button>
             </div>
+          </div>
+
+          <div className="mb-6 max-w-3xl">
+            <MuxPromptBanner title={t('muxHint.title')} testId="mapping-mux-hint">
+              {t('muxHint.body')}
+            </MuxPromptBanner>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 max-w-3xl">

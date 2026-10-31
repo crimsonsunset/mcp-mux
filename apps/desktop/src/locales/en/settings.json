@@ -39,7 +39,9 @@
     "metaToolsEnabled": "Self-management tools enabled",
     "metaToolsEnabledDesc": "Connected MCP clients will see the mcpmux_* toolset on next list_tools.",
     "metaToolsDisabled": "Self-management tools disabled",
-    "metaToolsDisabledDesc": "mcpmux_* is hidden from connected MCP clients."
+    "metaToolsDisabledDesc": "mcpmux_* is hidden from connected MCP clients.",
+    "starterAutoOnHint": "Starter bundles now include every server's tools automatically.",
+    "starterAutoOffHint": "You pick the Starter's tools now. Each keeps its current tools until you change them on the FeatureSets page."
   },
   "validation": {
     "enterPort": "Enter a port number",
@@ -299,5 +301,12 @@
     "webAdminMismatchDescAfter": "then hard-refresh this page.",
     "webAdminBuildCommand": "pnpm build:web:admin",
     "desktopMismatchDesc": "UI bundle ({{spaSha}}) differs from running app ({{backendSha}})."
+  },
+  "starterAuto": {
+    "label": "Starter bundle includes every server's tools",
+    "hint": "The Starter is the default bundle you can map a folder to. On, it includes every tool from every server and new servers join it on their own. Turn off to choose its tools yourself; it keeps its current tools until you change them.",
+    "confirmTitle": "Give Starters every server's tools?",
+    "confirmMessage": "Every Space's Starter will include every tool from every server, including servers you add later. Tools you picked for a Starter by hand are replaced.",
+    "confirmLabel": "Include everything"
   }
 }

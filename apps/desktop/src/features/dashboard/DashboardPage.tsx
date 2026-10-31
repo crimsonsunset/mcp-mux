@@ -1,6 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@mcpmux/ui';
 import { ConnectionCard } from '@/components/ConnectionCard';
+import { StarterToolsCard } from '@/components/StarterToolsNotice';
+import { useStarterToolSummary } from '@/hooks/useStarterToolSummary';
+import { useViewSpace } from '@/stores';
 import { DashboardQuickLinks } from './DashboardQuickLinks';
 import { DashboardRecentActivity } from './DashboardRecentActivity';
 import { DashboardServerHealth } from './DashboardServerHealth';
@@ -15,6 +18,8 @@ import { useDashboardData } from './useDashboardData';
 export function DashboardPage() {
   const { t } = useTranslation('dashboard');
   const { stats, attentionServers, isLoading } = useDashboardData();
+  const viewSpace = useViewSpace();
+  const { summary: starterSummary } = useStarterToolSummary(viewSpace?.id);
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
@@ -30,6 +35,8 @@ export function DashboardPage() {
       <ConnectionCard />
 
       <SetUpFolderCard />
+
+      {starterSummary && <StarterToolsCard summary={starterSummary} />}
 
       <DashboardStatCards stats={stats} />
 

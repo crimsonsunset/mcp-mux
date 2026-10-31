@@ -320,4 +320,19 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         let app_state = self.app_gateway_state.read().await;
         app_state.gateway_state.clone()
     }
+    async fn notify_feature_set_modified(
+        &self,
+        space_id: &str,
+        feature_set_id: &str,
+    ) -> anyhow::Result<()> {
+        let grant_service = self.app_gateway_state.read().await.grant_service.clone();
+        match grant_service {
+            Some(grant_service) => {
+                grant_service
+                    .notify_feature_set_modified(space_id, feature_set_id)
+                    .await
+            }
+            None => Ok(()),
+        }
+    }
 }

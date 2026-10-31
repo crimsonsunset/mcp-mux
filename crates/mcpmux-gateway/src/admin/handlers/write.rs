@@ -9,8 +9,8 @@ use crate::admin::command_bridge::read as read_bridge;
 use crate::admin::command_bridge::space::UpdateSpaceInput;
 use crate::admin::command_bridge::write as bridge;
 use crate::admin::command_bridge::write::{
-    AddMemberBody, BuiltinServerEnabledBody, BuiltinToolEnabledBody, CloneServerBody,
-    CreateClientBody, CreateFeatureSetBody, CreateMachineBody, CreateSpaceBody,
+    AddMemberBody, AutoIncludeBody, BuiltinServerEnabledBody, BuiltinToolEnabledBody,
+    CloneServerBody, CreateClientBody, CreateFeatureSetBody, CreateMachineBody, CreateSpaceBody,
     DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody,
     InstallServerBody, LogRetentionBody, MetaToolApprovalBody, MetaToolRevokeBody,
     MetaToolsEnabledBody, MetaToolsRequireApprovalBody, OAuthClientUpdateBody, OAuthGrantBody,
@@ -398,6 +398,27 @@ pub async fn set_feature_set_members(
     Json(body): Json<SetMembersBody>,
 ) -> Result<Json<Value>, ApiError> {
     bridge::set_feature_set_members(&state.bridge, id, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn set_feature_set_auto_include(
+    State(state): State<AdminState>,
+    Path(id): Path<String>,
+    Json(body): Json<AutoIncludeBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_feature_set_auto_include(&state.bridge, id, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn set_starter_auto_include_default(
+    State(state): State<AdminState>,
+    Json(body): Json<AutoIncludeBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_starter_auto_include_default(&state.bridge, body)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)

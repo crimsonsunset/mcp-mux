@@ -20,17 +20,22 @@ import {
   Shield,
   Save,
   Monitor,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react';
-import { Button, useToast, ToastContainer, useConfirm } from '@mcpmux/ui';
+import { Button, Switch, useToast, ToastContainer, useConfirm } from '@mcpmux/ui';
 import type { FeatureSet, AddMemberInput } from '@/lib/api/featureSets';
 import {
   isStarterFeatureSet,
+  setFeatureSetAutoInclude,
   setFeatureSetMembers,
   updateFeatureSet,
 } from '@/lib/api/featureSets';
 import type { ServerFeature } from '@/lib/api/serverFeatures';
 import { listServerFeatures } from '@/lib/api/serverFeatures';
 import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
+import { MuxPromptCode } from '@/components/MuxPrompt';
+import { useStarterToolSummary } from '@/hooks/useStarterToolSummary';
 
 interface FeatureSetPanelProps {
   featureSet: FeatureSet;
@@ -61,6 +66,12 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
   const [editIcon, setEditIcon] = useState(featureSet.icon ?? '');
   const [error, setError] = useState<string | null>(null);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
+  // Auto mode (every server's tools). Editing the selection while it's on
+  // and saving switches the set to a manual selection.
+  const [autoInclude, setAutoInclude] = useState(featureSet.auto_include);
+  const [isTogglingAuto, setIsTogglingAuto] = useState(false);
+  const [selectionEdited, setSelectionEdited] = useState(false);
+  const { summary: starterSummary } = useStarterToolSummary(spaceId);
   const { toasts, success, error: showError, dismiss } = useToast();
   const { confirm, ConfirmDialogElement } = useConfirm();
 
@@ -96,20 +107,27 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
         const features = await listServerFeatures(spaceId);
         setAllFeatures(features);
         
-        // Seed from the set's include-mode feature members.
+        // Seed from the set's include-mode feature members, or, in auto mode,
+        // everything (that's what the set grants).
         const currentIds = new Set<string>();
         const surfacedIds = new Set<string>();
-        featureSet.members?.forEach((m) => {
-          if (m.member_type === 'feature' && m.mode === 'include') {
-            currentIds.add(m.member_id);
-            if (m.surfaced) {
-              surfacedIds.add(m.member_id);
+        if (featureSet.auto_include) {
+          features.forEach((f) => currentIds.add(f.id));
+        } else {
+          featureSet.members?.forEach((m) => {
+            if (m.member_type === 'feature' && m.mode === 'include') {
+              currentIds.add(m.member_id);
+              if (m.surfaced) {
+                surfacedIds.add(m.member_id);
+              }
             }
-          }
-        });
+          });
+        }
 
         setSelectedFeatureIds(currentIds);
         setSurfacedFeatureIds(surfacedIds);
+        setAutoInclude(featureSet.auto_include);
+        setSelectionEdited(false);
         
         // Start with all servers collapsed
         setExpandedServers(new Set());
@@ -152,6 +170,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
 
   const toggleFeature = (featureId: string) => {
     if (!isConfigurable) return;
+    setSelectionEdited(true);
     setSelectedFeatureIds((prev) => {
       const next = new Set(prev);
       if (next.has(featureId)) {
@@ -174,6 +193,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
   const toggleSurfaced = (featureId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     if (!isConfigurable || !selectedFeatureIds.has(featureId)) return;
+    setSelectionEdited(true);
     setSurfacedFeatureIds((prev) => {
       const next = new Set(prev);
       if (next.has(featureId)) {
@@ -199,6 +219,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
 
   const toggleAllInServer = (serverId: string) => {
     if (!isConfigurable) return;
+    setSelectionEdited(true);
     const serverFeatures = allFeatures.filter((f) => f.server_id === serverId);
     const allSelected = serverFeatures.every((f) => selectedFeatureIds.has(f.id));
     
@@ -224,6 +245,7 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
    */
   const toggleAllFeatures = () => {
     if (!isConfigurable || allFeatures.length === 0) return;
+    setSelectionEdited(true);
 
     if (areAllFeaturesSelected) {
       setSelectedFeatureIds(new Set());
@@ -272,6 +294,55 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
     editDescription.trim() !== (featureSet.description ?? '') ||
     editIcon.trim() !== (featureSet.icon ?? '');
 
+  /**
+   * Switch the set into or out of auto mode. Turning it on replaces the
+   * current selection, so it asks first; turning it off keeps what the set
+   * granted as an editable list.
+   * @param enabled - The new auto-mode value.
+   */
+  const handleAutoToggle = async (enabled: boolean) => {
+    if (
+      enabled &&
+      !(await confirm({
+        title: t('auto.confirmTitle'),
+        message: t('auto.confirmMessage', { name: featureSet.name }),
+        confirmLabel: t('auto.confirmLabel'),
+        cancelLabel: t('common:actions.cancel'),
+      }))
+    ) {
+      return;
+    }
+    setIsTogglingAuto(true);
+    setError(null);
+    try {
+      await setFeatureSetAutoInclude(featureSet.id, enabled);
+      setAutoInclude(enabled);
+      setSelectionEdited(false);
+      if (enabled) setSelectedFeatureIds(new Set(allFeatures.map((f) => f.id)));
+      success(
+        enabled ? t('auto.toastOnTitle') : t('auto.toastOffTitle'),
+        enabled
+          ? t('auto.toastOnBody', { name: featureSet.name })
+          : t('auto.toastOffBody', { name: featureSet.name })
+      );
+      onUpdate?.();
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      setError(errorMsg);
+      showError(t('auto.toastFailed'), errorMsg);
+    } finally {
+      setIsTogglingAuto(false);
+    }
+  };
+
+  // Tools (not prompts/resources) the current selection would serve: the
+  // number AI apps feel, compared against the size warning.
+  const selectedToolCount = allFeatures.filter(
+    (f) => f.feature_type === 'tool' && f.is_available && selectedFeatureIds.has(f.id)
+  ).length;
+  const toolThreshold = starterSummary?.threshold;
+  const overToolThreshold = toolThreshold !== undefined && selectedToolCount > toolThreshold;
+
   const handleSave = async () => {
     setIsSaving(true);
     setError(null);
@@ -285,6 +356,8 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
       }));
       
       await setFeatureSetMembers(featureSet.id, members);
+      setAutoInclude(false);
+      setSelectionEdited(false);
 
       success(
         t('toast.changesSaved'),
@@ -497,6 +570,64 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
               </div>
             )}
           </div>
+
+          {/* Auto mode: every server's tools, including servers added later.
+              Offered on the Starter (the onboarding default); a custom set
+              only shows it while it's already in auto mode. */}
+          {(isStarter || autoInclude) && (
+            <div
+              className={`rounded-xl border-2 p-4 ${
+                autoInclude
+                  ? 'border-emerald-300 bg-emerald-50/60 dark:border-emerald-700/60 dark:bg-emerald-900/15'
+                  : 'border-[rgb(var(--border))] bg-[rgb(var(--background))]'
+              }`}
+              data-testid="featureset-auto-card"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <Zap
+                    className={`mt-0.5 h-5 w-5 flex-shrink-0 ${
+                      autoInclude
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-[rgb(var(--muted))]'
+                    }`}
+                  />
+                  <div>
+                    <p className="text-sm font-semibold">{t('auto.title')}</p>
+                    <p className="mt-0.5 text-xs text-[rgb(var(--muted))]">
+                      {autoInclude ? t('auto.onHint') : t('auto.offHint')}
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={autoInclude}
+                  onCheckedChange={handleAutoToggle}
+                  disabled={isTogglingAuto || isSaving}
+                  data-testid="featureset-auto-switch"
+                />
+              </div>
+            </div>
+          )}
+
+          {overToolThreshold && (
+            <div
+              className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700/60 dark:bg-amber-900/20"
+              data-testid="featureset-panel-tools-warning"
+            >
+              <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  {t('auto.warningTitle', { count: selectedToolCount, threshold: toolThreshold })}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+                  {t('auto.warningBody')}
+                </p>
+                <div className="mt-2">
+                  <MuxPromptCode testId="featureset-panel-tools-warning-copy" />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Feature Selection Section */}
           <div className="bg-[rgb(var(--background))] rounded-xl border-2 border-[rgb(var(--border))] overflow-hidden">
@@ -786,10 +917,19 @@ export function FeatureSetPanel({ featureSet, spaceId, onClose, onDelete, onUpda
           </Button>
         )}
         
+        {autoInclude && selectionEdited && (
+          <span
+            className="text-xs text-amber-700 dark:text-amber-300"
+            data-testid="featureset-save-leaves-auto"
+          >
+            {t('auto.saveLeavesAuto')}
+          </span>
+        )}
+
         {isConfigurable && (
           <Button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || (autoInclude && !selectionEdited)}
             className="w-full flex-1"
             data-testid="featureset-panel-save-changes"
           >
