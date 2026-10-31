@@ -428,7 +428,11 @@ jobs:
   # ─────────────────────────────────────────────────────────────
   e2e-web:
     needs: [ts-check]
-    runs-on: ubuntu-latest
+    # ponytail: ubuntu-latest is 26.04, which Playwright can't install chromium
+    # on. This only surfaces when the Playwright cache key changes (a lockfile
+    # change), because a cache hit skips the install. Unpin when Playwright
+    # supports 26.04.
+    runs-on: ubuntu-24.04
     # The suite is stale (see TODO below): 123 tests, one worker, two retries.
     # It did not finish in 20 minutes. Cap it so a bad run cannot sit for the
     # 6h default.
