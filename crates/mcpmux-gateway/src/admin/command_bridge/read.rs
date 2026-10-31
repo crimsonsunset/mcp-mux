@@ -864,11 +864,6 @@ const META_TOOLS_REQUIRE_APPROVAL_KEY: &str = "meta_tools.require_approval";
 const UPDATE_CHANNEL_KEY: &str = "updates.channel";
 const AUTO_INSTALL_UPDATES_KEY: &str = "updates.auto_install";
 
-/// Registry categories are bundle-derived; ADR-001 keeps categories client-side in filters.
-pub async fn list_registry_categories(_ctx: &AdminBridgeCtx) -> Result<Value> {
-    Ok(Value::Array(vec![]))
-}
-
 pub async fn list_space_base_dirs(ctx: &AdminBridgeCtx, space_id: String) -> Result<Value> {
     let space_uuid = Uuid::parse_str(&space_id)?;
     let rows = ctx

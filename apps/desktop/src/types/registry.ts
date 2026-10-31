@@ -163,13 +163,6 @@ export interface ServerViewModel extends ServerDefinition {
   version_checked_at?: string | null;
 }
 
-/** Registry category */
-export interface RegistryCategory {
-  id: string;
-  name: string;
-  icon: string | null;
-}
-
 // ============================================
 // UI Configuration Types (API-driven)
 // ============================================

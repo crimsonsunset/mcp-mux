@@ -1121,6 +1121,7 @@ pub fn run() {
             commands::refresh_oauth_tokens_on_startup,
             // OAuth commands
             commands::approve_oauth_consent,
+            commands::reject_oauth_consent,
             commands::get_pending_consent,
             commands::flush_pending_deep_link,
             commands::get_oauth_clients,

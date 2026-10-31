@@ -192,10 +192,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::get_registry_home_config),
         )
         .route("/api/v1/registry/offline", get(read::is_registry_offline))
-        .route(
-            "/api/v1/registry/categories",
-            get(read::list_registry_categories),
-        )
         .route("/api/v1/registry/refresh", post(write::refresh_registry))
         .route(
             "/api/v1/clients",

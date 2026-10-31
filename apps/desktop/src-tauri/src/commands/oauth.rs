@@ -429,6 +429,21 @@ pub async fn approve_oauth_consent(
     mcpmux_gateway::oauth::approve_oauth_consent(gw_state, request).await
 }
 
+/// Deny an OAuth consent request. Forces `approved = false` whatever the caller
+/// sent, mirroring the web admin's `POST /api/v1/oauth/consent/reject`.
+#[tauri::command]
+pub async fn reject_oauth_consent(
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+    request: ConsentApprovalRequest,
+) -> Result<ConsentApprovalResponse, String> {
+    let request = ConsentApprovalRequest {
+        approved: false,
+        client_alias: None,
+        ..request
+    };
+    approve_oauth_consent(gateway_state, request).await
+}
+
 /// Get list of connected OAuth clients (direct service access)
 #[tauri::command]
 pub async fn get_oauth_clients(

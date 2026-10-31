@@ -671,15 +671,6 @@ pub async fn list_clone_dependents(
         .map_err(ApiError::from_bridge)
 }
 
-pub async fn list_registry_categories(
-    State(state): State<AdminState>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::list_registry_categories(&state.bridge)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
 pub async fn list_space_base_dirs(
     State(state): State<AdminState>,
     Path(space_id): Path<String>,
