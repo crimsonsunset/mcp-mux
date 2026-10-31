@@ -2,6 +2,10 @@
 //!
 //! Tests for OAuth flows, token management, DCR, and HTTP interactions.
 
+mod endpoint_policy;
+
+mod cimd;
 mod dcr;
+mod dcr_outbound;
 mod flow;
 mod token;

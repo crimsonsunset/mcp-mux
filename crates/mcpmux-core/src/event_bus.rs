@@ -114,6 +114,13 @@ impl EventSender {
         Self { sender }
     }
 
+    /// Wrap an existing broadcast channel, e.g. the gateway's own
+    /// `DomainEvent` channel, so application services emit directly to the
+    /// consumers listening on it (MCPNotifier and friends).
+    pub fn from_broadcast(sender: broadcast::Sender<DomainEvent>) -> Self {
+        Self::new(sender)
+    }
+
     /// Emit a domain event
     ///
     /// Returns the number of receivers that received the event.

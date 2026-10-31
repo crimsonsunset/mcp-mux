@@ -192,10 +192,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(read::get_registry_home_config),
         )
         .route("/api/v1/registry/offline", get(read::is_registry_offline))
-        .route(
-            "/api/v1/registry/categories",
-            get(read::list_registry_categories),
-        )
         .route("/api/v1/registry/refresh", post(write::refresh_registry))
         .route(
             "/api/v1/clients",
@@ -247,6 +243,23 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/v1/feature-sets/{id}/members",
             post(write::add_feature_set_member).put(write::set_feature_set_members),
+        )
+        .route(
+            "/api/v1/feature-sets/{id}/auto-include",
+            put(write::set_feature_set_auto_include),
+        )
+        .route(
+            "/api/v1/spaces/{space_id}/starter-tool-summary",
+            get(read::get_starter_tool_summary),
+        )
+        .route(
+            "/api/v1/settings/gateway-auth-disabled",
+            get(read::get_gateway_auth_disabled),
+        )
+        .route(
+            "/api/v1/settings/starter-auto-include",
+            get(read::get_starter_auto_include_default)
+                .put(write::set_starter_auto_include_default),
         )
         .route(
             "/api/v1/feature-sets/{id}/members/{member_id}",
@@ -424,10 +437,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/v1/servers/clones/dependents",
             get(read::list_clone_dependents),
         )
-        .route(
-            "/api/v1/config-export/preview",
-            get(read::preview_config_export),
-        )
         .route("/api/v1/config-export/paths", get(read::get_config_paths))
         .route(
             "/api/v1/config-export/check",
@@ -436,10 +445,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route(
             "/api/v1/config-export/backup",
             post(write::backup_existing_config),
-        )
-        .route(
-            "/api/v1/config-export/export",
-            post(write::export_config_to_file),
         )
         .route("/api/v1/cursor-hook", get(read::cursor_hook_status))
         .route(

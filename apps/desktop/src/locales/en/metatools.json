@@ -13,8 +13,8 @@
       "emptyDelta": "—"
     },
     "deny": "Deny",
-    "alwaysForSession": "Always for this session",
-    "alwaysForSessionTitle": "Allow this (client, tool) pair without prompting again until the gateway restarts",
+    "alwaysForSession": "Always (until restart)",
+    "alwaysForSessionTitle": "Allow this app to make this kind of change in this Space without asking again until McpMux restarts",
     "allowOnce": "Allow once",
     "spaceLabel": "Space:",
     "manageLink": "Don't ask again — manage approval prompts",
@@ -31,7 +31,8 @@
     "loading": "Loading…",
     "empty": "No auto-approvals yet. Each dialog defaults to \"Allow once\".",
     "clientPrefix": "client {{id}}…",
-    "revoke": "Revoke"
+    "revoke": "Revoke",
+    "spaceSuffix": "space {{name}}"
   },
   "audit": {
     "title": "Recent meta-tool activity",

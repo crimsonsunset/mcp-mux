@@ -41,10 +41,9 @@ describe('Connections - Page shell', () => {
 
       const pageSource = await browser.getPageSource();
 
-      // Positive: the new panel exposes the Workspaces entry point.
-      const hasWorkspacesLink =
-        pageSource.includes('Open Workspaces') || pageSource.includes('workspace-driven');
-      expect(hasWorkspacesLink).toBe(true);
+      // Positive: every client panel links to Projects, where its routing is configured.
+      const openProjects = await byTestId('client-open-workspaces-btn');
+      expect(await openProjects.isDisplayed()).toBe(true);
 
       // Negative: all removed per-client routing sections must be gone.
       expect(pageSource.includes('Quick Settings')).toBe(false);
@@ -52,9 +51,12 @@ describe('Connections - Page shell', () => {
       expect(pageSource.includes('Effective Features')).toBe(false);
       expect(pageSource.includes('Advanced Permissions')).toBe(false);
     } else {
-      // Empty-state path: ConnectIDEs onboarding must render instead.
-      const pageSource = await browser.getPageSource();
-      expect(pageSource.includes("Let's hook up your first IDE")).toBe(true);
+      // Empty-state path: the "Connect your first AI app" onboarding and the
+      // ConnectIDEs grid must render instead.
+      const onboarding = await byTestId('clients-empty-onboarding');
+      expect(await onboarding.isDisplayed()).toBe(true);
+      const ideGrid = await byTestId('client-grid');
+      expect(await ideGrid.isDisplayed()).toBe(true);
     }
   });
 

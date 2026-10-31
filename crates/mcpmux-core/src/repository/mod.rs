@@ -237,6 +237,14 @@ pub trait FeatureSetRepository: Send + Sync {
 
     /// Get all individual feature members of a feature set
     async fn get_feature_members(&self, feature_set_id: &str) -> RepoResult<Vec<FeatureSetMember>>;
+
+    /// Switch a FeatureSet into or out of auto mode.
+    ///
+    /// Turning it on drops the explicit members (an auto set grants every
+    /// feature in its Space). Turning it off writes every feature currently in
+    /// the Space as an explicit include, so the user starts editing from what
+    /// the set granted a moment ago rather than from nothing.
+    async fn set_auto_include(&self, feature_set_id: &str, enabled: bool) -> RepoResult<()>;
 }
 
 /// Inbound MCP Client repository trait
@@ -468,6 +476,17 @@ pub trait OutboundOAuthRepository: Send + Sync {
         space_id: &Uuid,
         server_id: &str,
     ) -> RepoResult<Option<OutboundOAuthRegistration>>;
+
+    /// Get only the client_id of the registration for a (space, server) combination.
+    ///
+    /// The credential store calls this before every outbound request, so storage
+    /// can override it to skip decrypting the client secret.
+    async fn get_client_id(&self, space_id: &Uuid, server_id: &str) -> RepoResult<Option<String>> {
+        Ok(self
+            .get(space_id, server_id)
+            .await?
+            .map(|registration| registration.client_id))
+    }
 
     /// Save or update registration
     async fn save(&self, registration: &OutboundOAuthRegistration) -> RepoResult<()>;

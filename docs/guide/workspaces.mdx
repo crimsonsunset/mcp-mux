@@ -32,13 +32,13 @@ Because routing is driven by the reported folder, it is decided **per session, n
 
 ## Creating a mapping
 
-Open the **Workspaces** tab and click **Add mapping**:
+Open the **Projects** tab and click **Add mapping**:
 
 - **Workspace folder** — browse for a folder or paste an absolute path. Accepts `/unix`, `C:\windows`, and `file://` forms.
 - **Space** — the profile whose servers and credentials this folder draws from.
 - **FeatureSet** — the curated bundle of tools this folder is allowed to use. Pick one, or combine several into a single effective set.
 
-Unmapped folders receive no tools until you map them — an explicit, fail-closed default so a new project never silently inherits another's access.
+Unmapped folders receive no tools until you map them — an explicit, fail-closed default so a new project never silently inherits another's access. When an app opens an unmapped folder, McpMux offers to map it on the spot.
 
 ## Machine-scoped bindings
 
@@ -62,9 +62,17 @@ The FeatureSet you pick is the exact toolset the folder resolves to — choose w
 
 ![The FeatureSet a folder resolves to — pick exactly which tools each server contributes](https://mcpmux.com/screenshots/featureset-detail.png)
 
+## Mapping a client instead of a folder
+
+Headless, remote, and CI clients don't open a folder. Register them under **Clients → Register client (API key)** with a name — McpMux issues an API key. Issue as many keys as you need (one per machine or job); every key signs in as that client, so they all get the same tools once you map it:
+
+**API keys → client → FeatureSets**
+
+To give a client tools, open **Projects**, click **Add mapping**, switch the key type to a client ID, and pick its FeatureSets. A client locked to a Space can only be mapped within that Space.
+
 ## Let the AI map it for you
 
-You don't have to open the Workspaces tab at all. With [Tool Optimization](/docs/tool-optimization/), an assistant can compose a FeatureSet and pin the current folder to it from chat:
+You don't have to open the Projects tab at all. With [Tool Optimization](/docs/tool-optimization/), an assistant can compose a FeatureSet and pin the current folder to it from chat:
 
 > *"@mux build a minimal toolset for this Next.js repo and pin it to this folder."*
 

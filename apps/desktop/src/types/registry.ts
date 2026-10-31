@@ -81,6 +81,7 @@ export type AuthConfig =
   | { type: 'none' }
   | { type: 'api_key'; instructions: string | null }
   | { type: 'optional_api_key'; instructions: string | null }
+  | { type: 'basic'; instructions: string | null }
   | { type: 'oauth' };
 
 /** Installation source - tracks how the server was installed */
@@ -161,13 +162,6 @@ export interface ServerViewModel extends ServerDefinition {
   current_version?: string | null;
   /** When the version probe last ran for this install. */
   version_checked_at?: string | null;
-}
-
-/** Registry category */
-export interface RegistryCategory {
-  id: string;
-  name: string;
-  icon: string | null;
 }
 
 // ============================================

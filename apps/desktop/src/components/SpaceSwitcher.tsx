@@ -76,7 +76,7 @@ export function SpaceSwitcher({ className = '' }: SpaceSwitcherProps) {
         type="button"
         data-testid="space-switcher"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] hover:bg-[rgb(var(--surface-hover))] hover:border-[rgb(var(--primary))/30] transition-all duration-150 group"
+        className="group flex w-full items-center justify-between gap-2 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-3 py-2.5 transition-all duration-150 hover:border-[rgb(var(--primary))/30] hover:bg-[rgb(var(--surface-hover))]"
       >
         <span className="flex items-center gap-3 min-w-0">
           {isLoadingSpaces && spaces.length === 0 ? (

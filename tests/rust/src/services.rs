@@ -7,12 +7,12 @@ use std::sync::Arc;
 use mcpmux_core::DomainEvent;
 use tokio::sync::broadcast;
 
-use mcpmux_gateway::pool::{FeatureService, ServerManager};
+use mcpmux_gateway::pool::{FeatureService, PoolService, ServerManager, TokenService};
 use mcpmux_gateway::services::PrefixCacheService;
 
 use crate::mocks::{
-    MockCredentialRepository, MockFeatureSetRepository, MockOutboundOAuthRepository,
-    MockServerFeatureRepository,
+    MockCredentialRepository, MockFeatureSetRepository, MockInstalledServerRepository,
+    MockOutboundOAuthRepository, MockServerFeatureRepository,
 };
 
 /// Test harness for ServerManager
@@ -133,6 +133,34 @@ fn create_mock_connection_service(
         credential_repo,
         oauth_repo,
         prefix_cache,
+    ))
+}
+
+/// Create a standalone PoolService backed by mock repositories.
+///
+/// Nothing is connected; callers drive `connect_server` / `shutdown` directly.
+pub fn test_pool_service() -> Arc<PoolService> {
+    let credential_repo = Arc::new(MockCredentialRepository::new());
+    let oauth_repo = Arc::new(MockOutboundOAuthRepository::new());
+    let prefix_cache = test_prefix_cache();
+    let feature_service = Arc::new(FeatureService::new(
+        Arc::new(MockServerFeatureRepository::new()),
+        Arc::new(MockFeatureSetRepository::new()),
+        prefix_cache.clone(),
+    ));
+    let token_service = Arc::new(TokenService::new(
+        credential_repo.clone(),
+        oauth_repo.clone(),
+    ));
+    let connection_service =
+        create_mock_connection_service(credential_repo, oauth_repo, prefix_cache);
+
+    Arc::new(PoolService::new(
+        connection_service,
+        feature_service,
+        token_service,
+        Arc::new(MockInstalledServerRepository::new()),
+        None,
     ))
 }
 

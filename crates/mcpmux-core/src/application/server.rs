@@ -13,13 +13,17 @@ use crate::domain::{
     ServerDefinition, ServerSource, UpdatePolicy,
 };
 use crate::event_bus::EventSender;
-use crate::repository::{CredentialRepository, InstalledServerRepository, ServerFeatureRepository};
+use crate::repository::{
+    CredentialRepository, InstalledServerRepository, OutboundOAuthRepository,
+    ServerFeatureRepository,
+};
 
 /// Application service for server installation and management
 pub struct ServerAppService {
     server_repo: Arc<dyn InstalledServerRepository>,
     feature_repo: Option<Arc<dyn ServerFeatureRepository>>,
     credential_repo: Option<Arc<dyn CredentialRepository>>,
+    outbound_oauth_repo: Option<Arc<dyn OutboundOAuthRepository>>,
     event_sender: EventSender,
 }
 
@@ -34,8 +38,16 @@ impl ServerAppService {
             server_repo,
             feature_repo,
             credential_repo,
+            outbound_oauth_repo: None,
             event_sender,
         }
+    }
+
+    /// Also delete the server's OAuth client registration on uninstall. It may
+    /// hold a client secret the authorization server still accepts.
+    pub fn with_outbound_oauth_repo(mut self, repo: Arc<dyn OutboundOAuthRepository>) -> Self {
+        self.outbound_oauth_repo = Some(repo);
+        self
     }
 
     /// List all installed servers
@@ -155,6 +167,18 @@ impl ServerAppService {
                     server_id = server_id,
                     error = %e,
                     "Failed to delete server credentials"
+                );
+            }
+        }
+
+        // Delete the OAuth client registration. Logout keeps it so the next sign-in
+        // can reuse the client; uninstalling shouldn't leave its client secret behind.
+        if let Some(ref oauth_repo) = self.outbound_oauth_repo {
+            if let Err(e) = oauth_repo.delete(&space_id, server_id).await {
+                warn!(
+                    server_id = server_id,
+                    error = %e,
+                    "Failed to delete OAuth client registration"
                 );
             }
         }
@@ -992,7 +1016,7 @@ mod tests {
 
     /// In-memory stand-in for the SQLite rename transaction (installed row + cloned_from).
     fn apply_in_memory_rename(
-        servers: &mut Vec<InstalledServer>,
+        servers: &mut [InstalledServer],
         space_id: &str,
         old_server_id: &str,
         new_server_id: &str,

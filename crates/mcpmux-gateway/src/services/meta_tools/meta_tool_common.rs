@@ -266,24 +266,48 @@ pub(crate) async fn build_search_server_enrichment(
 /// mutation. Returns the broker's decision so the caller can proceed only
 /// on success. `mutate` is the thing that runs post-approval and is
 /// expected to emit `tools/list_changed` when relevant.
+///
+/// `space_id` is the Space the write targets: it is shown in the dialog and
+/// scopes any "always allow" grant, so approving writes to one Space never
+/// approves another. The dialog also shows the call's arguments verbatim.
 pub(crate) async fn with_approval<F, Fut, T>(
     call: &MetaToolCall<'_>,
     tool_name: &'static str,
+    space_id: Option<Uuid>,
     summary: String,
     diff: Option<Value>,
     affects_other_clients: bool,
-    raw_args: Value,
     mutate: F,
 ) -> Result<T, MetaToolError>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, MetaToolError>>,
 {
+    let space_name = match space_id {
+        Some(id) => call
+            .ctx
+            .space_repo
+            .get(&id)
+            .await
+            .ok()
+            .flatten()
+            .map(|space| space.name),
+        None => None,
+    };
     let payload = ApprovalPayload {
         tool_name: tool_name.to_string(),
         summary,
+        space_name,
+        space_id,
         diff,
-        raw_args,
+        action: call
+            .args
+            .get("action")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        // Decided by the broker.
+        allow_always: false,
+        raw_args: call.args.clone(),
         affects_other_clients,
     };
     call.ctx

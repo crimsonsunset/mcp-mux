@@ -84,6 +84,7 @@ struct TestGateway {
     services: Arc<ServiceContainer>,
     feature_repo: Arc<MockServerFeatureRepository>,
     feature_set_repo: Arc<MockFeatureSetRepository>,
+    space_repo: Arc<dyn mcpmux_core::SpaceRepository>,
 }
 
 impl TestGateway {
@@ -191,7 +192,7 @@ impl TestGateway {
 
         // Override space_repo and inbound_client_repo in deps
         let deps = mcpmux_gateway::server::GatewayDependencies {
-            space_repo: space_repo as Arc<dyn mcpmux_core::SpaceRepository>,
+            space_repo: space_repo.clone() as Arc<dyn mcpmux_core::SpaceRepository>,
             inbound_client_repo,
             ..deps
         };
@@ -283,6 +284,7 @@ impl TestGateway {
             services,
             feature_repo,
             feature_set_repo,
+            space_repo,
         }
     }
 
@@ -453,6 +455,36 @@ async fn authless_anonymous_client_completes_real_initialize() {
         tools.is_ok(),
         "anonymous client must complete the handshake when auth is disabled"
     );
+
+    client.cancel().await.ok();
+    gw.shutdown();
+}
+
+/// Through the real middleware with auth off, a tokenless client only sees
+/// and targets the default Space.
+#[tokio::test(flavor = "multi_thread")]
+async fn authless_client_is_confined_to_the_default_space() {
+    let space_id = Uuid::new_v4();
+    let gw = TestGateway::start_authless(space_id).await;
+    let other = mcpmux_core::Space::new("Other Space");
+    gw.space_repo.create(&other).await.unwrap();
+
+    let client = connect_client(&gw.url, GatewayTestClient::new()).await;
+
+    // The fork's meta-tools take no Space argument; the Space is whatever the
+    // caller resolves to. A tokenless caller must resolve to the default Space,
+    // never the other one that exists beside it.
+    let result = client
+        .call_tool(CallToolRequestParams::new("mcpmux_list_feature_sets"))
+        .await
+        .unwrap();
+    let raw = serde_json::to_value(&result).unwrap();
+    let body: serde_json::Value = raw["content"][0]["text"]
+        .as_str()
+        .and_then(|t| serde_json::from_str(t).ok())
+        .unwrap_or(raw);
+    assert_eq!(body["space_id"], space_id.to_string(), "{body}");
+    assert_ne!(body["space_id"], other.id.to_string());
 
     client.cancel().await.ok();
     gw.shutdown();

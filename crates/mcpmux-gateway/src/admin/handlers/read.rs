@@ -35,6 +35,8 @@ pub struct ValidateRootQuery {
 pub struct EffectiveFeaturesQuery {
     pub workspace_root: String,
     pub machine_id: Option<String>,
+    /// `id` looks the key up verbatim as a client-id mapping; default is a folder path.
+    pub binding_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,8 +48,15 @@ pub struct IconPathQuery {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerLogsQuery {
+    pub space_id: String,
     pub limit: Option<usize>,
     pub level_filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerLogScopeQuery {
+    pub space_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,15 +104,6 @@ pub struct CloneSuggestQuery {
 pub struct CloneDependentsQuery {
     pub space_id: String,
     pub source_server_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConfigExportPreviewQuery {
-    pub client_type: String,
-    pub space_id: String,
-    #[serde(default)]
-    pub mask_credentials: bool,
 }
 
 fn ok(value: Value) -> Json<Value> {
@@ -415,10 +415,15 @@ pub async fn get_workspace_effective_features(
     State(state): State<AdminState>,
     Query(query): Query<EffectiveFeaturesQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_workspace_effective_features(&state.bridge, query.workspace_root, query.machine_id)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
+    bridge::get_workspace_effective_features(
+        &state.bridge,
+        query.workspace_root,
+        query.machine_id,
+        query.binding_type,
+    )
+    .await
+    .map(ok)
+    .map_err(ApiError::from_bridge)
 }
 
 pub async fn list_workspace_appearances(
@@ -533,17 +538,24 @@ pub async fn get_server_logs(
     Path(server_id): Path<String>,
     Query(query): Query<ServerLogsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_server_logs(&state.bridge, server_id, query.limit, query.level_filter)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
+    bridge::get_server_logs(
+        &state.bridge,
+        server_id,
+        query.space_id,
+        query.limit,
+        query.level_filter,
+    )
+    .await
+    .map(ok)
+    .map_err(ApiError::from_bridge)
 }
 
 pub async fn get_server_log_file(
     State(state): State<AdminState>,
     Path(server_id): Path<String>,
+    Query(query): Query<ServerLogScopeQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_server_log_file(&state.bridge, server_id)
+    bridge::get_server_log_file(&state.bridge, server_id, query.space_id)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
@@ -671,15 +683,6 @@ pub async fn list_clone_dependents(
         .map_err(ApiError::from_bridge)
 }
 
-pub async fn list_registry_categories(
-    State(state): State<AdminState>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::list_registry_categories(&state.bridge)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
-}
-
 pub async fn list_space_base_dirs(
     State(state): State<AdminState>,
     Path(space_id): Path<String>,
@@ -721,6 +724,34 @@ pub async fn get_auto_install_updates(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn get_gateway_auth_disabled(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_gateway_auth_disabled(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn get_starter_auto_include_default(
+    State(state): State<AdminState>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_starter_auto_include_default(&state.bridge)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn get_starter_tool_summary(
+    State(state): State<AdminState>,
+    Path(space_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::get_starter_tool_summary(&state.bridge, space_id)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn get_update_channel(State(state): State<AdminState>) -> Result<Json<Value>, ApiError> {
     bridge::get_update_channel(&state.bridge)
         .await
@@ -735,21 +766,6 @@ pub async fn get_workspace_mapping_prompt_enabled(
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
-}
-
-pub async fn preview_config_export(
-    State(state): State<AdminState>,
-    Query(query): Query<ConfigExportPreviewQuery>,
-) -> Result<Json<Value>, ApiError> {
-    bridge::preview_config_export(
-        &state.bridge,
-        query.client_type,
-        query.space_id,
-        query.mask_credentials,
-    )
-    .await
-    .map(ok)
-    .map_err(ApiError::from_bridge)
 }
 
 pub async fn get_config_paths(State(_state): State<AdminState>) -> Result<Json<Value>, ApiError> {

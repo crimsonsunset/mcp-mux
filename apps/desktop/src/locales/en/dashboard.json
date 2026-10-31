@@ -116,6 +116,8 @@
     "pendingApprovals_other": "{{count}} clients waiting for approval",
     "pendingApprovalsDesc": "Review and approve to let them through.",
     "connectHeading": "Connect a client",
-    "connectDesc": "VS Code & Cursor are one-click. The rest copy a config you paste into your IDE's MCP settings. Either path ends with an approval prompt here."
+    "connectDesc": "VS Code & Cursor are one-click. The rest copy a config you paste into your IDE's MCP settings.",
+    "connectDescApproval": "Either path ends with an approval prompt here.",
+    "connectDescNoKey": "Either way the app connects right away — no access key needed."
   }
 }

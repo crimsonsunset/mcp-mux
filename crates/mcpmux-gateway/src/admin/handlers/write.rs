@@ -1,16 +1,17 @@
 //! Write admin REST handlers delegating to command bridge functions.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::read::ServerLogScopeQuery;
 use crate::admin::command_bridge::read as read_bridge;
 use crate::admin::command_bridge::space::UpdateSpaceInput;
 use crate::admin::command_bridge::write as bridge;
 use crate::admin::command_bridge::write::{
-    AddMemberBody, BuiltinServerEnabledBody, BuiltinToolEnabledBody, CloneServerBody,
-    CreateClientBody, CreateFeatureSetBody, CreateMachineBody, CreateSpaceBody,
+    AddMemberBody, AutoIncludeBody, BuiltinServerEnabledBody, BuiltinToolEnabledBody,
+    CloneServerBody, CreateClientBody, CreateFeatureSetBody, CreateMachineBody, CreateSpaceBody,
     DisconnectServerBody, GatewayPortBody, GatewayPublicUrlBody, GatewayStartBody,
     InstallServerBody, LogRetentionBody, MetaToolApprovalBody, MetaToolRevokeBody,
     MetaToolsEnabledBody, MetaToolsRequireApprovalBody, OAuthClientUpdateBody, OAuthGrantBody,
@@ -32,18 +33,6 @@ fn ok(value: Value) -> Json<Value> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ConfigExportClientTypeBody {
     client_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ExportConfigRequestBody {
-    client_type: String,
-    space_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ConfigExportToFileBody {
-    request: ExportConfigRequestBody,
-    path: String,
 }
 
 pub async fn create_space(
@@ -403,6 +392,27 @@ pub async fn set_feature_set_members(
         .map_err(ApiError::from_bridge)
 }
 
+pub async fn set_feature_set_auto_include(
+    State(state): State<AdminState>,
+    Path(id): Path<String>,
+    Json(body): Json<AutoIncludeBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_feature_set_auto_include(&state.bridge, id, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
+pub async fn set_starter_auto_include_default(
+    State(state): State<AdminState>,
+    Json(body): Json<AutoIncludeBody>,
+) -> Result<Json<Value>, ApiError> {
+    bridge::set_starter_auto_include_default(&state.bridge, body)
+        .await
+        .map(ok)
+        .map_err(ApiError::from_bridge)
+}
+
 pub async fn create_client(
     State(state): State<AdminState>,
     Json(body): Json<CreateClientBody>,
@@ -587,8 +597,9 @@ pub async fn set_meta_tools_enabled(
 pub async fn clear_server_logs(
     State(state): State<AdminState>,
     Path(server_id): Path<String>,
+    Query(query): Query<ServerLogScopeQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::clear_server_logs(&state.bridge, server_id)
+    bridge::clear_server_logs(&state.bridge, server_id, query.space_id)
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
@@ -817,21 +828,6 @@ pub async fn backup_existing_config(
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
-}
-
-pub async fn export_config_to_file(
-    State(state): State<AdminState>,
-    Json(body): Json<ConfigExportToFileBody>,
-) -> Result<Json<Value>, ApiError> {
-    read_bridge::export_config_to_file(
-        &state.bridge,
-        body.request.client_type,
-        body.request.space_id,
-        body.path,
-    )
-    .await
-    .map(ok)
-    .map_err(ApiError::from_bridge)
 }
 
 /// Install or update the managed Cursor `preToolUse` hook on this gateway host.

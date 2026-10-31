@@ -40,6 +40,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Zap,
 } from 'lucide-react';
 import {
   useAppStore,
@@ -99,6 +100,7 @@ import {
   listWorkspaceBindings,
   deleteWorkspaceBinding,
 } from '@/lib/api/workspaceBindings';
+import { getStarterAutoIncludeDefault, setStarterAutoIncludeDefault } from '@/lib/api/featureSets';
 
 interface GatewayPublicUrlSettings {
   configuredPublicBaseUrl: string | null;
@@ -170,6 +172,8 @@ export function SettingsPage() {
   // opens an unmapped folder. On by default.
   const [mappingPromptEnabled, setMappingPromptEnabled] = useState(true);
   const [savingMappingPrompt, setSavingMappingPrompt] = useState(false);
+  const [starterAutoInclude, setStarterAutoInclude] = useState(true);
+  const [savingStarterAuto, setSavingStarterAuto] = useState(false);
 
   // System-wide inbound auth toggle. When disabled, local apps connect to the
   // gateway with no access key — used by the one-click per-workspace install.
@@ -378,6 +382,7 @@ export function SettingsPage() {
       const activeAdvertised = publicUrlSettings?.activePublicBaseUrl ?? null;
       const desiredAdvertised = parsed.publicBaseUrl ?? publicUrlSettings?.localBaseUrl ?? null;
       await loadPublicUrlSettings();
+      await loadAuthDisabled();
       success(
         parsed.publicBaseUrl ? 'Public URL saved' : 'Public URL cleared',
         activeAdvertised && desiredAdvertised && activeAdvertised !== desiredAdvertised
@@ -400,6 +405,7 @@ export function SettingsPage() {
     try {
       await invoke('reset_gateway_public_base_url');
       await loadPublicUrlSettings();
+      await loadAuthDisabled();
       success('Public URL cleared', 'Restart the gateway to return OAuth metadata to localhost.');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -516,12 +522,59 @@ export function SettingsPage() {
     }
   };
 
-  // Load the system-wide inbound-auth toggle on mount.
+  // Load the Starter auto-include switch on mount.
   useEffect(() => {
+    getStarterAutoIncludeDefault()
+      .then(setStarterAutoInclude)
+      .catch((err) => console.error('Failed to load Starter auto-include setting:', err));
+  }, []);
+
+  /**
+   * Flip the Starter auto-include default for every Space. Turning it on
+   * replaces hand-picked Starter tools, so it asks first.
+   * @param enabled - The new switch value.
+   */
+  const updateStarterAutoInclude = async (enabled: boolean) => {
+    if (
+      enabled &&
+      !(await confirm({
+        title: t('starterAuto.confirmTitle'),
+        message: t('starterAuto.confirmMessage'),
+        confirmLabel: t('starterAuto.confirmLabel'),
+      }))
+    ) {
+      return;
+    }
+    const prev = starterAutoInclude;
+    setStarterAutoInclude(enabled);
+    setSavingStarterAuto(true);
+    try {
+      await setStarterAutoIncludeDefault(enabled);
+      success(
+        t('toast.settingsSaved'),
+        enabled ? t('toast.starterAutoOnHint') : t('toast.starterAutoOffHint')
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      error(t('toast.failedToSaveSetting'), msg);
+      setStarterAutoInclude(prev);
+    } finally {
+      setSavingStarterAuto(false);
+    }
+  };
+
+  // Load the system-wide inbound-auth toggle on mount, and again whenever network
+  // access or the public URL changes: either one forces authentication on.
+  const loadAuthDisabled = () =>
     invoke<boolean>('get_gateway_auth_disabled')
       .then(setAuthDisabled)
       .catch((err) => console.error('Failed to load auth setting:', err));
+
+  useEffect(() => {
+    void loadAuthDisabled();
   }, []);
+
+  const exposureConfigured = networkAccess || Boolean(publicUrlSettings?.configuredPublicBaseUrl);
 
   // Load the network-access (0.0.0.0 bind) toggle on mount.
   useEffect(() => {
@@ -536,6 +589,7 @@ export function SettingsPage() {
     setSavingNetworkAccess(true);
     try {
       await invoke('set_gateway_network_access', { enabled });
+      await loadAuthDisabled();
       success(
         t('toast.settingsSaved'),
         enabled ? t('toast.networkAccessOnHint') : t('toast.networkAccessOffHint')
@@ -964,58 +1018,32 @@ export function SettingsPage() {
 
                   {networkAccess ? (
                     <div
-                      className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs ${
-                        authDisabled
-                          ? 'border-red-300 bg-red-50 dark:border-red-700/60 dark:bg-red-900/20'
-                          : 'border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/20'
-                      }`}
+                      className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-700/60 dark:bg-amber-900/20"
                       data-testid="network-access-warning"
                     >
-                      <AlertCircle
-                        className={`mt-0.5 h-4 w-4 flex-shrink-0 ${
-                          authDisabled
-                            ? 'text-red-600 dark:text-red-400'
-                            : 'text-amber-600 dark:text-amber-400'
-                        }`}
-                      />
+                      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                       <div className="flex-1">
-                        {authDisabled ? (
-                          <>
-                            <p className="font-semibold text-red-800 dark:text-red-200">
-                              Exposed without authentication
-                            </p>
-                            <p className="mt-0.5 text-red-700 dark:text-red-300">
-                              Authentication is off and the gateway is reachable on your network —
-                              anyone who can reach this machine can use every connected MCP server
-                              and its stored credentials. Turn authentication back on under
-                              Security, or only enable this on a network you trust.
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="font-semibold text-amber-800 dark:text-amber-200">
-                              Reachable on your network
-                            </p>
-                            <p className="mt-0.5 text-amber-700 dark:text-amber-300">
-                              Connecting clients still need to be approved, but traffic is plain
-                              HTTP — only enable this on a network you trust. From another device,
-                              replace <span className="font-mono">localhost</span> with this
-                              machine's LAN IP, e.g.{' '}
-                              <span className="font-mono">
-                                http://192.168.1.x:
-                                {portSettings.activePort ?? portSettings.defaultPort}/mcp
-                              </span>
-                              .
-                            </p>
-                            <p className="mt-1 text-amber-700 dark:text-amber-300">
-                              Per-client OAuth approval happens on this machine, so a remote
-                              client that signs in via OAuth (e.g. ChatGPT) can't finish approval
-                              over the network yet — front the gateway with the public URL + a
-                              tunnel for that. For plain LAN sharing, pair this with
-                              authentication disabled.
-                            </p>
-                          </>
-                        )}
+                        <p className="font-semibold text-amber-800 dark:text-amber-200">
+                          Reachable on your network
+                        </p>
+                        <p className="mt-0.5 text-amber-700 dark:text-amber-300">
+                          Connecting clients still need to be approved, but traffic is plain HTTP
+                          — only enable this on a network you trust. From another device, replace{' '}
+                          <span className="font-mono">localhost</span> with this machine's LAN IP,
+                          e.g.{' '}
+                          <span className="font-mono">
+                            http://192.168.1.x:
+                            {portSettings.activePort ?? portSettings.defaultPort}/mcp
+                          </span>
+                          .
+                        </p>
+                        <p className="mt-1 text-amber-700 dark:text-amber-300">
+                          Per-client OAuth approval happens on this machine, so a remote client
+                          that signs in via OAuth (e.g. ChatGPT) can't finish approval over the
+                          network yet — front the gateway with the public URL + a tunnel for that.
+                          For plain LAN sharing, register an API-key client under Clients and
+                          connect with its key.
+                        </p>
                       </div>
                       <Button
                         variant="secondary"
@@ -1257,8 +1285,7 @@ export function SettingsPage() {
                   <label className="text-sm font-medium">Ask to map new folders</label>
                   <p className="mt-1 text-xs text-[rgb(var(--muted))]">
                     When a connected app opens a folder you haven't mapped, show a prompt to give
-                    it a specific feature set. The folder already works with your default Starter
-                    set either way.
+                    it a specific feature set. Unmapped folders get no tools until you map them.
                   </p>
                 </div>
               </div>
@@ -1267,6 +1294,22 @@ export function SettingsPage() {
                 onCheckedChange={updateMappingPrompt}
                 disabled={savingMappingPrompt}
                 data-testid="workspace-mapping-prompt-switch"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <Zap className="mt-0.5 h-5 w-5 flex-shrink-0 text-[rgb(var(--muted))]" />
+                <div>
+                  <label className="text-sm font-medium">{t('starterAuto.label')}</label>
+                  <p className="mt-1 text-xs text-[rgb(var(--muted))]">{t('starterAuto.hint')}</p>
+                </div>
+              </div>
+              <Switch
+                checked={starterAutoInclude}
+                onCheckedChange={updateStarterAutoInclude}
+                disabled={savingStarterAuto}
+                data-testid="starter-auto-include-switch"
               />
             </div>
           </CardContent>
@@ -1296,16 +1339,17 @@ export function SettingsPage() {
                 <div>
                   <label className="text-sm font-medium">Disable authentication</label>
                   <p className="mt-1 text-xs text-[rgb(var(--muted))]">
-                    Let local apps connect with no access key — just the URL and a workspace
-                    header. Quickest setup, but any app on this machine can then reach the
-                    gateway.
+                    Let apps on this computer connect with no access key — just the URL. This is
+                    the default while the gateway is only reachable from this computer. Websites
+                    in your browser are blocked either way. Authentication is always on while the
+                    gateway is open to your network or a public URL.
                   </p>
                 </div>
               </div>
               <Switch
-                checked={authDisabled}
+                checked={authDisabled && !exposureConfigured}
                 onCheckedChange={updateAuthDisabled}
-                disabled={savingAuthDisabled}
+                disabled={savingAuthDisabled || exposureConfigured}
                 data-testid="disable-auth-switch"
               />
             </div>

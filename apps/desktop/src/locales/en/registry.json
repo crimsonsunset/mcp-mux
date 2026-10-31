@@ -38,7 +38,8 @@
       "none": "No Auth",
       "apiKey": "API Key",
       "optionalApiKey": "API Key (Optional)",
-      "oauth": "OAuth"
+      "oauth": "OAuth",
+      "basic": "Username & Password"
     },
     "hosting": {
       "local": "Local",
@@ -88,7 +89,8 @@
     "viewJson": "View JSON",
     "close": "Close",
     "install": "Install",
-    "uninstall": "Uninstall"
+    "uninstall": "Uninstall",
+    "authBasic": "🔑 Username & Password Required"
   },
   "installModal": {
     "loading": "Looking up server...",
@@ -109,7 +111,8 @@
     },
     "auth": {
       "oauth": "OAuth",
-      "apiKey": "API Key"
+      "apiKey": "API Key",
+      "basic": "Username & Password"
     },
     "alreadyInstalled": "This server is already installed in the selected space.",
     "installToSpace": "Install to space",

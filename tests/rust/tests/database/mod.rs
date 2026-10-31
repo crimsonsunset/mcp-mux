@@ -10,6 +10,7 @@
 //! - Outbound OAuth repository (server credentials)
 
 mod feature_set;
+mod fork_preservation;
 mod inbound_client;
 mod installed_server;
 mod migrations;

@@ -16,6 +16,7 @@ mod credential_store;
 mod features;
 mod instance;
 mod oauth;
+mod oauth_registration;
 mod oauth_utils;
 mod routing;
 mod server_manager;
@@ -42,6 +43,7 @@ pub use oauth::{
 // SOLID Services
 pub use connection::{ConnectionResult, ConnectionService};
 pub use features::{CachedFeatures, FeatureService, InactiveDiscoveryEntry};
+pub(crate) use routing::match_feature;
 pub use routing::{
     format_direct_call_redirect, format_direct_fetch_prompt_redirect, format_direct_read_redirect,
     format_invoke_permission_denied, format_server_bound_offline_error,
@@ -53,7 +55,9 @@ pub use token::TokenService;
 pub use transport::{ResolvedTransport, Transport, TransportConnectResult, TransportFactory};
 
 // Server Manager (Event-driven orchestrator)
-pub use server_manager::{ConnectResult, ConnectionStatus, ServerKey, ServerManager, ServerState};
+pub use server_manager::{
+    ConnectResult, ConnectionStatus, ServerKey, ServerManager, ServerState, REFUSED_AUTH_URL,
+};
 
 // Service Factory (DRY initialization)
 pub use service_factory::{PoolServices, ServiceFactory};

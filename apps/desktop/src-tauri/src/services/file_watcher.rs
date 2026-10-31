@@ -15,7 +15,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use mcpmux_core::application::{SyncResult, UserSpaceSyncService};
-use mcpmux_core::InstalledServerRepository;
+use mcpmux_core::{InstalledServerRepository, SpaceRepository};
 
 type SyncSuccessHandler = Arc<dyn Fn(&str, &SyncResult) + Send + Sync>;
 type SyncErrorHandler = Arc<dyn Fn(&str, &str) + Send + Sync>;
@@ -45,11 +45,14 @@ impl SpaceFileWatcher {
     /// * `spaces_dir` - Directory containing space JSON config files
     /// * `sync_service` - Service to sync changes
     /// * `default_space_id` - Fallback space ID when filename stem is not a UUID
+    /// * `space_repo` - Used to skip `<space-id>.json` files of Spaces that
+    ///   don't exist
     /// * `emitters` - Optional callbacks for sync success/failure
     pub fn new(
         spaces_dir: PathBuf,
         sync_service: Arc<UserSpaceSyncService>,
         default_space_id: String,
+        space_repo: Arc<dyn SpaceRepository>,
         emitters: SpaceFileWatcherEmitters,
     ) -> Result<Self> {
         // Ensure directory exists
@@ -65,7 +68,7 @@ impl SpaceFileWatcher {
         let space_id = default_space_id.clone();
 
         tokio::spawn(async move {
-            Self::debounced_handler(rx, sync_clone, space_id, emitters).await;
+            Self::debounced_handler(rx, sync_clone, space_id, space_repo, emitters).await;
         });
 
         // Create file watcher
@@ -112,6 +115,14 @@ impl SpaceFileWatcher {
             .unwrap_or_else(|| default_space_id.to_string())
     }
 
+    /// Whether a Space with this id is stored.
+    async fn space_exists(space_repo: &dyn SpaceRepository, space_id: &str) -> bool {
+        match Uuid::parse_str(space_id) {
+            Ok(id) => matches!(space_repo.get(&id).await, Ok(Some(_))),
+            Err(_) => false,
+        }
+    }
+
     /// Debounced handler for file changes
     ///
     /// Groups rapid file changes and syncs after a debounce period.
@@ -119,6 +130,7 @@ impl SpaceFileWatcher {
         mut rx: mpsc::Receiver<PathBuf>,
         sync_service: Arc<UserSpaceSyncService>,
         default_space_id: String,
+        space_repo: Arc<dyn SpaceRepository>,
         emitters: SpaceFileWatcherEmitters,
     ) {
         let debounce_duration = Duration::from_millis(500);
@@ -144,6 +156,15 @@ impl SpaceFileWatcher {
 
                         let space_id =
                             Self::space_id_from_config_path(&path, &default_space_id);
+
+                        // A file named after a Space that doesn't exist would
+                        // install servers into no Space.
+                        if space_id != default_space_id
+                            && !Self::space_exists(space_repo.as_ref(), &space_id).await
+                        {
+                            warn!("Ignoring {:?}: no Space with that id exists", path);
+                            continue;
+                        }
 
                         info!("Syncing changes from: {:?}", path);
 
@@ -190,16 +211,22 @@ impl SpaceFileWatcher {
 pub struct SpaceFileWatcherBuilder {
     spaces_dir: PathBuf,
     installed_repo: Arc<dyn InstalledServerRepository>,
+    space_repo: Arc<dyn SpaceRepository>,
     default_space_id: String,
 }
 
 #[allow(dead_code)]
 impl SpaceFileWatcherBuilder {
     /// Create a new builder
-    pub fn new(spaces_dir: PathBuf, installed_repo: Arc<dyn InstalledServerRepository>) -> Self {
+    pub fn new(
+        spaces_dir: PathBuf,
+        installed_repo: Arc<dyn InstalledServerRepository>,
+        space_repo: Arc<dyn SpaceRepository>,
+    ) -> Self {
         Self {
             spaces_dir,
             installed_repo,
+            space_repo,
             default_space_id: "default".to_string(),
         }
     }
@@ -217,6 +244,7 @@ impl SpaceFileWatcherBuilder {
             self.spaces_dir,
             sync_service,
             self.default_space_id,
+            self.space_repo,
             SpaceFileWatcherEmitters {
                 on_success: None,
                 on_error: None,
@@ -234,6 +262,7 @@ impl SpaceFileWatcherBuilder {
             self.spaces_dir,
             sync_service,
             self.default_space_id,
+            self.space_repo,
             SpaceFileWatcherEmitters {
                 on_success: Some(Arc::new(emitter)),
                 on_error: None,

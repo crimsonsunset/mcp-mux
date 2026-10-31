@@ -22,6 +22,7 @@ const P4_READ_ROUTES: Array<{
     method: 'GET',
     path: `/api/v1/gateway/status?spaceId=${SPACE_ID}`,
   },
+  { command: 'get_gateway_auth_disabled', method: 'GET', path: '/api/v1/settings/gateway-auth-disabled' },
   {
     command: 'probe_gateway_start',
     args: { port: 45818 },
@@ -60,6 +61,13 @@ const P4_READ_ROUTES: Array<{
   { command: 'list_clients', method: 'GET', path: '/api/v1/clients' },
   { command: 'get_client', args: { id: CLIENT_ID }, method: 'GET', path: `/api/v1/clients/${CLIENT_ID}` },
   { command: 'list_feature_sets', method: 'GET', path: '/api/v1/feature-sets' },
+  {
+    command: 'get_starter_tool_summary',
+    args: { spaceId: SPACE_ID },
+    method: 'GET',
+    path: `/api/v1/spaces/${SPACE_ID}/starter-tool-summary`,
+  },
+  { command: 'get_starter_auto_include_default', method: 'GET', path: '/api/v1/settings/starter-auto-include' },
   {
     command: 'list_feature_sets_by_space',
     args: { spaceId: SPACE_ID },
@@ -113,15 +121,15 @@ const P4_READ_ROUTES: Array<{
   { command: 'get_logs_path', method: 'GET', path: '/api/v1/app/logs-path' },
   {
     command: 'get_server_logs',
-    args: { serverId: SERVER_ID, limit: 50, levelFilter: 'error' },
+    args: { serverId: SERVER_ID, spaceId: SPACE_ID, limit: 50, levelFilter: 'error' },
     method: 'GET',
-    path: `/api/v1/logs/server/${SERVER_ID}?limit=50&levelFilter=error`,
+    path: `/api/v1/logs/server/${SERVER_ID}?spaceId=${SPACE_ID}&limit=50&levelFilter=error`,
   },
   {
     command: 'get_server_log_file',
-    args: { serverId: SERVER_ID },
+    args: { serverId: SERVER_ID, spaceId: SPACE_ID },
     method: 'GET',
-    path: `/api/v1/logs/server/${SERVER_ID}/file`,
+    path: `/api/v1/logs/server/${SERVER_ID}/file?spaceId=${SPACE_ID}`,
   },
   { command: 'get_log_retention_days', method: 'GET', path: '/api/v1/logs/retention-days' },
   { command: 'get_oauth_clients', method: 'GET', path: '/api/v1/oauth/clients' },
@@ -180,14 +188,6 @@ const P4_READ_ROUTES: Array<{
     method: 'GET',
     path: `/api/v1/builtins?spaceId=${SPACE_ID}`,
   },
-  {
-    command: 'preview_config_export',
-    args: {
-      request: { client_type: 'cursor', space_id: SPACE_ID, mask_credentials: true },
-    },
-    method: 'GET',
-    path: `/api/v1/config-export/preview?clientType=cursor&spaceId=${SPACE_ID}&maskCredentials=true`,
-  },
   { command: 'get_config_paths', method: 'GET', path: '/api/v1/config-export/paths' },
 ];
 
@@ -232,6 +232,8 @@ const P6_WRITE_ROUTES: Array<{
   { command: 'add_feature_set_member', args: { featureSetId: FEATURE_SET_ID, input: { member_type: 'feature', member_id: FEATURE_ID } }, method: 'POST', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members` },
   { command: 'remove_feature_set_member', args: { featureSetId: FEATURE_SET_ID, memberId: FEATURE_ID }, method: 'DELETE', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members/${FEATURE_ID}` },
   { command: 'set_feature_set_members', args: { featureSetId: FEATURE_SET_ID, members: [] }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/members` },
+  { command: 'set_feature_set_auto_include', args: { featureSetId: FEATURE_SET_ID, enabled: false }, method: 'PUT', path: `/api/v1/feature-sets/${FEATURE_SET_ID}/auto-include` },
+  { command: 'set_starter_auto_include_default', args: { enabled: true }, method: 'PUT', path: '/api/v1/settings/starter-auto-include' },
   { command: 'create_client', args: { input: { name: 'C', client_type: 'custom' } }, method: 'POST', path: '/api/v1/clients' },
   { command: 'delete_client', args: { id: CLIENT_ID }, method: 'DELETE', path: `/api/v1/clients/${CLIENT_ID}` },
   { command: 'init_preset_clients', method: 'POST', path: '/api/v1/clients/init-presets' },
@@ -243,7 +245,7 @@ const P6_WRITE_ROUTES: Array<{
   { command: 'upload_workspace_icon', args: { sourcePath: '/tmp/icon.png' }, method: 'POST', path: '/api/v1/workspaces/appearances' },
   { command: 'update_startup_settings', args: { settings: { autoLaunch: false, startMinimized: true, closeToTray: true } }, method: 'PUT', path: '/api/v1/settings/startup' },
   { command: 'set_meta_tools_enabled', args: { enabled: true }, method: 'PUT', path: '/api/v1/settings/meta-tools-enabled' },
-  { command: 'clear_server_logs', args: { serverId: SERVER_ID }, method: 'DELETE', path: `/api/v1/logs/server/${SERVER_ID}` },
+  { command: 'clear_server_logs', args: { serverId: SERVER_ID, spaceId: SPACE_ID }, method: 'DELETE', path: `/api/v1/logs/server/${SERVER_ID}?spaceId=${SPACE_ID}` },
   { command: 'set_log_retention_days', args: { days: 7 }, method: 'PUT', path: '/api/v1/logs/retention-days' },
   { command: 'refresh_registry', method: 'POST', path: '/api/v1/registry/refresh' },
   { command: 'respond_to_meta_tool_approval', args: { requestId: 'r1', clientId: CLIENT_ID, toolName: 'mcpmux_foo', decision: 'deny' }, method: 'POST', path: '/api/v1/meta-tools/approval' },
@@ -296,15 +298,6 @@ const P6_WRITE_ROUTES: Array<{
     method: 'POST',
     path: '/api/v1/config-export/backup',
   },
-  {
-    command: 'export_config_to_file',
-    args: {
-      request: { client_type: 'cursor', space_id: SPACE_ID },
-      path: '/tmp/mcp.json',
-    },
-    method: 'POST',
-    path: '/api/v1/config-export/export',
-  },
 ];
 
 /** Direct UI SSE channels fan-out outside the domain-event bus (`ADMIN_SSE_CHANNELS`). */
@@ -333,6 +326,11 @@ describe('admin transport mapping', () => {
     expect(registeredCommands).not.toContain('export_config');
     expect(registeredCommands).not.toContain('connect_server');
     expect(registeredCommands).not.toContain('disconnect_server_v2');
+  });
+
+  it('does not expose commands that hand out resolved credentials (upstream #263)', () => {
+    expect(registeredCommands).not.toContain('preview_config_export');
+    expect(registeredCommands).not.toContain('export_config_to_file');
   });
 });
 

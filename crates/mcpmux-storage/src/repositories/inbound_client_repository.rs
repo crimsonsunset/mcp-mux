@@ -476,6 +476,9 @@ impl InboundClientRepository {
     }
 
     /// Read the Space lock assigned to an inbound client, if any.
+    ///
+    /// A lock that is not a valid Space id is an error, never `None`: reading it
+    /// as "no lock" would let a confined client resolve as unconfined.
     pub async fn get_locked_space(&self, client_id: &str) -> Result<Option<Uuid>> {
         let db = self.db.lock().await;
         let conn = db.connection();
@@ -485,8 +488,14 @@ impl InboundClientRepository {
                 params![client_id],
                 |row| row.get(0),
             )
-            .ok();
-        Ok(locked_space_str.and_then(|s| Uuid::parse_str(&s).ok()))
+            .ok()
+            .flatten();
+        locked_space_str
+            .map(|s| {
+                Uuid::parse_str(&s)
+                    .map_err(|e| anyhow::anyhow!("client is locked to an invalid space id: {e}"))
+            })
+            .transpose()
     }
 
     /// Assign or clear the Space lock for an inbound client.

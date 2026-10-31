@@ -239,10 +239,18 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
         &self,
         client_id: String,
         tool_name: String,
+        action: Option<String>,
+        space_id: Option<String>,
     ) -> anyhow::Result<Value> {
-        let revoked = revoke_meta_tool_grant(client_id, tool_name, self.app_handle.state())
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let revoked = revoke_meta_tool_grant(
+            client_id,
+            tool_name,
+            action,
+            space_id,
+            self.app_handle.state(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
         Ok(json!({ "revoked": revoked }))
     }
 
@@ -319,5 +327,20 @@ impl GatewayWriteRuntime for DesktopGatewayWriteRuntime {
     async fn gateway_state(&self) -> Option<Arc<RwLock<mcpmux_gateway::GatewayState>>> {
         let app_state = self.app_gateway_state.read().await;
         app_state.gateway_state.clone()
+    }
+    async fn notify_feature_set_modified(
+        &self,
+        space_id: &str,
+        feature_set_id: &str,
+    ) -> anyhow::Result<()> {
+        let grant_service = self.app_gateway_state.read().await.grant_service.clone();
+        match grant_service {
+            Some(grant_service) => {
+                grant_service
+                    .notify_feature_set_modified(space_id, feature_set_id)
+                    .await
+            }
+            None => Ok(()),
+        }
     }
 }

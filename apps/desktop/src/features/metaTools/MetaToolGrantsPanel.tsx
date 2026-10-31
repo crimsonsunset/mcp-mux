@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyRound, Loader2, Trash2 } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@mcpmux/ui';
+import { useSpaces } from '@/stores/selectors';
 import {
   listMetaToolGrants,
   revokeMetaToolGrant,
@@ -9,7 +10,7 @@ import {
 } from '@/lib/api/metaTools';
 
 /**
- * Session-scoped "always allow (client, tool)" grants. These live in the
+ * Session-scoped "always allow (client, tool, action, Space)" grants. These live in the
  * gateway's in-memory `ApprovalBroker` and are wiped on gateway restart —
  * so showing the list is both for awareness AND for a panic-revoke button
  * when a user regrets ticking "Always for this session".
@@ -23,6 +24,10 @@ export function MetaToolGrantsPanel() {
   const [grants, setGrants] = useState<MetaToolGrantEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const spaces = useSpaces();
+  const grantKey = (g: MetaToolGrantEntry) =>
+    `${g.client_id}:${g.tool_name}:${g.action ?? ''}:${g.space_id ?? ''}`;
+  const spaceName = (id: string) => spaces.find((s) => s.id === id)?.name ?? `${id.slice(0, 8)}…`;
 
   const load = useCallback(async () => {
     try {
@@ -41,10 +46,10 @@ export function MetaToolGrantsPanel() {
   }, [load]);
 
   const handleRevoke = async (g: MetaToolGrantEntry) => {
-    const key = `${g.client_id}:${g.tool_name}`;
+    const key = grantKey(g);
     setRevoking(key);
     try {
-      await revokeMetaToolGrant(g.client_id, g.tool_name);
+      await revokeMetaToolGrant(g);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,7 +88,7 @@ export function MetaToolGrantsPanel() {
         ) : (
           <ul className="divide-y divide-[rgb(var(--border-subtle))]">
             {grants.map((g) => {
-              const key = `${g.client_id}:${g.tool_name}`;
+              const key = grantKey(g);
               return (
                 <li
                   key={key}
@@ -93,9 +98,13 @@ export function MetaToolGrantsPanel() {
                   <div className="flex flex-col min-w-0 mr-3">
                     <span className="font-mono text-xs truncate">
                       {g.tool_name}
+                      {g.action ? ` · ${g.action}` : ''}
                     </span>
                     <span className="text-[11px] text-[rgb(var(--muted))] truncate">
                       {t('grants.clientPrefix', { id: g.client_id.slice(0, 8) })}
+                      {g.space_id
+                        ? ` · ${t('grants.spaceSuffix', { name: spaceName(g.space_id) })}`
+                        : ''}
                     </span>
                   </div>
                   <Button

@@ -32,15 +32,18 @@ pub use discovery_rank::levenshtein_suggestions;
 pub use embedding::{EmbeddingService, EmbeddingState};
 pub use embedding_warmer::EmbeddingWarmer;
 pub use event_emitter::EventEmitter;
-pub use feature_set_resolver::{FeatureSetResolverService, ResolutionSource, ResolvedFeatureSet};
+pub use feature_set_resolver::{
+    FeatureSetResolverService, ResolutionSource, ResolvedFeatureSet, ANONYMOUS_CLIENT_ID,
+};
 pub use git_remote::{
     apply_detected_git_remote, backfill_missing_git_remotes, detect_origin_remote,
 };
 pub use grant_service::GrantService;
 pub use meta_tools::{
     is_meta_tool, routing_as_invoke_backend, ApprovalBroker, ApprovalDecision, ApprovalPayload,
-    ApprovalPublisher, ApprovalRequest, ApprovalScope, InvokeToolBackend, MetaToolRegistry,
-    ResolutionNotifier, MCPMUX_PREFIX, META_TOOL_APPROVAL_EVENT, META_TOOL_APPROVAL_RESOLVED_EVENT,
+    ApprovalPublisher, ApprovalRequest, ApprovalScope, GrantKey, InvokeToolBackend,
+    MetaToolRegistry, ResolutionNotifier, MCPMUX_PREFIX, META_TOOL_APPROVAL_EVENT,
+    META_TOOL_APPROVAL_RESOLVED_EVENT,
 };
 pub use notification_emitter::NotificationEmitter;
 pub use package_version::{

@@ -10,6 +10,7 @@ use mcpmux_core::{
     validate_workspace_root as validate_workspace_root_path, AppSettingsService, Client,
     DomainEvent, FeatureSet, FeatureSetMember, Machine, MemberMode, MemberType, ServerSource,
     UpdatePolicy, WorkspaceAppearance, WorkspaceBinding, WorkspaceRootValidation,
+    STARTER_AUTO_INCLUDE_SETTING_KEY,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -236,6 +237,10 @@ pub struct MetaToolApprovalBody {
 pub struct MetaToolRevokeBody {
     pub client_id: String,
     pub tool_name: String,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub space_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -520,6 +525,14 @@ pub async fn add_feature_set_member(
         ));
     }
 
+    if feature_set.auto_include {
+        // Adding to an auto set switches it to manual, keeping what it granted.
+        ctx.feature_set_repository
+            .set_auto_include(&feature_set_id, false)
+            .await?;
+        feature_set = get_feature_set_with_members(ctx, &feature_set_id).await?;
+    }
+
     let member_type = parse_member_type(&body.member_type);
     let mode = parse_member_mode(body.mode.as_deref());
 
@@ -594,7 +607,64 @@ pub async fn set_feature_set_members(
             surfaced: input.surfaced.unwrap_or(false),
         })
         .collect();
+    // An explicit list is a manual selection, even an empty one.
+    feature_set.auto_include = false;
     save_feature_set(ctx, feature_set).await
+}
+
+/// Tell the live gateway a FeatureSet changed so cached resolutions drop and
+/// connected clients get `list_changed`. Best effort, like the Tauri commands.
+async fn notify_feature_set_modified(ctx: &AdminBridgeCtx, feature_set: &FeatureSet) {
+    let space_id = feature_set.space_id.as_deref().unwrap_or("default");
+    if let Err(e) = ctx
+        .gateway_writes
+        .notify_feature_set_modified(space_id, &feature_set.id)
+        .await
+    {
+        tracing::warn!("[FeatureSet] Failed to emit notifications: {e}");
+    }
+}
+
+/// Switch a FeatureSet into or out of auto mode (every server's tools).
+/// Turning it off keeps what the set granted as an explicit list to edit.
+pub async fn set_feature_set_auto_include(
+    ctx: &AdminBridgeCtx,
+    feature_set_id: String,
+    body: AutoIncludeBody,
+) -> Result<Value> {
+    ctx.feature_set_repository
+        .set_auto_include(&feature_set_id, body.enabled)
+        .await?;
+    let feature_set = get_feature_set_with_members(ctx, &feature_set_id).await?;
+    notify_feature_set_modified(ctx, &feature_set).await;
+    Ok(to_feature_set_response(feature_set))
+}
+
+/// Flip the Settings switch and apply it to every Space's Starter right away.
+pub async fn set_starter_auto_include_default(
+    ctx: &AdminBridgeCtx,
+    body: AutoIncludeBody,
+) -> Result<Value> {
+    ctx.settings_repository
+        .set(STARTER_AUTO_INCLUDE_SETTING_KEY, &body.enabled.to_string())
+        .await?;
+
+    for space in ctx.space_service.list().await? {
+        let Some(starter) = ctx
+            .feature_set_repository
+            .get_starter_for_space(&space.id.to_string())
+            .await?
+        else {
+            continue;
+        };
+        if starter.auto_include != body.enabled {
+            ctx.feature_set_repository
+                .set_auto_include(&starter.id, body.enabled)
+                .await?;
+            notify_feature_set_modified(ctx, &starter).await;
+        }
+    }
+    as_json(body.enabled)
 }
 
 // --- Clients ---
@@ -953,14 +1023,14 @@ pub async fn set_meta_tools_enabled(ctx: &AdminBridgeCtx, enabled: bool) -> Resu
 
 // --- Logs ---
 
-pub async fn clear_server_logs(ctx: &AdminBridgeCtx, server_id: String) -> Result<Value> {
-    let default_space = ctx
-        .space_service
-        .get_default()
-        .await?
-        .ok_or_else(|| anyhow!("No default space found"))?;
+pub async fn clear_server_logs(
+    ctx: &AdminBridgeCtx,
+    server_id: String,
+    space_id: String,
+) -> Result<Value> {
+    let space_id = Uuid::parse_str(&space_id)?.to_string();
     ctx.server_log_manager
-        .clear_logs(&default_space.id.to_string(), &server_id)
+        .clear_logs(&space_id, &server_id)
         .await?;
     Ok(json!({ "ok": true }))
 }
@@ -1187,6 +1257,9 @@ pub async fn set_gateway_public_url(
     if let Some(gateway_state) = ctx.gateway_writes.gateway_state().await {
         let mut state = gateway_state.write().await;
         state.set_public_base_url(stored.clone());
+        drop(state);
+        crate::auth_default::refresh_live_auth_default(&ctx.settings_repository, &gateway_state)
+            .await;
     }
 
     Ok(json!({
@@ -1258,7 +1331,7 @@ pub async fn revoke_meta_tool_grant(
     body: MetaToolRevokeBody,
 ) -> Result<Value> {
     ctx.gateway_writes
-        .revoke_meta_tool_grant(body.client_id, body.tool_name)
+        .revoke_meta_tool_grant(body.client_id, body.tool_name, body.action, body.space_id)
         .await
 }
 
@@ -1365,6 +1438,11 @@ pub struct BuiltinToolEnabledBody {
 #[derive(Debug, Deserialize)]
 pub struct MetaToolsRequireApprovalBody {
     pub required: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AutoIncludeBody {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
