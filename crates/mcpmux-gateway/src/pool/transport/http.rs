@@ -15,7 +15,7 @@ use rmcp::transport::auth::{AuthClient, AuthorizationManager};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::TransportType;
@@ -172,21 +172,29 @@ impl HttpTransport {
         // Set our database-backed credential store
         auth_manager.set_credential_store(credential_store);
 
-        // Load stored metadata from initial OAuth flow
-        // This bypasses RMCP's metadata discovery which can fail on non-spec-compliant servers
-        let has_stored_metadata = if let Ok(Some(registration)) = self
+        let registration = self
             .backend_oauth_repo
             .get(&self.space_id, &self.server_id)
             .await
-        {
-            if let Some(stored_metadata) = registration.metadata {
+            .unwrap_or_else(|e| {
+                warn!(
+                    server_id = %self.server_id,
+                    "Failed to load OAuth client registration: {}", e
+                );
+                None
+            });
+
+        // Load stored metadata from initial OAuth flow
+        // This bypasses RMCP's metadata discovery which can fail on non-spec-compliant servers
+        let has_stored_metadata = if let Some(registration) = &registration {
+            if let Some(stored_metadata) = &registration.metadata {
                 debug!(
                     server_id = %self.server_id,
                     space_id = %self.space_id,
                     "Using stored OAuth metadata (bypassing RMCP discovery)"
                 );
                 let rmcp_metadata =
-                    crate::pool::oauth_utils::convert_from_stored_metadata(&stored_metadata);
+                    crate::pool::oauth_utils::convert_from_stored_metadata(stored_metadata);
                 auth_manager.set_metadata(rmcp_metadata);
                 true
             } else {
@@ -202,8 +210,13 @@ impl HttpTransport {
             false
         };
 
-        // Initialize from stored credentials
-        let init_result = auth_manager.initialize_from_store().await;
+        // Initialize from stored credentials, including the client secret rmcp doesn't
+        // restore. A stored client that can't be configured comes back as Ok(false).
+        let init_result = crate::pool::oauth_utils::initialize_from_store(
+            &mut auth_manager,
+            registration.as_ref(),
+        )
+        .await;
 
         match init_result {
             Ok(true) => {
@@ -216,13 +229,13 @@ impl HttpTransport {
             Ok(false) => {
                 debug!(
                     server_id = %self.server_id,
-                    "No stored credentials found"
+                    "No usable stored credentials found"
                 );
-                // No stored credentials - OAuth required
+                // No stored credentials, or a stored client that can't be configured
                 self.log(
                     LogLevel::Info,
                     LogSource::OAuth,
-                    "No stored credentials, OAuth required".to_string(),
+                    "No usable stored credentials, OAuth required".to_string(),
                 )
                 .await;
                 return TransportConnectResult::OAuthRequired {

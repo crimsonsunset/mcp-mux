@@ -27,7 +27,7 @@ use tokio::sync::Mutex;
 // ---------------------------------------------------------------------------
 
 /// Highest migration the fork ships. Bump when a migration is added.
-const FORK_SCHEMA_VERSION: i64 = 43;
+const FORK_SCHEMA_VERSION: i64 = 47;
 
 /// Tables created by fork migrations 019–043.
 const FORK_TABLES: &[&str] = &[
@@ -40,7 +40,8 @@ const FORK_TABLES: &[&str] = &[
     "workspace_binding_prompt_dismissals",
 ];
 
-/// Columns added by fork migrations 020–043, as `(table, column)`.
+/// Columns added by fork migrations 020–047 (044+ are the onboarding port and
+/// upstream's renumbered OAuth client columns), as `(table, column)`.
 const FORK_COLUMNS: &[(&str, &str)] = &[
     ("workspace_bindings", "label"),
     ("workspace_bindings", "icon"),
@@ -62,6 +63,10 @@ const FORK_COLUMNS: &[(&str, &str)] = &[
     ("inbound_clients", "machine_id"),
     ("inbound_clients", "locked_space_id"),
     ("inbound_clients", "client_icon"),
+    ("feature_sets", "auto_include"),
+    ("outbound_oauth_clients", "client_secret_encrypted"),
+    ("outbound_oauth_clients", "token_endpoint_auth_method"),
+    ("outbound_oauth_clients", "client_secret_expires_at"),
 ];
 
 fn object_exists(db: &Database, kind: &str, name: &str) -> bool {

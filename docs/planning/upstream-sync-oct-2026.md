@@ -1,7 +1,7 @@
 # Upstream Sync, Oct 2026 (`upstream/main` @ `2e6a5b92` → fork)
 
 **Last Updated:** Oct 30, 2026
-**Status:** Planned. Integration branch created, no checkpoint merged yet
+**Status:** In progress. Phase 0 and CP1 to CP6 are merged into the integration branch. CP7a onward is next
 **Integration branch:** `sync/upstream-2026-10` (cut from `origin/main` @ `d03db501`)
 **Lands on `main`:** only after every checkpoint below is merged into the integration branch and the soak in Phase 6 passes
 **Base:** last sync was `eb5ae35a` (Jul 17), which merged `upstream/main` @ `87df4a26` (#203)

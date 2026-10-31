@@ -202,6 +202,16 @@ fn test_new_schema_objects_exist_after_migration() {
         column_exists(&db, "feature_sets", "auto_include"),
         "migration 044 must add feature_sets.auto_include"
     );
+    assert!(
+        column_exists(&db, "outbound_oauth_clients", "client_secret_encrypted"),
+        "migration 046 must add outbound_oauth_clients.client_secret_encrypted"
+    );
+    for column in ["token_endpoint_auth_method", "client_secret_expires_at"] {
+        assert!(
+            column_exists(&db, "outbound_oauth_clients", column),
+            "migration 047 must add outbound_oauth_clients.{column}"
+        );
+    }
 }
 
 #[test]
@@ -237,7 +247,11 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
                  ALTER TABLE inbound_clients DROP COLUMN client_icon;
                  ALTER TABLE workspace_bindings DROP COLUMN git_remote_url;
                  ALTER TABLE workspace_bindings DROP COLUMN project_link_id;
-                 ALTER TABLE feature_sets DROP COLUMN auto_include;",
+                 ALTER TABLE feature_sets DROP COLUMN auto_include;
+                 -- 046 and 047 are bare ADD COLUMN too.
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;",
             )
             .expect("roll schema back to pre-036");
         assert!(
@@ -255,6 +269,63 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
     assert!(column_exists(&db, "workspace_bindings", "binding_type"));
     assert!(column_exists(&db, "inbound_clients", "locked_space_id"));
     assert!(column_exists(&db, "feature_sets", "auto_include"));
+    for column in [
+        "client_secret_encrypted",
+        "token_endpoint_auth_method",
+        "client_secret_expires_at",
+    ] {
+        assert!(column_exists(&db, "outbound_oauth_clients", column));
+    }
+}
+
+/// An outbound OAuth registration saved by a release without migrations 046 and 047
+/// keeps its client_id after the upgrade, and reads back as a public client (no
+/// secret, no auth method or secret expiry).
+#[test]
+fn test_046_and_047_keep_existing_outbound_oauth_registrations() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+
+    {
+        let db = Database::open(&path).expect("open");
+        db.connection()
+            .execute_batch(
+                "DELETE FROM schema_migrations WHERE version >= 46;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;
+                 INSERT INTO spaces (id, name, created_at, updated_at)
+                     VALUES ('space-1', 'Old', datetime('now'), datetime('now'));
+                 INSERT INTO outbound_oauth_clients
+                     (id, space_id, server_id, server_url, client_id, redirect_uri,
+                      created_at, updated_at)
+                     VALUES ('reg-1', 'space-1', 'miro', 'https://mcp.miro.com/', 'old-client',
+                             'http://127.0.0.1:45819/oauth2redirect',
+                             datetime('now'), datetime('now'));",
+            )
+            .expect("roll back to pre-046 and seed a registration");
+    }
+
+    let db = Database::open(&path).expect("reopen older DB");
+    let (client_id, secret, auth_method, expires_at): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = db
+        .connection()
+        .query_row(
+            "SELECT client_id, client_secret_encrypted, token_endpoint_auth_method,
+                    client_secret_expires_at
+             FROM outbound_oauth_clients WHERE server_id = 'miro'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .expect("registration survives the upgrade");
+    assert_eq!(client_id, "old-client");
+    assert_eq!(secret, None);
+    assert_eq!(auth_method, None);
+    assert_eq!(expires_at, None);
 }
 
 fn starter_auto_include(db: &Database) -> bool {
@@ -277,6 +348,9 @@ fn reapply_044(path: &std::path::Path, seed: &str) -> Database {
             .execute_batch(&format!(
                 "DELETE FROM schema_migrations WHERE version >= 44;
                  ALTER TABLE feature_sets DROP COLUMN auto_include;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;
                  {seed}"
             ))
             .expect("roll back to pre-044 and seed");
