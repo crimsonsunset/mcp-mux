@@ -226,13 +226,9 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
                  DROP INDEX IF EXISTS idx_wb_id_machine;
                  DROP INDEX IF EXISTS idx_workspace_bindings_binding_type;
                  DROP INDEX IF EXISTS idx_inbound_clients_locked_space_id;
-                 DROP INDEX IF EXISTS idx_workspace_bindings_git_remote;
-                 DROP INDEX IF EXISTS idx_workspace_bindings_project_link;
-                 ALTER TABLE workspace_bindings DROP COLUMN project_link_id;
-                 ALTER TABLE workspace_bindings DROP COLUMN git_remote_url;
                  ALTER TABLE workspace_bindings DROP COLUMN binding_type;
                  ALTER TABLE inbound_clients DROP COLUMN locked_space_id;
-                 -- 039 and 043 are bare ADD COLUMN. Leave them and reopen fails
+                 -- 039, 043 and 044 are bare ADD COLUMN. Leave them and reopen fails
                  -- with duplicate column once the ledger is rolled back past them.
                  -- Drop the 043 indexes first: SQLite refuses to drop a column
                  -- that an index still references.
@@ -241,7 +237,6 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
                  ALTER TABLE inbound_clients DROP COLUMN client_icon;
                  ALTER TABLE workspace_bindings DROP COLUMN git_remote_url;
                  ALTER TABLE workspace_bindings DROP COLUMN project_link_id;
-                 -- 044 (onboarding defaults) is a bare ADD COLUMN too.
                  ALTER TABLE feature_sets DROP COLUMN auto_include;",
             )
             .expect("roll schema back to pre-036");
