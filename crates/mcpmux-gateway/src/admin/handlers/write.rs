@@ -35,18 +35,6 @@ pub(crate) struct ConfigExportClientTypeBody {
     client_type: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct ExportConfigRequestBody {
-    client_type: String,
-    space_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ConfigExportToFileBody {
-    request: ExportConfigRequestBody,
-    path: String,
-}
-
 pub async fn create_space(
     State(state): State<AdminState>,
     Json(body): Json<CreateSpaceBody>,
@@ -840,21 +828,6 @@ pub async fn backup_existing_config(
         .await
         .map(ok)
         .map_err(ApiError::from_bridge)
-}
-
-pub async fn export_config_to_file(
-    State(state): State<AdminState>,
-    Json(body): Json<ConfigExportToFileBody>,
-) -> Result<Json<Value>, ApiError> {
-    read_bridge::export_config_to_file(
-        &state.bridge,
-        body.request.client_type,
-        body.request.space_id,
-        body.path,
-    )
-    .await
-    .map(ok)
-    .map_err(ApiError::from_bridge)
 }
 
 /// Install or update the managed Cursor `preToolUse` hook on this gateway host.

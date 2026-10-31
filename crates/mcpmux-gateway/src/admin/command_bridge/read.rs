@@ -7,10 +7,9 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use mcpmux_core::{
-    validate_workspace_root as validate_workspace_root_path, AppSettingsService, ConfigExporter,
-    ConfigFormat, FeatureSet, FeatureSetMember, FeatureType, LogLevel, MemberMode, MemberType,
-    ResolvedServer, ResolvedTransport, TransportConfig, WorkspaceRootValidation,
-    STARTER_AUTO_INCLUDE_SETTING_KEY, TOOL_COUNT_WARNING_THRESHOLD,
+    validate_workspace_root as validate_workspace_root_path, AppSettingsService, ConfigFormat,
+    FeatureSet, FeatureSetMember, FeatureType, LogLevel, MemberMode, MemberType,
+    WorkspaceRootValidation, STARTER_AUTO_INCLUDE_SETTING_KEY, TOOL_COUNT_WARNING_THRESHOLD,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -1042,136 +1041,6 @@ fn config_export_format(client_type: &str) -> Result<ConfigFormat> {
     }
 }
 
-async fn resolve_config_export_space_id(ctx: &AdminBridgeCtx, space_id: &str) -> Result<String> {
-    if space_id == "default" || space_id.is_empty() {
-        let space = ctx
-            .space_service
-            .get_default()
-            .await?
-            .ok_or_else(|| anyhow!("No default space found"))?;
-        Ok(space.id.to_string())
-    } else {
-        Ok(space_id.to_string())
-    }
-}
-
-fn resolve_config_placeholders(template: &str, input_values: &HashMap<String, String>) -> String {
-    let mut result = template.to_string();
-    for (key, value) in input_values {
-        let placeholder = format!("${{input:{key}}}");
-        result = result.replace(&placeholder, value);
-    }
-    result
-}
-
-async fn build_config_export_servers(
-    ctx: &AdminBridgeCtx,
-    space_id: &str,
-    mask_credentials: bool,
-) -> Result<Vec<ResolvedServer>> {
-    let installed = ctx.services.server().list_for_space(space_id).await?;
-    let mut resolved = Vec::new();
-
-    for inst in installed.into_iter().filter(|server| server.enabled) {
-        let Some(entry) = inst.get_definition() else {
-            continue;
-        };
-
-        let transport = match &entry.transport {
-            TransportConfig::Stdio {
-                command, args, env, ..
-            } => {
-                let resolved_command = resolve_config_placeholders(command, &inst.input_values);
-                let mut resolved_args: Vec<String> = args
-                    .iter()
-                    .map(|arg| resolve_config_placeholders(arg, &inst.input_values))
-                    .collect();
-                resolved_args.extend(inst.args_append.clone());
-
-                let mut resolved_env = HashMap::new();
-                for (k, v) in env {
-                    resolved_env.insert(
-                        k.clone(),
-                        resolve_config_placeholders(v, &inst.input_values),
-                    );
-                }
-
-                if mask_credentials {
-                    for k in inst.input_values.keys() {
-                        resolved_env.insert(k.clone(), "***MASKED***".to_string());
-                    }
-                } else {
-                    resolved_env.extend(inst.input_values.clone());
-                }
-                resolved_env.extend(inst.env_overrides.clone());
-
-                ResolvedTransport::Stdio {
-                    command: resolved_command,
-                    args: resolved_args,
-                    env: resolved_env,
-                }
-            }
-            TransportConfig::Http { url, headers, .. } => {
-                let resolved_url = resolve_config_placeholders(url, &inst.input_values);
-                let mut resolved_headers: HashMap<String, String> = headers
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            resolve_config_placeholders(v, &inst.input_values),
-                        )
-                    })
-                    .collect();
-                resolved_headers.extend(inst.extra_headers.clone());
-
-                ResolvedTransport::Http {
-                    url: resolved_url,
-                    headers: resolved_headers,
-                }
-            }
-        };
-
-        resolved.push(ResolvedServer {
-            server_id: inst.server_id.clone(),
-            transport,
-        });
-    }
-
-    Ok(resolved)
-}
-
-fn suggested_config_filename(format: ConfigFormat) -> &'static str {
-    match format {
-        ConfigFormat::Cursor => "mcp.json",
-        ConfigFormat::VsCodeContinue => "continue-mcp.json",
-        ConfigFormat::ClaudeDesktop => "claude_desktop_config.json",
-    }
-}
-
-/// Preview generated MCP client config JSON without writing to disk.
-pub async fn preview_config_export(
-    ctx: &AdminBridgeCtx,
-    client_type: String,
-    space_id: String,
-    mask_credentials: bool,
-) -> Result<Value> {
-    let space_id = resolve_config_export_space_id(ctx, &space_id).await?;
-    let format = config_export_format(&client_type)?;
-    let servers = build_config_export_servers(ctx, &space_id, mask_credentials).await?;
-    let exporter = ConfigExporter::new();
-    let content = exporter
-        .export_json(format, &servers)
-        .map_err(|err| anyhow!("Failed to export config: {err}"))?;
-
-    Ok(json!({
-        "content": content,
-        "default_path": format
-            .default_path()
-            .map(|path| path.to_string_lossy().to_string()),
-        "suggested_filename": suggested_config_filename(format),
-    }))
-}
-
 /// Default config file paths per supported MCP client type.
 pub async fn get_config_paths() -> Result<Value> {
     let mut paths = HashMap::new();
@@ -1219,28 +1088,4 @@ pub async fn backup_existing_config(client_type: String) -> Result<Value> {
         _ => None,
     };
     as_json(backup_path)
-}
-
-/// Write generated MCP client config JSON to the given absolute path.
-pub async fn export_config_to_file(
-    ctx: &AdminBridgeCtx,
-    client_type: String,
-    space_id: String,
-    path: String,
-) -> Result<Value> {
-    let space_id = resolve_config_export_space_id(ctx, &space_id).await?;
-    let format = config_export_format(&client_type)?;
-    let servers = build_config_export_servers(ctx, &space_id, false).await?;
-    let exporter = ConfigExporter::new();
-    let content = exporter
-        .export_json(format, &servers)
-        .map_err(|err| anyhow!("Failed to export config: {err}"))?;
-
-    let path = PathBuf::from(path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| anyhow!("Failed to create parent dir: {err}"))?;
-    }
-    std::fs::write(&path, &content).map_err(|err| anyhow!("Failed to write config: {err}"))?;
-    as_json(path.to_string_lossy().to_string())
 }

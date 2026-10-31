@@ -188,14 +188,6 @@ const P4_READ_ROUTES: Array<{
     method: 'GET',
     path: `/api/v1/builtins?spaceId=${SPACE_ID}`,
   },
-  {
-    command: 'preview_config_export',
-    args: {
-      request: { client_type: 'cursor', space_id: SPACE_ID, mask_credentials: true },
-    },
-    method: 'GET',
-    path: `/api/v1/config-export/preview?clientType=cursor&spaceId=${SPACE_ID}&maskCredentials=true`,
-  },
   { command: 'get_config_paths', method: 'GET', path: '/api/v1/config-export/paths' },
 ];
 
@@ -306,15 +298,6 @@ const P6_WRITE_ROUTES: Array<{
     method: 'POST',
     path: '/api/v1/config-export/backup',
   },
-  {
-    command: 'export_config_to_file',
-    args: {
-      request: { client_type: 'cursor', space_id: SPACE_ID },
-      path: '/tmp/mcp.json',
-    },
-    method: 'POST',
-    path: '/api/v1/config-export/export',
-  },
 ];
 
 /** Direct UI SSE channels fan-out outside the domain-event bus (`ADMIN_SSE_CHANNELS`). */
@@ -343,6 +326,11 @@ describe('admin transport mapping', () => {
     expect(registeredCommands).not.toContain('export_config');
     expect(registeredCommands).not.toContain('connect_server');
     expect(registeredCommands).not.toContain('disconnect_server_v2');
+  });
+
+  it('does not expose commands that hand out resolved credentials (upstream #263)', () => {
+    expect(registeredCommands).not.toContain('preview_config_export');
+    expect(registeredCommands).not.toContain('export_config_to_file');
   });
 });
 
