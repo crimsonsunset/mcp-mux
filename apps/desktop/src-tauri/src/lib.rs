@@ -41,6 +41,14 @@ const APP_IDENTIFIER: &str = env!("TAURI_APP_IDENTIFIER");
 /// - macOS: ~/Library/Application Support/<identifier>/
 /// - Linux: ~/.local/share/<identifier>/
 fn get_app_data_dir() -> std::path::PathBuf {
+    if std::env::var_os("MCPMUX_E2E_TEST").is_some() {
+        if let Some(path) = std::env::var_os("MCPMUX_E2E_DATA_DIR") {
+            if !path.is_empty() {
+                return path.into();
+            }
+        }
+    }
+
     dirs::data_local_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(APP_IDENTIFIER)
@@ -284,10 +292,7 @@ pub fn run() {
             info!("Initializing application state...");
 
             // Get data directory (Local, not Roaming - machine-specific data)
-            let data_dir = app
-                .path()
-                .app_local_data_dir()
-                .expect("Failed to get app local data directory");
+            let data_dir = get_app_data_dir();
             let app_data_dir = data_dir.clone();
 
             // Create and manage application state
@@ -1191,17 +1196,16 @@ pub fn run() {
                 {
                     let gw_state = gw_state.inner().clone();
                     tauri::async_runtime::block_on(async move {
-                        let handle = {
+                        let (handle, pool_service) = {
                             let mut state = gw_state.write().await;
                             state.running = false;
                             state.url = None;
                             state.bound_port = None;
-                            state.handle.take()
+                            (state.handle.take(), state.pool_service.take())
                         };
-                        if let Some(h) = handle {
-                            info!("[Gateway] ExitRequested — gracefully shutting down gateway");
-                            crate::commands::gateway::shutdown_gateway_handle(h).await;
-                        }
+                        info!("[Gateway] ExitRequested — gracefully shutting down gateway");
+                        crate::commands::gateway::shutdown_gateway_runtime(handle, pool_service)
+                            .await;
                     });
                 }
             }

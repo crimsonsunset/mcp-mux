@@ -133,6 +133,43 @@ pub(crate) async fn shutdown_gateway_handle(mut handle: mcpmux_gateway::GatewayS
     }
 }
 
+/// Upper bound on draining the backend pool when the gateway goes down.
+///
+/// Each client close is itself bounded (1.5s); this caps the extra time spent
+/// waiting on connects that were already in flight.
+const POOL_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Tear down a gateway taken out of [`GatewayAppState`]: close its listener
+/// and drain its backend pool, concurrently and both bounded.
+///
+/// Running them side by side keeps the app-exit path inside its ~2.5s budget,
+/// and closes the listener while backends are going away instead of serving
+/// requests that can only fail.
+pub(crate) async fn shutdown_gateway_runtime(
+    handle: Option<mcpmux_gateway::GatewayServerHandle>,
+    pool_service: Option<Arc<PoolService>>,
+) {
+    let drain_pool = async {
+        if let Some(pool) = pool_service {
+            if tokio::time::timeout(POOL_SHUTDOWN_TIMEOUT, pool.shutdown())
+                .await
+                .is_err()
+            {
+                warn!(
+                    "[Gateway] Backend pool did not drain within {:?}; continuing shutdown",
+                    POOL_SHUTDOWN_TIMEOUT
+                );
+            }
+        }
+    };
+    let close_listener = async {
+        if let Some(h) = handle {
+            shutdown_gateway_handle(h).await;
+        }
+    };
+    tokio::join!(drain_pool, close_listener);
+}
+
 /// Bring the main webview window forward so the user sees a popup the
 /// gateway just emitted. Best-effort — silently no-ops when the window
 /// doesn't exist (rare, e.g. during teardown). Used by the approval
@@ -1246,7 +1283,7 @@ pub async fn stop_gateway(
     // Take the handle out under the lock, then drop the guard BEFORE
     // awaiting the shutdown — otherwise the lock is held for up to 2s
     // and every concurrent status query blocks.
-    let handle = {
+    let (handle, pool_service) = {
         let mut state = gateway_state.write().await;
         if !state.running {
             return Err("Gateway is not running".to_string());
@@ -1255,13 +1292,11 @@ pub async fn stop_gateway(
         state.running = false;
         state.url = None;
         state.bound_port = None;
-        handle
+        (handle, state.pool_service.take())
     };
 
-    if let Some(h) = handle {
-        info!("[Gateway] Stop requested — shutting down gracefully");
-        shutdown_gateway_handle(h).await;
-    }
+    info!("[Gateway] Stop requested — shutting down gracefully");
+    shutdown_gateway_runtime(handle, pool_service).await;
 
     if let Err(e) = app_handle.emit("gateway-changed", serde_json::json!({"action": "stopped"})) {
         warn!("[Gateway] Failed to emit gateway-changed(stopped): {}", e);
@@ -1618,17 +1653,16 @@ pub async fn restart_gateway(
     info!("[Gateway] Restart requested — tearing down current state");
     // Take handle out under lock; drop lock before awaiting shutdown so
     // start_gateway below can re-acquire it.
-    let handle = {
+    let (handle, pool_service) = {
         let mut state = gateway_state.write().await;
         let handle = state.handle.take();
+        let pool_service = state.pool_service.take();
         state.running = false;
         state.url = None;
         state.bound_port = None;
-        handle
+        (handle, pool_service)
     };
-    if let Some(h) = handle {
-        shutdown_gateway_handle(h).await;
-    }
+    shutdown_gateway_runtime(handle, pool_service).await;
 
     // The shutdown above is graceful (or force-aborted after a 2s timeout),
     // but the OS may hold the socket a moment longer than the in-process
