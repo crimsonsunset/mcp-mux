@@ -33,6 +33,7 @@ import {
 } from '@/lib/api/featureSets';
 import { useViewSpace } from '@/stores';
 import { StarterOverThresholdWarning } from '@/components/StarterToolsNotice';
+import { MuxPromptBanner } from '@/components/MuxPrompt';
 import { useStarterToolSummary } from '@/hooks/useStarterToolSummary';
 import { FeatureSetPanel } from './FeatureSetPanel';
 import { EmojiPickerButton } from '@/components/emoji-picker-button.component';
@@ -270,6 +271,17 @@ export function FeatureSetsPage() {
               summary={starterSummary}
               testId="featuresets-starter-warning"
             />
+          </div>
+        </div>
+      )}
+
+      {/* The over-threshold warning above already carries the @mux prompt. */}
+      {!starterSummary?.over_threshold && (
+        <div className="flex-shrink-0 px-8 pt-6">
+          <div className="max-w-[2000px] mx-auto">
+            <MuxPromptBanner title={t('muxHint.title')} testId="featuresets-mux-hint">
+              {t('muxHint.body')}
+            </MuxPromptBanner>
           </div>
         </div>
       )}

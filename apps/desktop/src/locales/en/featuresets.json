@@ -103,5 +103,9 @@
     "warningTitle": "{{count}} tools selected, more than the {{threshold}} AI apps handle well",
     "warningBody": "Everything still works, but McpMux's tool search gets noisier and apps pick the wrong tool more often. Untick what this set doesn't need, or ask your AI app to build a focused set:",
     "saveLeavesAuto": "Saving switches this set to your own selection."
+  },
+  "muxHint": {
+    "title": "Let your AI build these for you",
+    "body": "In any connected app, start a message with @mux. Your assistant finds the tools the project needs, composes a FeatureSet, and maps it to the current folder. Every change asks for your one-click approval first."
   }
 }
