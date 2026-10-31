@@ -115,6 +115,72 @@ impl UserSpaceSyncService {
         Ok(())
     }
 
+    /// Report what [`Self::sync_from_file`] would change if `file_path` held
+    /// `content`, without writing anything.
+    ///
+    /// Fails exactly where the real sync would before it touches storage:
+    /// unparseable JSON or two keys that normalize to the same server id.
+    /// Used for import dry-runs and to validate an import before the space
+    /// file is replaced.
+    pub async fn plan_from_content(
+        &self,
+        space_id: &str,
+        file_path: &Path,
+        content: &str,
+    ) -> Result<SyncResult> {
+        let (definitions, existing_map) = self
+            .parse_and_load_existing(space_id, file_path, content)
+            .await?;
+        let file_server_ids: HashSet<String> = definitions.iter().map(|d| d.id.clone()).collect();
+
+        let mut result = SyncResult::default();
+        for definition in definitions {
+            if existing_map.contains_key(&definition.id) {
+                result.updated.push(definition.id);
+            } else {
+                result.added.push(definition.id);
+            }
+        }
+        result.removed = existing_map
+            .into_keys()
+            .filter(|id| !file_server_ids.contains(id))
+            .collect();
+        result.removed.sort();
+        Ok(result)
+    }
+
+    /// Parse `content` as the user-space config stored at `file_path` and
+    /// load the servers currently installed from that file, keyed by id.
+    async fn parse_and_load_existing(
+        &self,
+        space_id: &str,
+        file_path: &Path,
+        content: &str,
+    ) -> Result<(Vec<ServerDefinition>, HashMap<String, InstalledServer>)> {
+        let config: UserSpaceConfig = serde_json::from_str(content)
+            .with_context(|| format!("Failed to parse config file: {:?}", file_path))?;
+
+        let definitions = config.to_server_definitions(space_id, file_path.to_path_buf());
+
+        // User-config keys are normalized into MCP-safe server IDs; reject two
+        // entries that collapse to the same ID up front so the sync loop can't
+        // silently overwrite one custom server with another.
+        Self::ensure_unique_server_ids(&definitions)?;
+
+        let existing = self
+            .installed_repo
+            .list_by_source_file(file_path)
+            .await
+            .with_context(|| "Failed to list existing servers from source file")?;
+
+        let existing_map = existing
+            .into_iter()
+            .map(|s| (s.server_id.clone(), s))
+            .collect();
+
+        Ok((definitions, existing_map))
+    }
+
     /// Sync servers from a user space JSON file into InstalledServer records
     ///
     /// This performs a 3-way diff:
@@ -131,21 +197,16 @@ impl UserSpaceSyncService {
     pub async fn sync_from_file(&self, space_id: &str, file_path: &Path) -> Result<SyncResult> {
         info!("Syncing servers from file: {:?}", file_path);
 
-        // 1. Parse the JSON file
+        // 1. Read the JSON file
         let content = tokio::fs::read_to_string(file_path)
             .await
             .with_context(|| format!("Failed to read config file: {:?}", file_path))?;
 
-        let config: UserSpaceConfig = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {:?}", file_path))?;
-
-        // 2. Convert to ServerDefinitions
-        let definitions = config.to_server_definitions(space_id, file_path.to_path_buf());
-
-        // User-config keys are normalized into MCP-safe server IDs; reject two
-        // entries that collapse to the same ID up front so the sync loop can't
-        // silently overwrite one custom server with another.
-        Self::ensure_unique_server_ids(&definitions)?;
+        // 2-3. Parse into ServerDefinitions and load the servers already
+        // installed from this file
+        let (definitions, existing_map) = self
+            .parse_and_load_existing(space_id, file_path, &content)
+            .await?;
 
         let file_server_ids: HashSet<String> = definitions.iter().map(|d| d.id.clone()).collect();
 
@@ -154,18 +215,6 @@ impl UserSpaceSyncService {
             definitions.len(),
             file_server_ids
         );
-
-        // 3. Get existing servers from this file
-        let existing = self
-            .installed_repo
-            .list_by_source_file(file_path)
-            .await
-            .with_context(|| "Failed to list existing servers from source file")?;
-
-        let existing_map: std::collections::HashMap<String, InstalledServer> = existing
-            .into_iter()
-            .map(|s| (s.server_id.clone(), s))
-            .collect();
 
         let existing_ids: HashSet<String> = existing_map.keys().cloned().collect();
 
