@@ -607,7 +607,7 @@ async fn search_surfaces_display_name_and_prefilled_required_params() {
     let f = Fixture::new().await;
     bind_github_only_to_session_root(&f).await;
 
-    let mut github = InstalledServer::new(&f.space_id.to_string(), "github")
+    let mut github = InstalledServer::new(f.space_id.to_string(), "github")
         .with_definition(&stdio_definition_with_required_input(
             "github",
             "github_token",
@@ -1185,7 +1185,7 @@ async fn invokable_but_not_surfaced_tool_excluded_from_advertised_list() {
 
     let invokable = f
         .feature_service
-        .get_invokable_tools_for_grants(&f.space_id.to_string(), &[fs_id.clone()])
+        .get_invokable_tools_for_grants(&f.space_id.to_string(), std::slice::from_ref(&fs_id))
         .await
         .unwrap();
     assert!(
@@ -1294,7 +1294,7 @@ async fn bind_ready_github_with_inactive_create_issue(f: &Fixture) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn list_servers_includes_prefilled_params_when_default_params_set() {
     let f = Fixture::new().await;
-    let mut github = InstalledServer::new(&f.space_id.to_string(), "github").with_definition(
+    let mut github = InstalledServer::new(f.space_id.to_string(), "github").with_definition(
         &stdio_definition_with_required_input("github", "github_token"),
     );
     github

@@ -992,7 +992,7 @@ mod tests {
 
     /// In-memory stand-in for the SQLite rename transaction (installed row + cloned_from).
     fn apply_in_memory_rename(
-        servers: &mut Vec<InstalledServer>,
+        servers: &mut [InstalledServer],
         space_id: &str,
         old_server_id: &str,
         new_server_id: &str,
