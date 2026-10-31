@@ -206,6 +206,11 @@ export interface OAuthClient {
 
   /** Machine this client is tagged with, if any. `null` means untagged/global. */
   machine_id: string | null;
+  /**
+   * Space this client is confined to, or null when unlocked. A locked client
+   * only ever resolves within this Space, so its mapping can't move it out.
+   */
+  locked_space_id?: string | null;
 }
 
 /**

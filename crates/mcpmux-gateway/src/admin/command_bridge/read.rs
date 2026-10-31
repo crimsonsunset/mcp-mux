@@ -404,11 +404,23 @@ pub async fn get_workspace_effective_features(
     ctx: &AdminBridgeCtx,
     workspace_root: String,
     machine_id: Option<String>,
+    binding_type: Option<String>,
 ) -> Result<Value> {
-    let normalized = match validate_workspace_root_path(&workspace_root) {
-        WorkspaceRootValidation::Empty => return Err(anyhow!("workspace_root cannot be empty")),
-        WorkspaceRootValidation::Ok { normalized } => normalized,
-        WorkspaceRootValidation::Invalid { reason } => return Err(anyhow!(reason)),
+    let is_id = binding_type.as_deref() == Some("id");
+    let normalized = if is_id {
+        let key = workspace_root.trim();
+        if key.is_empty() {
+            return Err(anyhow!("Mapping id cannot be empty"));
+        }
+        key.to_string()
+    } else {
+        match validate_workspace_root_path(&workspace_root) {
+            WorkspaceRootValidation::Empty => {
+                return Err(anyhow!("workspace_root cannot be empty"))
+            }
+            WorkspaceRootValidation::Ok { normalized } => normalized,
+            WorkspaceRootValidation::Invalid { reason } => return Err(anyhow!(reason)),
+        }
     };
 
     let default_space = ctx
@@ -417,7 +429,25 @@ pub async fn get_workspace_effective_features(
         .await?
         .ok_or_else(|| anyhow!("No default Space configured"))?;
 
-    let binding = if let Some(ref raw) = machine_id {
+    let binding = if is_id {
+        let scoped_machine = machine_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let scoped = match scoped_machine {
+            Some(ref id) => {
+                ctx.workspace_binding_repository
+                    .find_by_id_key(&normalized, Some(id))
+                    .await?
+            }
+            None => None,
+        };
+        match scoped {
+            Some(b) => Some(b),
+            None => {
+                ctx.workspace_binding_repository
+                    .find_by_id_key(&normalized, None)
+                    .await?
+            }
+        }
+    } else if let Some(ref raw) = machine_id {
         let id = Uuid::parse_str(raw)?;
         match ctx
             .workspace_binding_repository

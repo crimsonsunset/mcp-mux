@@ -41,10 +41,9 @@ describe('Connections - Page shell', () => {
 
       const pageSource = await browser.getPageSource();
 
-      // Positive: the new panel exposes the Workspaces entry point.
-      const hasWorkspacesLink =
-        pageSource.includes('Open Workspaces') || pageSource.includes('workspace-driven');
-      expect(hasWorkspacesLink).toBe(true);
+      // Positive: every client panel links to Projects, where its routing is configured.
+      const openProjects = await byTestId('client-open-workspaces-btn');
+      expect(await openProjects.isDisplayed()).toBe(true);
 
       // Negative: all removed per-client routing sections must be gone.
       expect(pageSource.includes('Quick Settings')).toBe(false);

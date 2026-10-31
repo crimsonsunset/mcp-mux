@@ -16,6 +16,8 @@ import {
   useWorkspaceEventListener,
   type WorkspaceEventChannel,
 } from '@/hooks';
+import { listOAuthClients, type OAuthClient } from '@/lib/api/gateway';
+import { clientDisplayName } from '@/lib/clientIcons';
 import {
   AlertCircle,
   Check,
@@ -206,6 +208,7 @@ export function WorkspacesPage() {
   const [reportedRoots, setReportedRoots] = useState<string[]>([]);
   const [featureSets, setFeatureSets] = useState<FeatureSet[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [clients, setClients] = useState<OAuthClient[]>([]);
   const [localMachineId, setLocalMachineId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -224,13 +227,15 @@ export function WorkspacesPage() {
   const loadData = useCallback(async () => {
     setError(null);
     try {
-      const [b, fs, roots, ap, machineList, localId] = await Promise.all([
+      const [b, fs, roots, ap, machineList, localId, clientList] = await Promise.all([
         listWorkspaceBindings(),
         listFeatureSets(),
         listReportedWorkspaceRoots().catch(() => [] as string[]),
         listWorkspaceAppearances().catch(() => [] as WorkspaceAppearance[]),
         listMachines().catch(() => [] as Machine[]),
         getLocalMachineId().catch(() => null),
+        // Clients only name id mappings; a stopped gateway must not break the page.
+        listOAuthClients().catch(() => [] as OAuthClient[]),
       ]);
       setBindings(b);
       setFeatureSets(fs);
@@ -238,6 +243,7 @@ export function WorkspacesPage() {
       setAppearances(ap);
       setMachines(machineList);
       setLocalMachineId(localId);
+      setClients(clientList);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -305,6 +311,11 @@ export function WorkspacesPage() {
     for (const s of spaces) m.set(s.id, s);
     return m;
   }, [spaces]);
+  const clientNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of clients) m.set(c.client_id, clientDisplayName(c));
+    return m;
+  }, [clients]);
   const machinesById = useMemo(() => {
     const m = new Map<string, Machine>();
     for (const machine of machines) m.set(machine.id, machine);
@@ -423,15 +434,19 @@ export function WorkspacesPage() {
             .join(' ')
         : '';
       const label = binding?.label?.toLowerCase() ?? '';
+      const clientName = e.isClientMapping
+        ? (clientNameById.get(e.root)?.toLowerCase() ?? '')
+        : '';
       return (
         e.root.toLowerCase().includes(q) ||
+        clientName.includes(q) ||
         e.roots.some((root) => root.toLowerCase().includes(q)) ||
         label.includes(q) ||
         spaceName.toLowerCase().includes(q) ||
         fsNames.toLowerCase().includes(q)
       );
     });
-  }, [entries, searchQuery, filter, machineFilter, spaceById, fsById]);
+  }, [entries, searchQuery, filter, machineFilter, spaceById, fsById, clientNameById]);
 
   const showIdentityBanner =
     !localMachineId && bindings.length > 0 && !identityBannerDismissed;
@@ -700,6 +715,7 @@ export function WorkspacesPage() {
                     machinesById={machinesById}
                     spaceById={spaceById}
                     fsById={fsById}
+                    clientNameById={clientNameById}
                     onClick={() => {
                       const primary = primaryBinding(entry);
                       if (primary) {
@@ -758,10 +774,10 @@ export function WorkspacesPage() {
 /**
  * Primary title for a workspace entry — label when set, otherwise the path.
  */
-function entryDisplayTitle(entry: Entry): string {
+function entryDisplayTitle(entry: Entry, clientNameById: Map<string, string>): string {
   const label = primaryBinding(entry)?.label?.trim();
   if (label) return label;
-  if (entry.isClientMapping) return shortClientId(entry.root);
+  if (entry.isClientMapping) return clientNameById.get(entry.root) ?? shortClientId(entry.root);
   return entry.root;
 }
 
@@ -1045,6 +1061,7 @@ function EntryCard({
   machinesById,
   spaceById,
   fsById,
+  clientNameById,
   onClick,
   onMachineRowClick,
   onCreateForCurrentMachine,
@@ -1058,6 +1075,7 @@ function EntryCard({
   machinesById: Map<string, Machine>;
   spaceById: Map<string, Space>;
   fsById: Map<string, FeatureSet>;
+  clientNameById: Map<string, string>;
   onClick: () => void;
   onMachineRowClick: (bindingId: string) => void;
   onCreateForCurrentMachine: () => void;
@@ -1073,7 +1091,7 @@ function EntryCard({
           ? 'emerald'
           : 'neutral';
 
-  const displayTitle = entryDisplayTitle(entry);
+  const displayTitle = entryDisplayTitle(entry, clientNameById);
   const binding = primaryBinding(entry);
   const hasLabel = Boolean(binding?.label?.trim());
   const routingRows = buildEntryRoutingRows(
@@ -1153,7 +1171,7 @@ function EntryCard({
               {entry.kind === 'mapped-live' && <Pill tone="emerald">{t('card.live')}</Pill>}
               {binding?.client_id && (
                 <Pill tone="neutral" title={binding.client_id}>
-                  {shortClientId(binding.client_id)}
+                  {clientNameById.get(binding.client_id) ?? shortClientId(binding.client_id)}
                 </Pill>
               )}
             </div>

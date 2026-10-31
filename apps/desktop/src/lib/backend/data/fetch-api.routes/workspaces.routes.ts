@@ -34,6 +34,7 @@ export const workspacesRoutes: Record<string, RouteHandler> = {
     path: `/api/v1/workspaces/effective-features${buildQuery({
       workspaceRoot: args.workspaceRoot,
       machineId: args.machineId,
+      bindingType: args.bindingType,
     })}`,
   }),
   list_workspace_appearances: () => ({ method: 'GET', path: '/api/v1/workspaces/appearances' }),

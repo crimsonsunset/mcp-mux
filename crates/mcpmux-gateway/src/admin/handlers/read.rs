@@ -35,6 +35,8 @@ pub struct ValidateRootQuery {
 pub struct EffectiveFeaturesQuery {
     pub workspace_root: String,
     pub machine_id: Option<String>,
+    /// `id` looks the key up verbatim as a client-id mapping; default is a folder path.
+    pub binding_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -415,10 +417,15 @@ pub async fn get_workspace_effective_features(
     State(state): State<AdminState>,
     Query(query): Query<EffectiveFeaturesQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    bridge::get_workspace_effective_features(&state.bridge, query.workspace_root, query.machine_id)
-        .await
-        .map(ok)
-        .map_err(ApiError::from_bridge)
+    bridge::get_workspace_effective_features(
+        &state.bridge,
+        query.workspace_root,
+        query.machine_id,
+        query.binding_type,
+    )
+    .await
+    .map(ok)
+    .map_err(ApiError::from_bridge)
 }
 
 pub async fn list_workspace_appearances(
