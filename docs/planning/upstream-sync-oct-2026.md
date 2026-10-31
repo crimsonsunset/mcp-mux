@@ -198,6 +198,17 @@ Conflict clusters by checkpoint. Paths are relative to the repo root. "Fork" mea
 
 Don't start the next checkpoint on a red gate. Desktop WDIO E2E is advisory (see Out).
 
+### Fork preservation guards
+
+Two test files exist to fail loudly when a merge silently drops fork work. Both pass on the integration branch before CP1.
+
+| Test | Fails when |
+| ---- | ---------- |
+| [`tests/rust/tests/database/fork_preservation.rs`](../../tests/rust/tests/database/fork_preservation.rs) | A fork table or column from migrations 019–043 is missing. Migration versions have a gap or stop below `FORK_SCHEMA_VERSION`. An `InstalledServer` fork field (default params and strategy, update policy, pinned/current/latest version, `cloned_from`, display name, source) doesn't round-trip through install and update. An `InboundClient`'s machine, icon or Space lock is lost on DCR re-registration. The `gateway.public_base_url` or `gateway.local_machine_id` key string changes |
+| [`tests/ts/command-parity.test.ts`](../../tests/ts/command-parity.test.ts) | A command the UI calls isn't registered in `generate_handler!`, or a web-admin command has no route mapping, or its mapping points at a path the admin router doesn't mount |
+
+Bump `FORK_SCHEMA_VERSION` when a renumbered upstream migration lands (CP6, CP8b). The `ADMIN_GAPS` allowlist in the parity test lists 6 commands that are desktop-only today (API-key client CRUD, binding prompt dismissal). Its last test fails if one of them gains a route without being removed from the list.
+
 ---
 
 ## Phases
