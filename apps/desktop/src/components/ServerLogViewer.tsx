@@ -7,6 +7,8 @@ import { getServerLogs, clearServerLogs, getServerLogFile, type ServerLogEntry }
 interface ServerLogViewerProps {
   serverId: string;
   serverName: string;
+  /** Space whose logs to show; logs are stored per Space. */
+  spaceId: string;
   onClose: () => void;
 }
 
@@ -57,7 +59,7 @@ function formatLogLine(log: ServerLogEntry): string {
   return `${base}  ${JSON.stringify(log.metadata)}`;
 }
 
-export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogViewerProps) {
+export function ServerLogViewer({ serverId, serverName, spaceId, onClose }: ServerLogViewerProps) {
   const { t } = useTranslation('settings');
   const { t: tCommon } = useTranslation('common');
   const [logs, setLogs] = useState<ServerLogEntry[]>([]);
@@ -76,6 +78,7 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
       setError(null);
       const fetchedLogs = await getServerLogs(
         serverId,
+        spaceId,
         500, // Load last 500 logs
         levelFilter === 'all' ? undefined : levelFilter
       );
@@ -95,7 +98,7 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
     } finally {
       setLoading(false);
     }
-  }, [levelFilter, serverId]);
+  }, [levelFilter, serverId, spaceId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -140,7 +143,7 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
     }
     
     try {
-      await clearServerLogs(serverId);
+      await clearServerLogs(serverId, spaceId);
       setLogs([]);
       success(
         t('logs.viewer.toast.cleared'),
@@ -156,7 +159,7 @@ export function ServerLogViewer({ serverId, serverName, onClose }: ServerLogView
 
   const handleOpenInEditor = async () => {
     try {
-      const filePath = await getServerLogFile(serverId);
+      const filePath = await getServerLogFile(serverId, spaceId);
       await navigator.clipboard.writeText(filePath);
       success(t('logs.viewer.toast.pathCopied'), t('logs.viewer.toast.pathCopiedBody'));
     } catch (e) {

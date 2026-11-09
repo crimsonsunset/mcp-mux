@@ -4,9 +4,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Editor, { type Monaco } from '@monaco-editor/react';
+import { type Monaco } from '@monaco-editor/react';
 import { Loader2 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
+import { LocalEditor } from './LocalEditor';
 
 const MIN_EDITOR_HEIGHT = 200;
 
@@ -118,7 +119,7 @@ export function MonacoJsonEditor({
 
   return (
     <div ref={containerRef} className="h-full w-full" data-testid={testId}>
-      <Editor
+      <LocalEditor
         height={height}
         defaultLanguage="json"
         value={value}

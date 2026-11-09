@@ -6,6 +6,7 @@
 //! Architecture:
 //! - `handler`: Implements ServerHandler, delegates to existing services
 //! - `context`: Utilities for extracting OAuth context from requests
+//! - `origin_guard`: Keeps web pages (browser `Origin`s) off the endpoint
 //!
 //! Note: MCPNotifier (notification bridge) is now in `consumers/` module.
 
@@ -13,6 +14,7 @@ pub mod context;
 pub mod handler;
 pub mod mcpmux_context;
 pub mod oauth_middleware;
+pub mod origin_guard;
 
 pub use handler::McpMuxGatewayHandler;
 pub use oauth_middleware::mcp_oauth_middleware;

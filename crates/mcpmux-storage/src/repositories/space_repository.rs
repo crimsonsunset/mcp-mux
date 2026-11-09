@@ -109,17 +109,19 @@ impl SpaceRepository for SqliteSpaceRepository {
         // Auto-seed the builtin "Starter" FeatureSet for this Space — a
         // ready-to-use starting point. The id prefix `fs_default_<space>`
         // is preserved for FK-stability across the rename (migration 013).
-        // The Starter is the default fallback for folders that aren't
-        // explicitly mapped (and rootless/unknown sessions), so it's
-        // load-bearing and builtin: members are editable, but it can't be
-        // renamed or deleted.
+        // The Starter is the bundle folders opt into by being mapped to it
+        // (unmapped folders get nothing), so it's builtin: members are
+        // editable, but it can't be renamed or deleted. It starts in auto mode (every server's tools)
+        // unless the user turned that default off in Settings.
         conn.execute(
-            "INSERT OR IGNORE INTO feature_sets (id, name, description, icon, space_id, feature_set_type, is_builtin, created_at, updated_at)
-             VALUES (?1, 'Starter', 'Auto-created with this Space — the default set for folders you haven''t explicitly mapped. Edit which tools it includes to change what they get. Its name is fixed and it can''t be deleted.', '⭐', ?2, 'starter', 1, ?3, ?3)",
+            "INSERT OR IGNORE INTO feature_sets (id, name, description, icon, space_id, feature_set_type, is_builtin, created_at, updated_at, auto_include)
+             VALUES (?1, 'Starter', 'Auto-created with this Space — the opt-in bundle you can map a folder to. Edit which tools it includes to change what mapped folders get. Its name is fixed and it can''t be deleted.', '⭐', ?2, 'starter', 1, ?3, ?3,
+                     COALESCE((SELECT value FROM app_settings WHERE key = ?4), 'true') <> 'false')",
             params![
                 format!("fs_default_{}", space_id),
                 space_id,
                 now,
+                mcpmux_core::STARTER_AUTO_INCLUDE_SETTING_KEY,
             ],
         )?;
 

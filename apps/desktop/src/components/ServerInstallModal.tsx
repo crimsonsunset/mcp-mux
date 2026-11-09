@@ -268,7 +268,9 @@ export function ServerInstallModal() {
                 <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
                   {server.auth.type === 'oauth'
                     ? t('installModal.auth.oauth')
-                    : t('installModal.auth.apiKey')}
+                    : server.auth.type === 'basic'
+                      ? t('installModal.auth.basic')
+                      : t('installModal.auth.apiKey')}
                 </span>
               )}
             </div>

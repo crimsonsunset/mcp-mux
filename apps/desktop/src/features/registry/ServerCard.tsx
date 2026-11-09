@@ -47,6 +47,12 @@ export function ServerCard({
             {t('card.auth.optionalApiKey')}
           </span>
         );
+      case 'basic':
+        return (
+          <span className="px-2 py-0.5 text-xs rounded-full bg-[rgb(var(--warning))]/20 text-[rgb(var(--warning))]">
+            {t('card.auth.basic')}
+          </span>
+        );
       case 'oauth':
         return (
           <span className="px-2 py-0.5 text-xs rounded-full bg-[rgb(var(--info))]/20 text-[rgb(var(--info))]">

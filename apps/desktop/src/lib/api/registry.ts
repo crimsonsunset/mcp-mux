@@ -1,7 +1,6 @@
 /** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { apiCall } from './transport';
 import type {
-  RegistryCategory,
   ServerDefinition,
   InstalledServerState,
   UiConfig,
@@ -39,11 +38,6 @@ export async function refreshRegistry(): Promise<number> {
 /** Get a specific server definition. */
 export async function getServerDefinition(serverId: string): Promise<ServerDefinition | null> {
   return apiCall<ServerDefinition | null>('get_server_definition', { serverId });
-}
-
-/** List all registry categories (derived from the registry UI config bundle). */
-export async function listCategories(): Promise<RegistryCategory[]> {
-  return apiCall<RegistryCategory[]>('list_registry_categories');
 }
 
 /** Install a server (adds to DB). */

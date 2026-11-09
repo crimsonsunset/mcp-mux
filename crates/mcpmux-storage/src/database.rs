@@ -248,6 +248,26 @@ const MIGRATIONS: &[Migration] = &[
         name: "workspace_binding_project_link",
         sql: include_str!("migrations/043_workspace_binding_project_link.sql"),
     },
+    Migration {
+        version: 44,
+        name: "onboarding_defaults",
+        sql: include_str!("migrations/044_onboarding_defaults.sql"),
+    },
+    Migration {
+        version: 45,
+        name: "pin_inbound_auth",
+        sql: include_str!("migrations/045_pin_inbound_auth.sql"),
+    },
+    Migration {
+        version: 46,
+        name: "outbound_oauth_client_secret",
+        sql: include_str!("migrations/046_outbound_oauth_client_secret.sql"),
+    },
+    Migration {
+        version: 47,
+        name: "outbound_oauth_client_auth",
+        sql: include_str!("migrations/047_outbound_oauth_client_auth.sql"),
+    },
 ];
 
 /// SQLite database wrapper.
@@ -788,7 +808,8 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 43);
+        let latest = MIGRATIONS.iter().map(|m| m.version).max().unwrap();
+        assert_eq!(version, latest);
 
         let v16_name: String = db
             .conn

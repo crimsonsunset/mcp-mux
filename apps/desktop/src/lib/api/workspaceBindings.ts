@@ -59,6 +59,16 @@ export interface WorkspaceBindingInput {
   project_link_id?: string | null;
 }
 
+/**
+ * Whether a routing key is an absolute folder (POSIX `/…`, UNC `\\…` or
+ * `//…`, drive-letter `C:…`, or a `file:` URI). Anything else is an id/label —
+ * e.g. a value a headless client sends in the `X-Mcpmux-Workspace` header —
+ * and must be mapped as an `id` binding, not validated as a path.
+ */
+export function looksLikeFolderPath(key: string): boolean {
+  return /^(file:|\/|\\\\|[a-zA-Z]:)/i.test(key.trim());
+}
+
 /** List every binding (sorted by workspace_root). */
 export async function listWorkspaceBindings(): Promise<WorkspaceBinding[]> {
   return apiCall('list_workspace_bindings');
@@ -259,13 +269,18 @@ export interface WorkspaceEffectiveFeatures {
  * Resolve the FeatureSet that applies for a given workspace root and return
  * its full configured tool/prompt/resource list with per-feature
  * availability — same view the gateway resolver builds for live sessions.
+ *
+ * Pass `bindingType: 'id'` for an id mapping (a client id or label) so the
+ * key is looked up verbatim instead of being validated as a folder path.
  */
 export async function getWorkspaceEffectiveFeatures(
   workspaceRoot: string,
   machineId?: string | null,
+  bindingType: 'path' | 'id' = 'path'
 ): Promise<WorkspaceEffectiveFeatures> {
   return apiCall('get_workspace_effective_features', {
     workspaceRoot,
     ...(machineId ? { machineId } : {}),
+    ...(bindingType === 'id' ? { bindingType } : {}),
   });
 }

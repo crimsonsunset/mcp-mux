@@ -103,7 +103,16 @@ impl GatewayConfig {
     /// network rather than being local-only.
     pub fn is_network_bind(&self) -> bool {
         let host = self.host.trim();
-        !(host.is_empty() || host == "127.0.0.1" || host == "::1" || host == "localhost")
+        let host = host
+            .strip_prefix('[')
+            .and_then(|h| h.strip_suffix(']'))
+            .unwrap_or(host);
+        let loopback = host.is_empty()
+            || host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
+        !loopback
     }
 
     /// Host values accepted by rmcp's DNS rebinding protection.
@@ -591,9 +600,38 @@ impl GatewayServer {
         self,
         shutdown: impl std::future::Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<()> {
+        self.serve(shutdown, None).await
+    }
+
+    /// Shared body of [`Self::run_with_shutdown`] and [`Self::spawn`].
+    /// `bound_tx`, when present, receives the outcome of the listener bind
+    /// so a caller can tell "this gateway is serving" apart from "something
+    /// else answers on this port".
+    async fn serve(
+        self,
+        shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+        bound_tx: Option<tokio::sync::oneshot::Sender<Result<SocketAddr, String>>>,
+    ) -> anyhow::Result<()> {
         let addr = self.config.addr();
 
         info!("[Gateway] Starting on {}", addr);
+
+        // Bind before anything else starts: when the port is taken there is
+        // no gateway to serve, so auto-connect must not launch stdio servers.
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                if let Some(tx) = bound_tx {
+                    let _ = tx.send(listener.local_addr().map_err(|e| e.to_string()));
+                }
+                listener
+            }
+            Err(e) => {
+                if let Some(tx) = bound_tx {
+                    let _ = tx.send(Err(format!("cannot bind {addr}: {e}")));
+                }
+                return Err(e.into());
+            }
+        };
         info!(
             "[Gateway] CORS: {}",
             if self.config.enable_cors {
@@ -666,9 +704,8 @@ impl GatewayServer {
             self_for_autoconnect.auto_connect_servers().await;
         });
 
-        // Build router and start server immediately
+        // Build router and start serving on the already-bound listener
         let router = self_arc.build_router();
-        let listener = tokio::net::TcpListener::bind(addr).await?;
 
         info!("[Gateway] Ready to accept connections (servers connecting in background)");
 
@@ -695,19 +732,24 @@ impl GatewayServer {
     /// until its task is aborted — the old behavior.
     pub fn spawn(self) -> GatewayServerHandle {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (bound_tx, bound_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
-            self.run_with_shutdown(async move {
-                // If the sender is dropped without being used, `rx.await`
-                // resolves with `Err` and we treat that as "shut down now"
-                // — this makes accidental Drop of the handle release the
-                // port instead of orphaning it.
-                let _ = rx.await;
-            })
+            self.serve(
+                async move {
+                    // If the sender is dropped without being used, `rx.await`
+                    // resolves with `Err` and we treat that as "shut down now"
+                    // — this makes accidental Drop of the handle release the
+                    // port instead of orphaning it.
+                    let _ = rx.await;
+                },
+                Some(bound_tx),
+            )
             .await
         });
         GatewayServerHandle {
             task,
             shutdown: Some(tx),
+            bound: Some(bound_rx),
         }
     }
 }
@@ -722,9 +764,28 @@ impl GatewayServer {
 pub struct GatewayServerHandle {
     pub task: tokio::task::JoinHandle<anyhow::Result<()>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    bound: Option<tokio::sync::oneshot::Receiver<Result<SocketAddr, String>>>,
 }
 
 impl GatewayServerHandle {
+    /// Wait until this gateway's listener has bound, returning the bound
+    /// address, or the bind error when the port is unavailable. A `/health`
+    /// 200 alone cannot prove this: another process may own the port.
+    ///
+    /// The result can be taken once; later calls return an error.
+    pub async fn wait_until_bound(&mut self) -> anyhow::Result<SocketAddr> {
+        let Some(bound) = self.bound.take() else {
+            anyhow::bail!("gateway bind result was already taken");
+        };
+        match bound.await {
+            Ok(Ok(addr)) => Ok(addr),
+            Ok(Err(e)) => Err(anyhow::anyhow!(e)),
+            Err(_) => Err(anyhow::anyhow!(
+                "gateway task exited before binding its listener"
+            )),
+        }
+    }
+
     /// Send the graceful-shutdown signal. No-op if already sent (idempotent).
     pub fn shutdown(&mut self) {
         if let Some(tx) = self.shutdown.take() {
@@ -803,10 +864,18 @@ mod config_tests {
 
     #[test]
     fn is_network_bind_distinguishes_loopback_from_exposed() {
-        for h in ["127.0.0.1", "::1", "localhost", ""] {
+        for h in [
+            "127.0.0.1",
+            "127.0.0.2",
+            "::1",
+            "[::1]",
+            "localhost",
+            "LocalHost",
+            "",
+        ] {
             assert!(!config_on_host(h).is_network_bind(), "{h:?} is loopback");
         }
-        for h in ["0.0.0.0", "::", "192.168.1.50"] {
+        for h in ["0.0.0.0", "::", "192.168.1.50", "fe80::1", "myhost.lan"] {
             assert!(
                 config_on_host(h).is_network_bind(),
                 "{h:?} is a network bind"

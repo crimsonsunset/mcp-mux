@@ -1,6 +1,6 @@
 [package]
 name = "mcpmux"
-version = "0.5.0"
+version = "0.7.0"
 edition.workspace = true
 publish = false
 description = "McpMux - Centralized MCP Server Management"
@@ -51,6 +51,7 @@ hostname.workspace = true
 # Internal crates (path-only, no version needed)
 mcpmux-core.workspace = true
 mcpmux-gateway.workspace = true
+mcpmux-runtime.workspace = true
 mcpmux-storage.workspace = true
 
 [target.'cfg(unix)'.dependencies]

@@ -429,6 +429,21 @@ pub async fn approve_oauth_consent(
     mcpmux_gateway::oauth::approve_oauth_consent(gw_state, request).await
 }
 
+/// Deny an OAuth consent request. Forces `approved = false` whatever the caller
+/// sent, mirroring the web admin's `POST /api/v1/oauth/consent/reject`.
+#[tauri::command]
+pub async fn reject_oauth_consent(
+    gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
+    request: ConsentApprovalRequest,
+) -> Result<ConsentApprovalResponse, String> {
+    let request = ConsentApprovalRequest {
+        approved: false,
+        client_alias: None,
+        ..request
+    };
+    approve_oauth_consent(gateway_state, request).await
+}
+
 /// Get list of connected OAuth clients (direct service access)
 #[tauri::command]
 pub async fn get_oauth_clients(
@@ -460,10 +475,15 @@ pub async fn get_oauth_clients(
         clients.len()
     );
 
-    // Map to response format
-    let client_infos: Vec<OAuthClientInfo> = clients
-        .into_iter()
-        .map(|client| OAuthClientInfo {
+    // Map to response format. The Space lock lives in its own column, so
+    // read it per client — the UI pins the mapping's Space picker to it.
+    let mut client_infos: Vec<OAuthClientInfo> = Vec::with_capacity(clients.len());
+    for client in clients {
+        let locked_space_id = repo
+            .get_locked_space(&client.client_id)
+            .await
+            .map_err(|e| format!("Failed to read client lock: {}", e))?;
+        client_infos.push(OAuthClientInfo {
             client_id: client.client_id,
             registration_type: client.registration_type.as_str().to_string(),
             client_name: client.client_name,
@@ -484,8 +504,9 @@ pub async fn get_oauth_clients(
             reports_roots: client.reports_roots,
             roots_capability_known: client.roots_capability_known,
             machine_id: client.machine_id.map(|id| id.to_string()),
-        })
-        .collect();
+            locked_space_id: locked_space_id.map(|id| id.to_string()),
+        });
+    }
 
     Ok(client_infos)
 }
@@ -574,6 +595,9 @@ pub struct OAuthClientInfo {
     /// commands for assignment). `None` means untagged/global.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<String>,
+    /// Space this client is confined to, if locked. A locked client only ever
+    /// resolves within this Space — its mapping can't route it elsewhere.
+    pub locked_space_id: Option<String>,
 }
 
 /// Request to update client settings.
@@ -624,6 +648,10 @@ pub async fn update_oauth_client(
         .await
         .map_err(|e| format!("Failed to get updated client: {}", e))?
         .ok_or("Client not found after update")?;
+    let locked_space_id = repo
+        .get_locked_space(&client_id)
+        .await
+        .map_err(|e| format!("Failed to read client lock: {}", e))?;
 
     Ok(OAuthClientInfo {
         client_id: updated_client.client_id,
@@ -646,6 +674,7 @@ pub async fn update_oauth_client(
         reports_roots: updated_client.reports_roots,
         roots_capability_known: updated_client.roots_capability_known,
         machine_id: updated_client.machine_id.map(|id| id.to_string()),
+        locked_space_id: locked_space_id.map(|id| id.to_string()),
     })
 }
 
@@ -863,7 +892,7 @@ pub async fn create_client_api_key(
     Ok(RegisteredApiKeyClient {
         client_id,
         client_name: client.client_name,
-        locked_space_id,
+        locked_space_id: locked_space_id.map(|id| id.to_string()),
         api_key: plaintext,
         key_prefix,
     })

@@ -1,5 +1,5 @@
 # Reusable workflow: Desktop E2E tests (Linux + Windows)
-# Call with workflow_call from ci.yml or e2e-desktop-comment.yml
+# Called from ci.yml
 name: E2E Desktop
 
 on:
@@ -9,17 +9,20 @@ on:
         description: Git ref to checkout (e.g. PR head SHA or github.sha)
         required: true
         type: string
-    secrets:
-      TAURI_SIGNING_PRIVATE_KEY:
-        required: false
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
-        required: false
 
 env:
   PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+  # E2E needs a runnable app, not a release-grade binary. Skip the release
+  # profile's fat LTO and single codegen unit, the slowest part of the build;
+  # the release workflows don't set these and keep both.
+  CARGO_PROFILE_RELEASE_LTO: 'off'
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
 
 jobs:
   e2e-desktop:
+    # Explicit name keeps the required check "e2e-desktop (windows-latest)"
+    # stable now that the Windows matrix entry also sets `runner`.
+    name: e2e-desktop (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -30,8 +33,13 @@ jobs:
           # Unpin once 26.04 is verified to ship it.
           - os: ubuntu-latest
             runner: ubuntu-24.04
+          # WebView2 Runtime 150+ ignores --remote-debugging-port passed through
+          # env vars in elevated processes (GitHub runners run as admin), so
+          # msedgedriver never gets a session ("DevToolsActivePort file doesn't
+          # exist"). windows-2022 still ships an older WebView2 runtime.
+          # `os` stays windows-latest: it names the required check and artifact.
           - os: windows-latest
-            runner: windows-latest
+            runner: windows-2022
 
     runs-on: ${{ matrix.runner }}
     steps:
@@ -54,6 +62,9 @@ jobs:
           key: ${{ matrix.os }}-e2e-desktop
           shared-key: rust-${{ matrix.os == 'ubuntu-latest' && 'x86_64-unknown-linux-gnu' || 'x86_64-pc-windows-msvc' }}
           cache-on-failure: true
+          # Only main saves: the repo's caches are at the 10 GB limit, and PR
+          # and merge-queue saves were evicting main's.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
         env:
           PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
@@ -86,7 +97,9 @@ jobs:
 
       - name: Install tauri-driver
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --locked
+        # --force: rust-cache restores ~/.cargo/bin, so the binary can already
+        # be there without cargo's install record, and cargo won't overwrite it.
+        run: cargo install tauri-driver --locked --force
         env:
           PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
@@ -121,12 +134,8 @@ jobs:
         shell: bash
         run: pnpm --filter @mcpmux/desktop exec tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-      # TODO(playwright-migration): desktop E2E has stale assertions from the IA
-      # redesign and is being replaced (tauri-playwright spike). Non-blocking
-      # until then; results still surface via the report job below.
       - name: Run desktop E2E tests (Linux)
         if: matrix.os == 'ubuntu-latest'
-        continue-on-error: true
         run: |
           # Start dbus session and unlock gnome-keyring with a dummy password for CI.
           # Two-step process: unlock creates the login keyring, start exports env vars.
@@ -200,7 +209,6 @@ jobs:
 
       - name: Run desktop E2E tests (Windows)
         if: matrix.os == 'windows-latest'
-        continue-on-error: true
         run: pnpm test:e2e
 
       # Upload test results and artifacts
@@ -248,7 +256,6 @@ jobs:
       contents: read
       actions: read
       checks: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 

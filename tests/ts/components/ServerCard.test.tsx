@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { ServerCard } from '../../../apps/desktop/src/features/registry/ServerCard';
-import type { ServerViewModel } from '../../../apps/desktop/src/types/registry';
+import type { AuthConfig, ServerViewModel } from '../../../apps/desktop/src/types/registry';
 import { renderWithI18n } from '../render-with-i18n.helpers';
 
 function makeServer(overrides: Partial<ServerViewModel> = {}): ServerViewModel {

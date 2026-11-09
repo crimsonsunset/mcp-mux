@@ -58,7 +58,13 @@ pub trait GatewayWriteRuntime: Send + Sync {
         tool_name: String,
         decision: String,
     ) -> Result<Value>;
-    async fn revoke_meta_tool_grant(&self, client_id: String, tool_name: String) -> Result<Value>;
+    async fn revoke_meta_tool_grant(
+        &self,
+        client_id: String,
+        tool_name: String,
+        action: Option<String>,
+        space_id: Option<String>,
+    ) -> Result<Value>;
     async fn update_oauth_client(
         &self,
         client_id: String,
@@ -82,6 +88,10 @@ pub trait GatewayWriteRuntime: Send + Sync {
     async fn hot_reload_local_machine_id(&self, machine_id: Option<uuid::Uuid>) -> Result<()>;
     /// Live gateway state for inbound OAuth consent (web admin).
     async fn gateway_state(&self) -> Option<Arc<RwLock<GatewayState>>>;
+    /// Drop cached resolutions and tell connected MCP clients a FeatureSet
+    /// changed. No-op when the gateway isn't running.
+    async fn notify_feature_set_modified(&self, space_id: &str, feature_set_id: &str)
+        -> Result<()>;
 }
 
 fn gateway_write_unavailable() -> anyhow::Error {
@@ -95,6 +105,7 @@ pub struct LiveGatewayWriteRuntime {
     server_manager: Arc<ServerManager>,
     feature_service: Arc<FeatureService>,
     feature_set_resolver: Arc<crate::services::FeatureSetResolverService>,
+    grant_service: Arc<crate::services::GrantService>,
     installed_server_repo: Arc<dyn InstalledServerRepository>,
     data_dir: PathBuf,
     version_probe: Arc<ServerVersionProbeService>,
@@ -114,6 +125,7 @@ impl LiveGatewayWriteRuntime {
             server_manager: server.server_manager(),
             feature_service: server.feature_service(),
             feature_set_resolver: server.feature_set_resolver(),
+            grant_service: server.grant_service(),
             installed_server_repo,
             data_dir,
             version_probe,
@@ -318,6 +330,8 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
         &self,
         _client_id: String,
         _tool_name: String,
+        _action: Option<String>,
+        _space_id: Option<String>,
     ) -> Result<Value> {
         Err(gateway_write_unavailable())
     }
@@ -362,6 +376,16 @@ impl GatewayWriteRuntime for LiveGatewayWriteRuntime {
 
     async fn gateway_state(&self) -> Option<Arc<RwLock<GatewayState>>> {
         Some(self.gateway_state.clone())
+    }
+
+    async fn notify_feature_set_modified(
+        &self,
+        space_id: &str,
+        feature_set_id: &str,
+    ) -> Result<()> {
+        self.grant_service
+            .notify_feature_set_modified(space_id, feature_set_id)
+            .await
     }
 }
 
@@ -476,6 +500,8 @@ impl GatewayWriteRuntime for StubGatewayWriteRuntime {
         &self,
         _client_id: String,
         _tool_name: String,
+        _action: Option<String>,
+        _space_id: Option<String>,
     ) -> Result<Value> {
         Err(gateway_not_running())
     }
@@ -517,5 +543,13 @@ impl GatewayWriteRuntime for StubGatewayWriteRuntime {
 
     async fn gateway_state(&self) -> Option<Arc<RwLock<GatewayState>>> {
         self.gateway_state.clone()
+    }
+
+    async fn notify_feature_set_modified(
+        &self,
+        _space_id: &str,
+        _feature_set_id: &str,
+    ) -> Result<()> {
+        Ok(())
     }
 }

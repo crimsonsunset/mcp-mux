@@ -4,7 +4,6 @@ import { open, type OpenDialogOptions } from '@tauri-apps/plugin-dialog';
 import { relaunch } from '@tauri-apps/plugin-process';
 import type { Update } from '@tauri-apps/plugin-updater';
 
-import type { ExportConfigRequest } from '@/lib/api/configExport';
 import type { AdminWebSettings } from '@/lib/api/settings';
 
 import { apiCall, isTauri } from '../data/transport';
@@ -278,16 +277,6 @@ export async function addToCursor(gatewayUrl: string): Promise<void> {
     return;
   }
   await invoke('add_to_cursor', { gatewayUrl });
-}
-
-/**
- * Write generated MCP client config JSON to a user-selected path (desktop only).
- */
-export async function exportConfigToFile(
-  request: ExportConfigRequest,
-  path: string
-): Promise<string> {
-  return invoke('export_config_to_file', { request, path });
 }
 
 /**

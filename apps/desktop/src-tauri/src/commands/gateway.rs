@@ -100,39 +100,6 @@ pub(crate) async fn hot_reload_local_machine_id(
     }
 }
 
-/// Gracefully shuts down a running gateway and waits for the axum task
-/// to finish so the TCP listener is released back to the OS.
-///
-/// Without this, `handle.abort()` alone can leave an orphaned
-/// kernel-level bind — a listener socket that netstat still reports even
-/// though no process exists — preventing the next `start_gateway` from
-/// binding the same port.
-///
-/// Flow:
-/// 1. Send the graceful-shutdown signal (axum drains in-flight requests).
-/// 2. Await the task up to 2s so Rust Drop closes the listener fd.
-/// 3. If the task hasn't returned by then, abort as a last resort.
-pub(crate) async fn shutdown_gateway_handle(mut handle: mcpmux_gateway::GatewayServerHandle) {
-    let abort = handle.task.abort_handle();
-    handle.shutdown();
-    match tokio::time::timeout(std::time::Duration::from_secs(2), handle.task).await {
-        Ok(Ok(Ok(()))) => info!("[Gateway] Gateway task exited cleanly"),
-        Ok(Ok(Err(e))) => warn!(
-            "[Gateway] Gateway task returned error during shutdown: {}",
-            e
-        ),
-        Ok(Err(e)) if e.is_cancelled() => info!("[Gateway] Gateway task was already cancelled"),
-        Ok(Err(e)) => warn!("[Gateway] Gateway task join error: {}", e),
-        Err(_) => {
-            warn!(
-                "[Gateway] Graceful shutdown timed out after 2s — aborting task \
-                 (listener socket may briefly linger in kernel)"
-            );
-            abort.abort();
-        }
-    }
-}
-
 /// Bring the main webview window forward so the user sees a popup the
 /// gateway just emitted. Best-effort — silently no-ops when the window
 /// doesn't exist (rare, e.g. during teardown). Used by the approval
@@ -140,8 +107,8 @@ pub(crate) async fn shutdown_gateway_handle(mut handle: mcpmux_gateway::GatewayS
 /// a fresh client connection automatically draws the user's eye to the
 /// mcpmux app instead of the dialog rendering invisibly under another
 /// window.
-const GATEWAY_PUBLIC_BASE_URL_KEY: &str = "gateway.public_base_url";
-const GATEWAY_NETWORK_ACCESS_KEY: &str = "gateway.network_access_enabled";
+const GATEWAY_PUBLIC_BASE_URL_KEY: &str = mcpmux_gateway::auth_default::PUBLIC_BASE_URL_KEY;
+const GATEWAY_NETWORK_ACCESS_KEY: &str = mcpmux_gateway::auth_default::NETWORK_ACCESS_KEY;
 
 pub(crate) fn normalize_public_base_url(raw: &str) -> Result<Option<String>, String> {
     let trimmed = raw.trim();
@@ -233,17 +200,43 @@ pub(crate) async fn load_network_access(app_state: &AppState) -> bool {
     load_network_access_from_repo(&app_state.settings_repository).await
 }
 
-/// Load the persisted inbound-auth toggle (`gateway.auth_disabled`).
+/// Whether the gateway is configured to be reachable from other machines:
+/// bound to all interfaces, or published at a public URL.
+pub(crate) async fn gateway_exposure_configured(
+    settings_repository: &Arc<dyn mcpmux_core::AppSettingsRepository>,
+) -> bool {
+    load_network_access_from_repo(settings_repository).await
+        || load_public_base_url_from_repo(settings_repository)
+            .await
+            .is_some()
+}
+
+/// Why inbound auth can't be turned off, if it can't: the settings expose the
+/// gateway, or the running gateway is still exposed (exposure changes only
+/// apply on restart).
+fn auth_off_refusal(exposure_configured: bool, running_exposed: bool) -> Option<&'static str> {
+    if exposure_configured {
+        Some(
+            "Authentication can't be turned off while the gateway is reachable from other \
+             machines. Turn off network access and remove the public URL first.",
+        )
+    } else if running_exposed {
+        Some(
+            "Authentication can't be turned off yet: the running gateway is still reachable \
+             from other machines. Restart the gateway first.",
+        )
+    } else {
+        None
+    }
+}
+
+/// Whether inbound auth is off — see `mcpmux_gateway::auth_default`. Auth is always
+/// on while the gateway is reachable from other machines (network bind or public
+/// URL), whatever was chosen earlier; otherwise an explicit choice wins.
 pub(crate) async fn load_gateway_auth_disabled_from_repo(
     settings_repository: &Arc<dyn mcpmux_core::AppSettingsRepository>,
 ) -> bool {
-    settings_repository
-        .get(GATEWAY_AUTH_DISABLED_KEY)
-        .await
-        .ok()
-        .flatten()
-        .map(|value| value == "true")
-        .unwrap_or(false)
+    mcpmux_gateway::auth_default::effective_auth_disabled(settings_repository).await
 }
 
 /// Load the persisted inbound-auth toggle for the running app instance.
@@ -940,50 +933,20 @@ pub async fn wire_consent_ui_notifications(
     );
 }
 
-/// Create Gateway dependencies from app state using DI builder pattern
+/// Create Gateway dependencies from app state using DI builder pattern.
 ///
-/// Centralizes dependency construction following Dependency Injection principles.
-/// All external dependencies are explicitly injected, making the Gateway testable.
+/// Thin wrapper around [`AppState::runtime`]'s
+/// [`mcpmux_runtime::Runtime::build_gateway_dependencies`]. Kept as a
+/// free function so the existing `start_gateway` command can pass it
+/// through unchanged.
 fn create_gateway_dependencies(
     app_state: &AppState,
     _app_handle: tauri::AppHandle,
 ) -> Result<mcpmux_gateway::GatewayDependencies, String> {
-    // Load JWT signing secret (DPAPI on Windows, keychain elsewhere)
-    let jwt_secret = match mcpmux_storage::create_jwt_secret_provider(app_state.data_dir()) {
-        Ok(provider) => match provider.get_or_create_secret() {
-            Ok(secret) => {
-                info!("[Gateway] JWT signing secret loaded");
-                Some(secret)
-            }
-            Err(e) => {
-                warn!("[Gateway] Failed to load JWT secret: {}", e);
-                None
-            }
-        },
-        Err(e) => {
-            warn!("[Gateway] Failed to create JWT secret provider: {}", e);
-            None
-        }
-    };
-
-    // Build dependencies using builder pattern (DI)
-    let mut builder = mcpmux_gateway::DependenciesBuilder::new()
-        .with_installed_server_repo(app_state.installed_server_repository.clone())
-        .with_credential_repo(app_state.credential_repository.clone())
-        .with_backend_oauth_repo(app_state.backend_oauth_repository.clone())
-        .with_feature_repo(app_state.server_feature_repository_core.clone())
-        .with_feature_set_repo(app_state.feature_set_repository.clone())
-        .with_server_discovery(app_state.server_discovery.clone())
-        .with_log_manager(app_state.server_log_manager.clone())
-        .with_database(app_state.database())
-        .with_state_dir(app_state.data_dir().to_path_buf())
-        .with_settings_repo(app_state.settings_repository.clone());
-
-    if let Some(secret) = jwt_secret {
-        builder = builder.with_jwt_secret(secret);
-    }
-
-    builder.build().map_err(|e: String| e)
+    app_state
+        .runtime()
+        .build_gateway_dependencies()
+        .map_err(|e| e.to_string())
 }
 
 /// Get gateway status, optionally scoped to a specific space
@@ -1124,8 +1087,10 @@ pub async fn start_gateway(
         enable_cors: true,
     };
 
-    // Create self-contained gateway server with DI
-    // Gateway will auto-initialize all services and auto-connect enabled servers
+    // Create self-contained gateway server with DI.
+    // Gateway will auto-initialize all services and auto-connect enabled servers.
+    // JWT secret + repo wiring + encryption live in the runtime — see
+    // `mcpmux_runtime::Runtime::build_gateway_server`.
     let server = mcpmux_gateway::GatewayServer::new(config, dependencies);
 
     // Get references to services before spawning
@@ -1139,7 +1104,8 @@ pub async fn start_gateway(
     let feature_set_resolver = server.feature_set_resolver();
 
     // Seed the system-wide inbound-auth toggle into the running gateway from
-    // persisted settings (default: auth required). Live changes go through
+    // persisted settings (default: off while loopback-only, see
+    // `load_gateway_auth_disabled_from_repo`). Live changes go through
     // `set_gateway_auth_disabled`.
     if load_gateway_auth_disabled(&app_state).await {
         gw_state.write().await.set_auth_disabled(true);
@@ -1251,7 +1217,7 @@ pub async fn stop_gateway(
     // Take the handle out under the lock, then drop the guard BEFORE
     // awaiting the shutdown — otherwise the lock is held for up to 2s
     // and every concurrent status query blocks.
-    let handle = {
+    let (handle, pool_service) = {
         let mut state = gateway_state.write().await;
         if !state.running {
             return Err("Gateway is not running".to_string());
@@ -1260,13 +1226,11 @@ pub async fn stop_gateway(
         state.running = false;
         state.url = None;
         state.bound_port = None;
-        handle
+        (handle, state.pool_service.take())
     };
 
-    if let Some(h) = handle {
-        info!("[Gateway] Stop requested — shutting down gracefully");
-        shutdown_gateway_handle(h).await;
-    }
+    info!("[Gateway] Stop requested — shutting down gracefully");
+    mcpmux_runtime::shutdown_gateway_runtime(handle, pool_service).await;
 
     if let Err(e) = app_handle.emit("gateway-changed", serde_json::json!({"action": "stopped"})) {
         warn!("[Gateway] Failed to emit gateway-changed(stopped): {}", e);
@@ -1372,20 +1336,17 @@ pub async fn reset_gateway_port(app_state: State<'_, AppState>) -> Result<(), St
 }
 
 /// App-settings key for the system-wide inbound-auth toggle. Stored as
-/// `"true"`/`"false"`; missing means auth is required (the secure default).
-pub const GATEWAY_AUTH_DISABLED_KEY: &str = "gateway.auth_disabled";
+/// `"true"`/`"false"`; missing means "off while the gateway is loopback-only"
+/// (see `load_gateway_auth_disabled_from_repo`). Migration 045 pins existing
+/// installs to `"false"` so the upgrade keeps their auth.
+pub const GATEWAY_AUTH_DISABLED_KEY: &str = mcpmux_gateway::auth_default::AUTH_DISABLED_KEY;
 
 /// Whether inbound MCP authentication is disabled — connections are accepted
-/// without an access key (localhost-only convenience). Default **false** (auth
-/// required).
+/// without an access key. Reports the effective value: an explicit choice, or
+/// the default (off while only this machine can reach the gateway).
 #[tauri::command]
 pub async fn get_gateway_auth_disabled(app_state: State<'_, AppState>) -> Result<bool, String> {
-    let stored = app_state
-        .settings_repository
-        .get(GATEWAY_AUTH_DISABLED_KEY)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(stored.map(|v| v == "true").unwrap_or(false))
+    Ok(load_gateway_auth_disabled(&app_state).await)
 }
 
 /// Enable/disable system-wide inbound auth. Persists the setting AND mirrors it
@@ -1398,6 +1359,19 @@ pub async fn set_gateway_auth_disabled(
     app_state: State<'_, AppState>,
     gateway_state: State<'_, Arc<RwLock<GatewayAppState>>>,
 ) -> Result<bool, String> {
+    if disabled {
+        let configured = gateway_exposure_configured(&app_state.settings_repository).await;
+        let running = {
+            let state = gateway_state.read().await;
+            match state.gateway_state {
+                Some(ref gw) => gw.read().await.exposed(),
+                None => false,
+            }
+        };
+        if let Some(reason) = auth_off_refusal(configured, running) {
+            return Err(reason.to_string());
+        }
+    }
     app_state
         .settings_repository
         .set(GATEWAY_AUTH_DISABLED_KEY, &disabled.to_string())
@@ -1626,17 +1600,16 @@ pub async fn restart_gateway(
     info!("[Gateway] Restart requested — tearing down current state");
     // Take handle out under lock; drop lock before awaiting shutdown so
     // start_gateway below can re-acquire it.
-    let handle = {
+    let (handle, pool_service) = {
         let mut state = gateway_state.write().await;
         let handle = state.handle.take();
+        let pool_service = state.pool_service.take();
         state.running = false;
         state.url = None;
         state.bound_port = None;
-        handle
+        (handle, pool_service)
     };
-    if let Some(h) = handle {
-        shutdown_gateway_handle(h).await;
-    }
+    mcpmux_runtime::shutdown_gateway_runtime(handle, pool_service).await;
 
     // The shutdown above is graceful (or force-aborted after a 2s timeout),
     // but the OS may hold the socket a moment longer than the in-process
@@ -2109,7 +2082,19 @@ mod public_base_url_tests {
 
 #[cfg(test)]
 mod gateway_auth_settings_tests {
-    use super::{load_gateway_auth_disabled_from_repo, GATEWAY_AUTH_DISABLED_KEY};
+    use super::{
+        auth_off_refusal, load_gateway_auth_disabled_from_repo, GATEWAY_AUTH_DISABLED_KEY,
+    };
+
+    #[test]
+    fn auth_can_only_be_turned_off_on_a_gateway_that_is_and_will_stay_local() {
+        assert!(auth_off_refusal(false, false).is_none());
+        assert!(auth_off_refusal(true, false).is_some());
+        // Exposure turned off in settings, gateway not restarted yet.
+        assert!(auth_off_refusal(false, true)
+            .is_some_and(|reason| reason.contains("Restart the gateway")));
+        assert!(auth_off_refusal(true, true).is_some());
+    }
     use mcpmux_core::AppSettingsRepository;
     use mcpmux_storage::{Database, SqliteAppSettingsRepository};
     use std::sync::Arc;
@@ -2123,10 +2108,81 @@ mod gateway_auth_settings_tests {
     }
 
     #[tokio::test]
-    async fn auth_remains_required_when_disable_setting_is_missing() {
+    async fn auth_is_off_by_default_on_a_loopback_only_gateway() {
         let repository = settings_repo();
 
+        assert!(load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn default_turns_auth_back_on_when_network_access_is_enabled() {
+        let repository = settings_repo();
+        repository
+            .set(super::GATEWAY_NETWORK_ACCESS_KEY, "true")
+            .await
+            .unwrap();
+
         assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn default_turns_auth_back_on_when_a_public_url_is_set() {
+        let repository = settings_repo();
+        repository
+            .set(
+                super::GATEWAY_PUBLIC_BASE_URL_KEY,
+                "https://mux.example.com",
+            )
+            .await
+            .unwrap();
+
+        assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn explicit_choice_wins_over_the_default_while_local() {
+        let repository = settings_repo();
+        repository
+            .set(GATEWAY_AUTH_DISABLED_KEY, "false")
+            .await
+            .unwrap();
+        assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+
+        repository
+            .set(GATEWAY_AUTH_DISABLED_KEY, "true")
+            .await
+            .unwrap();
+        assert!(load_gateway_auth_disabled_from_repo(&repository).await);
+    }
+
+    #[tokio::test]
+    async fn auth_is_always_on_while_the_gateway_is_exposed() {
+        let repository = settings_repo();
+        repository
+            .set(GATEWAY_AUTH_DISABLED_KEY, "true")
+            .await
+            .unwrap();
+
+        // An earlier explicit "off" does not survive opening the gateway up.
+        repository
+            .set(super::GATEWAY_NETWORK_ACCESS_KEY, "true")
+            .await
+            .unwrap();
+        assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+
+        repository
+            .set(super::GATEWAY_NETWORK_ACCESS_KEY, "false")
+            .await
+            .unwrap();
+        repository
+            .set(
+                super::GATEWAY_PUBLIC_BASE_URL_KEY,
+                "https://mux.example.com",
+            )
+            .await
+            .unwrap();
+        assert!(!load_gateway_auth_disabled_from_repo(&repository).await);
+        assert!(super::gateway_exposure_configured(&repository).await);
     }
 
     #[tokio::test]

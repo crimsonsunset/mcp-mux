@@ -35,6 +35,7 @@ use uuid::Uuid;
 
 use super::super::MetaToolError;
 use super::approval_types::{ApprovalPayload, ApprovalRequest};
+use crate::services::ANONYMOUS_CLIENT_ID;
 
 /// Tauri / admin SSE channel for pending meta-tool approval dialogs.
 pub const META_TOOL_APPROVAL_EVENT: &str = "meta-tool-approval-request";
@@ -69,7 +70,8 @@ const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalDecision {
     AllowOnce,
-    /// Allow this (client, tool) pair for the rest of the gateway session.
+    /// Allow this (client, tool, action, Space) for the rest of the gateway
+    /// session.
     AlwaysForThisSessionAndClient,
     Deny,
 }
@@ -83,6 +85,28 @@ pub enum ApprovalScope {
     SessionClient,
     #[allow(dead_code)]
     Persisted,
+}
+
+/// What an "always allow" grant covers: one client, one tool, one action of
+/// that tool, one target Space.
+pub type GrantKey = (String, String, Option<String>, Option<Uuid>);
+
+/// A prompt waiting for the user. The grant scope is kept here, server-side,
+/// so a response can't widen it.
+struct PendingApproval {
+    tx: oneshot::Sender<ApprovalDecision>,
+    grant: GrantKey,
+    /// Whether "always" may be stored for this request.
+    allow_always: bool,
+}
+
+/// Whether a write may get a standing "always allow" grant. Moving a
+/// workspace between Spaces and deleting are approved one at a time, and
+/// tokenless connections all share one identity, so never get one.
+fn standing_grant_allowed(client_id: &str, tool_name: &str, action: Option<&str>) -> bool {
+    client_id != ANONYMOUS_CLIENT_ID
+        && tool_name != "mcpmux_bind_current_workspace"
+        && action != Some("delete")
 }
 
 /// Subscribe-once handler the desktop layer attaches so broker requests
@@ -99,11 +123,11 @@ pub type ApprovalPublisher = Arc<
 pub struct ApprovalBroker {
     /// Pending oneshot senders keyed by request_id — the Tauri command
     /// `respond_to_meta_tool_approval` resolves these.
-    pending: DashMap<String, oneshot::Sender<ApprovalDecision>>,
-    /// Session-scoped always-allow grants, keyed by (client_id, tool_name).
-    /// `client_id` is opaque (UUID for preset clients, URL for DCR clients);
-    /// the broker only does equality lookups.
-    always_allow: DashMap<(String, String), ()>,
+    pending: DashMap<String, PendingApproval>,
+    /// Session-scoped always-allow grants, keyed by (client_id, tool_name,
+    /// action, target Space). `client_id` is opaque (UUID for preset clients,
+    /// URL for DCR clients); the broker only does equality lookups.
+    always_allow: DashMap<GrantKey, ()>,
     /// (client_id) -> Vec<request_timestamp> for rate limiting.
     rate_limit: DashMap<String, Vec<Instant>>,
     /// Published to the desktop layer; `None` means headless.
@@ -154,9 +178,22 @@ impl ApprovalBroker {
     /// For tests / headless scenarios: pre-approve everything from a
     /// specific client.
     #[cfg(test)]
-    pub fn insert_always_allow(&self, client_id: &str, tool_name: &str) {
-        self.always_allow
-            .insert((client_id.to_string(), tool_name.to_string()), ());
+    pub fn insert_always_allow(
+        &self,
+        client_id: &str,
+        tool_name: &str,
+        action: Option<&str>,
+        space_id: Option<Uuid>,
+    ) {
+        self.always_allow.insert(
+            (
+                client_id.to_string(),
+                tool_name.to_string(),
+                action.map(str::to_string),
+                space_id,
+            ),
+            (),
+        );
     }
 
     /// Resolve a pending approval. Called from Tauri command or admin HTTP
@@ -173,21 +210,29 @@ impl ApprovalBroker {
         tool_name: &str,
         decision: ApprovalDecision,
     ) -> bool {
-        // Persist always-allow before firing the waiter so a racing second
-        // call from the same client sees it.
-        if matches!(decision, ApprovalDecision::AlwaysForThisSessionAndClient) {
-            self.always_allow
-                .insert((client_id.to_string(), tool_name.to_string()), ());
-        }
-        let resolved = if let Some((_, tx)) = self.pending.remove(request_id) {
-            tx.send(decision).is_ok()
-        } else {
+        let Some((_, pending)) = self.pending.remove(request_id) else {
             warn!(
                 %request_id,
                 "[ApprovalBroker] respond() for unknown/expired request",
             );
-            false
+            return false;
         };
+        let (grant_client, grant_tool, _, _) = &pending.grant;
+        if grant_client != client_id || grant_tool != tool_name {
+            warn!(
+                %request_id,
+                "[ApprovalBroker] response names a different client/tool than the request; using the request's",
+            );
+        }
+        // Persist always-allow before firing the waiter so a racing second
+        // call from the same client sees it, but only where a standing grant
+        // is allowed (see `standing_grant_allowed`); otherwise it counts as once.
+        if matches!(decision, ApprovalDecision::AlwaysForThisSessionAndClient)
+            && pending.allow_always
+        {
+            self.always_allow.insert(pending.grant.clone(), ());
+        }
+        let resolved = pending.tx.send(decision).is_ok();
 
         // Notify all surfaces so orphaned dialogs can self-dismiss.
         // Fire-and-forget: clone the notifier out of the Mutex synchronously
@@ -212,15 +257,13 @@ impl ApprovalBroker {
     }
 
     /// List always-allow grants (for the UI to display + revoke).
-    pub fn list_always_allow(&self) -> Vec<(String, String)> {
+    pub fn list_always_allow(&self) -> Vec<GrantKey> {
         self.always_allow.iter().map(|e| e.key().clone()).collect()
     }
 
-    /// Revoke an always-allow entry.
-    pub fn revoke_always_allow(&self, client_id: &str, tool_name: &str) -> bool {
-        self.always_allow
-            .remove(&(client_id.to_string(), tool_name.to_string()))
-            .is_some()
+    /// Revoke one always-allow grant, exactly as listed.
+    pub fn revoke_always_allow(&self, grant: &GrantKey) -> bool {
+        self.always_allow.remove(grant).is_some()
     }
 
     /// Core entry point for write meta tools.
@@ -234,13 +277,19 @@ impl ApprovalBroker {
         &self,
         client_id: &str,
         tool_name: &str,
-        payload: ApprovalPayload,
+        mut payload: ApprovalPayload,
     ) -> Result<ApprovalDecision, MetaToolError> {
-        // 1. Always-allow short-circuit.
-        if self
-            .always_allow
-            .contains_key(&(client_id.to_string(), tool_name.to_string()))
-        {
+        // 1. Always-allow short-circuit (same client, tool, action and
+        //    target Space).
+        let grant: GrantKey = (
+            client_id.to_string(),
+            tool_name.to_string(),
+            payload.action.clone(),
+            payload.space_id,
+        );
+        let allow_always = standing_grant_allowed(client_id, tool_name, payload.action.as_deref());
+        payload.allow_always = allow_always;
+        if self.always_allow.contains_key(&grant) {
             debug!(
                 %client_id,
                 tool = tool_name,
@@ -294,7 +343,14 @@ impl ApprovalBroker {
         };
 
         let (tx, rx) = oneshot::channel();
-        self.pending.insert(request_id.clone(), tx);
+        self.pending.insert(
+            request_id.clone(),
+            PendingApproval {
+                tx,
+                grant,
+                allow_always,
+            },
+        );
 
         let delivered = publisher(request.clone()).await;
         if !delivered {

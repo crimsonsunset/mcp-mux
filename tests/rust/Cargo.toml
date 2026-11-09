@@ -9,6 +9,7 @@ description = "Integration tests for McpMux"
 # Internal crates
 mcpmux-core = { path = "../../crates/mcpmux-core" }
 mcpmux-gateway = { path = "../../crates/mcpmux-gateway", features = ["test-utils"] }
+mcpmux-runtime = { path = "../../crates/mcpmux-runtime" }
 mcpmux-storage = { path = "../../crates/mcpmux-storage" }
 
 # Async runtime
@@ -95,3 +96,7 @@ path = "tests/integration/mod.rs"
 [[test]]
 name = "streamable_http"
 path = "tests/streamable_http/mod.rs"
+
+[[test]]
+name = "runtime"
+path = "tests/runtime/mod.rs"

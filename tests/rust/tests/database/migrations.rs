@@ -198,6 +198,20 @@ fn test_new_schema_objects_exist_after_migration() {
         column_exists(&db, "inbound_clients", "locked_space_id"),
         "migration 038 must add inbound_clients.locked_space_id"
     );
+    assert!(
+        column_exists(&db, "feature_sets", "auto_include"),
+        "migration 044 must add feature_sets.auto_include"
+    );
+    assert!(
+        column_exists(&db, "outbound_oauth_clients", "client_secret_encrypted"),
+        "migration 046 must add outbound_oauth_clients.client_secret_encrypted"
+    );
+    for column in ["token_endpoint_auth_method", "client_secret_expires_at"] {
+        assert!(
+            column_exists(&db, "outbound_oauth_clients", column),
+            "migration 047 must add outbound_oauth_clients.{column}"
+        );
+    }
 }
 
 #[test]
@@ -224,7 +238,7 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
                  DROP INDEX IF EXISTS idx_inbound_clients_locked_space_id;
                  ALTER TABLE workspace_bindings DROP COLUMN binding_type;
                  ALTER TABLE inbound_clients DROP COLUMN locked_space_id;
-                 -- 039 and 043 are bare ADD COLUMN. Leave them and reopen fails
+                 -- 039, 043 and 044 are bare ADD COLUMN. Leave them and reopen fails
                  -- with duplicate column once the ledger is rolled back past them.
                  -- Drop the 043 indexes first: SQLite refuses to drop a column
                  -- that an index still references.
@@ -232,7 +246,12 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
                  DROP INDEX IF EXISTS idx_workspace_bindings_project_link;
                  ALTER TABLE inbound_clients DROP COLUMN client_icon;
                  ALTER TABLE workspace_bindings DROP COLUMN git_remote_url;
-                 ALTER TABLE workspace_bindings DROP COLUMN project_link_id;",
+                 ALTER TABLE workspace_bindings DROP COLUMN project_link_id;
+                 ALTER TABLE feature_sets DROP COLUMN auto_include;
+                 -- 046 and 047 are bare ADD COLUMN too.
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;",
             )
             .expect("roll schema back to pre-036");
         assert!(
@@ -249,4 +268,208 @@ fn test_pending_migrations_apply_to_an_existing_older_database() {
     );
     assert!(column_exists(&db, "workspace_bindings", "binding_type"));
     assert!(column_exists(&db, "inbound_clients", "locked_space_id"));
+    assert!(column_exists(&db, "feature_sets", "auto_include"));
+    for column in [
+        "client_secret_encrypted",
+        "token_endpoint_auth_method",
+        "client_secret_expires_at",
+    ] {
+        assert!(column_exists(&db, "outbound_oauth_clients", column));
+    }
+}
+
+/// An outbound OAuth registration saved by a release without migrations 046 and 047
+/// keeps its client_id after the upgrade, and reads back as a public client (no
+/// secret, no auth method or secret expiry).
+#[test]
+fn test_046_and_047_keep_existing_outbound_oauth_registrations() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+
+    {
+        let db = Database::open(&path).expect("open");
+        db.connection()
+            .execute_batch(
+                "DELETE FROM schema_migrations WHERE version >= 46;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;
+                 INSERT INTO spaces (id, name, created_at, updated_at)
+                     VALUES ('space-1', 'Old', datetime('now'), datetime('now'));
+                 INSERT INTO outbound_oauth_clients
+                     (id, space_id, server_id, server_url, client_id, redirect_uri,
+                      created_at, updated_at)
+                     VALUES ('reg-1', 'space-1', 'miro', 'https://mcp.miro.com/', 'old-client',
+                             'http://127.0.0.1:45819/oauth2redirect',
+                             datetime('now'), datetime('now'));",
+            )
+            .expect("roll back to pre-046 and seed a registration");
+    }
+
+    let db = Database::open(&path).expect("reopen older DB");
+    let (client_id, secret, auth_method, expires_at): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = db
+        .connection()
+        .query_row(
+            "SELECT client_id, client_secret_encrypted, token_endpoint_auth_method,
+                    client_secret_expires_at
+             FROM outbound_oauth_clients WHERE server_id = 'miro'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .expect("registration survives the upgrade");
+    assert_eq!(client_id, "old-client");
+    assert_eq!(secret, None);
+    assert_eq!(auth_method, None);
+    assert_eq!(expires_at, None);
+}
+
+fn starter_auto_include(db: &Database) -> bool {
+    db.connection()
+        .query_row(
+            "SELECT auto_include FROM feature_sets WHERE feature_set_type = 'starter' LIMIT 1",
+            [],
+            |r| r.get::<_, i32>(0),
+        )
+        .expect("default Space has a Starter")
+        == 1
+}
+
+/// Reopen `path` with migration 044 un-applied, after `seed` ran against the
+/// pre-044 schema — i.e. what an upgrade from the previous release sees.
+fn reapply_044(path: &std::path::Path, seed: &str) -> Database {
+    {
+        let db = Database::open(path).expect("open");
+        db.connection()
+            .execute_batch(&format!(
+                "DELETE FROM schema_migrations WHERE version >= 44;
+                 ALTER TABLE feature_sets DROP COLUMN auto_include;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;
+                 {seed}"
+            ))
+            .expect("roll back to pre-044 and seed");
+    }
+    Database::open(path).expect("reopen")
+}
+
+/// A brand-new install starts in "install, connect, use" mode: the Starter
+/// includes every server's tools.
+#[test]
+fn test_044_fresh_install_gets_auto_starter() {
+    let db = Database::open_in_memory().expect("open");
+    assert!(starter_auto_include(&db));
+}
+
+/// Upgrading an install that's in use keeps today's behavior: its Starter
+/// selection is left alone (an empty Starter may be a deliberate "grant
+/// nothing").
+#[test]
+fn test_044_upgrade_keeps_an_existing_installs_starter() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(
+        &path,
+        "INSERT INTO installed_servers (id, space_id, server_id, created_at, updated_at)
+         SELECT 'inst-1', id, 'community.memory', datetime('now'), datetime('now')
+           FROM spaces WHERE is_default = 1;",
+    );
+    assert!(!starter_auto_include(&db));
+}
+
+/// An install with a client but no server yet is in use too: a server added
+/// later must not start flowing to its mappings.
+#[test]
+fn test_044_upgrade_keeps_the_starter_when_only_a_client_exists() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(
+        &path,
+        "INSERT INTO inbound_clients (client_id, registration_type, client_name, redirect_uris,
+                                      grant_types, response_types, token_endpoint_auth_method,
+                                      created_at, updated_at)
+         VALUES ('c1', 'dcr', 'Client', '[]', '[]', '[]', 'none', datetime('now'), datetime('now'));",
+    );
+    assert!(!starter_auto_include(&db));
+}
+
+/// An install that was never used (no servers, no clients) upgrades like a
+/// fresh one.
+#[test]
+fn test_044_upgrade_of_an_unused_install_gets_auto_starter() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mcpmux.db");
+    let db = reapply_044(&path, "");
+    assert!(starter_auto_include(&db));
+}
+
+fn auth_disabled_setting(db: &Database) -> Option<String> {
+    db.connection()
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'gateway.auth_disabled'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+}
+
+/// Reopen `path` with migration 045 un-applied, after `seed` ran against the
+/// pre-045 schema.
+///
+/// Rolling the ledger back past 046 and 047 re-runs them, and both are bare
+/// `ADD COLUMN`, so their columns have to go too (same trap as `reapply_044`).
+fn reapply_045(path: &std::path::Path, seed: &str) -> Database {
+    {
+        let db = Database::open(path).expect("open");
+        db.connection()
+            .execute_batch(&format!(
+                "DELETE FROM schema_migrations WHERE version >= 45;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_encrypted;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN token_endpoint_auth_method;
+                 ALTER TABLE outbound_oauth_clients DROP COLUMN client_secret_expires_at;
+                 DELETE FROM app_settings WHERE key = 'gateway.auth_disabled';
+                 {seed}"
+            ))
+            .expect("roll back to pre-045 and seed");
+    }
+    Database::open(path).expect("reopen")
+}
+
+const SEED_INSTALLED_SERVER: &str =
+    "INSERT INTO installed_servers (id, space_id, server_id, created_at, updated_at)
+     SELECT 'inst-1', id, 'community.memory', datetime('now'), datetime('now')
+       FROM spaces WHERE is_default = 1;";
+
+/// An install already in use keeps requiring auth after the default flips.
+#[test]
+fn test_045_upgrade_pins_auth_for_an_install_in_use() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = reapply_045(&dir.path().join("mcpmux.db"), SEED_INSTALLED_SERVER);
+    assert_eq!(auth_disabled_setting(&db).as_deref(), Some("false"));
+}
+
+/// An auth choice the user already made survives the upgrade.
+#[test]
+fn test_045_upgrade_preserves_an_explicit_auth_choice() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let seed = format!(
+        "{SEED_INSTALLED_SERVER}
+         INSERT INTO app_settings (key, value, updated_at)
+         VALUES ('gateway.auth_disabled', 'true', datetime('now'));"
+    );
+    let db = reapply_045(&dir.path().join("mcpmux.db"), &seed);
+    assert_eq!(auth_disabled_setting(&db).as_deref(), Some("true"));
+}
+
+/// An unused install gets the new default (no stored value).
+#[test]
+fn test_045_upgrade_of_an_unused_install_gets_the_new_default() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = reapply_045(&dir.path().join("mcpmux.db"), "");
+    assert_eq!(auth_disabled_setting(&db), None);
 }

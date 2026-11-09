@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import { AlertCircle, CheckCircle2, KeyRound, Loader2, Settings2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@mcpmux/ui';
 import { ServerLogViewer } from '@/components/ServerLogViewer';
+import { useViewSpace } from '@/stores';
 import { useNavigate } from '@/hooks/use-navigate.hook';
 import type { AttentionKind, AttentionServer } from './dashboard.helpers';
 
@@ -54,15 +55,17 @@ export function DashboardServerHealth({
 }: DashboardServerHealthProps) {
   const { t } = useTranslation('dashboard');
   const navigate = useNavigate();
+  const viewSpace = useViewSpace();
   const hasIssues = attentionServers.length > 0;
   const [logServer, setLogServer] = useState<{ id: string; name: string } | null>(null);
 
   return (
     <>
-      {logServer && (
+      {logServer && viewSpace && (
         <ServerLogViewer
           serverId={logServer.id}
           serverName={logServer.name}
+          spaceId={viewSpace.id}
           onClose={() => setLogServer(null)}
         />
       )}

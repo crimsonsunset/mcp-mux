@@ -41,6 +41,7 @@ export default defineConfig({
       '@tauri-apps/plugin-opener': path.resolve(__dirname, '../../apps/desktop/node_modules/@tauri-apps/plugin-opener'),
       i18next: path.resolve(__dirname, '../../apps/desktop/node_modules/i18next'),
       'react-i18next': path.resolve(__dirname, '../../apps/desktop/node_modules/react-i18next'),
+      'posthog-js': path.resolve(__dirname, '../../apps/desktop/node_modules/posthog-js'),
     },
   },
 });

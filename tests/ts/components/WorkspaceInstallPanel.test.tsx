@@ -59,6 +59,7 @@ const CLIENTS = [
   { id: 'vscode', label: 'VS Code / Copilot', config_path: '.vscode/mcp.json' },
   { id: 'opencode', label: 'opencode', config_path: 'opencode.json' },
   { id: 'zed', label: 'Zed', config_path: '.zed/settings.json' },
+  { id: 'codex', label: 'Codex', config_path: '.codex/config.toml' },
 ];
 
 const ROOT = process.platform === 'win32' ? 'd:\\proj\\app' : '/proj/app';
@@ -146,6 +147,21 @@ describe('WorkspaceInstallPanel', () => {
     await user.click(openSettings);
     expect(setSectionMock).toHaveBeenCalledWith('security');
     expect(navigateMock).toHaveBeenCalledWith('settings');
+  });
+
+  it('warns that tokenless apps only reach the default Space', async () => {
+    const { unmount } = render(
+      <WorkspaceInstallPanel workspaceRoot="/work/repo" inDefaultSpace={false} />
+    );
+    expect(
+      await screen.findByTestId('workspace-install-tokenless-space-warning')
+    ).toHaveTextContent('only reach the default Space');
+    expect(screen.queryByText(/apps connect with just the URL/)).toBeNull();
+    unmount();
+
+    render(<WorkspaceInstallPanel workspaceRoot="/work/repo" />);
+    expect(await screen.findByText(/apps connect with just the URL/)).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-install-tokenless-space-warning')).toBeNull();
   });
 
   it('copies a client snippet to the clipboard', async () => {

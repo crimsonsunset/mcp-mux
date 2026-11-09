@@ -45,6 +45,10 @@ vi.mock('@/lib/api/featureSets', () => ({
   isStarterFeatureSet: vi.fn(() => false),
 }));
 
+vi.mock('@/lib/api/gateway', () => ({
+  listOAuthClients: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('@/lib/api/workspaceAppearances', () => ({
   listWorkspaceAppearances: vi.fn().mockResolvedValue([]),
   deleteWorkspaceAppearance: vi.fn(),

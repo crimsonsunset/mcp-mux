@@ -169,6 +169,15 @@ impl ServerDiscoveryService {
         }
     }
 
+    /// Remove the ETag from persistent storage
+    async fn clear_etag(&self) {
+        if let Some(ref settings) = self.settings_service {
+            if let Err(e) = settings.delete(keys::registry::BUNDLE_ETAG).await {
+                warn!("Failed to clear ETag in settings: {}", e);
+            }
+        }
+    }
+
     /// Load ETag from persistent storage
     async fn load_etag(&self) -> Option<String> {
         if let Some(ref settings) = self.settings_service {
@@ -260,8 +269,19 @@ impl ServerDiscoveryService {
                         warn!("Failed to cache bundle to disk: {}", e);
                     }
 
-                    // Save ETag to memory and disk
-                    if let Some(ref e) = etag {
+                    // Save ETag to memory and disk. If servers were skipped,
+                    // forget it instead: the disk cache lacks them, and a later
+                    // version that can read them must not get a 304 for this
+                    // bundle and keep serving the cache without them.
+                    if bundle.skipped_servers > 0 {
+                        warn!(
+                            "Skipped {} registry server(s) this version can't read; \
+                             not caching the bundle ETag",
+                            bundle.skipped_servers
+                        );
+                        *self.cached_etag.write().await = None;
+                        self.clear_etag().await;
+                    } else if let Some(ref e) = etag {
                         let mut etag_lock = self.cached_etag.write().await;
                         *etag_lock = Some(e.clone());
                         self.save_etag(e).await;

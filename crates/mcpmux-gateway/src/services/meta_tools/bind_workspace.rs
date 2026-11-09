@@ -46,6 +46,37 @@ async fn find_existing_binding_for_bind(
         .map_err(|e| MetaToolError::Internal(e.to_string()))
 }
 
+/// The binding this write would move out of another Space, if any.
+///
+/// With a machine identity the existing-row lookup is not limited to the target
+/// Space, and the write re-homes whatever it finds (`binding.space_id = space_id`),
+/// so a folder mapped in another Space would silently change Space. Without one,
+/// the lookup stays inside the target Space, but the schema allows a single global
+/// row per folder, so a global row elsewhere would collide with the new one.
+/// Either way, surface it so the tool can refuse a confined caller or ask the user.
+async fn find_binding_in_other_space(
+    binding_repo: &dyn WorkspaceBindingRepository,
+    space_id: &Uuid,
+    machine_id: Option<Uuid>,
+    normalized: &str,
+) -> Result<Option<WorkspaceBinding>, MetaToolError> {
+    let machine_row = match machine_id {
+        Some(mid) => binding_repo
+            .find_exact_for_machine(&mid, normalized, None)
+            .await
+            .map_err(|e| MetaToolError::Internal(e.to_string()))?,
+        None => None,
+    };
+    let found = match machine_row {
+        Some(row) => Some(row),
+        None => binding_repo
+            .find_exact_global(normalized)
+            .await
+            .map_err(|e| MetaToolError::Internal(e.to_string()))?,
+    };
+    Ok(found.filter(|binding| binding.space_id != *space_id))
+}
+
 /// Inputs for the bind tool JSON response (post-write re-resolve for `active`).
 struct BindToolResultInput<'a> {
     resolver: &'a crate::services::FeatureSetResolverService,
@@ -223,16 +254,43 @@ impl MetaTool for BindCurrentWorkspaceTool {
         let fs_id_str = fs_id.to_string();
         let caller_client_id = call.client_id.to_string();
 
-        // Dedup before consent: repeat binds must not re-prompt the user.
-        if let Some(existing) = find_existing_binding_for_bind(
+        let existing_for_consent = find_existing_binding_for_bind(
             binding_repo.as_ref(),
             &space_id,
             machine_id,
             &caller_client_id,
             &normalized,
         )
-        .await?
-        {
+        .await?;
+
+        // A folder mapped in another Space would be moved out of it by this write.
+        // A caller confined to one Space may not do that; anyone else is asked,
+        // with both Spaces named.
+        let elsewhere =
+            find_binding_in_other_space(binding_repo.as_ref(), &space_id, machine_id, &normalized)
+                .await?;
+        let moved_from_space = match &elsewhere {
+            Some(binding) => {
+                let confined = call
+                    .ctx
+                    .resolver
+                    .confined_space(call.session_id, call.client_id)
+                    .await
+                    .map_err(|e| MetaToolError::Internal(e.to_string()))?;
+                if confined.is_some() {
+                    return Err(MetaToolError::InvalidArgument(
+                        "This folder is mapped in another space; change it from that space \
+                         or the app."
+                            .into(),
+                    ));
+                }
+                Some(binding.space_id)
+            }
+            None => None,
+        };
+
+        // Dedup before consent: repeat binds must not re-prompt the user.
+        if let Some(existing) = existing_for_consent.filter(|b| b.space_id == space_id) {
             if existing.feature_set_ids.iter().any(|id| id == &fs_id_str) {
                 return bind_tool_result(BindToolResultInput {
                     resolver: call.ctx.resolver.as_ref(),
@@ -251,12 +309,37 @@ impl MetaTool for BindCurrentWorkspaceTool {
             }
         }
 
-        let summary = match machine_id {
-            Some(mid) => format!(
+        let from_space_name = match moved_from_space {
+            Some(from) => Some(
+                call.ctx
+                    .space_repo
+                    .get(&from)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| from.to_string(), |space| space.name),
+            ),
+            None => None,
+        };
+        let to_space_name = call
+            .ctx
+            .space_repo
+            .get(&space_id)
+            .await
+            .ok()
+            .flatten()
+            .map_or_else(|| space_id.to_string(), |space| space.name);
+        let summary = match (&from_space_name, machine_id) {
+            (Some(from), _) => format!(
+                "Move workspace '{normalized}' from Space '{from}' to Space '{to_space_name}' \
+                 and append FeatureSet '{fs_name}'. Affects every future connection that \
+                 reports this path."
+            ),
+            (None, Some(mid)) => format!(
                 "Append FeatureSet '{fs_name}' to workspace '{normalized}' binding \
                  for machine '{mid}' (existing bundles preserved)."
             ),
-            None => format!(
+            (None, None) => format!(
                 "Append FeatureSet '{fs_name}' to workspace '{normalized}' binding \
                  for client '{caller_client_id}' (existing bundles preserved)."
             ),
@@ -283,10 +366,10 @@ impl MetaTool for BindCurrentWorkspaceTool {
         with_approval(
             &call,
             "mcpmux_bind_current_workspace",
+            Some(space_id),
             summary,
             None,
             true,
-            call.args.clone(),
             || async move {
                 let existing = find_existing_binding_for_bind(
                     binding_repo.as_ref(),

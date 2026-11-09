@@ -47,7 +47,9 @@ export function ServerDetailModal({
         ? t('modal.authApiKey')
         : server.auth?.type === 'optional_api_key'
           ? t('modal.authOptionalApiKey')
-          : t('modal.authOAuth');
+          : server.auth?.type === 'basic'
+            ? t('modal.authBasic')
+            : t('modal.authOAuth');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -177,7 +179,9 @@ export function ServerDetailModal({
                       ? 'bg-[rgb(var(--warning))] text-white'
                       : server.auth?.type === 'optional_api_key'
                         ? 'bg-[rgb(var(--warning))]/80 text-white'
-                        : 'bg-[rgb(var(--info))] text-white'
+                        : server.auth?.type === 'basic'
+                          ? 'bg-[rgb(var(--warning))] text-white'
+                          : 'bg-[rgb(var(--info))] text-white'
                 }`}
               >
                 {authLabel}

@@ -14,7 +14,9 @@ use tracing::{debug, info, warn};
 
 use super::context::{extract_oauth_context, extract_session_id, OAuthContext};
 use crate::consumers::MCPNotifier;
+use crate::pool::match_feature;
 use crate::server::ServiceContainer;
+use mcpmux_core::FeatureType;
 
 /// McpMux Gateway Handler
 ///
@@ -1241,6 +1243,11 @@ impl ServerHandler for McpMuxGatewayHandler {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
             })?;
 
+        // A prompt name two servers could both claim is refused, not routed to
+        // whichever the prefix lookup found first.
+        match_feature(&authorized_prompts, FeatureType::Prompt, &params.name)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+
         let is_authorized = authorized_prompts
             .iter()
             .any(|p| p.server_id == server_id && p.feature_name == prompt_name && p.is_available);
@@ -1358,6 +1365,10 @@ impl ServerHandler for McpMuxGatewayHandler {
             .map_err(|e| {
                 McpError::internal_error(format!("Failed to verify authorization: {}", e), None)
             })?;
+
+        // The same URI on two servers is refused, not routed to whichever came first.
+        match_feature(&authorized_resources, FeatureType::Resource, &params.uri)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
         let server_id = crate::pool::FeatureService::resolve_resource_server_from_grants(
             &authorized_resources,

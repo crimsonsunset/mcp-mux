@@ -26,6 +26,8 @@ pub enum AuthType {
     ApiKey,
     /// API key is optional (UI can show skip)
     OptionalApiKey,
+    /// HTTP Basic authentication (username/password)
+    Basic,
     /// OAuth 2.0/2.1 (server implements protocol)
     Oauth,
 }

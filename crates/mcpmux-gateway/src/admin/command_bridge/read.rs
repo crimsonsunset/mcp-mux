@@ -2,19 +2,22 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use mcpmux_core::{
-    validate_workspace_root as validate_workspace_root_path, AppSettingsService, ConfigExporter,
-    ConfigFormat, FeatureSet, FeatureSetMember, FeatureType, LogLevel, MemberMode, MemberType,
-    ResolvedServer, ResolvedTransport, TransportConfig, WorkspaceRootValidation,
+    validate_workspace_root as validate_workspace_root_path, AppSettingsService, ConfigFormat,
+    FeatureSet, FeatureSetMember, FeatureType, LogLevel, MemberMode, MemberType,
+    WorkspaceRootValidation, STARTER_AUTO_INCLUDE_SETTING_KEY, TOOL_COUNT_WARNING_THRESHOLD,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::admin::bridge_context::AdminBridgeCtx;
 use crate::admin::command_bridge::space::{self, SpaceBridgeCtx};
+use crate::pool::FeatureService;
+use crate::services::PrefixCacheService;
 
 const LOCAL_ICON_PREFIX: &str = "local:workspace-icons/";
 const WORKSPACE_ICON_DIR: &str = "workspace-icons";
@@ -54,6 +57,7 @@ pub(crate) fn to_feature_set_response(feature_set: FeatureSet) -> Value {
         "server_id": feature_set.server_id,
         "is_builtin": feature_set.is_builtin,
         "is_deleted": feature_set.is_deleted,
+        "auto_include": feature_set.auto_include,
         "members": feature_set
             .members
             .iter()
@@ -399,11 +403,23 @@ pub async fn get_workspace_effective_features(
     ctx: &AdminBridgeCtx,
     workspace_root: String,
     machine_id: Option<String>,
+    binding_type: Option<String>,
 ) -> Result<Value> {
-    let normalized = match validate_workspace_root_path(&workspace_root) {
-        WorkspaceRootValidation::Empty => return Err(anyhow!("workspace_root cannot be empty")),
-        WorkspaceRootValidation::Ok { normalized } => normalized,
-        WorkspaceRootValidation::Invalid { reason } => return Err(anyhow!(reason)),
+    let is_id = binding_type.as_deref() == Some("id");
+    let normalized = if is_id {
+        let key = workspace_root.trim();
+        if key.is_empty() {
+            return Err(anyhow!("Mapping id cannot be empty"));
+        }
+        key.to_string()
+    } else {
+        match validate_workspace_root_path(&workspace_root) {
+            WorkspaceRootValidation::Empty => {
+                return Err(anyhow!("workspace_root cannot be empty"))
+            }
+            WorkspaceRootValidation::Ok { normalized } => normalized,
+            WorkspaceRootValidation::Invalid { reason } => return Err(anyhow!(reason)),
+        }
     };
 
     let default_space = ctx
@@ -412,7 +428,25 @@ pub async fn get_workspace_effective_features(
         .await?
         .ok_or_else(|| anyhow!("No default Space configured"))?;
 
-    let binding = if let Some(ref raw) = machine_id {
+    let binding = if is_id {
+        let scoped_machine = machine_id.as_deref().map(Uuid::parse_str).transpose()?;
+        let scoped = match scoped_machine {
+            Some(ref id) => {
+                ctx.workspace_binding_repository
+                    .find_by_id_key(&normalized, Some(id))
+                    .await?
+            }
+            None => None,
+        };
+        match scoped {
+            Some(b) => Some(b),
+            None => {
+                ctx.workspace_binding_repository
+                    .find_by_id_key(&normalized, None)
+                    .await?
+            }
+        }
+    } else if let Some(ref raw) = machine_id {
         let id = Uuid::parse_str(raw)?;
         match ctx
             .workspace_binding_repository
@@ -653,23 +687,15 @@ pub async fn get_logs_path(ctx: &AdminBridgeCtx) -> Result<Value> {
 pub async fn get_server_logs(
     ctx: &AdminBridgeCtx,
     server_id: String,
+    space_id: String,
     limit: Option<usize>,
     level_filter: Option<String>,
 ) -> Result<Value> {
-    let default_space = ctx
-        .space_service
-        .get_default()
-        .await?
-        .ok_or_else(|| anyhow!("No default space found"))?;
+    let space_id = Uuid::parse_str(&space_id)?.to_string();
     let level = level_filter.and_then(|value| LogLevel::parse(&value));
     let logs = ctx
         .server_log_manager
-        .read_logs(
-            &default_space.id.to_string(),
-            &server_id,
-            limit.unwrap_or(100),
-            level,
-        )
+        .read_logs(&space_id, &server_id, limit.unwrap_or(100), level)
         .await?;
     let mapped = logs
         .into_iter()
@@ -686,15 +712,13 @@ pub async fn get_server_logs(
     Ok(Value::Array(mapped))
 }
 
-pub async fn get_server_log_file(ctx: &AdminBridgeCtx, server_id: String) -> Result<Value> {
-    let default_space = ctx
-        .space_service
-        .get_default()
-        .await?
-        .ok_or_else(|| anyhow!("No default space found"))?;
-    let path = ctx
-        .server_log_manager
-        .get_log_file(&default_space.id.to_string(), &server_id);
+pub async fn get_server_log_file(
+    ctx: &AdminBridgeCtx,
+    server_id: String,
+    space_id: String,
+) -> Result<Value> {
+    let space_id = Uuid::parse_str(&space_id)?.to_string();
+    let path = ctx.server_log_manager.get_log_file(&space_id, &server_id);
     as_json(path.to_string_lossy().to_string())
 }
 
@@ -864,11 +888,6 @@ const META_TOOLS_REQUIRE_APPROVAL_KEY: &str = "meta_tools.require_approval";
 const UPDATE_CHANNEL_KEY: &str = "updates.channel";
 const AUTO_INSTALL_UPDATES_KEY: &str = "updates.auto_install";
 
-/// Registry categories are bundle-derived; ADR-001 keeps categories client-side in filters.
-pub async fn list_registry_categories(_ctx: &AdminBridgeCtx) -> Result<Value> {
-    Ok(Value::Array(vec![]))
-}
-
 pub async fn list_space_base_dirs(ctx: &AdminBridgeCtx, space_id: String) -> Result<Value> {
     let space_uuid = Uuid::parse_str(&space_id)?;
     let rows = ctx
@@ -953,6 +972,57 @@ pub async fn get_workspace_mapping_prompt_enabled(ctx: &AdminBridgeCtx) -> Resul
     as_json(mapping_prompt_enabled_from(stored.as_deref()))
 }
 
+/// Whether new and existing Starters include every server's tools by default.
+/// Missing means on.
+pub async fn get_starter_auto_include_default(ctx: &AdminBridgeCtx) -> Result<Value> {
+    let stored = ctx
+        .settings_repository
+        .get(STARTER_AUTO_INCLUDE_SETTING_KEY)
+        .await?;
+    as_json(stored.as_deref() != Some("false"))
+}
+
+/// Whether inbound MCP auth is off right now: an explicit choice, or the
+/// default (off while only this machine can reach the gateway).
+pub async fn get_gateway_auth_disabled(ctx: &AdminBridgeCtx) -> Result<Value> {
+    as_json(crate::auth_default::effective_auth_disabled(&ctx.settings_repository).await)
+}
+
+/// What a Space's Starter grants right now, counted with the gateway's own
+/// resolver so the number matches what a mapped client actually sees.
+pub async fn get_starter_tool_summary(ctx: &AdminBridgeCtx, space_id: String) -> Result<Value> {
+    let Some(starter) = ctx
+        .feature_set_repository
+        .get_starter_for_space(&space_id)
+        .await?
+    else {
+        return Ok(Value::Null);
+    };
+
+    let features = FeatureService::new(
+        ctx.server_feature_repository.clone(),
+        ctx.feature_set_repository.clone(),
+        Arc::new(PrefixCacheService::new()),
+    );
+    let tools = features
+        .get_tools_for_grants(&space_id, std::slice::from_ref(&starter.id))
+        .await?;
+    let server_count = tools
+        .iter()
+        .map(|tool| tool.server_id.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+
+    Ok(json!({
+        "feature_set_id": starter.id,
+        "auto_include": starter.auto_include,
+        "tool_count": tools.len(),
+        "server_count": server_count,
+        "threshold": TOOL_COUNT_WARNING_THRESHOLD,
+        "over_threshold": tools.len() > TOOL_COUNT_WARNING_THRESHOLD,
+    }))
+}
+
 pub async fn get_update_channel(ctx: &AdminBridgeCtx) -> Result<Value> {
     let stored = ctx.settings_repository.get(UPDATE_CHANNEL_KEY).await?;
     let channel = stored
@@ -969,136 +1039,6 @@ fn config_export_format(client_type: &str) -> Result<ConfigFormat> {
         "claude" | "claude-desktop" => Ok(ConfigFormat::ClaudeDesktop),
         _ => Err(anyhow!("Unknown client type: {client_type}")),
     }
-}
-
-async fn resolve_config_export_space_id(ctx: &AdminBridgeCtx, space_id: &str) -> Result<String> {
-    if space_id == "default" || space_id.is_empty() {
-        let space = ctx
-            .space_service
-            .get_default()
-            .await?
-            .ok_or_else(|| anyhow!("No default space found"))?;
-        Ok(space.id.to_string())
-    } else {
-        Ok(space_id.to_string())
-    }
-}
-
-fn resolve_config_placeholders(template: &str, input_values: &HashMap<String, String>) -> String {
-    let mut result = template.to_string();
-    for (key, value) in input_values {
-        let placeholder = format!("${{input:{key}}}");
-        result = result.replace(&placeholder, value);
-    }
-    result
-}
-
-async fn build_config_export_servers(
-    ctx: &AdminBridgeCtx,
-    space_id: &str,
-    mask_credentials: bool,
-) -> Result<Vec<ResolvedServer>> {
-    let installed = ctx.services.server().list_for_space(space_id).await?;
-    let mut resolved = Vec::new();
-
-    for inst in installed.into_iter().filter(|server| server.enabled) {
-        let Some(entry) = inst.get_definition() else {
-            continue;
-        };
-
-        let transport = match &entry.transport {
-            TransportConfig::Stdio {
-                command, args, env, ..
-            } => {
-                let resolved_command = resolve_config_placeholders(command, &inst.input_values);
-                let mut resolved_args: Vec<String> = args
-                    .iter()
-                    .map(|arg| resolve_config_placeholders(arg, &inst.input_values))
-                    .collect();
-                resolved_args.extend(inst.args_append.clone());
-
-                let mut resolved_env = HashMap::new();
-                for (k, v) in env {
-                    resolved_env.insert(
-                        k.clone(),
-                        resolve_config_placeholders(v, &inst.input_values),
-                    );
-                }
-
-                if mask_credentials {
-                    for k in inst.input_values.keys() {
-                        resolved_env.insert(k.clone(), "***MASKED***".to_string());
-                    }
-                } else {
-                    resolved_env.extend(inst.input_values.clone());
-                }
-                resolved_env.extend(inst.env_overrides.clone());
-
-                ResolvedTransport::Stdio {
-                    command: resolved_command,
-                    args: resolved_args,
-                    env: resolved_env,
-                }
-            }
-            TransportConfig::Http { url, headers, .. } => {
-                let resolved_url = resolve_config_placeholders(url, &inst.input_values);
-                let mut resolved_headers: HashMap<String, String> = headers
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            resolve_config_placeholders(v, &inst.input_values),
-                        )
-                    })
-                    .collect();
-                resolved_headers.extend(inst.extra_headers.clone());
-
-                ResolvedTransport::Http {
-                    url: resolved_url,
-                    headers: resolved_headers,
-                }
-            }
-        };
-
-        resolved.push(ResolvedServer {
-            server_id: inst.server_id.clone(),
-            transport,
-        });
-    }
-
-    Ok(resolved)
-}
-
-fn suggested_config_filename(format: ConfigFormat) -> &'static str {
-    match format {
-        ConfigFormat::Cursor => "mcp.json",
-        ConfigFormat::VsCodeContinue => "continue-mcp.json",
-        ConfigFormat::ClaudeDesktop => "claude_desktop_config.json",
-    }
-}
-
-/// Preview generated MCP client config JSON without writing to disk.
-pub async fn preview_config_export(
-    ctx: &AdminBridgeCtx,
-    client_type: String,
-    space_id: String,
-    mask_credentials: bool,
-) -> Result<Value> {
-    let space_id = resolve_config_export_space_id(ctx, &space_id).await?;
-    let format = config_export_format(&client_type)?;
-    let servers = build_config_export_servers(ctx, &space_id, mask_credentials).await?;
-    let exporter = ConfigExporter::new();
-    let content = exporter
-        .export_json(format, &servers)
-        .map_err(|err| anyhow!("Failed to export config: {err}"))?;
-
-    Ok(json!({
-        "content": content,
-        "default_path": format
-            .default_path()
-            .map(|path| path.to_string_lossy().to_string()),
-        "suggested_filename": suggested_config_filename(format),
-    }))
 }
 
 /// Default config file paths per supported MCP client type.
@@ -1148,28 +1088,4 @@ pub async fn backup_existing_config(client_type: String) -> Result<Value> {
         _ => None,
     };
     as_json(backup_path)
-}
-
-/// Write generated MCP client config JSON to the given absolute path.
-pub async fn export_config_to_file(
-    ctx: &AdminBridgeCtx,
-    client_type: String,
-    space_id: String,
-    path: String,
-) -> Result<Value> {
-    let space_id = resolve_config_export_space_id(ctx, &space_id).await?;
-    let format = config_export_format(&client_type)?;
-    let servers = build_config_export_servers(ctx, &space_id, false).await?;
-    let exporter = ConfigExporter::new();
-    let content = exporter
-        .export_json(format, &servers)
-        .map_err(|err| anyhow!("Failed to export config: {err}"))?;
-
-    let path = PathBuf::from(path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| anyhow!("Failed to create parent dir: {err}"))?;
-    }
-    std::fs::write(&path, &content).map_err(|err| anyhow!("Failed to write config: {err}"))?;
-    as_json(path.to_string_lossy().to_string())
 }

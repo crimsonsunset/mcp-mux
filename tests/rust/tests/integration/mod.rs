@@ -13,4 +13,6 @@ mod feature_routing;
 mod feature_set_resolver;
 mod mcp_flows;
 mod meta_tools;
+mod registry_discovery;
+mod space_rename;
 mod workspace_binding_events;

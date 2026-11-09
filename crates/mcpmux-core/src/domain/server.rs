@@ -164,8 +164,18 @@ fn default_input_type() -> String {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthConfig {
     None,
-    ApiKey { instructions: Option<String> },
-    OptionalApiKey { instructions: Option<String> },
+    ApiKey {
+        instructions: Option<String>,
+    },
+    OptionalApiKey {
+        instructions: Option<String>,
+    },
+    /// HTTP Basic authentication (username/password).
+    /// The user supplies credentials directly; the transport/inputs carry
+    /// them via environment variables or headers.
+    Basic {
+        instructions: Option<String>,
+    },
     Oauth,
 }
 
@@ -253,4 +263,90 @@ pub struct Media {
     pub screenshots: Vec<String>,
     pub demo_video: Option<String>,
     pub banner: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: a registry server with `auth.type = "basic"` (e.g.
+    /// Darkmoon) must deserialize instead of failing the entire bundle parse.
+    /// See: registry API returns servers with `auth.type: "basic"` which was
+    /// not a recognized variant of `AuthConfig`, causing
+    /// `Failed to parse registry bundle JSON` and forcing the app offline.
+    #[test]
+    fn test_auth_basic_deserializes() {
+        let json = r#"{
+            "id": "io.github-ascit31-darkmoon-mcp-npx",
+            "name": "Darkmoon (npx)",
+            "description": "Darkmoon MCP server",
+            "transport": {
+                "type": "stdio",
+                "command": "npx"
+            },
+            "auth": {
+                "type": "basic",
+                "instructions": "Use the username and password of a user on your own Darkmoon Pro dashboard."
+            }
+        }"#;
+
+        let def: ServerDefinition = serde_json::from_str(json)
+            .expect("ServerDefinition with basic auth should deserialize without error");
+
+        assert!(
+            matches!(def.auth, Some(AuthConfig::Basic { .. })),
+            "expected AuthConfig::Basic, got {:?}",
+            def.auth
+        );
+    }
+
+    /// Every auth type survives serialize -> deserialize (the disk cache and
+    /// the frontend both see the serialized form), keeping `instructions`.
+    #[test]
+    fn test_auth_variants_round_trip() {
+        let cases = [
+            (AuthConfig::None, "none"),
+            (
+                AuthConfig::ApiKey {
+                    instructions: Some("i".into()),
+                },
+                "api_key",
+            ),
+            (
+                AuthConfig::OptionalApiKey {
+                    instructions: Some("i".into()),
+                },
+                "optional_api_key",
+            ),
+            (
+                AuthConfig::Basic {
+                    instructions: Some("i".into()),
+                },
+                "basic",
+            ),
+            (AuthConfig::Oauth, "oauth"),
+        ];
+        for (auth, tag) in cases {
+            let json = serde_json::to_value(&auth).unwrap();
+            assert_eq!(json["type"], tag);
+
+            let back: AuthConfig = serde_json::from_value(json).unwrap();
+            let instructions = |a: &AuthConfig| match a {
+                AuthConfig::ApiKey { instructions }
+                | AuthConfig::OptionalApiKey { instructions }
+                | AuthConfig::Basic { instructions } => instructions.clone(),
+                AuthConfig::None | AuthConfig::Oauth => None,
+            };
+            assert_eq!(
+                std::mem::discriminant(&back),
+                std::mem::discriminant(&auth),
+                "{tag} changed variant"
+            );
+            assert_eq!(
+                instructions(&back),
+                instructions(&auth),
+                "{tag} lost instructions"
+            );
+        }
+    }
 }

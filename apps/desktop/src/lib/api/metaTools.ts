@@ -1,10 +1,14 @@
 /** @deprecated Prefer `@/lib/backend` — shim during facade migration. */
 import { apiCall } from './transport';
 
-/** An "always allow from (client, tool)" entry kept in the gateway's broker. */
+/** An "always allow from (client, tool, action, Space)" entry kept in the gateway's broker. */
 export interface MetaToolGrantEntry {
   client_id: string;
   tool_name: string;
+  /** The tool action the grant covers (e.g. "create"); `null` if the tool has none. */
+  action: string | null;
+  /** The Space the grant applies to; `null` for writes with no single Space. */
+  space_id: string | null;
 }
 
 /** Audit row emitted on every `mcpmux_*` invocation. */
@@ -25,9 +29,14 @@ export async function listMetaToolGrants(): Promise<MetaToolGrantEntry[]> {
   return apiCall('list_meta_tool_grants');
 }
 
-/** Revoke a single "always allow" entry. */
-export async function revokeMetaToolGrant(clientId: string, toolName: string): Promise<boolean> {
-  return apiCall('revoke_meta_tool_grant', { clientId, toolName });
+/** Revoke a single "always allow" entry, exactly as listed. */
+export async function revokeMetaToolGrant(grant: MetaToolGrantEntry): Promise<boolean> {
+  return apiCall('revoke_meta_tool_grant', {
+    clientId: grant.client_id,
+    toolName: grant.tool_name,
+    action: grant.action,
+    spaceId: grant.space_id,
+  });
 }
 
 /** Whether write meta tools require approval (default true). Persisted. */

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { apiCall } from './transport';
 
 /** A client the per-workspace installer can write a config for. */
 export interface WorkspaceInstallClient {
@@ -65,7 +66,7 @@ export async function installWorkspaceMcpConfig(args: {
 
 /** Whether system-wide inbound auth is disabled (no access key required). */
 export async function getGatewayAuthDisabled(): Promise<boolean> {
-  return invoke('get_gateway_auth_disabled');
+  return apiCall('get_gateway_auth_disabled');
 }
 
 /** Enable/disable system-wide inbound auth. Takes effect immediately. */

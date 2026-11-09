@@ -16,19 +16,22 @@ import vscodeIcon from '@/assets/client-icons/vscode.png';
 import opencodeIcon from '@/assets/client-icons/opencode.svg';
 import opencodeIconDark from '@/assets/client-icons/opencode-dark.svg';
 import zedIcon from '@/assets/client-icons/zed.svg';
+import codexIcon from '@/assets/client-icons/codex.svg';
+import codexIconDark from '@/assets/client-icons/codex-dark.svg';
 import { ClientBrandIcon } from '@/components/ClientBrandIcon';
 import { getGatewayStatus } from '@/lib/api/gateway';
 import { useNavigate } from '@/hooks/use-navigate.hook';
 import { useSetPendingSettingsSection } from '@/stores';
 
 /** Brand icon per supported client id (falls back to a generic glyph). opencode
- *  ships theme-specific marks, so it carries a dark variant. */
+ *  and Codex marks are single-colour, so they carry a dark variant. */
 const CLIENT_ICONS: Record<string, { light: string; dark?: string }> = {
   cursor: { light: cursorIcon },
   'claude-code': { light: claudeIcon },
   vscode: { light: vscodeIcon },
   opencode: { light: opencodeIcon, dark: opencodeIconDark },
   zed: { light: zedIcon },
+  codex: { light: codexIcon, dark: codexIconDark },
 };
 import {
   generateWorkspaceConfigSnippet,
@@ -76,7 +79,15 @@ function saveSelection(ids: Set<string>) {
  * system-wide auth toggle inline, since disabling it makes the config a pure
  * URL + header with no access key.
  */
-export function WorkspaceInstallPanel({ workspaceRoot }: { workspaceRoot: string }) {
+export function WorkspaceInstallPanel({
+  workspaceRoot,
+  inDefaultSpace = true,
+}: {
+  workspaceRoot: string;
+  /** Whether this folder resolves to the default Space. Tokenless apps can't
+   *  reach any other Space. */
+  inDefaultSpace?: boolean;
+}) {
   const [clients, setClients] = useState<WorkspaceInstallClient[]>([]);
   // Restore the user's last selection (remembered across folders); fall back to
   // the common-three default the first time.
@@ -211,10 +222,20 @@ export function WorkspaceInstallPanel({ workspaceRoot }: { workspaceRoot: string
           </div>
         </div>
       )}
-      {authDisabled === true && (
+      {authDisabled === true && inDefaultSpace && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-300">
           <ShieldCheck className="h-4 w-4 flex-shrink-0" />
           Authentication is off — apps connect with just the URL and workspace header.
+        </div>
+      )}
+      {authDisabled === true && !inDefaultSpace && (
+        <div
+          className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300"
+          data-testid="workspace-install-tokenless-space-warning"
+        >
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          Authentication is off, and tokenless apps only reach the default Space. Register an
+          API-key client for this folder to use its Space.
         </div>
       )}
 

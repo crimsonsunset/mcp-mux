@@ -158,6 +158,13 @@ impl StartupOrchestrator {
         }
 
         for server in enabled_servers {
+            // The gateway was stopped or restarted mid-startup: this pool will
+            // never connect anything again, and the next gateway runs its own
+            // auto-connect, so stop instead of marking every server failed.
+            if self.pool_service.is_shutting_down() {
+                info!("[Startup] Pool is shutting down; abandoning auto-connect");
+                break;
+            }
             match self.connect_server(&server).await {
                 Ok(ConnectOutcome::Connected) => {
                     info!(
@@ -287,8 +294,11 @@ impl StartupOrchestrator {
                 Ok(ConnectOutcome::NeedsOAuth)
             }
             ConnectionResult::Failed { error } => {
-                // Explicitly set status to Error
-                self.server_manager.set_error(&key, error.clone()).await;
+                // A failure caused by the pool shutting down says nothing about
+                // the server; leave its status for the next gateway to set.
+                if !self.pool_service.is_shutting_down() {
+                    self.server_manager.set_error(&key, error.clone()).await;
+                }
                 Err(anyhow::anyhow!("Connection failed: {}", error))
             }
         }

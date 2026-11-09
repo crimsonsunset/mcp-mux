@@ -54,6 +54,12 @@ import {
   type TransportFilter,
 } from './servers-page.helpers';
 import { resolveInstalledDisplayName } from './server-display-name.helpers';
+import {
+  readStoredToolsSort,
+  sortServers,
+  storeToolsSort,
+  type ToolsSort,
+} from './sortServers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
 import { checkServerVersion } from '@/lib/api/settings';
@@ -353,6 +359,7 @@ export function ServersPage() {
   const initialStatusFilter = statusFilterFromSearch(search);
   const [installedServers, setInstalledServers] = useState<ServerViewModelWithClone[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [toolsSort, setToolsSort] = useState<ToolsSort>(readStoredToolsSort);
   const [transportFilter, setTransportFilter] = useState<TransportFilter>('all');
   const [activeStatusFilters, setActiveStatusFilters] = useState<Set<StatusFilterKey>>(() =>
     initialStatusFilter ? new Set([initialStatusFilter]) : new Set()
@@ -551,13 +558,6 @@ export function ServersPage() {
           server.last_error = runtime.message || null;
         }
       }
-
-      // Sort by installation time (newest first)
-      mergedServers.sort((a, b) => {
-        const dateA = new Date(a.created_at || 0).getTime();
-        const dateB = new Date(b.created_at || 0).getTime();
-        return dateB - dateA;
-      });
 
       setInstalledServers(mergedServers);
       setGatewayRunning(gateway.running);
@@ -835,7 +835,7 @@ export function ServersPage() {
   );
 
   /** Installed servers matching transport, status, and search filters. */
-  const filteredServers = installedServers.filter((server) =>
+  const filteredServers = sortServers(installedServers, toolsSort).filter((server) =>
     serverMatchesFilters(
       server,
       searchQuery,
@@ -857,6 +857,12 @@ export function ServersPage() {
       }
       return next;
     });
+  };
+
+  /** Change the installed-servers ordering and remember it across sessions. */
+  const handleToolsSortChange = (sort: ToolsSort) => {
+    setToolsSort(sort);
+    storeToolsSort(sort);
   };
 
   /** Reset transport and status filters to defaults. */
@@ -1742,6 +1748,21 @@ export function ServersPage() {
               onClearStatusFilters={() => setActiveStatusFilters(new Set())}
               onClearAllFilters={clearAllServerFilters}
             />
+            <label className="sr-only" htmlFor="tools-sort">
+              {t('toolbar.sortLabel')}
+            </label>
+            <select
+              id="tools-sort"
+              value={toolsSort}
+              onChange={(e) => handleToolsSortChange(e.target.value as ToolsSort)}
+              className="rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-hover))] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--primary))]/50"
+              data-testid="tools-sort"
+            >
+              <option value="recent">{t('toolbar.sort.recent')}</option>
+              <option value="name">{t('toolbar.sort.name')}</option>
+              <option value="active-first">{t('toolbar.sort.activeFirst')}</option>
+              <option value="inactive-first">{t('toolbar.sort.inactiveFirst')}</option>
+            </select>
           </div>
         )}
       </div>
@@ -1897,6 +1918,7 @@ export function ServersPage() {
                               {server.auth.type === 'oauth' ? t('auth.oauth') : 
                                server.auth.type === 'api_key' ? t('auth.apiKey') :
                                server.auth.type === 'optional_api_key' ? t('auth.apiKeyOptional') :
+                               server.auth.type === 'basic' ? t('auth.basic') :
                                t('auth.required')}
                             </span>
                           )}
@@ -2840,10 +2862,11 @@ export function ServersPage() {
       )}
       
       {/* Log Viewer Modal */}
-      {logViewerServer && (
+      {logViewerServer && viewSpace && (
         <ServerLogViewer
           serverId={logViewerServer.id}
           serverName={logViewerServer.name}
+          spaceId={viewSpace.id}
           onClose={() => setLogViewerServer(null)}
         />
       )}

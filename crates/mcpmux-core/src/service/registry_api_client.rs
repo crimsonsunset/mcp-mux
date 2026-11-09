@@ -27,6 +27,7 @@ struct ApiResponse<T> {
 
 /// Complete registry bundle from /v1/bundle
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(from = "RawRegistryBundle")]
 pub struct RegistryBundle {
     pub version: String,
     pub updated_at: String,
@@ -34,6 +35,60 @@ pub struct RegistryBundle {
     pub categories: Vec<Category>,
     pub ui: UiConfig,
     pub home: Option<HomeConfig>,
+    /// Servers dropped while parsing because this client couldn't read them.
+    /// Not serialized, so a disk-cached bundle reads back as 0.
+    #[serde(skip)]
+    pub skipped_servers: usize,
+}
+
+/// Wire form of [`RegistryBundle`], with each server left as raw JSON.
+///
+/// Servers are parsed one by one and any that fail are skipped. The registry
+/// can publish schema values this client predates (a new auth type, badge,
+/// transport, ...); one such server must not take down discovery for the
+/// whole bundle.
+#[derive(Deserialize)]
+struct RawRegistryBundle {
+    version: String,
+    updated_at: String,
+    servers: Vec<serde_json::Value>,
+    categories: Vec<Category>,
+    ui: UiConfig,
+    home: Option<HomeConfig>,
+}
+
+impl From<RawRegistryBundle> for RegistryBundle {
+    fn from(raw: RawRegistryBundle) -> Self {
+        let total = raw.servers.len();
+        let servers: Vec<ServerDefinition> = raw
+            .servers
+            .into_iter()
+            .filter_map(|value| {
+                let id = value
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<missing id>")
+                    .to_string();
+                match serde_json::from_value::<ServerDefinition>(value) {
+                    Ok(server) => Some(server),
+                    Err(e) => {
+                        tracing::warn!("Skipping registry server '{}': {}", id, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Self {
+            version: raw.version,
+            updated_at: raw.updated_at,
+            skipped_servers: total - servers.len(),
+            servers,
+            categories: raw.categories,
+            ui: raw.ui,
+            home: raw.home,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -189,12 +244,11 @@ impl RegistryApiClient {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        let api_response: ApiResponse<RegistryBundle> = response
-            .json()
+        let body = response
+            .bytes()
             .await
-            .context("Failed to parse registry bundle JSON")?;
-
-        let bundle = api_response.data;
+            .context("Failed to read registry bundle response")?;
+        let bundle = parse_bundle(&body)?;
 
         tracing::info!(
             "Fetched {} servers, {} filters, {} sort options (version: {}, updated: {}, etag: {:?})",
@@ -213,9 +267,68 @@ impl RegistryApiClient {
     }
 }
 
+/// Parse a `/v1/bundle` response body.
+fn parse_bundle(body: &[u8]) -> Result<RegistryBundle> {
+    let api_response: ApiResponse<RegistryBundle> =
+        serde_json::from_slice(body).context("Failed to parse registry bundle JSON")?;
+    Ok(api_response.data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression test: one server the client can't parse (here an unknown
+    /// auth type) must be skipped, not fail the whole bundle.
+    #[test]
+    fn test_parse_bundle_skips_unparseable_servers() {
+        let body = br#"{
+            "data": {
+                "version": "2.1.0",
+                "updated_at": "2026-10-01T00:00:00Z",
+                "servers": [
+                    {
+                        "id": "good",
+                        "name": "Good",
+                        "transport": { "type": "stdio", "command": "npx" },
+                        "auth": { "type": "basic", "instructions": "user/pass" }
+                    },
+                    {
+                        "id": "future",
+                        "name": "Future",
+                        "transport": { "type": "stdio", "command": "npx" },
+                        "auth": { "type": "some_future_auth" }
+                    }
+                ],
+                "categories": [],
+                "ui": {
+                    "filters": [],
+                    "sort_options": [],
+                    "default_sort": "name",
+                    "items_per_page": 20
+                }
+            }
+        }"#;
+
+        let bundle = parse_bundle(body).expect("bundle should parse");
+
+        let ids: Vec<&str> = bundle.servers.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["good"]);
+        assert_eq!(bundle.skipped_servers, 1);
+
+        // The disk cache stores the serialized bundle; the skip count is
+        // runtime-only and must not leak into it.
+        let cached = serde_json::to_value(&bundle).unwrap();
+        assert!(cached.get("skipped_servers").is_none());
+        let reloaded: RegistryBundle = serde_json::from_value(cached).unwrap();
+        assert_eq!(reloaded.servers.len(), 1);
+        assert_eq!(reloaded.skipped_servers, 0);
+    }
+
+    #[test]
+    fn test_parse_bundle_rejects_malformed_envelope() {
+        assert!(parse_bundle(br#"{"data": {"servers": "nope"}}"#).is_err());
+    }
 
     #[tokio::test]
     async fn test_fetch_bundle_from_local() {
@@ -227,19 +340,29 @@ mod tests {
 
         let result = client.fetch_bundle(None).await;
 
-        // This will fail if dev server is not running - that's expected
-        if let Ok(FetchBundleResult::Updated { bundle, etag }) = result {
-            assert!(
-                !bundle.servers.is_empty(),
-                "Should have at least one server"
-            );
-            assert!(!bundle.ui.filters.is_empty(), "Should have filters");
-            assert!(
-                !bundle.ui.sort_options.is_empty(),
-                "Should have sort options"
-            );
-            assert!(etag.is_some(), "Should have ETag");
-        }
+        // An unreachable registry is tolerated; a bundle we can't parse is not.
+        let (bundle, etag) = match result {
+            Ok(FetchBundleResult::Updated { bundle, etag }) => (bundle, etag),
+            Ok(FetchBundleResult::NotModified) => panic!("no ETag was sent, expected a bundle"),
+            Err(e) if e.chain().any(|c| c.is::<serde_json::Error>()) => {
+                panic!("registry bundle failed to parse: {:#}", e)
+            }
+            Err(e) => {
+                eprintln!("skipping: registry unreachable: {:#}", e);
+                return;
+            }
+        };
+
+        assert!(
+            !bundle.servers.is_empty(),
+            "Should have at least one server"
+        );
+        assert!(!bundle.ui.filters.is_empty(), "Should have filters");
+        assert!(
+            !bundle.ui.sort_options.is_empty(),
+            "Should have sort options"
+        );
+        assert!(etag.is_some(), "Should have ETag");
     }
 
     #[tokio::test]
