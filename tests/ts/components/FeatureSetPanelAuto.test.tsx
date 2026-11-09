@@ -28,6 +28,7 @@ vi.mock('@/lib/api/featureSets', async (importOriginal) => ({
   }),
 }));
 vi.mock('@/lib/api/serverFeatures', () => ({ listServerFeatures: mockListFeatures }));
+vi.mock('@/lib/api/registry', () => ({ listInstalledServers: vi.fn().mockResolvedValue([]) }));
 
 import { FeatureSetPanel } from '@/features/featuresets/FeatureSetPanel';
 import type { FeatureSet } from '@/lib/api/featureSets';
