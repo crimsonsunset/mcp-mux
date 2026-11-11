@@ -22,10 +22,13 @@ use super::features::FeatureService;
 use super::instance::{NoActiveClientError, ServerInstance};
 use super::service::PoolService;
 
-/// Tool-call failure that keeps the pooled instance Arc for generation-safe reconnect.
+/// Tool-call failure that keeps the pooled instance Arc and the client
+/// generation observed at failure for generation-safe reconnect.
 struct ExecuteCallError {
     error: anyhow::Error,
     instance: Option<Arc<ServerInstance>>,
+    /// [`ServerInstance::connection_generation`] when the call failed.
+    connection_generation: u64,
 }
 
 impl std::fmt::Display for ExecuteCallError {
@@ -407,12 +410,14 @@ impl RoutingService {
             tool_name: String,
             args: Value,
         ) -> Result<ToolCallResult, ExecuteCallError> {
-            let instance = pool.get_instance(space_id, &server_id).ok_or_else(|| {
-                ExecuteCallError {
-                    error: anyhow!("Server not connected: {}", server_id),
-                    instance: None,
-                }
-            })?;
+            let instance =
+                pool.get_instance(space_id, &server_id)
+                    .ok_or_else(|| ExecuteCallError {
+                        error: anyhow!("Server not connected: {}", server_id),
+                        instance: None,
+                        connection_generation: 0,
+                    })?;
+            let connection_generation = instance.connection_generation();
 
             // We need to get the service handle (peer) which is cloneable
             // But we don't have direct access to it via with_client easily because with_client
@@ -431,10 +436,12 @@ impl RoutingService {
                         Err(_) => Err(ExecuteCallError {
                             error: anyhow!("Tool call timed out after {:?}", TOOL_CALL_TIMEOUT),
                             instance: Some(instance),
+                            connection_generation,
                         }),
                         Ok(Err(e)) => Err(ExecuteCallError {
                             error: anyhow!("MCP call failed: {}", e),
                             instance: Some(instance),
+                            connection_generation,
                         }),
                         Ok(Ok(res)) => Ok(ToolCallResult::from_mcp_result(res)),
                     }
@@ -442,6 +449,7 @@ impl RoutingService {
                 None => Err(ExecuteCallError {
                     error: anyhow::Error::new(NoActiveClientError),
                     instance: Some(instance),
+                    connection_generation,
                 }),
             }
         }
@@ -725,6 +733,7 @@ impl RoutingService {
                 let duration = call_start.elapsed();
                 let e = exec_err.error;
                 let failed_instance = exec_err.instance;
+                let failed_generation = exec_err.connection_generation;
                 let err_str = e.to_string().to_lowercase();
                 let reconnect_path = reconnect_path_for_error(&e);
                 let trigger = failure_trigger_label(reconnect_path);
@@ -760,7 +769,10 @@ impl RoutingService {
                             Some(instance) => {
                                 self.pool_service
                                     .reconnect_fresh_from_db_for_failed_instance(
-                                        space_id, &server_id, instance,
+                                        space_id,
+                                        &server_id,
+                                        instance,
+                                        failed_generation,
                                     )
                                     .await
                             }

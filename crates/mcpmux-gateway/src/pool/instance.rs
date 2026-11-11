@@ -4,9 +4,9 @@
 //! No sharing between spaces - this is a security boundary.
 
 use std::collections::HashMap;
-use std::time::Instant;
-
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use mcpmux_core::{DomainEvent, LogLevel, LogSource, ServerLog, ServerLogManager};
 use parking_lot::RwLock;
@@ -363,6 +363,9 @@ pub struct ServerInstance {
     pub features: RwLock<Option<DiscoveredFeatures>>,
     /// The actual MCP client connection
     client: RwLock<Option<McpClientConnection>>,
+    /// Bumped on every [`Self::mark_connected`]. Distinguishes an in-place
+    /// client replacement from a closed transport that is still stored.
+    connection_generation: AtomicU64,
 }
 
 /// The actual MCP client connection.
@@ -398,12 +401,18 @@ impl ServerInstance {
             stats: RwLock::new(InstanceStats::default()),
             features: RwLock::new(None),
             client: RwLock::new(None),
+            connection_generation: AtomicU64::new(0),
         }
     }
 
     /// Get the current state.
     pub fn state(&self) -> InstanceState {
         self.stats.read().state
+    }
+
+    /// Monotonic id of the client last installed by [`Self::mark_connected`].
+    pub fn connection_generation(&self) -> u64 {
+        self.connection_generation.load(Ordering::Acquire)
     }
 
     /// Check if connected and healthy.
@@ -434,6 +443,7 @@ impl ServerInstance {
 
         *self.features.write() = Some(features);
         *self.client.write() = Some(connection);
+        self.connection_generation.fetch_add(1, Ordering::Release);
     }
 
     /// Update state to failed.
