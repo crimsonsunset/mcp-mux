@@ -20,6 +20,14 @@ use uuid::Uuid;
 // Re-export TransportType from mcpmux-core as the single source of truth
 pub use mcpmux_core::TransportType;
 
+/// Local pool error: the instance is still registered but its MCP client is gone.
+///
+/// Distinct from backend JSON-RPC text so reconnect classification can downcast
+/// instead of matching a phrase that a remote server might echo.
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("Server instance has no active client")]
+pub struct NoActiveClientError;
+
 /// Type alias for the MCP client service
 pub type McpClient = RunningService<RoleClient, McpClientHandler>;
 
