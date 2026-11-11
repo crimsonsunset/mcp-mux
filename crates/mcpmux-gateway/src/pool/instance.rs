@@ -371,6 +371,9 @@ pub enum McpClientConnection {
     Stdio { client: McpClient },
     /// HTTP transport - streamable HTTP
     Http { client: McpClient },
+    /// Placeholder so unit tests can mark an instance healthy without a live service.
+    #[cfg(test)]
+    TestStub,
 }
 
 impl McpClientConnection {
@@ -379,6 +382,8 @@ impl McpClientConnection {
         match self {
             Self::Stdio { client } => Some(client),
             Self::Http { client } => Some(client),
+            #[cfg(test)]
+            Self::TestStub => None,
         }
     }
 }
@@ -404,6 +409,12 @@ impl ServerInstance {
     /// Check if connected and healthy.
     pub fn is_healthy(&self) -> bool {
         self.stats.read().state == InstanceState::Connected && self.client.read().is_some()
+    }
+
+    /// Mark connected with a test stub client (no live MCP service).
+    #[cfg(test)]
+    pub(crate) fn mark_healthy_for_test(&self) {
+        self.mark_connected(DiscoveredFeatures::default(), McpClientConnection::TestStub);
     }
 
     /// Update state to connecting.
