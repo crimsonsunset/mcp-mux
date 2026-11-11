@@ -462,11 +462,29 @@ impl PoolService {
     /// Holds the per-key connect lock for the whole in-place recovery so a
     /// concurrent [`Self::reconnect_fresh_for_failed_instance`] cannot see the
     /// same Arc still unhealthy, then evict it after `mark_connected`.
-    /// Bounded by [`RECONNECT_INSTANCE_TIMEOUT`] so a hung OAuth metadata
-    /// discovery cannot hold the lock indefinitely.
+    /// [`RECONNECT_INSTANCE_TIMEOUT`] is a single deadline covering both the
+    /// lock wait and the recovery, so a hung OAuth metadata discovery cannot
+    /// hold the lock indefinitely nor stack waits on queued callers.
     pub async fn reconnect_instance(&self, space_id: Uuid, server_id: &str) -> ConnectionResult {
+        let deadline = tokio::time::Instant::now() + RECONNECT_INSTANCE_TIMEOUT;
         let connect_lock = self.connect_lock(space_id, server_id);
-        let _connect_guard = connect_lock.lock().await;
+        let _connect_guard = match tokio::time::timeout_at(deadline, connect_lock.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                warn!(
+                    server_id = %server_id,
+                    space_id = %space_id,
+                    timeout_ms = RECONNECT_INSTANCE_TIMEOUT.as_millis(),
+                    "reconnect_instance timed out waiting for connect lock"
+                );
+                return ConnectionResult::Failed {
+                    error: format!(
+                        "OAuth reconnect timed out after {:?} waiting for another reconnect",
+                        RECONNECT_INSTANCE_TIMEOUT
+                    ),
+                };
+            }
+        };
 
         let instance = match self.get_instance(space_id, server_id) {
             Some(inst) => inst,
@@ -492,7 +510,7 @@ impl PoolService {
             &instance,
             &self.feature_service,
         );
-        match tokio::time::timeout(RECONNECT_INSTANCE_TIMEOUT, recovery).await {
+        match tokio::time::timeout_at(deadline, recovery).await {
             Ok(result) => result,
             Err(_) => {
                 let error = format!(

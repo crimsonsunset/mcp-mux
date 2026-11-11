@@ -442,7 +442,8 @@ impl ServerInstance {
         stats.last_error = None;
 
         *self.features.write() = Some(features);
-        *self.client.write() = Some(connection);
+        let mut client = self.client.write();
+        *client = Some(connection);
         self.connection_generation.fetch_add(1, Ordering::Release);
     }
 
@@ -497,6 +498,18 @@ impl ServerInstance {
     {
         let guard = self.client.read();
         guard.as_ref().and_then(|conn| conn.client().map(f))
+    }
+
+    /// Like [`Self::with_client`], but also returns the generation of the client
+    /// the closure ran against. Both are read under the same lock that
+    /// [`Self::mark_connected`] holds while installing a replacement.
+    pub fn with_client_generation<F, R>(&self, f: F) -> Option<(R, u64)>
+    where
+        F: FnOnce(&McpClient) -> R,
+    {
+        let guard = self.client.read();
+        let result = guard.as_ref().and_then(|conn| conn.client().map(f))?;
+        Some((result, self.connection_generation.load(Ordering::Acquire)))
     }
 
     /// Get the server URL from the instance key (for HTTP/SSE transports).
