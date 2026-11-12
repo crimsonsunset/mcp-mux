@@ -494,10 +494,7 @@ pub async fn set_feature_set_members(
         .into_iter()
         .filter(|m| {
             // Skip self-references
-            if m.member_type == "feature_set" && m.member_id == feature_set_id {
-                return false;
-            }
-            true
+            !(m.member_type == "feature_set" && m.member_id == feature_set_id)
         })
         .map(|input| {
             let member_type = match input.member_type.as_str() {
