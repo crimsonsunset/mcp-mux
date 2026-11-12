@@ -10,5 +10,7 @@
   <string>McpMux relays MCP servers that may read macOS Reminders.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>McpMux relays MCP servers that may automate other apps via AppleScript.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>McpMux connects to MCP servers on your local network.</string>
 </dict>
 </plist>
