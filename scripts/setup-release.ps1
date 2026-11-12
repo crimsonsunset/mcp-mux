@@ -65,6 +65,11 @@ if ($ShowSecrets) {
     Write-Host "  when APPLE_SIGNING_IDENTITY is not set. This is sufficient for" -ForegroundColor Gray
     Write-Host "  distribution via Homebrew tap (postflight removes quarantine)." -ForegroundColor Gray
     Write-Host ""
+    Write-Host "  Local Network note (TN3179): ad-hoc designated requirements pin to" -ForegroundColor DarkGray
+    Write-Host "  the binary cdhash, so a code-changing rebuild may re-prompt for Local" -ForegroundColor DarkGray
+    Write-Host "  Network access. Set APPLE_SIGNING_IDENTITY to an Apple Development or" -ForegroundColor DarkGray
+    Write-Host "  other stable codesigning identity if the grant must survive rebuilds." -ForegroundColor DarkGray
+    Write-Host ""
     exit 0
 }
 
