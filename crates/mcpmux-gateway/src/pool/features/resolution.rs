@@ -200,22 +200,38 @@ impl FeatureResolutionService {
         features
     }
 
-    async fn resolve_feature_sets_uncached(
+    /// Server ids granted by the FeatureSets, ignoring `is_available`.
+    ///
+    /// [`Self::resolve_feature_sets`] drops unavailable features, so a granted
+    /// server that is offline or needs auth would look ungranted. Readiness
+    /// checks use this to tell "not in grant" from "in grant but disconnected".
+    pub async fn resolve_granted_server_ids(
         &self,
         space_id: &str,
         feature_set_ids: &[String],
-    ) -> Result<Vec<ServerFeature>> {
+    ) -> Result<HashSet<String>> {
+        let all_features = self.feature_repo.list_for_space(space_id).await?;
+        let (allowed, excluded) = self
+            .collect_member_ids(feature_set_ids, &all_features)
+            .await?;
+        Ok(all_features
+            .into_iter()
+            .filter(|f| {
+                let id = f.id.to_string();
+                allowed.contains(&id) && !excluded.contains(&id)
+            })
+            .map(|f| f.server_id)
+            .collect())
+    }
+
+    /// Walk the FeatureSets' members into (allowed, excluded) feature id sets.
+    async fn collect_member_ids(
+        &self,
+        feature_set_ids: &[String],
+        all_features: &[ServerFeature],
+    ) -> Result<(HashSet<String>, HashSet<String>)> {
         let mut allowed_feature_ids: HashSet<String> = HashSet::new();
         let mut excluded_feature_ids: HashSet<String> = HashSet::new();
-
-        let all_features = self.feature_repo.list_for_space(space_id).await?;
-
-        debug!(
-            "[FeatureResolution] Resolving {} feature sets for space {}",
-            feature_set_ids.len(),
-            space_id
-        );
-
         // Tracks FeatureSet ids already entered on this resolution so a
         // composition cycle (A includes B, B includes A — creatable via two
         // legal UI calls, see add_feature_set_member's cycle guard) can't
@@ -246,13 +262,32 @@ impl FeatureResolutionService {
             // allow/exclude sets.
             self.resolve_members(
                 &feature_set,
-                &all_features,
+                all_features,
                 &mut allowed_feature_ids,
                 &mut excluded_feature_ids,
                 &mut visited,
             )
             .await?;
         }
+        Ok((allowed_feature_ids, excluded_feature_ids))
+    }
+
+    async fn resolve_feature_sets_uncached(
+        &self,
+        space_id: &str,
+        feature_set_ids: &[String],
+    ) -> Result<Vec<ServerFeature>> {
+        let all_features = self.feature_repo.list_for_space(space_id).await?;
+
+        debug!(
+            "[FeatureResolution] Resolving {} feature sets for space {}",
+            feature_set_ids.len(),
+            space_id
+        );
+
+        let (allowed_feature_ids, excluded_feature_ids) = self
+            .collect_member_ids(feature_set_ids, &all_features)
+            .await?;
 
         debug!(
             "[FeatureResolution] Filtering: all_features={}, allowed_ids={}, excluded_ids={}",
