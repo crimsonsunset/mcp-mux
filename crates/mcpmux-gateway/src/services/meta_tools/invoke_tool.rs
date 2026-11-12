@@ -149,16 +149,12 @@ impl MetaTool for InvokeToolTool {
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
 
-        let binding_features = call
+        let binding_servers = call
             .ctx
             .feature_service
-            .resolve_feature_sets(&space_id.to_string(), &resolved.feature_set_ids)
+            .resolve_granted_server_ids(&space_id.to_string(), &resolved.feature_set_ids)
             .await
             .map_err(|e| MetaToolError::Internal(e.to_string()))?;
-        let binding_servers: std::collections::HashSet<String> = binding_features
-            .iter()
-            .map(|f| f.server_id.clone())
-            .collect();
 
         let installed = call
             .ctx

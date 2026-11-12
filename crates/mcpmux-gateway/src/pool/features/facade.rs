@@ -93,6 +93,17 @@ impl FeatureService {
             .await
     }
 
+    /// Server ids granted by the FeatureSets, including offline/auth-pending servers.
+    pub async fn resolve_granted_server_ids(
+        &self,
+        space_id: &str,
+        feature_set_ids: &[String],
+    ) -> Result<HashSet<String>> {
+        self.resolution
+            .resolve_granted_server_ids(space_id, feature_set_ids)
+            .await
+    }
+
     /// Get all available features for a space (optionally filtered by type)
     pub async fn get_all_features_for_space(
         &self,

@@ -78,15 +78,11 @@ impl MetaTool for ListServersTool {
             .space_id
             .ok_or_else(|| MetaToolError::Internal("space missing".into()))?;
 
-        let binding_features = call
+        let binding_servers = call
             .ctx
             .feature_service
-            .resolve_feature_sets(&space_id.to_string(), &resolved.feature_set_ids)
+            .resolve_granted_server_ids(&space_id.to_string(), &resolved.feature_set_ids)
             .await?;
-        let binding_servers: HashSet<String> = binding_features
-            .iter()
-            .map(|f| f.server_id.clone())
-            .collect();
 
         let features = call
             .ctx

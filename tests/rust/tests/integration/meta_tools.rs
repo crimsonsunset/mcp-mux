@@ -2148,6 +2148,47 @@ async fn unbound_session_invoke_tool_returns_bind_denial_hint() {
     );
 }
 
+/// A granted server whose tools went unavailable (auth expired, disconnected)
+/// must deny as bound/offline, not as "inactive — bind the workspace".
+#[tokio::test(flavor = "multi_thread")]
+async fn granted_server_with_unavailable_tools_is_bound_not_inactive() {
+    let f = Fixture::new().await;
+    bind_github_only_to_session_root(&f).await;
+    f.server_feature_repo
+        .mark_unavailable(&f.space_id.to_string(), "github")
+        .await
+        .unwrap();
+
+    let invoke = f
+        .registry
+        .call(
+            "mcpmux_invoke_tool",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({ "server_id": "github", "tool": "create_issue" }),
+        )
+        .await
+        .unwrap();
+    let body = Fixture::result_json(&invoke);
+    assert_eq!(body.get("reason"), Some(&json!("bound_offline")), "{body}");
+    assert_eq!(body.get("tool"), Some(&json!("mcpmux_diagnose_server")));
+
+    let list = f
+        .registry
+        .call(
+            "mcpmux_list_servers",
+            &f.client_id,
+            Some(&f.session_id),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        server_readiness(&Fixture::result_json(&list), "github"),
+        "bound"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn hidden_list_feature_sets_callable_but_not_advertised() {
     let f = Fixture::new().await;
