@@ -19,7 +19,29 @@ use uuid::Uuid;
 
 use super::connection::ConnectionResult;
 use super::features::FeatureService;
+use super::instance::{NoActiveClientError, ServerInstance};
 use super::service::PoolService;
+
+/// Tool-call failure that keeps the pooled instance Arc and the client
+/// generation observed at failure for generation-safe reconnect.
+struct ExecuteCallError {
+    error: anyhow::Error,
+    instance: Option<Arc<ServerInstance>>,
+    /// [`ServerInstance::connection_generation`] when the call failed.
+    connection_generation: u64,
+}
+
+impl std::fmt::Display for ExecuteCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error)
+    }
+}
+
+impl std::fmt::Debug for ExecuteCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.error)
+    }
+}
 /// A tool as returned by the routing service
 #[derive(Debug, Clone)]
 pub struct RoutedTool {
@@ -387,32 +409,47 @@ impl RoutingService {
             server_id: String,
             tool_name: String,
             args: Value,
-        ) -> Result<ToolCallResult> {
-            let instance = pool
-                .get_instance(space_id, &server_id)
-                .ok_or_else(|| anyhow!("Server not connected: {}", server_id))?;
+        ) -> Result<ToolCallResult, ExecuteCallError> {
+            let instance =
+                pool.get_instance(space_id, &server_id)
+                    .ok_or_else(|| ExecuteCallError {
+                        error: anyhow!("Server not connected: {}", server_id),
+                        instance: None,
+                        connection_generation: 0,
+                    })?;
 
             // We need to get the service handle (peer) which is cloneable
             // But we don't have direct access to it via with_client easily because with_client
             // passes &McpClient (RunningService).
             // We can assume RunningService is not cloneable but its peer() returns a Service handle which is.
             // Let's use with_client to get the handle out.
-            let client_handle = instance.with_client(|client| client.peer().clone());
+            let client_handle = instance.with_client_generation(|client| client.peer().clone());
 
             match client_handle {
-                Some(client) => {
+                Some((client, connection_generation)) => {
                     let mut params = CallToolRequestParams::new(tool_name.to_string());
                     params.arguments = args.as_object().cloned();
 
                     // Wrap call_tool with timeout to prevent hanging
-                    let res = tokio::time::timeout(TOOL_CALL_TIMEOUT, client.call_tool(params))
-                        .await
-                        .map_err(|_| anyhow!("Tool call timed out after {:?}", TOOL_CALL_TIMEOUT))?
-                        .map_err(|e| anyhow!("MCP call failed: {}", e))?;
-
-                    Ok(ToolCallResult::from_mcp_result(res))
+                    match tokio::time::timeout(TOOL_CALL_TIMEOUT, client.call_tool(params)).await {
+                        Err(_) => Err(ExecuteCallError {
+                            error: anyhow!("Tool call timed out after {:?}", TOOL_CALL_TIMEOUT),
+                            instance: Some(instance),
+                            connection_generation,
+                        }),
+                        Ok(Err(e)) => Err(ExecuteCallError {
+                            error: anyhow!("MCP call failed: {}", e),
+                            instance: Some(instance),
+                            connection_generation,
+                        }),
+                        Ok(Ok(res)) => Ok(ToolCallResult::from_mcp_result(res)),
+                    }
                 }
-                None => Err(anyhow!("Server instance has no active client")),
+                None => Err(ExecuteCallError {
+                    error: anyhow::Error::new(NoActiveClientError),
+                    connection_generation: instance.connection_generation(),
+                    instance: Some(instance),
+                }),
             }
         }
 
@@ -691,10 +728,13 @@ impl RoutingService {
                     }
                 }
             }
-            Err(e) => {
+            Err(exec_err) => {
                 let duration = call_start.elapsed();
+                let e = exec_err.error;
+                let failed_instance = exec_err.instance;
+                let failed_generation = exec_err.connection_generation;
                 let err_str = e.to_string().to_lowercase();
-                let reconnect_path = reconnect_path_for_error(&err_str);
+                let reconnect_path = reconnect_path_for_error(&e);
                 let trigger = failure_trigger_label(reconnect_path);
 
                 self.record_call_outcome(&space_id, &server_id, false, Some(&err_str));
@@ -724,9 +764,19 @@ impl RoutingService {
                                 .reconnect_instance(space_id, &server_id)
                                 .await
                         }
-                        ReconnectPath::Fresh => {
-                            self.reconnect_fresh_from_db(space_id, &server_id).await
-                        }
+                        ReconnectPath::Fresh => match &failed_instance {
+                            Some(instance) => {
+                                self.pool_service
+                                    .reconnect_fresh_from_db_for_failed_instance(
+                                        space_id,
+                                        &server_id,
+                                        instance,
+                                        failed_generation,
+                                    )
+                                    .await
+                            }
+                            None => self.reconnect_fresh_from_db(space_id, &server_id).await,
+                        },
                     };
                     info!(
                         server_id = %server_id,
@@ -932,7 +982,9 @@ impl RoutingService {
     /// Matches after case/punctuation/camelCase normalize so rmcp Display
     /// variants (`Transport closed`, `connection closed: …`, `Transport channel
     /// closed`, `unexpected end of stream`) and MCP `-32000` all hit the same
-    /// path. Auth is classified first by [`reconnect_path_for_error`].
+    /// path. Local missing-client is handled separately via
+    /// [`NoActiveClientError`] downcast in [`reconnect_path_for_error`].
+    /// Auth is classified first by [`reconnect_path_for_error`].
     fn is_transport_closed_error(error_str: &str) -> bool {
         let lower = error_str.to_ascii_lowercase();
         if lower.contains("-32000") {
@@ -1031,11 +1083,18 @@ fn normalize_error_tokens(error_str: &str) -> String {
     out
 }
 
-/// Classify a transport error for retry routing. Case-insensitive.
-fn reconnect_path_for_error(err_str: &str) -> Option<ReconnectPath> {
-    if RoutingService::is_auth_error(err_str) {
+/// Classify a transport error for retry routing.
+///
+/// [`NoActiveClientError`] is matched by type so a backend message that happens
+/// to contain "no active client" does not trigger reconnect + resend.
+fn reconnect_path_for_error(err: &anyhow::Error) -> Option<ReconnectPath> {
+    if err.downcast_ref::<NoActiveClientError>().is_some() {
+        return Some(ReconnectPath::Fresh);
+    }
+    let err_str = err.to_string();
+    if RoutingService::is_auth_error(&err_str) {
         Some(ReconnectPath::OAuth)
-    } else if RoutingService::is_transport_closed_error(err_str) {
+    } else if RoutingService::is_transport_closed_error(&err_str) {
         Some(ReconnectPath::Fresh)
     } else {
         None
@@ -1078,14 +1137,21 @@ mod redirect_tests {
 
 #[cfg(test)]
 mod call_failure_classify_tests {
-    use super::{failure_trigger_label, reconnect_path_for_error, ReconnectPath, RoutingService};
+    use super::{
+        failure_trigger_label, reconnect_path_for_error, NoActiveClientError, ReconnectPath,
+        RoutingService,
+    };
+
+    fn err(msg: &str) -> anyhow::Error {
+        anyhow::anyhow!("{msg}")
+    }
 
     #[test]
     fn reported_minus_32000_is_transport_closed_not_auth() {
-        let err = "mcp error -32000: connection closed";
-        assert!(RoutingService::is_transport_closed_error(err));
-        assert!(!RoutingService::is_auth_error(err));
-        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
+        let e = err("mcp error -32000: connection closed");
+        assert!(RoutingService::is_transport_closed_error(&e.to_string()));
+        assert!(!RoutingService::is_auth_error(&e.to_string()));
+        assert_eq!(reconnect_path_for_error(&e), Some(ReconnectPath::Fresh));
         assert_eq!(
             failure_trigger_label(Some(ReconnectPath::Fresh)),
             "transport_closed"
@@ -1094,15 +1160,15 @@ mod call_failure_classify_tests {
 
     #[test]
     fn connection_closed_without_code_is_transport_closed() {
-        let err = "connection closed";
-        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
+        let e = err("connection closed");
+        assert_eq!(reconnect_path_for_error(&e), Some(ReconnectPath::Fresh));
     }
 
     #[test]
     fn rmcp_stdio_transport_closed_is_not_unmatched() {
-        let err = "MCP call failed: Transport closed";
-        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::Fresh));
-        assert!(!RoutingService::is_auth_error(err));
+        let e = err("MCP call failed: Transport closed");
+        assert_eq!(reconnect_path_for_error(&e), Some(ReconnectPath::Fresh));
+        assert!(!RoutingService::is_auth_error(&e.to_string()));
     }
 
     #[test]
@@ -1120,40 +1186,53 @@ mod call_failure_classify_tests {
             "connection reset by peer",
             "the transport has been closed",
         ];
-        for err in cases {
+        for msg in cases {
             assert_eq!(
-                reconnect_path_for_error(err),
+                reconnect_path_for_error(&err(msg)),
                 Some(ReconnectPath::Fresh),
-                "{err}"
+                "{msg}"
             );
         }
     }
 
     #[test]
+    fn local_no_active_client_is_fresh_by_type() {
+        let e = anyhow::Error::new(NoActiveClientError);
+        assert_eq!(reconnect_path_for_error(&e), Some(ReconnectPath::Fresh));
+    }
+
+    #[test]
+    fn backend_message_containing_no_active_client_does_not_reconnect() {
+        let e = err("MCP call failed: tool error: no active client on backend");
+        assert!(reconnect_path_for_error(&e).is_none());
+        assert!(!RoutingService::is_transport_closed_error(&e.to_string()));
+    }
+
+    #[test]
     fn auth_error_still_routes_to_oauth_reconnect() {
-        let err = "401 unauthorized: token expired";
-        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::OAuth));
+        let e = err("401 unauthorized: token expired");
+        assert_eq!(reconnect_path_for_error(&e), Some(ReconnectPath::OAuth));
         assert_eq!(failure_trigger_label(Some(ReconnectPath::OAuth)), "auth");
     }
 
     #[test]
     fn unmatched_error_does_not_retry() {
-        let err = "tool not found: no_such_tool";
-        assert!(reconnect_path_for_error(err).is_none());
+        let e = err("tool not found: no_such_tool");
+        assert!(reconnect_path_for_error(&e).is_none());
         assert_eq!(failure_trigger_label(None), "unmatched");
-        assert!(!RoutingService::is_transport_closed_error(err));
-        assert!(!RoutingService::is_auth_error(err));
+        assert!(!RoutingService::is_transport_closed_error(&e.to_string()));
+        assert!(!RoutingService::is_auth_error(&e.to_string()));
     }
 
     #[test]
     fn closed_without_transport_noun_is_unmatched() {
-        assert!(reconnect_path_for_error("file closed").is_none());
-        assert!(reconnect_path_for_error("request timeout after 60s").is_none());
+        assert!(reconnect_path_for_error(&err("file closed")).is_none());
+        assert!(reconnect_path_for_error(&err("request timeout after 60s")).is_none());
     }
 
     #[test]
     fn auth_wins_when_error_also_looks_closed() {
-        let err = "401 unauthorized: connection closed";
-        assert_eq!(reconnect_path_for_error(err), Some(ReconnectPath::OAuth));
+        let e = err("401 unauthorized: connection closed");
+        assert_eq!(reconnect_path_for_error(&e), Some(ReconnectPath::OAuth));
     }
 }

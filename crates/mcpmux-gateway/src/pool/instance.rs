@@ -4,9 +4,9 @@
 //! No sharing between spaces - this is a security boundary.
 
 use std::collections::HashMap;
-use std::time::Instant;
-
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use mcpmux_core::{DomainEvent, LogLevel, LogSource, ServerLog, ServerLogManager};
 use parking_lot::RwLock;
@@ -19,6 +19,14 @@ use uuid::Uuid;
 
 // Re-export TransportType from mcpmux-core as the single source of truth
 pub use mcpmux_core::TransportType;
+
+/// Local pool error: the instance is still registered but its MCP client is gone.
+///
+/// Distinct from backend JSON-RPC text so reconnect classification can downcast
+/// instead of matching a phrase that a remote server might echo.
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("Server instance has no active client")]
+pub struct NoActiveClientError;
 
 /// Type alias for the MCP client service
 pub type McpClient = RunningService<RoleClient, McpClientHandler>;
@@ -355,6 +363,9 @@ pub struct ServerInstance {
     pub features: RwLock<Option<DiscoveredFeatures>>,
     /// The actual MCP client connection
     client: RwLock<Option<McpClientConnection>>,
+    /// Bumped on every [`Self::mark_connected`]. Distinguishes an in-place
+    /// client replacement from a closed transport that is still stored.
+    connection_generation: AtomicU64,
 }
 
 /// The actual MCP client connection.
@@ -363,6 +374,9 @@ pub enum McpClientConnection {
     Stdio { client: McpClient },
     /// HTTP transport - streamable HTTP
     Http { client: McpClient },
+    /// Placeholder so unit tests can mark an instance healthy without a live service.
+    #[cfg(test)]
+    TestStub,
 }
 
 impl McpClientConnection {
@@ -371,6 +385,8 @@ impl McpClientConnection {
         match self {
             Self::Stdio { client } => Some(client),
             Self::Http { client } => Some(client),
+            #[cfg(test)]
+            Self::TestStub => None,
         }
     }
 }
@@ -385,6 +401,7 @@ impl ServerInstance {
             stats: RwLock::new(InstanceStats::default()),
             features: RwLock::new(None),
             client: RwLock::new(None),
+            connection_generation: AtomicU64::new(0),
         }
     }
 
@@ -393,9 +410,20 @@ impl ServerInstance {
         self.stats.read().state
     }
 
+    /// Monotonic id of the client last installed by [`Self::mark_connected`].
+    pub fn connection_generation(&self) -> u64 {
+        self.connection_generation.load(Ordering::Acquire)
+    }
+
     /// Check if connected and healthy.
     pub fn is_healthy(&self) -> bool {
         self.stats.read().state == InstanceState::Connected && self.client.read().is_some()
+    }
+
+    /// Mark connected with a test stub client (no live MCP service).
+    #[cfg(test)]
+    pub(crate) fn mark_healthy_for_test(&self) {
+        self.mark_connected(DiscoveredFeatures::default(), McpClientConnection::TestStub);
     }
 
     /// Update state to connecting.
@@ -414,7 +442,9 @@ impl ServerInstance {
         stats.last_error = None;
 
         *self.features.write() = Some(features);
-        *self.client.write() = Some(connection);
+        let mut client = self.client.write();
+        *client = Some(connection);
+        self.connection_generation.fetch_add(1, Ordering::Release);
     }
 
     /// Update state to failed.
@@ -468,6 +498,18 @@ impl ServerInstance {
     {
         let guard = self.client.read();
         guard.as_ref().and_then(|conn| conn.client().map(f))
+    }
+
+    /// Like [`Self::with_client`], but also returns the generation of the client
+    /// the closure ran against. Both are read under the same lock that
+    /// [`Self::mark_connected`] holds while installing a replacement.
+    pub fn with_client_generation<F, R>(&self, f: F) -> Option<(R, u64)>
+    where
+        F: FnOnce(&McpClient) -> R,
+    {
+        let guard = self.client.read();
+        let result = guard.as_ref().and_then(|conn| conn.client().map(f))?;
+        Some((result, self.connection_generation.load(Ordering::Acquire)))
     }
 
     /// Get the server URL from the instance key (for HTTP/SSE transports).

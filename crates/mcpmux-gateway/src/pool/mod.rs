@@ -30,7 +30,7 @@ pub use context::ConnectionContext;
 // Instance types
 pub use instance::{
     DiscoveredFeatures, InstanceKey, InstanceState, McpClient, McpClientConnection,
-    McpClientHandler, ServerInstance, TransportType,
+    McpClientHandler, NoActiveClientError, ServerInstance, TransportType,
 };
 
 // OAuth
