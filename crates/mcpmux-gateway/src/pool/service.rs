@@ -36,6 +36,11 @@ use super::transport::{ResolvedTransport, TransportType};
 /// fully bounded by the per-transport handshake timeout alone.
 const RECONNECT_INSTANCE_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// Max wait for the per-key connect lock in `connect_server` and
+/// `reconnect_fresh*`, so a stalled reconnect cannot block callers forever.
+/// Bounds the wait only; the connect itself keeps its own timeouts.
+const CONNECT_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// Check if an error string indicates an authentication/authorization failure
 fn is_auth_error(error_str: &str) -> bool {
     let lower = error_str.to_lowercase();
@@ -293,10 +298,52 @@ impl PoolService {
             .clone()
     }
 
+    /// Acquire the per-key connect lock, failing after `wait` instead of
+    /// queueing behind a stalled holder.
+    async fn acquire_connect_lock(
+        &self,
+        space_id: Uuid,
+        server_id: &str,
+        wait: Duration,
+        operation: &str,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, ConnectionResult> {
+        let connect_lock = self.connect_lock(space_id, server_id);
+        match tokio::time::timeout(wait, connect_lock.lock_owned()).await {
+            Ok(guard) => Ok(guard),
+            Err(_) => {
+                warn!(
+                    server_id = %server_id,
+                    space_id = %space_id,
+                    timeout_ms = wait.as_millis(),
+                    "{operation} timed out waiting for connect lock"
+                );
+                Err(ConnectionResult::Failed {
+                    error: format!(
+                        "{operation} timed out after {wait:?} waiting for another connect or reconnect"
+                    ),
+                })
+            }
+        }
+    }
+
     /// Connect a server for a space
     pub async fn connect_server(&self, ctx: &ConnectionContext) -> ConnectionResult {
-        let connect_lock = self.connect_lock(ctx.space_id, &ctx.server_id);
-        let _connect_guard = connect_lock.lock().await;
+        self.connect_server_with_lock_wait(ctx, CONNECT_LOCK_WAIT_TIMEOUT)
+            .await
+    }
+
+    async fn connect_server_with_lock_wait(
+        &self,
+        ctx: &ConnectionContext,
+        lock_wait: Duration,
+    ) -> ConnectionResult {
+        let _connect_guard = match self
+            .acquire_connect_lock(ctx.space_id, &ctx.server_id, lock_wait, "connect_server")
+            .await
+        {
+            Ok(guard) => guard,
+            Err(failed) => return failed,
+        };
         self.connect_server_locked(ctx).await
     }
 
@@ -570,9 +617,24 @@ impl PoolService {
         ctx: &ConnectionContext,
         expected: Option<(&Arc<ServerInstance>, u64)>,
     ) -> ConnectionResult {
+        self.reconnect_fresh_with_lock_wait(ctx, expected, CONNECT_LOCK_WAIT_TIMEOUT)
+            .await
+    }
+
+    async fn reconnect_fresh_with_lock_wait(
+        &self,
+        ctx: &ConnectionContext,
+        expected: Option<(&Arc<ServerInstance>, u64)>,
+        lock_wait: Duration,
+    ) -> ConnectionResult {
         let started = Instant::now();
-        let connect_lock = self.connect_lock(ctx.space_id, &ctx.server_id);
-        let _connect_guard = connect_lock.lock().await;
+        let _connect_guard = match self
+            .acquire_connect_lock(ctx.space_id, &ctx.server_id, lock_wait, "reconnect_fresh")
+            .await
+        {
+            Ok(guard) => guard,
+            Err(failed) => return failed,
+        };
 
         if let Some((expected, expected_generation)) = expected {
             if let Some(current) = self.get_instance(ctx.space_id, &ctx.server_id) {
@@ -1360,6 +1422,64 @@ mod tests {
 
         assert!(!result.is_connected());
         assert!(pool.get_instance(space_id, server_id).is_none());
+    }
+
+    fn stdio_test_ctx(space_id: Uuid, server_id: &str) -> ConnectionContext {
+        use super::super::transport::ResolvedTransport;
+        use std::collections::HashMap;
+
+        ConnectionContext::auto(
+            space_id,
+            server_id,
+            ResolvedTransport::Stdio {
+                command: "/nonexistent/mcpmux-lock-wait-test".into(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn connect_server_fails_when_connect_lock_held_by_stalled_reconnect() {
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        let server_id = "stalled-connect";
+        let _stalled = pool.connect_lock(space_id, server_id).lock_owned().await;
+
+        let ctx = stdio_test_ctx(space_id, server_id);
+        let result = pool
+            .connect_server_with_lock_wait(&ctx, Duration::from_secs(5))
+            .await;
+
+        match result {
+            ConnectionResult::Failed { error } => {
+                assert!(error.contains("timed out"), "unexpected error: {error}");
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconnect_fresh_fails_when_connect_lock_held_by_stalled_reconnect() {
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        let server_id = "stalled-fresh";
+        pool.insert_test_instance(space_id, server_id);
+        let _stalled = pool.connect_lock(space_id, server_id).lock_owned().await;
+
+        let ctx = stdio_test_ctx(space_id, server_id);
+        let result = pool
+            .reconnect_fresh_with_lock_wait(&ctx, None, Duration::from_secs(5))
+            .await;
+
+        match result {
+            ConnectionResult::Failed { error } => {
+                assert!(error.contains("timed out"), "unexpected error: {error}");
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        // Timed-out caller must not have evicted the instance.
+        assert!(pool.get_instance(space_id, server_id).is_some());
     }
 
     #[tokio::test]
