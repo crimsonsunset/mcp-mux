@@ -1,7 +1,10 @@
 import type { TFunction } from 'i18next';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
-import type { InstalledServerState, ServerDefinition } from '@/types/registry';
-import { resolveInstalledDisplayName } from '@/features/servers/server-display-name.helpers';
+import type { InstalledServerState } from '@/types/registry';
+import {
+  parseCachedDefinition,
+  resolveInstalledDisplayName,
+} from '@/features/servers/server-display-name.helpers';
 import i18n from '@/i18n';
 
 /** Aggregated counts shown in the dashboard stat cards. */
@@ -44,19 +47,15 @@ function dashboardT(): TFunction<'dashboard'> {
  * Whether an installed server is missing values for required transport inputs.
  */
 export function hasMissingRequiredInputs(state: InstalledServerState): boolean {
-  if (!state.cached_definition) {
+  const definition = parseCachedDefinition(state);
+  if (!definition) {
     return false;
   }
 
-  try {
-    const definition = JSON.parse(state.cached_definition) as ServerDefinition;
-    const inputs = definition.transport.metadata?.inputs ?? [];
-    const values = state.input_values ?? {};
+  const inputs = definition.transport.metadata?.inputs ?? [];
+  const values = state.input_values ?? {};
 
-    return inputs.some((input) => input.required && !values[input.id]);
-  } catch {
-    return false;
-  }
+  return inputs.some((input) => input.required && !values[input.id]);
 }
 
 /**

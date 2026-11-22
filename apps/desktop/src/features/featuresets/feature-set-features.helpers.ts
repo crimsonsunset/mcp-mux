@@ -1,6 +1,9 @@
 import type { FeatureType, ServerFeature } from '@/lib/api/serverFeatures';
-import { resolveInstalledDisplayName } from '@/features/servers/server-display-name.helpers';
-import type { InstalledServerState, ServerDefinition } from '@/types/registry';
+import {
+  parseCachedDefinition,
+  resolveInstalledDisplayName,
+} from '@/features/servers/server-display-name.helpers';
+import type { InstalledServerState } from '@/types/registry';
 
 /** Most rows auto-expansion will render for a search before it falls back to collapsed groups. */
 export const AUTO_EXPAND_ROW_CAP = 150;
@@ -26,20 +29,6 @@ const FEATURE_TYPE_ORDER: Record<FeatureType, number> = { tool: 0, prompt: 1, re
  */
 export function getFeatureLabel(feature: ServerFeature): string {
   return feature.display_name?.trim() || feature.feature_name;
-}
-
-/**
- * Parse the definition cached on an installed server, or null when absent or malformed.
- */
-function parseCachedDefinition(state: InstalledServerState): ServerDefinition | null {
-  if (!state.cached_definition) {
-    return null;
-  }
-  try {
-    return JSON.parse(state.cached_definition) as ServerDefinition;
-  } catch {
-    return null;
-  }
 }
 
 /**
