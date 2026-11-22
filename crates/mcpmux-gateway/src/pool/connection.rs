@@ -597,7 +597,7 @@ impl ConnectionService {
                     features,
                 }
             }
-            TransportConnectResult::OAuthRequired { .. } => {
+            TransportConnectResult::OAuthRequired { token_rejected, .. } => {
                 // This shouldn't happen after successful OAuth
                 instance.mark_oauth_pending();
                 warn!(
@@ -605,7 +605,7 @@ impl ConnectionService {
                 );
                 ConnectionResult::OAuthRequired {
                     auth_url: String::new(),
-                    token_rejected: true,
+                    token_rejected,
                 }
             }
             TransportConnectResult::Failed(error) => {

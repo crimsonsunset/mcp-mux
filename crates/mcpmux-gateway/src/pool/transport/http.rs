@@ -11,8 +11,10 @@ use async_trait::async_trait;
 use mcpmux_core::{
     CredentialRepository, LogLevel, LogSource, OutboundOAuthRepository, ServerLog, ServerLogManager,
 };
-use rmcp::transport::auth::{AuthClient, AuthorizationManager};
+use rmcp::service::ClientInitializeError;
+use rmcp::transport::auth::{AuthClient, AuthError, AuthorizationManager};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::transport::streamable_http_client::StreamableHttpError;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
 use tracing::{debug, error, info, warn};
@@ -129,12 +131,26 @@ impl HttpTransport {
         format!("access_token_expires_at={expires_at}, has_refresh_token={has_refresh_token}")
     }
 
-    /// Whether the error is a definite rejection of the stored token (not a transient failure).
-    fn is_token_rejection(error_str: &str) -> bool {
-        let error_lower = error_str.to_lowercase();
-        ["401", "unauthorized", "invalid_token", "invalid_grant"]
-            .iter()
-            .any(|s| error_lower.contains(s))
+    /// Whether the connect error is a typed authentication rejection (HTTP 401 challenge or a
+    /// failed token refresh), never inferred from message text so transient failures can't match.
+    fn is_token_rejection(error: &ClientInitializeError) -> bool {
+        let ClientInitializeError::TransportError { error, .. } = error else {
+            return false;
+        };
+        let Some(http_error) = error
+            .error
+            .downcast_ref::<StreamableHttpError<reqwest::Error>>()
+        else {
+            return false;
+        };
+        match http_error {
+            StreamableHttpError::AuthRequired(_) => true,
+            StreamableHttpError::Auth(AuthError::AuthorizationRequired) => true,
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed(reason)) => {
+                reason.to_lowercase().contains("invalid_grant")
+            }
+            _ => false,
+        }
     }
 
     /// Drop a cached DCR client when the AS says it no longer exists.
@@ -351,7 +367,7 @@ impl HttpTransport {
                     self.drop_stale_dcr_if_needed(&err_str).await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
-                        token_rejected: Self::is_token_rejection(&err_str),
+                        token_rejected: Self::is_token_rejection(&e),
                     }
                 } else {
                     let err = format!("HTTP auth connection failed: {}", e);
@@ -477,7 +493,7 @@ impl HttpTransport {
                     self.drop_stale_dcr_if_needed(&err_str).await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
-                        token_rejected: Self::is_token_rejection(&err_str),
+                        token_rejected: Self::is_token_rejection(&e),
                     }
                 } else {
                     let err = format!("HTTP connection with manual token failed: {}", e);
@@ -715,15 +731,40 @@ mod tests {
     use super::*;
     use mcpmux_core::{Credential, CredentialType, OutboundOAuthRegistration};
 
+    fn transport_error(error: StreamableHttpError<reqwest::Error>) -> ClientInitializeError {
+        ClientInitializeError::TransportError {
+            error: rmcp::transport::DynamicTransportError::from_parts(
+                "test",
+                std::any::TypeId::of::<()>(),
+                Box::new(error),
+            ),
+            context: "test".into(),
+        }
+    }
+
     #[test]
-    fn token_rejection_ignores_transient_errors() {
-        assert!(HttpTransport::is_token_rejection("HTTP 401 Unauthorized"));
-        assert!(HttpTransport::is_token_rejection("error: invalid_grant"));
+    fn token_rejection_only_from_typed_auth_errors() {
+        use rmcp::transport::streamable_http_client::AuthRequiredError;
+
+        let rejected = [
+            StreamableHttpError::AuthRequired(AuthRequiredError::new("Bearer".to_string())),
+            StreamableHttpError::Auth(AuthError::AuthorizationRequired),
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed("invalid_grant".into())),
+        ];
+        for error in rejected {
+            assert!(HttpTransport::is_token_rejection(&transport_error(error)));
+        }
+
+        let transient = [
+            StreamableHttpError::TransportChannelClosed,
+            StreamableHttpError::UnexpectedServerResponse("http://h:4010/mcp".into()),
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed("connection reset".into())),
+        ];
+        for error in transient {
+            assert!(!HttpTransport::is_token_rejection(&transport_error(error)));
+        }
         assert!(!HttpTransport::is_token_rejection(
-            "transport channel closed"
-        ));
-        assert!(!HttpTransport::is_token_rejection(
-            "connection reset by peer"
+            &ClientInitializeError::ConnectionClosed("401".into())
         ));
     }
 
