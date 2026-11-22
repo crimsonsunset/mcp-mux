@@ -38,7 +38,7 @@ pub(super) fn is_definitive_refresh_rejection(reason: &str) -> bool {
     let Some(detail) = reason.strip_prefix(SERVER_RESPONSE_PREFIX) else {
         return false;
     };
-    let code = detail.split(':').next().unwrap_or_default().trim();
+    let code = detail.split([':', ' ']).next().unwrap_or_default().trim();
     REJECTED_OAUTH_ERRORS.contains(&code)
 }
 
@@ -176,6 +176,8 @@ mod tests {
         for reason in [
             "Server returned error response: invalid_grant: expired",
             "Server returned error response: invalid_client",
+            "Server returned error response: invalid_grant (see https://example.com/help)",
+            "Server returned error response: invalid_grant: expired (see https://example.com/help)",
             "No refresh token available",
         ] {
             assert!(is_definitive_refresh_rejection(reason), "{reason}");
@@ -184,6 +186,7 @@ mod tests {
             "Request failed",
             "Failed to parse server response",
             "Server returned error response: temporarily_unavailable",
+            "Server returned error response: temporarily_unavailable (see https://example.com/help)",
             "Other error: invalid_grant",
         ] {
             assert!(!is_definitive_refresh_rejection(reason), "{reason}");
