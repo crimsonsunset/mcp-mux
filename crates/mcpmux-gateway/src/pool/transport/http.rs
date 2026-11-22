@@ -101,6 +101,14 @@ impl HttpTransport {
         oauth_indicators.iter().any(|s| error_lower.contains(s))
     }
 
+    /// Whether the error is a definite rejection of the stored token (not a transient failure).
+    fn is_token_rejection(error_str: &str) -> bool {
+        let error_lower = error_str.to_lowercase();
+        ["401", "unauthorized", "invalid_token", "invalid_grant"]
+            .iter()
+            .any(|s| error_lower.contains(s))
+    }
+
     /// Drop a cached DCR client when the AS says it no longer exists.
     async fn drop_stale_dcr_if_needed(&self, error_str: &str) {
         if oauth_utils::is_stale_oauth_client_error(error_str) {
@@ -227,6 +235,7 @@ impl HttpTransport {
                 .await;
                 return TransportConnectResult::OAuthRequired {
                     server_url: self.url.clone(),
+                    token_rejected: false,
                 };
             }
             Err(e) => {
@@ -309,6 +318,7 @@ impl HttpTransport {
                     self.drop_stale_dcr_if_needed(&err_str).await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
+                        token_rejected: Self::is_token_rejection(&err_str),
                     }
                 } else {
                     let err = format!("HTTP auth connection failed: {}", e);
@@ -358,6 +368,7 @@ impl HttpTransport {
                 debug!(server_id = %self.server_id, "No stored token for manual injection");
                 return TransportConnectResult::OAuthRequired {
                     server_url: self.url.clone(),
+                    token_rejected: false,
                 };
             }
             Err(e) => {
@@ -433,6 +444,7 @@ impl HttpTransport {
                     self.drop_stale_dcr_if_needed(&err_str).await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
+                        token_rejected: Self::is_token_rejection(&err_str),
                     }
                 } else {
                     let err = format!("HTTP connection with manual token failed: {}", e);
@@ -557,6 +569,7 @@ impl HttpTransport {
                     .await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
+                        token_rejected: false,
                     }
                 } else {
                     let err = format!("HTTP connection failed: {}", e);
@@ -668,6 +681,18 @@ impl Transport for HttpTransport {
 mod tests {
     use super::*;
     use mcpmux_core::{Credential, CredentialType, OutboundOAuthRegistration};
+
+    #[test]
+    fn token_rejection_ignores_transient_errors() {
+        assert!(HttpTransport::is_token_rejection("HTTP 401 Unauthorized"));
+        assert!(HttpTransport::is_token_rejection("error: invalid_grant"));
+        assert!(!HttpTransport::is_token_rejection(
+            "transport channel closed"
+        ));
+        assert!(!HttpTransport::is_token_rejection(
+            "connection reset by peer"
+        ));
+    }
 
     // ── Mock repos (minimal, sufficient for HttpTransport unit tests) ──
 

@@ -281,8 +281,21 @@ impl StartupOrchestrator {
                     Ok(ConnectOutcome::Connected)
                 }
             }
-            ConnectionResult::OAuthRequired { .. } => {
-                // Explicitly set status to AuthRequired
+            ConnectionResult::OAuthRequired { token_rejected, .. } => {
+                if token_rejected {
+                    warn!(
+                        "[Startup] Token rejected for {}/{} - clearing oauth_connected",
+                        server.space_id, server.server_id
+                    );
+                    if let Err(error) = self
+                        .dependencies
+                        .installed_server_repo
+                        .set_oauth_connected(&server.id, false)
+                        .await
+                    {
+                        warn!("[Startup] Failed to clear oauth_connected: {error}");
+                    }
+                }
                 self.server_manager.set_auth_required(&key, None).await;
                 Ok(ConnectOutcome::NeedsOAuth)
             }

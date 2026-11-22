@@ -40,6 +40,8 @@ pub enum ConnectionResult {
     OAuthRequired {
         /// Authorization URL to open in browser
         auth_url: String,
+        /// True when the server definitively rejected the stored token (not a transient failure)
+        token_rejected: bool,
     },
     /// Connection failed
     Failed {
@@ -267,7 +269,10 @@ impl ConnectionService {
                     features,
                 }
             }
-            TransportConnectResult::OAuthRequired { server_url } => {
+            TransportConnectResult::OAuthRequired {
+                server_url,
+                token_rejected,
+            } => {
                 // Log OAuth requirement to server log
                 self.log_connection_event(
                     &space_id,
@@ -278,8 +283,14 @@ impl ConnectionService {
                 )
                 .await;
 
-                self.handle_oauth_required(space_id, server_id, &server_url, auto_reconnect)
-                    .await
+                self.handle_oauth_required(
+                    space_id,
+                    server_id,
+                    &server_url,
+                    auto_reconnect,
+                    token_rejected,
+                )
+                .await
             }
             TransportConnectResult::Failed(error) => {
                 // Log connection failure to server log
@@ -412,10 +423,19 @@ impl ConnectionService {
                     features,
                 }
             }
-            TransportConnectResult::OAuthRequired { server_url } => {
+            TransportConnectResult::OAuthRequired {
+                server_url,
+                token_rejected,
+            } => {
                 instance.mark_oauth_pending();
-                self.handle_oauth_required(space_id, server_id, &server_url, auto_reconnect)
-                    .await
+                self.handle_oauth_required(
+                    space_id,
+                    server_id,
+                    &server_url,
+                    auto_reconnect,
+                    token_rejected,
+                )
+                .await
             }
             TransportConnectResult::Failed(error) => {
                 instance.mark_failed(error.clone());
@@ -585,6 +605,7 @@ impl ConnectionService {
                 );
                 ConnectionResult::OAuthRequired {
                     auth_url: String::new(),
+                    token_rejected: true,
                 }
             }
             TransportConnectResult::Failed(error) => {
@@ -601,6 +622,7 @@ impl ConnectionService {
         server_id: &str,
         server_url: &str,
         auto_reconnect: bool,
+        token_rejected: bool,
     ) -> ConnectionResult {
         if auto_reconnect {
             // Auto-reconnect: just return OAuthRequired without starting flow or opening browser
@@ -612,6 +634,7 @@ impl ConnectionService {
             // Return OAuthRequired with empty auth_url - this won't be used
             return ConnectionResult::OAuthRequired {
                 auth_url: String::new(),
+                token_rejected,
             };
         }
 
@@ -645,7 +668,10 @@ impl ConnectionService {
                 )
                 .await;
 
-                ConnectionResult::OAuthRequired { auth_url }
+                ConnectionResult::OAuthRequired {
+                    auth_url,
+                    token_rejected,
+                }
             }
             Ok(OAuthInitResult::AlreadyAuthorized) => {
                 // This shouldn't happen if we got here, but handle it
