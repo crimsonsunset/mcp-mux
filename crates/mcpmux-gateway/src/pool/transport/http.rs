@@ -11,13 +11,16 @@ use async_trait::async_trait;
 use mcpmux_core::{
     CredentialRepository, LogLevel, LogSource, OutboundOAuthRepository, ServerLog, ServerLogManager,
 };
-use rmcp::transport::auth::{AuthClient, AuthorizationManager};
+use rmcp::service::ClientInitializeError;
+use rmcp::transport::auth::{AuthClient, AuthError, AuthorizationManager};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::transport::streamable_http_client::StreamableHttpError;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use super::auth_client::{is_definitive_refresh_rejection, RejectionAwareClient};
 use super::TransportType;
 use super::{create_client_handler, Transport, TransportConnectResult};
 use crate::pool::credential_store::DatabaseCredentialStore;
@@ -99,6 +102,57 @@ impl HttpTransport {
             "invalid_client",
         ];
         oauth_indicators.iter().any(|s| error_lower.contains(s))
+    }
+
+    /// One-line summary of the stored tokens (no secrets), to diagnose refresh failures.
+    async fn describe_stored_tokens(&self) -> String {
+        let access = self
+            .credential_repo
+            .get(
+                &self.space_id,
+                &self.server_id,
+                &mcpmux_core::CredentialType::AccessToken,
+            )
+            .await
+            .ok()
+            .flatten();
+        let has_refresh_token = matches!(
+            self.credential_repo
+                .get(
+                    &self.space_id,
+                    &self.server_id,
+                    &mcpmux_core::CredentialType::RefreshToken
+                )
+                .await,
+            Ok(Some(_))
+        );
+        let expires_at = access
+            .and_then(|cred| cred.expires_at)
+            .map_or_else(|| "unknown".to_string(), |exp| exp.to_rfc3339());
+        format!("access_token_expires_at={expires_at}, has_refresh_token={has_refresh_token}")
+    }
+
+    /// Whether the connect error is a definitive authentication rejection: an HTTP 401 (see
+    /// `RejectionAwareClient`), missing credentials, or a refresh the AS refused. Transient
+    /// refresh failures (network, 5xx) are not rejections.
+    fn is_token_rejection(error: &ClientInitializeError) -> bool {
+        let ClientInitializeError::TransportError { error, .. } = error else {
+            return false;
+        };
+        let Some(http_error) = error
+            .error
+            .downcast_ref::<StreamableHttpError<reqwest::Error>>()
+        else {
+            return false;
+        };
+        match http_error {
+            StreamableHttpError::AuthRequired(_) => true,
+            StreamableHttpError::Auth(AuthError::AuthorizationRequired) => true,
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed(reason)) => {
+                is_definitive_refresh_rejection(reason)
+            }
+            _ => false,
+        }
     }
 
     /// Drop a cached DCR client when the AS says it no longer exists.
@@ -227,6 +281,7 @@ impl HttpTransport {
                 .await;
                 return TransportConnectResult::OAuthRequired {
                     server_url: self.url.clone(),
+                    token_rejected: false,
                 };
             }
             Err(e) => {
@@ -267,7 +322,7 @@ impl HttpTransport {
             Ok(c) => c,
             Err(err) => return TransportConnectResult::Failed(err),
         };
-        let auth_client = AuthClient::new(base_client, auth_manager);
+        let auth_client = RejectionAwareClient::new(AuthClient::new(base_client, auth_manager));
         let transport_config = StreamableHttpClientTransportConfig::with_uri(self.url.as_str());
         let transport = StreamableHttpClientTransport::with_client(auth_client, transport_config);
 
@@ -296,19 +351,25 @@ impl HttpTransport {
             Ok(Err(e)) => {
                 let err_str = format!("{:#}", e);
                 if Self::requires_oauth(&err_str) {
-                    info!(
+                    let token_state = self.describe_stored_tokens().await;
+                    warn!(
                         server_id = %self.server_id,
+                        error = %err_str,
+                        token_state = %token_state,
                         "OAuth authentication required or token invalid"
                     );
                     self.log(
                         LogLevel::Warn,
                         LogSource::OAuth,
-                        "Token invalid/expired, re-authentication required".to_string(),
+                        format!(
+                            "Token invalid/expired, re-authentication required ({token_state}): {err_str}"
+                        ),
                     )
                     .await;
                     self.drop_stale_dcr_if_needed(&err_str).await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
+                        token_rejected: Self::is_token_rejection(&e),
                     }
                 } else {
                     let err = format!("HTTP auth connection failed: {}", e);
@@ -358,6 +419,7 @@ impl HttpTransport {
                 debug!(server_id = %self.server_id, "No stored token for manual injection");
                 return TransportConnectResult::OAuthRequired {
                     server_url: self.url.clone(),
+                    token_rejected: false,
                 };
             }
             Err(e) => {
@@ -433,6 +495,7 @@ impl HttpTransport {
                     self.drop_stale_dcr_if_needed(&err_str).await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
+                        token_rejected: Self::is_token_rejection(&e),
                     }
                 } else {
                     let err = format!("HTTP connection with manual token failed: {}", e);
@@ -557,6 +620,7 @@ impl HttpTransport {
                     .await;
                     TransportConnectResult::OAuthRequired {
                         server_url: self.url.clone(),
+                        token_rejected: false,
                     }
                 } else {
                     let err = format!("HTTP connection failed: {}", e);
@@ -668,6 +732,45 @@ impl Transport for HttpTransport {
 mod tests {
     use super::*;
     use mcpmux_core::{Credential, CredentialType, OutboundOAuthRegistration};
+
+    fn transport_error(error: StreamableHttpError<reqwest::Error>) -> ClientInitializeError {
+        ClientInitializeError::TransportError {
+            error: rmcp::transport::DynamicTransportError::from_parts(
+                "test",
+                std::any::TypeId::of::<()>(),
+                Box::new(error),
+            ),
+            context: "test".into(),
+        }
+    }
+
+    #[test]
+    fn token_rejection_only_from_typed_auth_errors() {
+        use rmcp::transport::streamable_http_client::AuthRequiredError;
+
+        let rejected = [
+            StreamableHttpError::AuthRequired(AuthRequiredError::new("Bearer".to_string())),
+            StreamableHttpError::Auth(AuthError::AuthorizationRequired),
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed(
+                "Server returned error response: invalid_grant".into(),
+            )),
+        ];
+        for error in rejected {
+            assert!(HttpTransport::is_token_rejection(&transport_error(error)));
+        }
+
+        let transient = [
+            StreamableHttpError::TransportChannelClosed,
+            StreamableHttpError::UnexpectedServerResponse("http://h:4010/mcp".into()),
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed("connection reset".into())),
+        ];
+        for error in transient {
+            assert!(!HttpTransport::is_token_rejection(&transport_error(error)));
+        }
+        assert!(!HttpTransport::is_token_rejection(
+            &ClientInitializeError::ConnectionClosed("401".into())
+        ));
+    }
 
     // ── Mock repos (minimal, sufficient for HttpTransport unit tests) ──
 

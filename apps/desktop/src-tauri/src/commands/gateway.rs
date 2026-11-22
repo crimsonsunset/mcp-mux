@@ -1954,7 +1954,7 @@ pub async fn connect_all_enabled_servers(
                     features.total_count()
                 );
             }
-            ConnectionResult::OAuthRequired { auth_url: _ } => {
+            ConnectionResult::OAuthRequired { auth_url: _, .. } => {
                 result.oauth_required += 1;
             }
             ConnectionResult::Failed { error } => {

@@ -4,6 +4,7 @@
 //! This follows the Open/Closed Principle - new transports can be added without
 //! modifying existing code.
 
+mod auth_client;
 mod http;
 pub mod resolution;
 pub mod shell_env;
@@ -28,8 +29,12 @@ use super::instance::{McpClient, McpClientHandler};
 pub enum TransportConnectResult {
     /// Successfully connected
     Connected(McpClient),
-    /// OAuth required - returns server URL for OAuth flow
-    OAuthRequired { server_url: String },
+    /// OAuth required - returns server URL for OAuth flow.
+    /// `token_rejected` is true only when the server definitively rejected a stored token.
+    OAuthRequired {
+        server_url: String,
+        token_rejected: bool,
+    },
     /// Connection failed
     Failed(String),
 }

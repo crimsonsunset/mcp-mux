@@ -434,7 +434,7 @@ pub async fn start_auth_v2(
             manager.set_connected(&key, features).await;
             Ok(())
         }
-        ConnectionResult::OAuthRequired { auth_url } => {
+        ConnectionResult::OAuthRequired { auth_url, .. } => {
             manager.set_authenticating(&key, auth_url.clone()).await;
             manager.open_browser(&auth_url);
             Ok(())
