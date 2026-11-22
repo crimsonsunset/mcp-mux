@@ -15,7 +15,7 @@ use rmcp::transport::auth::{AuthClient, AuthorizationManager};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::TransportType;
@@ -99,6 +99,34 @@ impl HttpTransport {
             "invalid_client",
         ];
         oauth_indicators.iter().any(|s| error_lower.contains(s))
+    }
+
+    /// One-line summary of the stored tokens (no secrets), to diagnose refresh failures.
+    async fn describe_stored_tokens(&self) -> String {
+        let access = self
+            .credential_repo
+            .get(
+                &self.space_id,
+                &self.server_id,
+                &mcpmux_core::CredentialType::AccessToken,
+            )
+            .await
+            .ok()
+            .flatten();
+        let has_refresh_token = matches!(
+            self.credential_repo
+                .get(
+                    &self.space_id,
+                    &self.server_id,
+                    &mcpmux_core::CredentialType::RefreshToken
+                )
+                .await,
+            Ok(Some(_))
+        );
+        let expires_at = access
+            .and_then(|cred| cred.expires_at)
+            .map_or_else(|| "unknown".to_string(), |exp| exp.to_rfc3339());
+        format!("access_token_expires_at={expires_at}, has_refresh_token={has_refresh_token}")
     }
 
     /// Whether the error is a definite rejection of the stored token (not a transient failure).
@@ -305,14 +333,19 @@ impl HttpTransport {
             Ok(Err(e)) => {
                 let err_str = format!("{:#}", e);
                 if Self::requires_oauth(&err_str) {
-                    info!(
+                    let token_state = self.describe_stored_tokens().await;
+                    warn!(
                         server_id = %self.server_id,
+                        error = %err_str,
+                        token_state = %token_state,
                         "OAuth authentication required or token invalid"
                     );
                     self.log(
                         LogLevel::Warn,
                         LogSource::OAuth,
-                        "Token invalid/expired, re-authentication required".to_string(),
+                        format!(
+                            "Token invalid/expired, re-authentication required ({token_state}): {err_str}"
+                        ),
                     )
                     .await;
                     self.drop_stale_dcr_if_needed(&err_str).await;
