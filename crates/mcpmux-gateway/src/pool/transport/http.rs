@@ -20,6 +20,7 @@ use rmcp::ServiceExt;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use super::auth_client::{is_definitive_refresh_rejection, RejectionAwareClient};
 use super::TransportType;
 use super::{create_client_handler, Transport, TransportConnectResult};
 use crate::pool::credential_store::DatabaseCredentialStore;
@@ -131,8 +132,9 @@ impl HttpTransport {
         format!("access_token_expires_at={expires_at}, has_refresh_token={has_refresh_token}")
     }
 
-    /// Whether the connect error is a typed authentication rejection (HTTP 401 challenge or a
-    /// failed token refresh), never inferred from message text so transient failures can't match.
+    /// Whether the connect error is a definitive authentication rejection: an HTTP 401 (see
+    /// `RejectionAwareClient`), missing credentials, or a refresh the AS refused. Transient
+    /// refresh failures (network, 5xx) are not rejections.
     fn is_token_rejection(error: &ClientInitializeError) -> bool {
         let ClientInitializeError::TransportError { error, .. } = error else {
             return false;
@@ -147,7 +149,7 @@ impl HttpTransport {
             StreamableHttpError::AuthRequired(_) => true,
             StreamableHttpError::Auth(AuthError::AuthorizationRequired) => true,
             StreamableHttpError::Auth(AuthError::TokenRefreshFailed(reason)) => {
-                reason.to_lowercase().contains("invalid_grant")
+                is_definitive_refresh_rejection(reason)
             }
             _ => false,
         }
@@ -320,7 +322,7 @@ impl HttpTransport {
             Ok(c) => c,
             Err(err) => return TransportConnectResult::Failed(err),
         };
-        let auth_client = AuthClient::new(base_client, auth_manager);
+        let auth_client = RejectionAwareClient::new(AuthClient::new(base_client, auth_manager));
         let transport_config = StreamableHttpClientTransportConfig::with_uri(self.url.as_str());
         let transport = StreamableHttpClientTransport::with_client(auth_client, transport_config);
 
@@ -749,7 +751,9 @@ mod tests {
         let rejected = [
             StreamableHttpError::AuthRequired(AuthRequiredError::new("Bearer".to_string())),
             StreamableHttpError::Auth(AuthError::AuthorizationRequired),
-            StreamableHttpError::Auth(AuthError::TokenRefreshFailed("invalid_grant".into())),
+            StreamableHttpError::Auth(AuthError::TokenRefreshFailed(
+                "Server returned error response: invalid_grant".into(),
+            )),
         ];
         for error in rejected {
             assert!(HttpTransport::is_token_rejection(&transport_error(error)));

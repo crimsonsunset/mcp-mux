@@ -4,6 +4,7 @@
 //! This follows the Open/Closed Principle - new transports can be added without
 //! modifying existing code.
 
+mod auth_client;
 mod http;
 pub mod resolution;
 pub mod shell_env;
