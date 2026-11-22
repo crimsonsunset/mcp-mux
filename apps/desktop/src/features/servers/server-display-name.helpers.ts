@@ -30,3 +30,19 @@ export function resolveInstalledDisplayName(
   const tail = state.server_id.split('/').pop();
   return tail && tail.length > 0 ? tail : state.server_id;
 }
+
+/**
+ * Parse the definition cached on an installed server, or null when absent or malformed.
+ */
+export function parseCachedDefinition(state: {
+  cached_definition?: string | null;
+}): ServerDefinition | null {
+  if (!state.cached_definition) {
+    return null;
+  }
+  try {
+    return JSON.parse(state.cached_definition) as ServerDefinition;
+  } catch {
+    return null;
+  }
+}

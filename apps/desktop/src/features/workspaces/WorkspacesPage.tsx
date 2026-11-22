@@ -10,6 +10,12 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  parseCachedDefinition,
+  resolveInstalledDisplayName,
+} from '@/features/servers/server-display-name.helpers';
+import { listInstalledServers } from '@/lib/api/registry';
+import type { InstalledServerState } from '@/types/registry';
 import type { TFunction } from 'i18next';
 import {
   useServerStatusEvents,
@@ -1396,6 +1402,8 @@ export const CollapsibleSection = forwardRef<
 interface ServerGroup {
   server_id: string;
   server_alias: string;
+  /** Real server display name; `server_alias` stays as the muted raw identifier. */
+  label: string;
   server_status: EffectiveFeature['server_status'];
   available: boolean;
   tools: EffectiveFeature[];
@@ -1409,7 +1417,11 @@ interface ServerGroup {
   unavailable_mapped: number;
 }
 
-function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
+function buildServerGroups(
+  data: WorkspaceEffectiveFeatures,
+  installed: InstalledServerState[]
+): ServerGroup[] {
+  const installedById = new Map(installed.map((state) => [state.server_id, state]));
   const map = new Map<string, ServerGroup>();
   const place = (item: EffectiveFeature, kind: 'tool' | 'prompt' | 'resource') => {
     let g = map.get(item.server_id);
@@ -1421,6 +1433,7 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
       g = {
         server_id: item.server_id,
         server_alias: item.server_alias ?? item.server_id,
+        label: resolveServerLabel(item, installedById.get(item.server_id)),
         // Per-feature status is the same across a server (status comes
         // from the server, not the feature) — pick the first one we see.
         server_status: item.server_status,
@@ -1446,8 +1459,27 @@ function buildServerGroups(data: WorkspaceEffectiveFeatures): ServerGroup[] {
   // Sort: connected first, then by alias.
   return Array.from(map.values()).sort((a, b) => {
     if (a.available !== b.available) return a.available ? -1 : 1;
-    return a.server_alias.localeCompare(b.server_alias);
+    return a.label.localeCompare(b.label);
   });
+}
+
+/**
+ * Real server display name for an effective-feature row, falling back to its alias or id.
+ */
+function resolveServerLabel(item: EffectiveFeature, state?: InstalledServerState): string {
+  if (!state) {
+    return item.server_alias ?? item.server_id;
+  }
+  return resolveInstalledDisplayName(state, parseCachedDefinition(state));
+}
+
+/**
+ * Fetch the effective features plus the resolved Space's installed servers (for display names).
+ */
+async function loadEffectiveFeatures(root: string, machineId?: string | null) {
+  const features = await getWorkspaceEffectiveFeatures(root, machineId);
+  const installed = await listInstalledServers(features.space_id).catch(() => []);
+  return { features, installed };
 }
 
 /**
@@ -1470,6 +1502,7 @@ export function EffectiveFeaturesContent({
   t: TFunction<['workspaces', 'common']>;
 }) {
   const [data, setData] = useState<WorkspaceEffectiveFeatures | null>(null);
+  const [installed, setInstalled] = useState<InstalledServerState[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [openServers, setOpenServers] = useState<Set<string>>(() => new Set());
@@ -1484,13 +1517,14 @@ export function EffectiveFeaturesContent({
     setError(null);
     onTotalChange?.(null);
     /* eslint-enable react-hooks/set-state-in-effect */
-    void getWorkspaceEffectiveFeatures(root, machineId)
-      .then((d) => {
+    void loadEffectiveFeatures(root, machineId)
+      .then(({ features: d, installed: installedServers }) => {
         if (cancelled) return;
         setData(d);
+        setInstalled(installedServers);
         const total = d.tools.length + d.prompts.length + d.resources.length;
         onTotalChange?.(total);
-        const groups = buildServerGroups(d);
+        const groups = buildServerGroups(d, installedServers);
         if (groups.length > 0) {
           setOpenServers(new Set([groups[0].server_id]));
         }
@@ -1507,9 +1541,10 @@ export function EffectiveFeaturesContent({
   }, [root, machineId, onTotalChange]);
 
   const reloadEffectiveFeatures = useCallback(() => {
-    void getWorkspaceEffectiveFeatures(root, machineId)
-      .then((d) => {
+    void loadEffectiveFeatures(root, machineId)
+      .then(({ features: d, installed: installedServers }) => {
         setData(d);
+        setInstalled(installedServers);
         onTotalChange?.(d.tools.length + d.prompts.length + d.resources.length);
       })
       .catch(() => {
@@ -1528,7 +1563,7 @@ export function EffectiveFeaturesContent({
 
   // All hooks must run on every render — keep them above any early
   // returns so React's hook-order invariant holds.
-  const groups = useMemo(() => (data ? buildServerGroups(data) : []), [data]);
+  const groups = useMemo(() => (data ? buildServerGroups(data, installed) : []), [data, installed]);
   const totalCount = data ? data.tools.length + data.prompts.length + data.resources.length : 0;
   const availableCount = useMemo(
     () => groups.reduce((acc, g) => acc + (g.mapped - g.unavailable_mapped), 0),
@@ -1693,15 +1728,6 @@ function ServerGroupRow({
   const allAvailable = group.mapped > 0 && availableCount === group.mapped;
   const noneAvailable = availableCount === 0;
 
-  // Strip reverse-DNS prefix so display reads "cloudflare-bindings" not
-  // "com.cloudflare-bindings". The full id stays in title for hover.
-  const prefix = group.server_alias.includes('.')
-    ? group.server_alias.split('.', 2)[0]
-    : null;
-  const displayName = prefix
-    ? group.server_alias.slice(prefix.length + 1)
-    : group.server_alias;
-
   return (
     <div className="bg-[rgb(var(--surface))]">
       <div
@@ -1719,13 +1745,9 @@ function ServerGroupRow({
           <ServerGlyph className="h-4 w-4 text-blue-500 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              {prefix && (
-                <span className="text-[10px] text-[rgb(var(--muted))] font-mono">
-                  {prefix}.
-                </span>
-              )}
-              <span className="font-medium text-sm truncate font-mono">
-                {displayName}
+              <span className="font-medium text-sm truncate">{group.label}</span>
+              <span className="text-[10px] text-[rgb(var(--muted))] font-mono truncate">
+                {group.server_alias}
               </span>
               <span
                 className={[

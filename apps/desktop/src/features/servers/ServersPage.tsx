@@ -53,7 +53,7 @@ import {
   type StatusFilterKey,
   type TransportFilter,
 } from './servers-page.helpers';
-import { resolveInstalledDisplayName } from './server-display-name.helpers';
+import { parseCachedDefinition, resolveInstalledDisplayName } from './server-display-name.helpers';
 import type { ConnectionStatus, ServerStatusResponse } from '@/lib/api/serverManager';
 import { getServerStatuses as fetchServerStatuses } from '@/lib/api/serverManager';
 import { checkServerVersion } from '@/lib/api/settings';
@@ -231,40 +231,36 @@ function mergeDefinitionsWithStates(
 // Helper to create ServerViewModel from installed state when registry is unavailable
 // Uses cached_definition if available (proper offline support), otherwise falls back to minimal data
 function createOfflineServerViewModel(state: InstalledServerState): ServerViewModelWithClone {
-  if (state.cached_definition) {
-    try {
-      const definition: ServerDefinition = JSON.parse(state.cached_definition);
-      const inputValues = state.input_values;
-      const requiredInputs = definition.transport.metadata?.inputs?.filter((i) => i.required) || [];
-      const missing_required_inputs = requiredInputs.some((input) => !inputValues[input.id]);
-      const connection_status = 'disconnected';
+  const definition = parseCachedDefinition(state);
+  if (definition) {
+    const inputValues = state.input_values;
+    const requiredInputs = definition.transport.metadata?.inputs?.filter((i) => i.required) || [];
+    const missing_required_inputs = requiredInputs.some((input) => !inputValues[input.id]);
+    const connection_status = 'disconnected';
 
-      return {
-        ...definition,
-        name: resolveInstalledDisplayName(state, definition),
-        is_installed: true,
-        enabled: state.enabled,
-        oauth_connected: state.oauth_connected,
-        input_values: inputValues,
-        connection_status,
-        missing_required_inputs,
-        last_error: null,
-        created_at: state.created_at,
-        installation_source: state.source,
-        cloned_from: getInstalledCloneLineage(state),
-        env_overrides: state.env_overrides ?? {},
-        args_append: state.args_append ?? [],
-        extra_headers: state.extra_headers ?? {},
-        default_params: state.default_params ?? {},
-        update_policy: state.update_policy ?? 'notify',
-        pinned_version: state.pinned_version ?? null,
-        latest_available_version: state.latest_available_version ?? null,
-        current_version: state.current_version ?? null,
-        version_checked_at: state.version_checked_at ?? null,
-      } as ServerViewModel;
-    } catch (e) {
-      console.warn('[ServersPage] Failed to parse cached_definition, using minimal fallback:', e);
-    }
+    return {
+      ...definition,
+      name: resolveInstalledDisplayName(state, definition),
+      is_installed: true,
+      enabled: state.enabled,
+      oauth_connected: state.oauth_connected,
+      input_values: inputValues,
+      connection_status,
+      missing_required_inputs,
+      last_error: null,
+      created_at: state.created_at,
+      installation_source: state.source,
+      cloned_from: getInstalledCloneLineage(state),
+      env_overrides: state.env_overrides ?? {},
+      args_append: state.args_append ?? [],
+      extra_headers: state.extra_headers ?? {},
+      default_params: state.default_params ?? {},
+      update_policy: state.update_policy ?? 'notify',
+      pinned_version: state.pinned_version ?? null,
+      latest_available_version: state.latest_available_version ?? null,
+      current_version: state.current_version ?? null,
+      version_checked_at: state.version_checked_at ?? null,
+    } as ServerViewModel;
   }
 
   return {
@@ -1034,40 +1030,35 @@ export function ServersPage() {
    * Build a view model from a freshly cloned install row for the configure step.
    */
   const createViewModelFromClone = (cloned: ClonedInstalledServer): ServerViewModelWithClone | null => {
-    if (!cloned.cached_definition) {
+    const definition = parseCachedDefinition(cloned);
+    if (!definition) {
       return null;
     }
 
-    try {
-      const definition: ServerDefinition = JSON.parse(cloned.cached_definition);
-      const inputValues = cloned.input_values ?? {};
-      const inputs = definition.transport.metadata?.inputs ?? [];
-      const missing_required_inputs = inputs.some(
-        (input: InputDefinition) => input.required && !inputValues[input.id]
-      );
+    const inputValues = cloned.input_values ?? {};
+    const inputs = definition.transport.metadata?.inputs ?? [];
+    const missing_required_inputs = inputs.some(
+      (input: InputDefinition) => input.required && !inputValues[input.id]
+    );
 
-      return {
-        ...definition,
-        name: resolveInstalledDisplayName(cloned, definition),
-        is_installed: true,
-        enabled: cloned.enabled,
-        oauth_connected: cloned.oauth_connected,
-        input_values: inputValues,
-        connection_status: 'disconnected',
-        missing_required_inputs,
-        last_error: null,
-        created_at: cloned.created_at,
-        installation_source: cloned.source,
-        cloned_from: cloned.cloned_from ?? undefined,
-        env_overrides: cloned.env_overrides ?? {},
-        args_append: cloned.args_append ?? [],
-        extra_headers: cloned.extra_headers ?? {},
-        default_params: cloned.default_params ?? {},
-      };
-    } catch (e) {
-      console.warn('[ServersPage] Failed to parse cloned server definition:', e);
-      return null;
-    }
+    return {
+      ...definition,
+      name: resolveInstalledDisplayName(cloned, definition),
+      is_installed: true,
+      enabled: cloned.enabled,
+      oauth_connected: cloned.oauth_connected,
+      input_values: inputValues,
+      connection_status: 'disconnected',
+      missing_required_inputs,
+      last_error: null,
+      created_at: cloned.created_at,
+      installation_source: cloned.source,
+      cloned_from: cloned.cloned_from ?? undefined,
+      env_overrides: cloned.env_overrides ?? {},
+      args_append: cloned.args_append ?? [],
+      extra_headers: cloned.extra_headers ?? {},
+      default_params: cloned.default_params ?? {},
+    };
   };
 
   /**

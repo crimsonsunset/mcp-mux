@@ -1,5 +1,6 @@
 import type { InstalledServerState, ServerDefinition } from '@/types/registry';
 
+import { parseCachedDefinition, resolveInstalledDisplayName } from './server-display-name.helpers';
 import {
   isPackageManagedTransport,
   resolveCurrentPackageVersion,
@@ -23,14 +24,7 @@ function resolveServerDefinition(
   state: InstalledServerState,
   definitionById: Map<string, ServerDefinition>
 ): ServerDefinition | null {
-  if (state.cached_definition) {
-    try {
-      return JSON.parse(state.cached_definition) as ServerDefinition;
-    } catch {
-      return definitionById.get(state.server_id) ?? null;
-    }
-  }
-  return definitionById.get(state.server_id) ?? null;
+  return parseCachedDefinition(state) ?? definitionById.get(state.server_id) ?? null;
 }
 
 /**
@@ -77,7 +71,7 @@ export function buildPendingServerUpdates(
     pending.push({
       spaceId: state.space_id,
       serverId: state.server_id,
-      name: state.server_name ?? definition.name ?? state.server_id,
+      name: resolveInstalledDisplayName(state, definition),
       enabled: state.enabled,
       currentVersion,
       latestVersion,

@@ -35,6 +35,10 @@ vi.mock('@/lib/api/workspaceBindings', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/api/registry', () => ({
+  listInstalledServers: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('@/lib/api/spaces', () => ({
   listSpaces: vi.fn().mockResolvedValue([{ id: 's1', name: 'Default', is_default: true }]),
 }));
