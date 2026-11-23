@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use dashmap::DashMap;
@@ -24,11 +24,17 @@ use uuid::Uuid;
 use super::connection::{ConnectionResult, ConnectionService};
 use super::context::ConnectionContext;
 use super::features::{CachedFeatures, FeatureService};
-use super::instance::{InstanceKey, InstanceState, ServerInstance};
+use super::instance::{InstanceKey, InstanceState, NoActiveClientError, ServerInstance};
 use super::oauth::OutboundOAuthManager;
 use super::token::TokenService;
 use super::transport::resolution::resolve_auto_connection_context;
 use super::transport::{ResolvedTransport, TransportType};
+
+/// Caps in-place OAuth recovery while the connect lock is held.
+///
+/// Covers transport connect plus rmcp auth metadata discovery, which is not
+/// fully bounded by the per-transport handshake timeout alone.
+const RECONNECT_INSTANCE_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Check if an error string indicates an authentication/authorization failure
 fn is_auth_error(error_str: &str) -> bool {
@@ -80,11 +86,13 @@ pub struct PoolStats {
 pub struct PoolService {
     /// Active server instances keyed by (space_id, server_id)
     instances: DashMap<(Uuid, String), Arc<ServerInstance>>,
-    /// Per-(space, server) connect mutex. Serializes `connect_server` so two
-    /// concurrent callers can't both miss the `instances` check, both insert
-    /// (second overwriting the first), and both spawn real backend
-    /// connections — two live child processes for stdio servers. Entries are
-    /// never removed: the key space is bounded by configured servers.
+    /// Per-(space, server) connect mutex. Serializes `connect_server`,
+    /// `reconnect_fresh*`, and `reconnect_instance` so two concurrent callers
+    /// can't both miss the `instances` check, both insert (second overwriting
+    /// the first), and both spawn real backend connections — two live child
+    /// processes for stdio servers. Also keeps in-place recovery and
+    /// error-triggered eviction from racing. Entries are never removed: the
+    /// key space is bounded by configured servers.
     connect_locks: DashMap<(Uuid, String), Arc<tokio::sync::Mutex<()>>>,
     /// Connection service
     connection_service: Arc<ConnectionService>,
@@ -200,7 +208,7 @@ impl PoolService {
 
                 Ok(content)
             }
-            None => Err(anyhow::anyhow!("Server instance has no active client")),
+            None => Err(anyhow::Error::new(NoActiveClientError)),
         }
     }
 
@@ -273,11 +281,11 @@ impl PoolService {
                 serde_json::to_value(res)
                     .map_err(|e| anyhow::anyhow!("Failed to serialize prompt response: {}", e))
             }
-            None => Err(anyhow::anyhow!("Server instance has no active client")),
+            None => Err(anyhow::Error::new(NoActiveClientError)),
         }
     }
 
-    /// Per-(space, server) lock shared by connect and reconnect_fresh.
+    /// Per-(space, server) lock shared by connect, reconnect_fresh, and reconnect_instance.
     fn connect_lock(&self, space_id: Uuid, server_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         self.connect_locks
             .entry((space_id, server_id.to_string()))
@@ -450,12 +458,36 @@ impl PoolService {
     ///
     /// This is called when OAuth flow completes to reconnect with the new token.
     /// Uses the connection service to reconnect using stored credentials.
+    ///
+    /// Holds the per-key connect lock for the whole in-place recovery so a
+    /// concurrent [`Self::reconnect_fresh_for_failed_instance`] cannot see the
+    /// same Arc still unhealthy, then evict it after `mark_connected`.
+    /// [`RECONNECT_INSTANCE_TIMEOUT`] is a single deadline covering both the
+    /// lock wait and the recovery, so a hung OAuth metadata discovery cannot
+    /// hold the lock indefinitely nor stack waits on queued callers.
     pub async fn reconnect_instance(&self, space_id: Uuid, server_id: &str) -> ConnectionResult {
-        let key = (space_id, server_id.to_string());
+        let deadline = tokio::time::Instant::now() + RECONNECT_INSTANCE_TIMEOUT;
+        let connect_lock = self.connect_lock(space_id, server_id);
+        let _connect_guard = match tokio::time::timeout_at(deadline, connect_lock.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                warn!(
+                    server_id = %server_id,
+                    space_id = %space_id,
+                    timeout_ms = RECONNECT_INSTANCE_TIMEOUT.as_millis(),
+                    "reconnect_instance timed out waiting for connect lock"
+                );
+                return ConnectionResult::Failed {
+                    error: format!(
+                        "OAuth reconnect timed out after {:?} waiting for another reconnect",
+                        RECONNECT_INSTANCE_TIMEOUT
+                    ),
+                };
+            }
+        };
 
-        // Get existing instance
-        let instance = match self.instances.get(&key) {
-            Some(inst) => inst.clone(),
+        let instance = match self.get_instance(space_id, server_id) {
+            Some(inst) => inst,
             None => {
                 info!(
                     "[PoolService] No instance found for {}/{}, cannot reconnect",
@@ -472,13 +504,40 @@ impl PoolService {
             space_id, server_id
         );
 
-        // Reconnect using connection service with OAuth tokens
-        self.connection_service
-            .reconnect_after_oauth(space_id, server_id, &instance, &self.feature_service)
-            .await
+        let recovery = self.connection_service.reconnect_after_oauth(
+            space_id,
+            server_id,
+            &instance,
+            &self.feature_service,
+        );
+        match tokio::time::timeout_at(deadline, recovery).await {
+            Ok(result) => result,
+            Err(_) => {
+                let error = format!(
+                    "OAuth reconnect timed out after {:?}",
+                    RECONNECT_INSTANCE_TIMEOUT
+                );
+                warn!(
+                    server_id = %server_id,
+                    space_id = %space_id,
+                    timeout_ms = RECONNECT_INSTANCE_TIMEOUT.as_millis(),
+                    "reconnect_instance overall deadline exceeded"
+                );
+                // connect() may have left the instance in Connecting; restore.
+                if !instance.is_healthy() {
+                    instance.mark_failed(error.clone());
+                }
+                ConnectionResult::Failed { error }
+            }
+        }
     }
 
     /// Evict the stale instance and connect using a caller-resolved transport.
+    ///
+    /// Forced reconnect for configuration changes: always removes the current
+    /// entry. Error-triggered retries should use
+    /// [`Self::reconnect_fresh_for_failed_instance`] so a concurrent recovery
+    /// is not evicted.
     ///
     /// Transport-agnostic: the caller re-resolves config from DB via
     /// [`resolve_auto_connection_context`](super::transport::resolution::resolve_auto_connection_context)
@@ -486,9 +545,81 @@ impl PoolService {
     /// [`Self::reconnect_instance`], this does not go through
     /// `reconnect_after_oauth` and will not mis-route stdio backends to HTTP.
     pub async fn reconnect_fresh(&self, ctx: &ConnectionContext) -> ConnectionResult {
+        self.reconnect_fresh_inner(ctx, None).await
+    }
+
+    /// Error-triggered fresh reconnect that only evicts `expected`.
+    ///
+    /// Under the connect lock, if another call already replaced `expected`,
+    /// skip eviction and reuse a healthy replacement (or reconnect through
+    /// the current entry). `expected_generation` is the client generation
+    /// observed when the call failed; a later [`ServerInstance::mark_connected`]
+    /// on the same Arc advances it and is treated as in-place recovery.
+    pub async fn reconnect_fresh_for_failed_instance(
+        &self,
+        ctx: &ConnectionContext,
+        expected: &Arc<ServerInstance>,
+        expected_generation: u64,
+    ) -> ConnectionResult {
+        self.reconnect_fresh_inner(ctx, Some((expected, expected_generation)))
+            .await
+    }
+
+    async fn reconnect_fresh_inner(
+        &self,
+        ctx: &ConnectionContext,
+        expected: Option<(&Arc<ServerInstance>, u64)>,
+    ) -> ConnectionResult {
         let started = Instant::now();
         let connect_lock = self.connect_lock(ctx.space_id, &ctx.server_id);
         let _connect_guard = connect_lock.lock().await;
+
+        if let Some((expected, expected_generation)) = expected {
+            if let Some(current) = self.get_instance(ctx.space_id, &ctx.server_id) {
+                if !Arc::ptr_eq(&current, expected) {
+                    if current.is_healthy() {
+                        info!(
+                            server_id = %ctx.server_id,
+                            space_id = %ctx.space_id,
+                            duration_ms = started.elapsed().as_millis(),
+                            "reconnect_fresh skipped eviction; replacement already healthy"
+                        );
+                        return ConnectionResult::Connected {
+                            reused: true,
+                            features: CachedFeatures::default(),
+                        };
+                    }
+                    let result = self.connect_server_locked(ctx).await;
+                    info!(
+                        server_id = %ctx.server_id,
+                        space_id = %ctx.space_id,
+                        ok = result.is_connected(),
+                        duration_ms = started.elapsed().as_millis(),
+                        "reconnect_fresh reused replacement without eviction"
+                    );
+                    return result;
+                }
+
+                // Same Arc: only skip when an in-place reconnect installed a
+                // newer client. A closed transport can stay Connected with the
+                // failed client still stored (is_healthy), and must reconnect.
+                if current.is_healthy() && current.connection_generation() != expected_generation {
+                    info!(
+                        server_id = %ctx.server_id,
+                        space_id = %ctx.space_id,
+                        expected_generation,
+                        current_generation = current.connection_generation(),
+                        duration_ms = started.elapsed().as_millis(),
+                        "reconnect_fresh skipped eviction; same instance recovered in place"
+                    );
+                    return ConnectionResult::Connected {
+                        reused: true,
+                        features: CachedFeatures::default(),
+                    };
+                }
+            }
+        }
+
         self.remove_instance(ctx.space_id, &ctx.server_id);
         let result = self.connect_server_locked(ctx).await;
         info!(
@@ -511,6 +642,32 @@ impl PoolService {
         space_id: Uuid,
         server_id: &str,
     ) -> ConnectionResult {
+        self.reconnect_fresh_from_db_inner(space_id, server_id, None)
+            .await
+    }
+
+    /// Re-resolve from DB, then [`Self::reconnect_fresh_for_failed_instance`].
+    pub async fn reconnect_fresh_from_db_for_failed_instance(
+        &self,
+        space_id: Uuid,
+        server_id: &str,
+        expected: &Arc<ServerInstance>,
+        expected_generation: u64,
+    ) -> ConnectionResult {
+        self.reconnect_fresh_from_db_inner(
+            space_id,
+            server_id,
+            Some((expected, expected_generation)),
+        )
+        .await
+    }
+
+    async fn reconnect_fresh_from_db_inner(
+        &self,
+        space_id: Uuid,
+        server_id: &str,
+        expected: Option<(&Arc<ServerInstance>, u64)>,
+    ) -> ConnectionResult {
         match resolve_auto_connection_context(
             self.installed_server_repo.as_ref(),
             self.state_dir.as_deref(),
@@ -519,7 +676,13 @@ impl PoolService {
         )
         .await
         {
-            Ok(ctx) => self.reconnect_fresh(&ctx).await,
+            Ok(ctx) => match expected {
+                Some((instance, generation)) => {
+                    self.reconnect_fresh_for_failed_instance(&ctx, instance, generation)
+                        .await
+                }
+                None => self.reconnect_fresh(&ctx).await,
+            },
             Err(error) => {
                 warn!(
                     server_id = %server_id,
@@ -1078,6 +1241,122 @@ mod tests {
             },
         );
         let result = pool.reconnect_fresh(&ctx).await;
+
+        assert!(!result.is_connected());
+        assert!(pool.get_instance(space_id, server_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn reconnect_fresh_for_failed_instance_skips_eviction_when_replaced() {
+        use super::super::transport::ResolvedTransport;
+        use std::collections::HashMap;
+
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        let server_id = "race-server";
+        pool.insert_test_instance(space_id, server_id);
+        let failed = pool
+            .get_instance(space_id, server_id)
+            .expect("failed instance");
+
+        // Simulate a concurrent reconnect that already replaced the failed Arc.
+        pool.remove_instance(space_id, server_id);
+        pool.insert_test_instance(space_id, server_id);
+        let replacement = pool
+            .get_instance(space_id, server_id)
+            .expect("replacement instance");
+        assert!(!std::sync::Arc::ptr_eq(&failed, &replacement));
+
+        let ctx = ConnectionContext::auto(
+            space_id,
+            server_id,
+            ResolvedTransport::Stdio {
+                command: "/nonexistent/mcpmux-reconnect-fresh-race-test".into(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        );
+        let _ = pool
+            .reconnect_fresh_for_failed_instance(&ctx, &failed, 0)
+            .await;
+
+        let after = pool
+            .get_instance(space_id, server_id)
+            .expect("instance should remain");
+        // Replacement must not be torn down just because a stale caller reconnects.
+        assert!(std::sync::Arc::ptr_eq(&after, &replacement));
+    }
+
+    #[tokio::test]
+    async fn reconnect_fresh_for_failed_instance_skips_eviction_when_same_arc_recovered() {
+        use super::super::transport::ResolvedTransport;
+        use std::collections::HashMap;
+
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        let server_id = "inplace-recovery-server";
+        pool.insert_test_instance(space_id, server_id);
+        let failed = pool
+            .get_instance(space_id, server_id)
+            .expect("failed instance");
+        let failed_generation = failed.connection_generation();
+
+        // Simulate in-place recovery (same Arc) after NoActiveClientError.
+        failed.mark_healthy_for_test();
+        assert!(failed.is_healthy());
+        assert_ne!(failed.connection_generation(), failed_generation);
+
+        let ctx = ConnectionContext::auto(
+            space_id,
+            server_id,
+            ResolvedTransport::Stdio {
+                command: "/nonexistent/mcpmux-reconnect-fresh-inplace-test".into(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        );
+        let result = pool
+            .reconnect_fresh_for_failed_instance(&ctx, &failed, failed_generation)
+            .await;
+
+        assert!(result.is_connected());
+        let after = pool
+            .get_instance(space_id, server_id)
+            .expect("recovered instance should remain");
+        assert!(std::sync::Arc::ptr_eq(&after, &failed));
+        assert!(after.is_healthy());
+    }
+
+    #[tokio::test]
+    async fn reconnect_fresh_for_failed_instance_evicts_closed_client_still_marked_healthy() {
+        use super::super::transport::ResolvedTransport;
+        use std::collections::HashMap;
+
+        let pool = create_test_pool_service();
+        let space_id = Uuid::new_v4();
+        let server_id = "closed-transport-server";
+        pool.insert_test_instance(space_id, server_id);
+        let failed = pool
+            .get_instance(space_id, server_id)
+            .expect("failed instance");
+
+        // Closed transport: still Connected with a client, same generation.
+        failed.mark_healthy_for_test();
+        let failed_generation = failed.connection_generation();
+        assert!(failed.is_healthy());
+
+        let ctx = ConnectionContext::auto(
+            space_id,
+            server_id,
+            ResolvedTransport::Stdio {
+                command: "/nonexistent/mcpmux-reconnect-fresh-closed-test".into(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        );
+        let result = pool
+            .reconnect_fresh_for_failed_instance(&ctx, &failed, failed_generation)
+            .await;
 
         assert!(!result.is_connected());
         assert!(pool.get_instance(space_id, server_id).is_none());
