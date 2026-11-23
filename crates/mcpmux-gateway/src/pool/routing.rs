@@ -423,10 +423,11 @@ impl RoutingService {
             // passes &McpClient (RunningService).
             // We can assume RunningService is not cloneable but its peer() returns a Service handle which is.
             // Let's use with_client to get the handle out.
-            let client_handle = instance.with_client_generation(|client| client.peer().clone());
+            let (client_handle, connection_generation) =
+                instance.with_client_generation(|client| client.peer().clone());
 
             match client_handle {
-                Some((client, connection_generation)) => {
+                Some(client) => {
                     let mut params = CallToolRequestParams::new(tool_name.to_string());
                     params.arguments = args.as_object().cloned();
 
@@ -447,7 +448,7 @@ impl RoutingService {
                 }
                 None => Err(ExecuteCallError {
                     error: anyhow::Error::new(NoActiveClientError),
-                    connection_generation: instance.connection_generation(),
+                    connection_generation,
                     instance: Some(instance),
                 }),
             }
